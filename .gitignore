@@ -1,34 +1,39 @@
-# Python
+# =========================
+# FRONTEND
+# =========================
+frontend/node_modules
+frontend/dist
+frontend/.env
+
+# =========================
+# BACKEND
+# =========================
+backend/venv
+backend/__pycache__
+backend/db.sqlite3
+backend/media
+backend/staticfiles
+backend/.env
+
+# =========================
+# PYTHON
+# =========================
+*.pyc
+*.pyo
+*.pyd
 __pycache__/
-*.py[cod]
-*$py.class
 
-# Django
-*.log
-db.sqlite3
-media/
-staticfiles/
-
-# Environment Variables
-.env
-
-# Virtual Environments
-venv/
-.venv/
-env/
-
-# Pipenv
-Pipfile.lock
-
-# macOS
+# =========================
+# MAC
+# =========================
 .DS_Store
 
-# VSCode
-.vscode/
+# =========================
+# VSCODE
+# =========================
+.vscode
 
-# PyCharm
-.idea/
-
-# Coverage
-.coverage
-htmlcov/
+# =========================
+# ENV
+# =========================
+.env
