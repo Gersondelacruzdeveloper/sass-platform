@@ -9,8 +9,22 @@ class Organisation(models.Model):
         ("premium", "Premium"),
     )
 
+    BUSINESS_TYPE_CHOICES = (
+        ("disco", "Disco"),
+        ("hotel", "Hotel"),
+        ("restaurant", "Restaurant"),
+        ("store", "Store"),
+        ("excursions", "Excursions"),
+    )
+
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
+
+    business_type = models.CharField(
+        max_length=30,
+        choices=BUSINESS_TYPE_CHOICES,
+        default="disco",
+    )
 
     logo = models.ImageField(
         upload_to="organisation_logos/",
@@ -40,6 +54,11 @@ class Membership(models.Model):
         ("owner", "Owner"),
         ("admin", "Admin"),
         ("manager", "Manager"),
+        ("cashier", "Cashier"),
+        ("bartender", "Bartender"),
+        ("door_staff", "Door Staff"),
+        ("inventory_manager", "Inventory Manager"),
+        ("accountant", "Accountant"),
         ("staff", "Staff"),
         ("viewer", "Viewer"),
     )
@@ -57,7 +76,7 @@ class Membership(models.Model):
     )
 
     role = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=ROLE_CHOICES,
         default="staff",
     )

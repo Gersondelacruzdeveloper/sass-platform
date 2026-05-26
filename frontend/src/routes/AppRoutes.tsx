@@ -1,24 +1,27 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 
-import ProtectedRoute from "../components/ProtectedRoute";
-import DashboardLayout from "../layouts/DashboardLayout";
-import DashboardPage from "../pages/DashboardPage";
+import { discoRoutes } from "../modules/disco/routes/discoRoutes";
+
 import LoginPage from "../pages/LoginPage";
-import DiscoDashboardPage from "../pages/disco/DiscoDashboardPage";
+import RegisterPage from "../pages/RegisterPage";
+import DashboardPage from "../pages/DashboardPage";
+import OrganisationsPage from "../pages/OrganisationsPage";
+import SubscriptionsPage from "../pages/SubscriptionsPage";
+import AuditLogsPage from "../pages/AuditLogsPage";
 
 export default function AppRoutes() {
   return (
     <Routes>
+      {/* Old SaaS platform routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/organisations" element={<OrganisationsPage />} />
+      <Route path="/subscriptions" element={<SubscriptionsPage />} />
+      <Route path="/audit-logs" element={<AuditLogsPage />} />
 
-      <Route element={<ProtectedRoute />}>
-        <Route path="/dashboard" element={<DashboardLayout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="disco" element={<DiscoDashboardPage />} />
-        </Route>
-      </Route>
-
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Disco module routes */}
+      {discoRoutes}
     </Routes>
   );
 }

@@ -81,8 +81,31 @@ class MeView(APIView):
     def get(self, request):
         user = request.user
 
+        membership = (
+            user.memberships
+            .filter(is_active=True, organisation__is_active=True)
+            .select_related("organisation")
+            .first()
+        )
+
+        organisation_data = None
+        role = None
+
+        if membership:
+            organisation_data = {
+                "id": membership.organisation.id,
+                "name": membership.organisation.name,
+                "business_type": membership.organisation.business_type,
+                "plan": membership.organisation.plan,
+            }
+
+            role = membership.role
+
         return Response({
             "id": user.id,
             "email": user.email,
             "username": user.username,
+            "is_platform_owner": user.is_superuser,
+            "role": role,
+            "organisation": organisation_data,
         })
