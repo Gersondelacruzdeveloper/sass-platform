@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
+
+# Environment Variables
+.env
+
+# Virtual Environments
+venv/
+.venv/
+env/
+
+# Pipenv
+Pipfile.lock
+
+# macOS
+.DS_Store
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Coverage
+.coverage
+htmlcov/
