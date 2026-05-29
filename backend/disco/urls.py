@@ -1,4 +1,5 @@
 from rest_framework.routers import DefaultRouter
+
 from .views import (
     CategoryViewSet,
     ProductViewSet,
@@ -10,11 +11,15 @@ from .views import (
 
 router = DefaultRouter()
 
-router.register("categories", CategoryViewSet)
-router.register("products", ProductViewSet)
-router.register("stock-movements", StockMovementViewSet)
-router.register("sales", SaleViewSet)
-router.register("sale-items", SaleItemViewSet)
-router.register("expenses", ExpenseViewSet)
+router.register(r"categories", CategoryViewSet)
+router.register(r"products", ProductViewSet)
+router.register(r"stock-movements", StockMovementViewSet)
+router.register(r"sales", SaleViewSet)
+router.register(
+    r"sale-items",
+    SaleItemViewSet,
+    basename="sale-items"
+)
+router.register(r"expenses", ExpenseViewSet)
 
 urlpatterns = router.urls

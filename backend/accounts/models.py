@@ -3,13 +3,32 @@ from django.db import models
 
 
 class CustomUser(AbstractUser):
+
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users"
+    )
+
     email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=30, blank=True, null=True)
-    avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+
+    phone = models.CharField(
+        max_length=30,
+        blank=True,
+        null=True
+    )
+
+    avatar = models.ImageField(
+        upload_to="avatars/",
+        blank=True,
+        null=True
+    )
 
     USERNAME_FIELD = "email"
+
     REQUIRED_FIELDS = ["username"]
 
     def __str__(self):
         return self.email
-    
