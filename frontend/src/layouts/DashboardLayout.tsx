@@ -29,6 +29,22 @@ const navItems = [
     path: "/dashboard/organisations",
     icon: Building2,
   },
+    {
+    label: "A&B Training",
+    path: "/training",
+  },
+  {
+    label: "Empleados A&B",
+    path: "/training/employees",
+  },
+  {
+    label: "Entrenamientos",
+    path: "/training/sessions",
+  },
+  {
+    label: "Roadmap 90 días",
+    path: "/training/roadmap",
+  },
 ];
 
 export default function DashboardLayout() {

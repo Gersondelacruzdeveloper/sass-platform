@@ -8,6 +8,7 @@ import DashboardPage from "../pages/DashboardPage";
 import OrganisationsPage from "../pages/OrganisationsPage";
 import SubscriptionsPage from "../pages/SubscriptionsPage";
 import AuditLogsPage from "../pages/AuditLogsPage";
+import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
 
 export default function AppRoutes() {
   return (
@@ -20,7 +21,23 @@ export default function AppRoutes() {
       <Route path="/subscriptions" element={<SubscriptionsPage />} />
       <Route path="/audit-logs" element={<AuditLogsPage />} />
 
-      {/* Disco module routes */}
+      {trainingRoutes.map((route) => (
+        <Route
+          key={route.path}
+          path={route.path}
+          element={route.element}
+        >
+          {route.children?.map((child) => (
+            <Route
+              key={child.path || "index"}
+              index={child.index}
+              path={child.path}
+              element={child.element}
+            />
+          ))}
+        </Route>
+      ))}
+
       {discoRoutes}
     </Routes>
   );
