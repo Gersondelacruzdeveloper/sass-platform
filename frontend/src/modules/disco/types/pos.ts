@@ -8,6 +8,7 @@ export interface Product {
   image?: string
   category?: number
   is_low_stock: boolean
+  price: string
 }
 
 export interface CartItem {

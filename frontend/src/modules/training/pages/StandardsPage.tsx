@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  BadgeCheck,
+  // BadgeCheck,
   BookOpenCheck,
   CheckCircle2,
   Flame,

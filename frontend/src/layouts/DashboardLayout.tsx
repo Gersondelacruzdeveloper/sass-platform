@@ -1,9 +1,27 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { BarChart3, Building2, LogOut, Package, Receipt, Wine } from "lucide-react";
+import {
+  BarChart3,
+  Building2,
+  GraduationCap,
+  LogOut,
+  Map,
+  Package,
+  Receipt,
+  Users,
+  Wine,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
 import { useAppDispatch } from "../store/hooks";
 import { logoutUser } from "../features/auth/authSlice";
 
-const navItems = [
+type NavItem = {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+};
+
+const navItems: NavItem[] = [
   {
     label: "Dashboard",
     path: "/dashboard",
@@ -29,21 +47,25 @@ const navItems = [
     path: "/dashboard/organisations",
     icon: Building2,
   },
-    {
+  {
     label: "A&B Training",
     path: "/training",
+    icon: GraduationCap,
   },
   {
     label: "Empleados A&B",
     path: "/training/employees",
+    icon: Users,
   },
   {
     label: "Entrenamientos",
     path: "/training/sessions",
+    icon: GraduationCap,
   },
   {
     label: "Roadmap 90 días",
     path: "/training/roadmap",
+    icon: Map,
   },
 ];
 

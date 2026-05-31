@@ -106,9 +106,9 @@ export default function EmployeesPage() {
 
   const activeEmployees = employees.filter((e) => e.active).length;
   const promotionReady = employees.filter((e) => e.promotion_ready).length;
-  const futureLeaders = employees.filter(
-    (e) => e.potential_level === "future_leader"
-  ).length;
+  // const futureLeaders = employees.filter(
+  //   (e) => e.potential_level === "future_leader"
+  // ).length;
   const avgScore = getAverage(employees.map((e) => e.total_score));
 
   async function handleSubmit(e: React.FormEvent) {

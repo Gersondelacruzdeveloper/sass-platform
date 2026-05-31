@@ -5,6 +5,7 @@ import { Lock, User, Building2 } from "lucide-react";
 import { loginUser } from "../features/auth/authSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { getDashboardRedirect } from "../utils/getDashboardRedirect";
+import type { User as UserType } from "../types/user";
 
 export default function LoginPage() {
   const dispatch = useAppDispatch();
@@ -26,7 +27,8 @@ export default function LoginPage() {
         })
       ).unwrap();
 
-      navigate(getDashboardRedirect(user));
+      // dispatch may return a differently-typed User from auth slice — cast via unknown to the canonical User type
+      navigate(getDashboardRedirect(user as unknown as UserType));
     } catch (err) {
       console.error(err);
     }

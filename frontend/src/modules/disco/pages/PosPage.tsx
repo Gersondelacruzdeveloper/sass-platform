@@ -14,7 +14,7 @@ import {
   DollarSign,
 } from "lucide-react";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getProducts, createSale } from "../api/posApi";
 
@@ -37,7 +37,6 @@ export default function PosPage() {
 
   const [paymentMethod, setPaymentMethod] = useState("cash");
 
-  const [search, setSearch] = useState("");
 
   useEffect(() => {
     loadProducts();

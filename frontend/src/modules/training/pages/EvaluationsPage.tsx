@@ -4,7 +4,6 @@ import {
   ClipboardCheck,
   FileCheck2,
   Search,
-  Star,
   Users,
 } from "lucide-react";
 import api from "../../../api/axios";

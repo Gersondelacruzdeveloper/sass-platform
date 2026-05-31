@@ -1,6 +1,6 @@
 // frontend/src/modules/disco/components/ProductCard.tsx
 
-import { Product } from "../types/pos"
+import type { Product } from "../types/pos"
 
 interface Props {
   product: Product

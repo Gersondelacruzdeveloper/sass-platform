@@ -1,6 +1,6 @@
 // frontend/src/modules/disco/components/CartPanel.tsx
 
-import { CartItem } from "../types/pos"
+import type { CartItem } from "../types/pos"
 
 interface Props {
   cart: CartItem[]

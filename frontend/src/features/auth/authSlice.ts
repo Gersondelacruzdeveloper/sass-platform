@@ -21,13 +21,13 @@ const initialState: AuthState = {
 export const loginUser = createAsyncThunk(
   "auth/loginUser",
   async (
-    credentials: { login: string; password: string },
+    credentials: LoginPayload,
     { rejectWithValue }
   ) => {
     try {
       await api.post("/accounts/login/", credentials);
 
-      const response = await api.get("/accounts/me/");
+      const response = await api.get<User>("/accounts/me/");
 
       return response.data;
     } catch (error: any) {

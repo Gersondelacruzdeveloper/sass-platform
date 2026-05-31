@@ -86,7 +86,7 @@ export default function OutletsPage() {
     (total, item) => total + Number(item.employees_count || 0),
     0
   );
-  const avgHRScore = getAverage(outlets.map((item) => item.hard_rock_score));
+  // const avgHRScore = getAverage(outlets.map((item) => item.hard_rock_score));
   const avgOutletScore = getAverage(outlets.map((item) => item.average_score));
 
   const topOutlet = [...outlets].sort(
