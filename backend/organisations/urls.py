@@ -5,6 +5,7 @@ from .views import (
     OrganisationViewSet,
     MembershipViewSet,
     OrganisationBrandingView,
+    PublicOrganisationBrandingView,
 )
 
 router = DefaultRouter()
@@ -13,7 +14,11 @@ router.register("organisations", OrganisationViewSet, basename="organisations")
 router.register("memberships", MembershipViewSet, basename="memberships")
 
 urlpatterns = [
-    path("branding/", OrganisationBrandingView.as_view(), name="organisation-branding"),
+path(
+    "public-branding/<str:business_type>/<slug:slug>/",
+    PublicOrganisationBrandingView.as_view(),
+    name="public-organisation-branding",
+),
 ]
 
 urlpatterns += router.urls

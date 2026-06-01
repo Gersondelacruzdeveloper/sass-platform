@@ -30,11 +30,28 @@ export const defaultBranding: Branding = {
   login_subtitle: "Sign in to continue to your workspace",
 };
 
+// Private branding: use after login
 export async function getBranding(): Promise<Branding> {
   try {
     const response = await api.get<Branding>("/organisations/branding/");
     return response.data;
-  } catch (error) {
+  } catch {
+    return defaultBranding;
+  }
+}
+
+// Public branding: use before login
+export async function getPublicBranding(
+  businessType: string,
+  organisationSlug: string
+): Promise<Branding> {
+  try {
+    const response = await api.get<Branding>(
+      `/organisations/public-branding/${businessType}/${organisationSlug}/`
+    );
+
+    return response.data;
+  } catch {
     return defaultBranding;
   }
 }

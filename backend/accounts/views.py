@@ -25,6 +25,7 @@ class RegisterView(generics.CreateAPIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         login_value = request.data.get("login")
@@ -43,9 +44,16 @@ class LoginView(APIView):
 
         user = authenticate(
             request,
-            username=user_obj.email,
+            username=user_obj.username,
             password=password,
         )
+
+        if not user:
+            user = authenticate(
+                request,
+                username=user_obj.email,
+                password=password,
+            )
 
         if not user:
             return Response(
@@ -54,15 +62,15 @@ class LoginView(APIView):
             )
 
         login(request, user)
-
+        request.session.save()
         return Response({
+            "detail": "Login successful",
             "user": {
                 "id": user.id,
                 "email": user.email,
                 "username": user.username,
             }
         })
-
 
 class LogoutView(APIView):  
     permission_classes = [IsAuthenticated]

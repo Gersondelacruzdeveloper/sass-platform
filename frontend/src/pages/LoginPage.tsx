@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, User, Building2 } from "lucide-react";
 
@@ -6,6 +6,11 @@ import { loginUser } from "../features/auth/authSlice";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { getDashboardRedirect } from "../utils/getDashboardRedirect";
 import type { User as UserType } from "../types/user";
+import {
+  getBranding,
+  defaultBranding,
+  type Branding,
+} from "../api/brandingApi";
 
 export default function LoginPage() {
   const dispatch = useAppDispatch();
@@ -15,6 +20,17 @@ export default function LoginPage() {
 
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [branding, setBranding] = useState<Branding>(defaultBranding);
+
+  useEffect(() => {
+    async function loadBranding() {
+      const data = await getBranding();
+      setBranding(data);
+      document.title = data.platform_name;
+    }
+
+    loadBranding();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +43,6 @@ export default function LoginPage() {
         })
       ).unwrap();
 
-      // dispatch may return a differently-typed User from auth slice — cast via unknown to the canonical User type
       navigate(getDashboardRedirect(user as unknown as UserType));
     } catch (err) {
       console.error(err);
@@ -35,53 +50,89 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4">
+    <div
+      className="flex min-h-screen items-center justify-center p-4"
+      style={{
+        background: `linear-gradient(135deg, ${branding.primary_color}, #020617)`,
+      }}
+    >
       <div className="grid w-full max-w-6xl overflow-hidden rounded-[32px] bg-white shadow-2xl lg:grid-cols-[1fr_480px]">
-        <div className="hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+        <div
+          className="hidden p-10 text-white lg:flex lg:flex-col lg:justify-between"
+          style={{ backgroundColor: branding.primary_color }}
+        >
           <div>
             <div className="inline-flex items-center gap-3 rounded-2xl bg-white/10 px-5 py-3">
-              <Building2 size={22} />
-              <span className="text-lg font-bold">SaaS Platform</span>
+              {branding.logo_url ? (
+                <img
+                  src={branding.logo_url}
+                  alt={branding.company_name}
+                  className="h-8 w-8 rounded-lg object-contain bg-white p-1"
+                />
+              ) : (
+                <Building2 size={22} />
+              )}
+
+              <span className="text-lg font-bold">
+                {branding.platform_name}
+              </span>
             </div>
 
             <h1 className="mt-10 max-w-xl text-5xl font-black leading-tight">
-              One login for every business dashboard.
+              {branding.login_title ||
+                `Welcome to ${branding.platform_name}`}
             </h1>
 
-            <p className="mt-6 max-w-lg text-lg leading-8 text-slate-300">
-              Owners, managers, cashiers, bartenders, door staff, and inventory
-              staff are sent automatically to the correct dashboard.
+            <p className="mt-6 max-w-lg text-lg leading-8 text-white/75">
+              {branding.login_subtitle ||
+                `Access ${branding.company_name} securely from anywhere.`}
             </p>
           </div>
 
-          <div className="grid gap-4 text-sm text-slate-300">
+          <div className="grid gap-4 text-sm text-white/75">
             <div className="rounded-2xl bg-white/5 p-4">
-              Platform owner → SaaS dashboard
+              Company workspace → {branding.company_name}
             </div>
+
             <div className="rounded-2xl bg-white/5 p-4">
-              Disco owner → Disco dashboard
+              Platform → {branding.platform_name}
             </div>
+
             <div className="rounded-2xl bg-white/5 p-4">
-              Cashier / bartender → POS
+              Secure login → Role-based dashboards
             </div>
+
             <div className="rounded-2xl bg-white/5 p-4">
-              Door staff → Entry fees
+              Modules → Training, POS, reports and operations
             </div>
           </div>
         </div>
 
         <div className="p-8 lg:p-10">
           <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-950 text-2xl font-bold text-white">
-              S
+            <div className="mx-auto mb-4">
+              {branding.logo_url ? (
+                <img
+                  src={branding.logo_url}
+                  alt={branding.company_name}
+                  className="mx-auto h-20 w-20 rounded-2xl object-contain"
+                />
+              ) : (
+                <div
+                  className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-white"
+                  style={{ backgroundColor: branding.accent_color }}
+                >
+                  {branding.company_name.charAt(0)}
+                </div>
+              )}
             </div>
 
             <h1 className="text-3xl font-bold text-slate-900">
-              Welcome Back
+              {branding.platform_name}
             </h1>
 
             <p className="mt-2 text-slate-500">
-              Login to your business dashboard
+              {branding.company_name}
             </p>
           </div>
 
@@ -91,7 +142,7 @@ export default function LoginPage() {
                 Username or Email
               </label>
 
-              <div className="mt-2 flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 transition focus-within:border-cyan-500 focus-within:bg-white">
+              <div className="mt-2 flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 transition focus-within:bg-white">
                 <User size={18} className="text-slate-400" />
 
                 <input
@@ -110,7 +161,7 @@ export default function LoginPage() {
                 Password
               </label>
 
-              <div className="mt-2 flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 transition focus-within:border-cyan-500 focus-within:bg-white">
+              <div className="mt-2 flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 transition focus-within:bg-white">
                 <Lock size={18} className="text-slate-400" />
 
                 <input
@@ -132,7 +183,10 @@ export default function LoginPage() {
 
             <button
               disabled={loading}
-              className="w-full rounded-2xl bg-slate-950 py-4 font-semibold text-white shadow-lg transition hover:bg-cyan-600 disabled:opacity-60"
+              className="w-full rounded-2xl py-4 font-semibold text-white shadow-lg transition hover:opacity-90 disabled:opacity-60"
+              style={{
+                backgroundColor: branding.accent_color,
+              }}
             >
               {loading ? "Logging in..." : "Login"}
             </button>
