@@ -5,6 +5,14 @@ User = get_user_model()
 
 
 class Outlet(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_outlets",
+        null=True,
+        blank=True,
+    )
+
     name = models.CharField(max_length=150)
     area = models.CharField(max_length=150, blank=True)
     manager = models.CharField(max_length=150, blank=True)
@@ -16,6 +24,14 @@ class Outlet(models.Model):
 
 
 class Standard(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_standards",
+        null=True,
+        blank=True,
+    )
+
     CATEGORY_CHOICES = [
         ("service", "Service"),
         ("beverage", "Beverage"),
@@ -44,6 +60,14 @@ class Standard(models.Model):
 
 
 class Employee(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_employees",
+        null=True,
+        blank=True,
+    )
+
     POTENTIAL_LEVELS = [
         ("low", "Low"),
         ("medium", "Medium"),
@@ -104,6 +128,14 @@ class Employee(models.Model):
 
 
 class Facilitator(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_facilitators",
+        null=True,
+        blank=True,
+    )
+
     employee = models.OneToOneField(
         Employee,
         on_delete=models.CASCADE,
@@ -122,6 +154,14 @@ class Facilitator(models.Model):
 
 
 class TrainingSession(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_sessions",
+        null=True,
+        blank=True,
+    )
+
     STATUS_CHOICES = [
         ("scheduled", "Scheduled"),
         ("in_progress", "In Progress"),
@@ -152,6 +192,14 @@ class TrainingSession(models.Model):
 
 
 class Evaluation(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_evaluations",
+        null=True,
+        blank=True,
+    )
+
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="evaluations")
     evaluator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -191,6 +239,14 @@ class Evaluation(models.Model):
 
 
 class RoadmapItem(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_roadmap_items",
+        null=True,
+        blank=True,
+    )
+
     PERIOD_CHOICES = [
         ("30_days", "30 Days"),
         ("60_days", "60 Days"),
@@ -215,6 +271,14 @@ class RoadmapItem(models.Model):
 
 
 class GuestFeedback(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_guest_feedback",
+        null=True,
+        blank=True,
+    )
+
     employee = models.ForeignKey(
         Employee,
         on_delete=models.CASCADE,
@@ -229,7 +293,7 @@ class GuestFeedback(models.Model):
     rating = models.IntegerField(default=0)
     comment = models.TextField(blank=True)
 
-    source = models.CharField(max_length=100, blank=True)  # TripAdvisor, Google, Survey, Manager
+    source = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -237,32 +301,41 @@ class GuestFeedback(models.Model):
 
 
 class EvaluationTemplate(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_evaluation_templates",
+        null=True,
+        blank=True,
+    )
+
     name = models.CharField(max_length=255)
 
-    description = models.TextField(
-        blank=True
-    )
+    description = models.TextField(blank=True)
 
     outlet = models.ForeignKey(
         Outlet,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
     )
 
-    active = models.BooleanField(
-        default=True
-    )
+    active = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
-    
+
 
 class EvaluationQuestion(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_evaluation_questions",
+        null=True,
+        blank=True,
+    )
 
     SCORE_TYPES = [
         ("score", "Score"),
@@ -273,89 +346,90 @@ class EvaluationQuestion(models.Model):
     template = models.ForeignKey(
         EvaluationTemplate,
         on_delete=models.CASCADE,
-        related_name="questions"
+        related_name="questions",
     )
 
     standard = models.ForeignKey(
         Standard,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
     )
 
-    question = models.CharField(
-        max_length=255
-    )
+    question = models.CharField(max_length=255)
 
     score_type = models.CharField(
         max_length=20,
         choices=SCORE_TYPES,
-        default="score"
+        default="score",
     )
 
-    weight = models.IntegerField(
-        default=1
-    )
+    weight = models.IntegerField(default=1)
 
-    order = models.IntegerField(
-        default=0
-    )
+    order = models.IntegerField(default=0)
 
     def __str__(self):
         return self.question
-    
+
+
 class EmployeeEvaluation(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_employee_evaluations",
+        null=True,
+        blank=True,
+    )
 
     employee = models.ForeignKey(
         Employee,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
     )
 
     template = models.ForeignKey(
         EvaluationTemplate,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
     )
 
     evaluator = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
-        null=True
+        null=True,
     )
 
-    notes = models.TextField(
-        blank=True
-    )
+    notes = models.TextField(blank=True)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.employee.name}"
-    
+
 
 class EvaluationAnswer(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_evaluation_answers",
+        null=True,
+        blank=True,
+    )
 
     evaluation = models.ForeignKey(
         EmployeeEvaluation,
         on_delete=models.CASCADE,
-        related_name="answers"
+        related_name="answers",
     )
 
     question = models.ForeignKey(
         EvaluationQuestion,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
     )
 
-    score = models.FloatField(
-        default=0
-    )
+    score = models.FloatField(default=0)
 
-    text_answer = models.TextField(
-        blank=True
-    )
+    text_answer = models.TextField(blank=True)
 
     yes_no_answer = models.BooleanField(
         null=True,
-        blank=True
+        blank=True,
     )

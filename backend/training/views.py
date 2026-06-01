@@ -1,16 +1,19 @@
 from django.utils import timezone
-from rest_framework import viewsets
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
 from django.db.models import Avg, Count
+from rest_framework import viewsets
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from .models import (
-    Outlet, Employee,
-      Facilitator, 
-      TrainingSession,
-      Evaluation,
-      RoadmapItem,
-     Standard,
+    Outlet,
+    Employee,
+    Facilitator,
+    TrainingSession,
+    Evaluation,
+    RoadmapItem,
+    Standard,
     GuestFeedback,
     EvaluationTemplate,
     EvaluationQuestion,
@@ -33,89 +36,311 @@ from .serializers import (
 )
 
 
+def get_user_organisation(user):
+    membership = (
+        user.memberships
+        .filter(is_active=True, organisation__is_active=True)
+        .select_related("organisation")
+        .first()
+    )
 
-class OutletViewSet(viewsets.ModelViewSet):
-    queryset = Outlet.objects.all().order_by("name")
+    if not membership:
+        raise PermissionDenied("No active organisation found.")
+
+    return membership.organisation
+
+
+class TenantModelViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def get_organisation(self):
+        return get_user_organisation(self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation()
+        )
+
+
+class OutletViewSet(TenantModelViewSet):
     serializer_class = OutletSerializer
 
+    def get_queryset(self):
+        return Outlet.objects.filter(
+            organisation=self.get_organisation()
+        ).order_by("name")
 
-class EmployeeViewSet(viewsets.ModelViewSet):
-    queryset = Employee.objects.all().order_by("-created_at")
+
+class EmployeeViewSet(TenantModelViewSet):
     serializer_class = EmployeeSerializer
 
+    def get_queryset(self):
+        return Employee.objects.filter(
+            organisation=self.get_organisation()
+        ).order_by("-created_at")
 
 
-class TrainingSessionViewSet(viewsets.ModelViewSet):
-    queryset = TrainingSession.objects.all().order_by("start_datetime")
+class TrainingSessionViewSet(TenantModelViewSet):
     serializer_class = TrainingSessionSerializer
 
+    def get_queryset(self):
+        return (
+            TrainingSession.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("facilitator", "outlet")
+            .prefetch_related("attendees")
+            .order_by("start_datetime")
+        )
 
-class EvaluationViewSet(viewsets.ModelViewSet):
-    queryset = Evaluation.objects.all().order_by("-created_at")
+
+class EvaluationViewSet(TenantModelViewSet):
     serializer_class = EvaluationSerializer
 
+    def get_queryset(self):
+        return (
+            Evaluation.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("employee", "evaluator", "standard")
+            .order_by("-created_at")
+        )
 
-class RoadmapItemViewSet(viewsets.ModelViewSet):
-    queryset = RoadmapItem.objects.all()
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation(),
+            evaluator=self.request.user,
+        )
+
+
+class RoadmapItemViewSet(TenantModelViewSet):
     serializer_class = RoadmapItemSerializer
+
+    def get_queryset(self):
+        return RoadmapItem.objects.filter(
+            organisation=self.get_organisation()
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation(),
+            owner=self.request.user,
+        )
+
+
+class FacilitatorViewSet(TenantModelViewSet):
+    serializer_class = FacilitatorSerializer
+
+    def get_queryset(self):
+        return (
+            Facilitator.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("employee")
+            .prefetch_related("assigned_employees")
+        )
+
+
+class StandardViewSet(TenantModelViewSet):
+    serializer_class = StandardSerializer
+
+    def get_queryset(self):
+        return Standard.objects.filter(
+            organisation=self.get_organisation()
+        ).order_by("category", "title")
+
+
+class GuestFeedbackViewSet(TenantModelViewSet):
+    serializer_class = GuestFeedbackSerializer
+
+    def get_queryset(self):
+        return (
+            GuestFeedback.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("employee", "outlet")
+            .order_by("-created_at")
+        )
+
+
+class EvaluationTemplateViewSet(TenantModelViewSet):
+    serializer_class = EvaluationTemplateSerializer
+
+    def get_queryset(self):
+        return (
+            EvaluationTemplate.objects
+            .filter(organisation=self.get_organisation())
+            .prefetch_related("questions")
+            .order_by("-created_at")
+        )
+
+
+class EvaluationQuestionViewSet(TenantModelViewSet):
+    serializer_class = EvaluationQuestionSerializer
+
+    def get_queryset(self):
+        return (
+            EvaluationQuestion.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("template", "standard")
+            .order_by("template", "order")
+        )
+
+
+class EmployeeEvaluationViewSet(TenantModelViewSet):
+    serializer_class = EmployeeEvaluationSerializer
+
+    def get_queryset(self):
+        return (
+            EmployeeEvaluation.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("employee", "template", "evaluator")
+            .prefetch_related("answers")
+            .order_by("-created_at")
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation(),
+            evaluator=self.request.user,
+        )
+
+
+class EvaluationAnswerViewSet(TenantModelViewSet):
+    serializer_class = EvaluationAnswerSerializer
+
+    def get_queryset(self):
+        return (
+            EvaluationAnswer.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("evaluation", "question")
+        )
 
 
 @api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def training_dashboard(request):
+    organisation = get_user_organisation(request.user)
     today = timezone.now().date()
 
-    trainings_today = TrainingSession.objects.filter(start_datetime__date=today)
+    trainings_today = TrainingSession.objects.filter(
+        organisation=organisation,
+        start_datetime__date=today,
+    )
+
     next_training = (
         TrainingSession.objects
-        .filter(start_datetime__gte=timezone.now(), status="scheduled")
+        .filter(
+            organisation=organisation,
+            start_datetime__gte=timezone.now(),
+            status="scheduled",
+        )
         .order_by("start_datetime")
         .first()
     )
 
-    employees = Employee.objects.filter(active=True)
-    top_employees = sorted(employees, key=lambda e: e.total_score, reverse=True)[:10]
+    employees = Employee.objects.filter(
+        organisation=organisation,
+        active=True,
+    )
+
+    top_employees = sorted(
+        employees,
+        key=lambda e: e.total_score,
+        reverse=True,
+    )[:10]
 
     avg_score = 0
     if employees.exists():
-        avg_score = round(sum([e.total_score for e in employees]) / employees.count(), 2)
+        avg_score = round(
+            sum([e.total_score for e in employees]) / employees.count(),
+            2,
+        )
 
     data = {
         "employees_total": employees.count(),
-        "facilitators_total": Facilitator.objects.filter(active=True).count(),
+        "facilitators_total": Facilitator.objects.filter(
+            organisation=organisation,
+            active=True,
+        ).count(),
         "trainings_today": trainings_today.count(),
-        "people_training_today": sum([t.attendees.count() for t in trainings_today]),
-        "next_training": TrainingSessionSerializer(next_training).data if next_training else None,
+        "people_training_today": sum(
+            [t.attendees.count() for t in trainings_today]
+        ),
+        "next_training": TrainingSessionSerializer(
+            next_training,
+            context={"request": request},
+        ).data if next_training else None,
         "ab_performance_score": avg_score,
-        "top_employees": EmployeeSerializer(top_employees, many=True, context={"request": request}).data,
-        "roadmap_30": RoadmapItemSerializer(RoadmapItem.objects.filter(period="30_days"), many=True).data,
-        "roadmap_60": RoadmapItemSerializer(RoadmapItem.objects.filter(period="60_days"), many=True).data,
-        "roadmap_90": RoadmapItemSerializer(RoadmapItem.objects.filter(period="90_days"), many=True).data,
+        "top_employees": EmployeeSerializer(
+            top_employees,
+            many=True,
+            context={"request": request},
+        ).data,
+        "roadmap_30": RoadmapItemSerializer(
+            RoadmapItem.objects.filter(
+                organisation=organisation,
+                period="30_days",
+            ),
+            many=True,
+            context={"request": request},
+        ).data,
+        "roadmap_60": RoadmapItemSerializer(
+            RoadmapItem.objects.filter(
+                organisation=organisation,
+                period="60_days",
+            ),
+            many=True,
+            context={"request": request},
+        ).data,
+        "roadmap_90": RoadmapItemSerializer(
+            RoadmapItem.objects.filter(
+                organisation=organisation,
+                period="90_days",
+            ),
+            many=True,
+            context={"request": request},
+        ).data,
     }
 
     return Response(data)
 
 
-
 @api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def analytics_dashboard(request):
-    employees = Employee.objects.filter(active=True)
-    evaluations = Evaluation.objects.all()
-    trainings = TrainingSession.objects.all()
+    organisation = get_user_organisation(request.user)
+
+    employees = Employee.objects.filter(
+        organisation=organisation,
+        active=True,
+    )
+
+    evaluations = Evaluation.objects.filter(
+        organisation=organisation,
+    )
+
+    trainings = TrainingSession.objects.filter(
+        organisation=organisation,
+    )
 
     employees_total = employees.count()
-    facilitators_total = Facilitator.objects.filter(active=True).count()
+    facilitators_total = Facilitator.objects.filter(
+        organisation=organisation,
+        active=True,
+    ).count()
+
     trainings_total = trainings.count()
     completed_trainings = trainings.filter(status="completed").count()
 
     training_completion = 0
     if trainings_total > 0:
-        training_completion = round((completed_trainings / trainings_total) * 100, 2)
+        training_completion = round(
+            (completed_trainings / trainings_total) * 100,
+            2,
+        )
 
     avg_employee_score = 0
     if employees_total > 0:
         avg_employee_score = round(
             sum([employee.total_score for employee in employees]) / employees_total,
-            2
+            2,
         )
 
     avg_hard_rock_score = employees.aggregate(
@@ -125,7 +350,11 @@ def analytics_dashboard(request):
     top_outlets = []
     outlet_groups = (
         Employee.objects
-        .filter(active=True, outlet__isnull=False)
+        .filter(
+            organisation=organisation,
+            active=True,
+            outlet__isnull=False,
+        )
         .values("outlet__name")
         .annotate(
             employees_count=Count("id"),
@@ -157,12 +386,12 @@ def analytics_dashboard(request):
     top_employees = sorted(
         employees,
         key=lambda employee: employee.total_score,
-        reverse=True
+        reverse=True,
     )[:10]
 
     low_performers = sorted(
         employees,
-        key=lambda employee: employee.total_score
+        key=lambda employee: employee.total_score,
     )[:10]
 
     analytics = {
@@ -179,53 +408,13 @@ def analytics_dashboard(request):
         "top_employees": EmployeeSerializer(
             top_employees,
             many=True,
-            context={"request": request}
+            context={"request": request},
         ).data,
         "low_performers": EmployeeSerializer(
             low_performers,
             many=True,
-            context={"request": request}
+            context={"request": request},
         ).data,
     }
 
     return Response(analytics)
-
-
-class FacilitatorViewSet(viewsets.ModelViewSet):
-    queryset = Facilitator.objects.select_related("employee").prefetch_related("assigned_employees")
-    serializer_class = FacilitatorSerializer
-
-class StandardViewSet(viewsets.ModelViewSet):
-    queryset = Standard.objects.all().order_by("category", "title")
-    serializer_class = StandardSerializer
-
-
-class GuestFeedbackViewSet(viewsets.ModelViewSet):
-    queryset = GuestFeedback.objects.select_related("employee", "outlet").order_by("-created_at")
-    serializer_class = GuestFeedbackSerializer
-
-class EvaluationTemplateViewSet(viewsets.ModelViewSet):
-    queryset = EvaluationTemplate.objects.prefetch_related("questions").order_by("-created_at")
-    serializer_class = EvaluationTemplateSerializer
-
-
-class EvaluationQuestionViewSet(viewsets.ModelViewSet):
-    queryset = EvaluationQuestion.objects.select_related("template", "standard").order_by("template", "order")
-    serializer_class = EvaluationQuestionSerializer
-
-
-class EmployeeEvaluationViewSet(viewsets.ModelViewSet):
-    queryset = EmployeeEvaluation.objects.select_related(
-        "employee",
-        "template",
-        "evaluator",
-    ).prefetch_related("answers").order_by("-created_at")
-    serializer_class = EmployeeEvaluationSerializer
-
-
-class EvaluationAnswerViewSet(viewsets.ModelViewSet):
-    queryset = EvaluationAnswer.objects.select_related(
-        "evaluation",
-        "question",
-    )
-    serializer_class = EvaluationAnswerSerializer

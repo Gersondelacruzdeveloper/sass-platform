@@ -18,19 +18,18 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register("outlets", OutletViewSet)
-router.register("employees", EmployeeViewSet)
-router.register("facilitators", FacilitatorViewSet)
-router.register("training-sessions", TrainingSessionViewSet)
-router.register("evaluations", EvaluationViewSet)
-router.register("roadmap", RoadmapItemViewSet)
-router.register("standards", StandardViewSet)
-router.register("guest-feedback", GuestFeedbackViewSet)
-router.register("evaluation-templates", EvaluationTemplateViewSet)
-router.register("evaluation-questions", EvaluationQuestionViewSet)
-router.register("employee-evaluations", EmployeeEvaluationViewSet)
-router.register("evaluation-answers", EvaluationAnswerViewSet)
-
+router.register("outlets", OutletViewSet, basename="outlet")
+router.register("employees", EmployeeViewSet, basename="employee")
+router.register("training-sessions", TrainingSessionViewSet, basename="training-session")
+router.register("evaluations", EvaluationViewSet, basename="evaluation")
+router.register("roadmap", RoadmapItemViewSet, basename="roadmap")
+router.register("facilitators", FacilitatorViewSet, basename="facilitator")
+router.register("standards", StandardViewSet, basename="standard")
+router.register("guest-feedback", GuestFeedbackViewSet, basename="guest-feedback")
+router.register("evaluation-templates", EvaluationTemplateViewSet, basename="evaluation-template")
+router.register("evaluation-questions", EvaluationQuestionViewSet, basename="evaluation-question")
+router.register("employee-evaluations", EmployeeEvaluationViewSet, basename="employee-evaluation")
+router.register("evaluation-answers", EvaluationAnswerViewSet, basename="evaluation-answer")
 urlpatterns = [
     path("", include(router.urls)),
     path("dashboard/", training_dashboard),
