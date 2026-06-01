@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Organisation, Membership
+from .models import Organisation, Membership, OrganisationBranding, OrganisationDomain
 
 
 @admin.register(Organisation)
@@ -50,3 +50,7 @@ class MembershipAdmin(admin.ModelAdmin):
         "role",
         "is_active",
     )
+
+ # organisations/admin.py
+admin.site.register(OrganisationBranding)
+admin.site.register(OrganisationDomain)

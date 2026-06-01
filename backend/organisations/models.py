@@ -90,3 +90,38 @@ class Membership(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.organisation.name} - {self.role}"
+    
+
+# organisations/models.py
+class OrganisationBranding(models.Model):
+    organisation = models.OneToOneField(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="branding"
+    )
+
+    company_name = models.CharField(max_length=255)
+    platform_name = models.CharField(max_length=255, blank=True)
+
+    logo = models.ImageField(upload_to="branding/logos/", blank=True, null=True)
+    favicon = models.ImageField(upload_to="branding/favicons/", blank=True, null=True)
+
+    primary_color = models.CharField(max_length=20, default="#111827")
+    secondary_color = models.CharField(max_length=20, default="#6B7280")
+    accent_color = models.CharField(max_length=20, default="#F59E0B")
+
+    login_title = models.CharField(max_length=255, blank=True)
+    login_subtitle = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class OrganisationDomain(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="domains"
+    )
+    domain = models.CharField(max_length=255, unique=True)
+    is_primary = models.BooleanField(default=False)
