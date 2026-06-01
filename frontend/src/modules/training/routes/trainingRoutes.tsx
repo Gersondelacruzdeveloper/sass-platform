@@ -1,3 +1,7 @@
+import { Route } from "react-router-dom";
+
+import ProtectedRoute from "../../../components/ProtectedRoute";
+
 import TrainingDashboardPage from "../pages/TrainingDashboardPage";
 import EmployeesPage from "../pages/EmployeesPage";
 import EmployeeDetailPage from "../pages/EmployeeDetailPage";
@@ -11,60 +15,30 @@ import ReportsPage from "../pages/ReportsPage";
 import StandardsPage from "../pages/StandardsPage";
 import TrainingLayout from "../layouts/TrainingLayout";
 import EvaluationTemplatesPage from "../pages/EvaluationTemplatesPage";
+import TrainingLoginPage from "../pages/TrainingLoginPage";
 
-export const trainingRoutes = [
-  {
-    path: "/training",
-    element: <TrainingLayout />,
-    children: [
-      {
-        index: true,
-        element: <TrainingDashboardPage />,
-      },
-      {
-        path: "employees",
-        element: <EmployeesPage />,
-      },
-      {
-        path: "employees/:id",
-        element: <EmployeeDetailPage />,
-      },
-      {
-        path: "facilitators",
-        element: <FacilitatorsPage />,
-      },
-      {
-        path: "training-sessions",
-        element: <TrainingSessionsPage />,
-      },
-      {
-        path: "evaluations",
-        element: <EvaluationsPage />,
-      },
-      {
-        path: "standards",
-        element: <StandardsPage />,
-      },
-      {
-        path: "/training/evaluation-templates",
-        element: <EvaluationTemplatesPage />,
-      },
-      {
-        path: "outlets",
-        element: <OutletsPage />,
-      },
-      {
-        path: "analytics",
-        element: <AnalyticsPage />,
-      },
-      {
-        path: "reports",
-        element: <ReportsPage />,
-      },
-      {
-        path: "roadmap",
-        element: <RoadmapPage />,
-      },
-    ],
-  },
-];
+export const trainingRoutes = (
+  <>
+    <Route
+      path="/training/:organisationSlug/login"
+      element={<TrainingLoginPage />}
+    />
+
+    <Route element={<ProtectedRoute />}>
+      <Route path="/training/:organisationSlug" element={<TrainingLayout />}>
+        <Route index element={<TrainingDashboardPage />} />
+        <Route path="employees" element={<EmployeesPage />} />
+        <Route path="employees/:id" element={<EmployeeDetailPage />} />
+        <Route path="facilitators" element={<FacilitatorsPage />} />
+        <Route path="training-sessions" element={<TrainingSessionsPage />} />
+        <Route path="evaluations" element={<EvaluationsPage />} />
+        <Route path="standards" element={<StandardsPage />} />
+        <Route path="evaluation-templates" element={<EvaluationTemplatesPage />} />
+        <Route path="outlets" element={<OutletsPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="roadmap" element={<RoadmapPage />} />
+      </Route>
+    </Route>
+  </>
+);

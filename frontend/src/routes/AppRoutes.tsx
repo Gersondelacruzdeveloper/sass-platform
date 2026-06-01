@@ -20,24 +20,8 @@ export default function AppRoutes() {
       <Route path="/organisations" element={<OrganisationsPage />} />
       <Route path="/subscriptions" element={<SubscriptionsPage />} />
       <Route path="/audit-logs" element={<AuditLogsPage />} />
-
-      {trainingRoutes.map((route) => (
-        <Route
-          key={route.path}
-          path={route.path}
-          element={route.element}
-        >
-          {route.children?.map((child) => (
-            <Route
-              key={child.path || "index"}
-              index={child.index}
-              path={child.path}
-              element={child.element}
-            />
-          ))}
-        </Route>
-      ))}
-
+   
+      {trainingRoutes}
       {discoRoutes}
     </Routes>
   );
