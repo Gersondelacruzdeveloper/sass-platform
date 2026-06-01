@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Organisation, Membership
+from .models import Organisation, Membership,OrganisationBranding
 
 
 class OrganisationSerializer(serializers.ModelSerializer):
@@ -32,3 +32,38 @@ class MembershipSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
         ]
+
+
+
+class OrganisationBrandingSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    favicon_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrganisationBranding
+        fields = [
+            "id",
+            "company_name",
+            "platform_name",
+            "logo",
+            "logo_url",
+            "favicon",
+            "favicon_url",
+            "primary_color",
+            "secondary_color",
+            "accent_color",
+            "login_title",
+            "login_subtitle",
+        ]
+
+    def get_logo_url(self, obj):
+        request = self.context.get("request")
+        if obj.logo and request:
+            return request.build_absolute_uri(obj.logo.url)
+        return None
+
+    def get_favicon_url(self, obj):
+        request = self.context.get("request")
+        if obj.favicon and request:
+            return request.build_absolute_uri(obj.favicon.url)
+        return None
