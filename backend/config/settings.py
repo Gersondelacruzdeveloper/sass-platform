@@ -169,16 +169,56 @@ REST_FRAMEWORK = {
     ]
 }
 
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in env.list("CSRF_TRUSTED_ORIGINS", default=[])
+    if origin.strip()
+]
 
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in env.list("CORS_ALLOWED_ORIGINS", default=[])
+    if origin.strip()
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
-SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SECURE = False
+if DEPLOYED:
+    SESSION_COOKIE_DOMAIN = env.str(
+        "SESSION_COOKIE_DOMAIN",
+        default=".puntacanadiscovery.com",
+    )
+    CSRF_COOKIE_DOMAIN = env.str(
+        "CSRF_COOKIE_DOMAIN",
+        default=".puntacanadiscovery.com",
+    )
 
-CSRF_COOKIE_HTTPONLY = False
-SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = env.str(
+        "SESSION_COOKIE_SAMESITE",
+        default="None",
+    )
+    CSRF_COOKIE_SAMESITE = env.str(
+        "CSRF_COOKIE_SAMESITE",
+        default="None",
+    )
 
+    SESSION_COOKIE_SECURE = env.bool(
+        "SESSION_COOKIE_SECURE",
+        default=True,
+    )
+    CSRF_COOKIE_SECURE = env.bool(
+        "CSRF_COOKIE_SECURE",
+        default=True,
+    )
+else:
+    SESSION_COOKIE_DOMAIN = None
+    CSRF_COOKIE_DOMAIN = None
+
+    SESSION_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SAMESITE = "Lax"
+
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+
+    CSRF_COOKIE_HTTPONLY = False
+    SESSION_COOKIE_HTTPONLY = True
