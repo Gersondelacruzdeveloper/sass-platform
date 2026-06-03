@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   ArrowRight,
   Building2,
@@ -13,8 +13,7 @@ import {
 
 import { loginUser } from "../../../features/auth/authSlice";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
-import { getDashboardRedirect } from "../../../utils/getDashboardRedirect";
-import type { User as UserType } from "../../../types/user";
+
 import {
   getPublicBranding,
   defaultBranding,
@@ -23,7 +22,6 @@ import {
 
 export default function DiscoLoginPage() {
   const dispatch = useAppDispatch();
-  const navigate = useNavigate();
   const { organisationSlug } = useParams();
 
   const { loading, error } = useAppSelector((state) => state.auth);

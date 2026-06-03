@@ -9,8 +9,6 @@ import { LogOut } from "lucide-react";
 import { logoutUser } from "../../../features/auth/authSlice";
 import { useAppDispatch } from "../../../store/hooks";
 
-import api from "../../../api/axios";
-
 import {
   defaultBranding,
   getPublicBranding,
