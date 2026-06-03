@@ -103,6 +103,7 @@ class MeView(APIView):
             organisation_data = {
                 "id": membership.organisation.id,
                 "name": membership.organisation.name,
+                "slug": membership.organisation.slug,
                 "business_type": membership.organisation.business_type,
                 "plan": membership.organisation.plan,
             }

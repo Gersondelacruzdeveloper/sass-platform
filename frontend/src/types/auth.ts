@@ -1,3 +1,4 @@
+
 export interface User {
   id: number;
   email: string;
@@ -5,8 +6,19 @@ export interface User {
   first_name: string;
   last_name: string;
   phone?: string | null;
+  role?: string;
   avatar?: string | null;
+  is_platform_owner?: boolean;
+
+  organisation?: {
+    id: number;
+    name: string;
+    slug: string;
+    business_type: string;
+    plan: string;
+  } | null;
 }
+
 
 export interface LoginPayload {
   login: string;
@@ -25,3 +37,4 @@ export interface TokenResponse {
   access: string;
   refresh: string;
 }
+

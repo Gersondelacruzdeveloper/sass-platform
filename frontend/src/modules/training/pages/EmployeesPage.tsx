@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import api from "../../../api/axios";
 import type { Employee, Outlet } from "../types/training";
+import type { RootState } from "../../../store/store";
+import { useSelector } from "react-redux";
 
 const initialForm = {
   name: "",
@@ -51,6 +53,8 @@ export default function EmployeesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+
 
   async function loadData() {
     try {
@@ -106,6 +110,10 @@ export default function EmployeesPage() {
 
   const activeEmployees = employees.filter((e) => e.active).length;
   const promotionReady = employees.filter((e) => e.promotion_ready).length;
+
+  const user = useSelector((state: RootState) => state.auth.user);
+  const tenantSlug = user?.organisation?.slug ? `${user.organisation.slug}/` : "";
+  console.log("Tenant slug:", tenantSlug);
   // const futureLeaders = employees.filter(
   //   (e) => e.potential_level === "future_leader"
   // ).length;
@@ -133,9 +141,9 @@ export default function EmployeesPage() {
       setSaving(true);
 
       if (editingEmployee) {
-        await api.patch(`/training/employees/${editingEmployee.id}/`, payload);
+        await api.patch(`/training/${tenantSlug}employees/${editingEmployee.id}/`, payload);
       } else {
-        await api.post("/training/employees/", payload);
+        await api.post(`/training/${tenantSlug}employees/`, payload);
       }
 
       setForm(initialForm);
@@ -178,12 +186,14 @@ export default function EmployeesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  
+
   async function handleDelete(employee: Employee) {
     const confirmed = window.confirm(`Delete ${employee.name}?`);
     if (!confirmed) return;
 
     try {
-      await api.delete(`/training/employees/${employee.id}/`);
+      await api.delete(`/training/${tenantSlug}employees/${employee.id}/`);
       await loadData();
     } catch (error) {
       console.error("Error deleting employee:", error);
@@ -439,6 +449,7 @@ export default function EmployeesPage() {
                 <EmployeeCard
                   key={emp.id}
                   emp={emp}
+                  tenantSlug={tenantSlug}
                   onEdit={() => handleEdit(emp)}
                   onDelete={() => handleDelete(emp)}
                 />
@@ -453,10 +464,12 @@ export default function EmployeesPage() {
 
 function EmployeeCard({
   emp,
+  tenantSlug,
   onEdit,
   onDelete,
 }: {
   emp: Employee;
+  tenantSlug: string;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -519,7 +532,8 @@ function EmployeeCard({
 
       <div className="mt-5 grid grid-cols-3 gap-2">
         <Link
-          to={`/training/employees/${emp.id}`}
+          to={`/training/${tenantSlug}/employees/${emp.id}`}
+
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-3 py-3 text-sm font-black text-white"
         >
           <Eye size={15} />
