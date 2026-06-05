@@ -7,7 +7,9 @@ import App from "./App";
 import AuthInitializer from "./components/AuthInitializer";
 import { store } from "./store/store";
 import "./index.css";
+import { setupTenantPWA } from "./utils/pwaTenant";
 
+setupTenantPWA();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Provider store={store}>

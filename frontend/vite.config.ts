@@ -5,34 +5,18 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig({
   plugins: [
     react(),
-
     VitePWA({
       registerType: "autoUpdate",
-
-      manifest: {
-        name: "SaaS Platform",
-        short_name: "SaaS",
-
-        theme_color: "#0f172a",
-        background_color: "#0f172a",
-
-        display: "standalone",
-
-        start_url: "/",
-
-        icons: [
-          {
-            src: "/pwa-192x192.png",
-            sizes: "192x192",
-            type: "image/png",
-          },
-          {
-            src: "/pwa-512x512.png",
-            sizes: "512x512",
-            type: "image/png",
-          },
-        ],
-      },
+      includeAssets: [
+        "icons/default/icon-192.png",
+        "icons/default/icon-512.png",
+        "icons/default/apple-touch-icon.png",
+        "manifest-default.webmanifest",
+        "manifest-hard-rock.webmanifest",
+        "manifest-barcelo.webmanifest",
+        "manifest-melia.webmanifest"
+      ],
+      manifest: false
     }),
   ],
 });
