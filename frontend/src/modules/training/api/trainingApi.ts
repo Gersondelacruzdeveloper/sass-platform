@@ -147,3 +147,29 @@ export async function getEmployeeEvaluations() {
   const res = await api.get<EmployeeEvaluation[]>("/training/employee-evaluations/");
   return res.data;
 }
+
+export type CreateFacilitatorAccountPayload = {
+  employee: number;
+  username: string;
+  email: string;
+  password: string;
+  assigned_employees: number[];
+  assigned_outlets: number[];
+  specialties: string[];
+  can_create_employees: boolean;
+  can_create_trainings: boolean;
+  can_create_evaluations: boolean;
+  can_view_reports: boolean;
+  active: boolean;
+};
+
+export async function createFacilitatorAccount(
+  data: CreateFacilitatorAccountPayload
+) {
+  const res = await api.post<Facilitator>(
+    "/training/facilitators/create_account/",
+    data
+  );
+
+  return res.data;
+}

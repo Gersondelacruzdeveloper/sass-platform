@@ -5,6 +5,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.contrib.auth import get_user_model
+from rest_framework import status
+from rest_framework.decorators import action
+from organisations.models import Membership
+
+User = get_user_model()
+
+
 from .permissions import (
     is_management,
     is_facilitator,
@@ -150,7 +158,6 @@ class RoadmapItemViewSet(TenantModelViewSet):
             owner=self.request.user,
         )
 
-
 class FacilitatorViewSet(TenantModelViewSet):
     serializer_class = FacilitatorSerializer
 
@@ -159,10 +166,130 @@ class FacilitatorViewSet(TenantModelViewSet):
             Facilitator.objects
             .filter(organisation=self.get_organisation())
             .select_related("employee")
-            .prefetch_related("assigned_employees")
+            .prefetch_related(
+                "assigned_employees",
+                "assigned_outlets",
+            )
         )
 
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation()
+        )
 
+    @action(detail=False, methods=["post"])
+    def create_account(self, request):
+        organisation = self.get_organisation()
+
+        employee_id = request.data.get("employee")
+        username = request.data.get("username")
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        if not employee_id:
+            return Response(
+                {"detail": "Employee is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        employee = Employee.objects.get(
+            id=employee_id,
+            organisation=organisation,
+        )
+
+        if employee.user:
+            user = employee.user
+        else:
+            if not username or not email or not password:
+                return Response(
+                    {
+                        "detail": "Username, email and password are required."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+            )
+
+            employee.user = user
+            employee.save()
+
+        Membership.objects.update_or_create(
+            user=user,
+            organisation=organisation,
+            defaults={
+                "role": "facilitator",
+                "is_active": True,
+            },
+        )
+
+        facilitator, created = Facilitator.objects.get_or_create(
+            organisation=organisation,
+            employee=employee,
+            defaults={
+                "specialties": request.data.get("specialties", []),
+                "can_create_employees": request.data.get(
+                    "can_create_employees",
+                    True,
+                ),
+                "can_create_trainings": request.data.get(
+                    "can_create_trainings",
+                    True,
+                ),
+                "can_create_evaluations": request.data.get(
+                    "can_create_evaluations",
+                    True,
+                ),
+                "can_view_reports": request.data.get(
+                    "can_view_reports",
+                    False,
+                ),
+                "active": request.data.get("active", True),
+            },
+        )
+
+        if not created:
+            facilitator.specialties = request.data.get(
+                "specialties",
+                facilitator.specialties,
+            )
+            facilitator.can_create_employees = request.data.get(
+                "can_create_employees",
+                facilitator.can_create_employees,
+            )
+            facilitator.can_create_trainings = request.data.get(
+                "can_create_trainings",
+                facilitator.can_create_trainings,
+            )
+            facilitator.can_create_evaluations = request.data.get(
+                "can_create_evaluations",
+                facilitator.can_create_evaluations,
+            )
+            facilitator.can_view_reports = request.data.get(
+                "can_view_reports",
+                facilitator.can_view_reports,
+            )
+            facilitator.active = request.data.get(
+                "active",
+                facilitator.active,
+            )
+            facilitator.save()
+
+        facilitator.assigned_employees.set(
+            request.data.get("assigned_employees", [])
+        )
+
+        facilitator.assigned_outlets.set(
+            request.data.get("assigned_outlets", [])
+        )
+
+        return Response(
+            FacilitatorSerializer(facilitator).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 class StandardViewSet(TenantModelViewSet):
     serializer_class = StandardSerializer
 

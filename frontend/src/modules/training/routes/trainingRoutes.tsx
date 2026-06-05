@@ -21,6 +21,8 @@ import FacilitatorDashboardPage from "../pages/facilitator/FacilitatorDashboardP
 import FacilitatorEmployeesPage from "../pages/facilitator/FacilitatorEmployeesPage";
 import FacilitatorEvaluationsPage from "../pages/facilitator/FacilitatorEvaluationsPage";
 import FacilitatorTrainingsPage from "../pages/facilitator/FacilitatorTrainingsPage";
+import EditFacilitatorPage from "../pages/EditFacilitatorPage";
+import CreateFacilitatorAccountPage from "../pages/CreateFacilitatorAccountPage";
 
 export const trainingRoutes = (
   <>
@@ -37,6 +39,11 @@ export const trainingRoutes = (
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
 
         <Route path="facilitators" element={<FacilitatorsPage />} />
+        <Route path="facilitators/create-account" element={<CreateFacilitatorAccountPage />} />
+        <Route path="facilitators/:id/edit" element={<EditFacilitatorPage />} />
+
+        <Route path="training-sessions" element={<TrainingSessionsPage />} />
+
         <Route path="training-sessions" element={<TrainingSessionsPage />} />
         <Route path="evaluations" element={<EvaluationsPage />} />
         <Route path="standards" element={<StandardsPage />} />
