@@ -5,6 +5,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from .permissions import (
+    is_management,
+    is_facilitator,
+    get_facilitator_profile,
+)
 
 from .models import (
     Outlet,
@@ -75,9 +80,29 @@ class EmployeeViewSet(TenantModelViewSet):
     serializer_class = EmployeeSerializer
 
     def get_queryset(self):
-        return Employee.objects.filter(
-            organisation=self.get_organisation()
-        ).order_by("-created_at")
+        organisation = self.get_organisation()
+
+        if is_management(self.request.user):
+            return Employee.objects.filter(
+                organisation=organisation
+            ).order_by("-created_at")
+
+        if is_facilitator(self.request.user):
+            facilitator = get_facilitator_profile(self.request.user)
+
+            if facilitator:
+                return facilitator.assigned_employees.filter(
+                    organisation=organisation
+                ).order_by("name")
+
+        return Employee.objects.none()
+
+    def destroy(self, request, *args, **kwargs):
+        if not is_management(request.user):
+            raise PermissionDenied("You cannot delete employees.")
+
+        return super().destroy(request, *args, **kwargs)
+    
 
 
 class TrainingSessionViewSet(TenantModelViewSet):

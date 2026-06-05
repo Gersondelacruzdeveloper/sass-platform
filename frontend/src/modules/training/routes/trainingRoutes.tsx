@@ -17,6 +17,11 @@ import TrainingLayout from "../layouts/TrainingLayout";
 import EvaluationTemplatesPage from "../pages/EvaluationTemplatesPage";
 import TrainingLoginPage from "../pages/TrainingLoginPage";
 
+import FacilitatorDashboardPage from "../pages/facilitator/FacilitatorDashboardPage";
+import FacilitatorEmployeesPage from "../pages/facilitator/FacilitatorEmployeesPage";
+import FacilitatorEvaluationsPage from "../pages/facilitator/FacilitatorEvaluationsPage";
+import FacilitatorTrainingsPage from "../pages/facilitator/FacilitatorTrainingsPage";
+
 export const trainingRoutes = (
   <>
     <Route
@@ -27,8 +32,10 @@ export const trainingRoutes = (
     <Route element={<ProtectedRoute />}>
       <Route path="/training/:organisationSlug" element={<TrainingLayout />}>
         <Route index element={<TrainingDashboardPage />} />
+
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
+
         <Route path="facilitators" element={<FacilitatorsPage />} />
         <Route path="training-sessions" element={<TrainingSessionsPage />} />
         <Route path="evaluations" element={<EvaluationsPage />} />
@@ -38,6 +45,11 @@ export const trainingRoutes = (
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
+
+        <Route path="facilitator" element={<FacilitatorDashboardPage />} />
+        <Route path="facilitator/employees" element={<FacilitatorEmployeesPage />} />
+        <Route path="facilitator/evaluations" element={<FacilitatorEvaluationsPage />} />
+        <Route path="facilitator/trainings" element={<FacilitatorTrainingsPage />} />
       </Route>
     </Route>
   </>

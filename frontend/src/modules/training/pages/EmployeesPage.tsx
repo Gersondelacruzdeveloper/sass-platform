@@ -143,7 +143,7 @@ export default function EmployeesPage() {
       if (editingEmployee) {
         await api.patch(`/training/${tenantSlug}employees/${editingEmployee.id}/`, payload);
       } else {
-        await api.post(`/training/${tenantSlug}employees/`, payload);
+       await api.post("/training/employees/", payload);
       }
 
       setForm(initialForm);
@@ -193,7 +193,7 @@ export default function EmployeesPage() {
     if (!confirmed) return;
 
     try {
-      await api.delete(`/training/${tenantSlug}employees/${employee.id}/`);
+      await api.delete(`/training/employees/${employee.id}/`);
       await loadData();
     } catch (error) {
       console.error("Error deleting employee:", error);

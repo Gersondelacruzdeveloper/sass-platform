@@ -86,7 +86,12 @@ class FacilitatorSerializer(serializers.ModelSerializer):
             "employee_name",
             "employee_position",
             "assigned_employees",
+            "assigned_outlets",
+            "can_create_employees",
+            "can_create_trainings",
+            "can_create_evaluations",
             "assigned_count",
+            "can_view_reports",
             "specialties",
             "active",
         ]

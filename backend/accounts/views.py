@@ -110,6 +110,25 @@ class MeView(APIView):
 
             role = membership.role
 
+        facilitator_data = None
+
+        if hasattr(user, "employee_profile"):
+            employee = user.employee_profile
+
+            if hasattr(employee, "facilitator_profile"):
+                facilitator = employee.facilitator_profile
+
+                facilitator_data = {
+                    "id": facilitator.id,
+                    "employee_id": employee.id,
+                    "employee_name": employee.name,
+                    "active": facilitator.active,
+                    "can_create_employees": facilitator.can_create_employees,
+                    "can_create_trainings": facilitator.can_create_trainings,
+                    "can_create_evaluations": facilitator.can_create_evaluations,
+                    "can_view_reports": facilitator.can_view_reports,
+                }
+
         return Response({
             "id": user.id,
             "email": user.email,
@@ -117,4 +136,5 @@ class MeView(APIView):
             "is_platform_owner": user.is_superuser,
             "role": role,
             "organisation": organisation_data,
+            "facilitator": facilitator_data,
         })

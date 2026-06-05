@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  NavLink,
-  useNavigate,
-  useParams,
-} from "react-router-dom";
-
+import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { LogOut } from "lucide-react";
+
 import { logoutUser } from "../../../features/auth/authSlice";
 import { useAppDispatch } from "../../../store/hooks";
 
@@ -19,25 +15,18 @@ type TrainingSidebarProps = {
   onNavigate?: () => void;
 };
 
-export default function TrainingSidebar({
-  onNavigate,
-}: TrainingSidebarProps) {
+export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
   const navigate = useNavigate();
   const { organisationSlug } = useParams();
   const dispatch = useAppDispatch();
 
-  const [branding, setBranding] =
-    useState<Branding>(defaultBranding);
+  const [branding, setBranding] = useState<Branding>(defaultBranding);
 
   useEffect(() => {
     async function loadBranding() {
       if (!organisationSlug) return;
 
-      const data = await getPublicBranding(
-        "hotel",
-        organisationSlug
-      );
-
+      const data = await getPublicBranding("hotel", organisationSlug);
       setBranding(data);
     }
 
@@ -47,60 +36,44 @@ export default function TrainingSidebar({
   const basePath = `/training/${organisationSlug}`;
 
   const links = [
-    {
-      label: "Dashboard",
-      path: basePath,
-      icon: "📊",
-    },
-    {
-      label: "Employees",
-      path: `${basePath}/employees`,
-      icon: "👥",
-    },
-    {
-      label: "Facilitators",
-      path: `${basePath}/facilitators`,
-      icon: "🎓",
-    },
+    { label: "Dashboard", path: basePath, icon: "📊" },
+    { label: "Employees", path: `${basePath}/employees`, icon: "👥" },
+    { label: "Facilitators", path: `${basePath}/facilitators`, icon: "🎓" },
     {
       label: "Training Sessions",
       path: `${basePath}/training-sessions`,
       icon: "📚",
     },
-    {
-      label: "Evaluations",
-      path: `${basePath}/evaluations`,
-      icon: "⭐",
-    },
-    {
-      label: "Standards",
-      path: `${basePath}/standards`,
-      icon: "🏆",
-    },
+    { label: "Evaluations", path: `${basePath}/evaluations`, icon: "⭐" },
+    { label: "Standards", path: `${basePath}/standards`, icon: "🏆" },
     {
       label: "Templates",
       path: `${basePath}/evaluation-templates`,
       icon: "📝",
     },
+    { label: "Outlets", path: `${basePath}/outlets`, icon: "🍽️" },
+    { label: "Analytics", path: `${basePath}/analytics`, icon: "📈" },
+    { label: "Reports", path: `${basePath}/reports`, icon: "📄" },
+    { label: "Roadmap", path: `${basePath}/roadmap`, icon: "🚀" },
     {
-      label: "Outlets",
-      path: `${basePath}/outlets`,
-      icon: "🍽️",
+      label: "My Workspace",
+      path: `${basePath}/facilitator`,
+      icon: "🧑‍🏫",
     },
     {
-      label: "Analytics",
-      path: `${basePath}/analytics`,
-      icon: "📈",
+      label: "My Employees",
+      path: `${basePath}/facilitator/employees`,
+      icon: "👥",
     },
     {
-      label: "Reports",
-      path: `${basePath}/reports`,
-      icon: "📄",
+      label: "Create Evaluation",
+      path: `${basePath}/facilitator/evaluations`,
+      icon: "✅",
     },
     {
-      label: "Roadmap",
-      path: `${basePath}/roadmap`,
-      icon: "🚀",
+      label: "My Trainings",
+      path: `${basePath}/facilitator/trainings`,
+      icon: "📚",
     },
   ];
 
@@ -110,16 +83,14 @@ export default function TrainingSidebar({
     } catch (error) {
       console.error(error);
     } finally {
-      navigate(`/training/${organisationSlug}/login`, {
-        replace: true,
-      });
+      navigate(`/training/${organisationSlug}/login`, { replace: true });
     }
   };
 
   return (
-    <aside className="flex h-full w-72 flex-col border-r bg-white">
+    <aside className="flex h-dvh w-72 max-w-[85vw] flex-col overflow-hidden border-r border-slate-200 bg-white">
       {/* Branding */}
-      <div className="hidden border-b p-6 lg:block">
+      <div className="shrink-0 border-b border-slate-200 p-5 lg:p-6">
         {branding.logo_url ? (
           <img
             src={branding.logo_url}
@@ -129,34 +100,30 @@ export default function TrainingSidebar({
         ) : (
           <div
             className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-black text-white"
-            style={{
-              backgroundColor:
-                branding.accent_color,
-            }}
+            style={{ backgroundColor: branding.accent_color }}
           >
-            {branding.company_name
-              ?.charAt(0)
-              ?.toUpperCase()}
+            {branding.company_name?.charAt(0)?.toUpperCase()}
           </div>
         )}
 
-        <h1 className="text-xl font-bold">
+        <h1 className="text-xl font-bold text-slate-950">
           {branding.platform_name}
         </h1>
 
-        <p className="text-sm text-slate-500">
-          {branding.company_name}
-        </p>
+        <p className="text-sm text-slate-500">{branding.company_name}</p>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4">
-        <div className="space-y-2">
+      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+        <div className="space-y-2 pb-6">
           {links.map((link) => (
             <NavLink
               key={link.path}
               to={link.path}
-              end={link.path === basePath}
+              end={
+                link.path === basePath ||
+                link.path === `${basePath}/facilitator`
+              }
               onClick={onNavigate}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
@@ -166,36 +133,28 @@ export default function TrainingSidebar({
                 }`
               }
               style={({ isActive }) =>
-                isActive
-                  ? {
-                      backgroundColor:
-                        branding.primary_color,
-                    }
-                  : {}
+                isActive ? { backgroundColor: branding.primary_color } : {}
               }
             >
-              <span className="text-lg">
-                {link.icon}
-              </span>
-
-              <span>{link.label}</span>
+              <span className="text-lg">{link.icon}</span>
+              <span className="truncate">{link.label}</span>
             </NavLink>
           ))}
         </div>
       </nav>
 
       {/* Footer */}
-      <div className="border-t p-4">
+      <div className="shrink-0 border-t border-slate-200 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="mb-4 rounded-2xl bg-slate-50 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">
             Platform
           </p>
 
-          <h3 className="mt-1 font-semibold">
+          <h3 className="mt-1 truncate font-semibold text-slate-950">
             {branding.platform_name}
           </h3>
 
-          <p className="text-sm text-slate-500">
+          <p className="truncate text-sm text-slate-500">
             {branding.company_name}
           </p>
         </div>

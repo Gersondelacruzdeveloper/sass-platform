@@ -48,22 +48,45 @@ export default function TrainingLoginPage() {
     loadBranding();
   }, [slug]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    try {
-      await dispatch(
-        loginUser({
-          login,
-          password,
-        })
-      ).unwrap();
+  try {
+    const user = await dispatch(
+      loginUser({
+        login,
+        password,
+      })
+    ).unwrap();
 
-      navigate(`/training/${slug}`, { replace: true });
-    } catch (err) {
-      console.error("Training login error:", err);
+    if (
+      user.role === "facilitator" &&
+      user.organisation?.slug
+    ) {
+      navigate(
+        `/training/${user.organisation.slug}/facilitator`,
+        { replace: true }
+      );
+      return;
     }
-  };
+
+    if (user.organisation?.slug) {
+      navigate(
+        `/training/${user.organisation.slug}`,
+        { replace: true }
+      );
+      return;
+    }
+
+    navigate(`/training/${slug}`, {
+      replace: true,
+    });
+  } catch (err) {
+    console.error("Training login error:", err);
+  }
+};
+
+  
 
   const companyInitial =
     branding.company_name?.charAt(0)?.toUpperCase() || "T";

@@ -78,7 +78,14 @@ class Employee(models.Model):
     name = models.CharField(max_length=255)
     photo = models.ImageField(upload_to="employees/", blank=True, null=True)
     employee_code = models.CharField(max_length=100, blank=True)
-
+    user = models.OneToOneField(
+        User,
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=True,
+            related_name="employee_profile",
+        )
+    
     department = models.CharField(max_length=150, default="A&B")
     outlet = models.ForeignKey(Outlet, on_delete=models.SET_NULL, null=True, blank=True)
     position = models.CharField(max_length=150)
@@ -141,12 +148,23 @@ class Facilitator(models.Model):
         on_delete=models.CASCADE,
         related_name="facilitator_profile",
     )
+ 
     assigned_employees = models.ManyToManyField(
         Employee,
         related_name="assigned_to_facilitators",
         blank=True,
     )
+    assigned_outlets = models.ManyToManyField(
+        Outlet,
+        related_name="assigned_facilitators",
+        blank=True,
+    )
+
     specialties = models.JSONField(default=list, blank=True)
+    can_create_employees = models.BooleanField(default=True)
+    can_create_trainings = models.BooleanField(default=True)
+    can_create_evaluations = models.BooleanField(default=True)
+    can_view_reports = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
     def __str__(self):

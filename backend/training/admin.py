@@ -38,6 +38,7 @@ class EmployeeAdmin(admin.ModelAdmin):
         "department",
         "potential_level",
         "promotion_ready",
+        "user",
         "active",
     )
     search_fields = ("name", "employee_code", "position")
@@ -46,7 +47,7 @@ class EmployeeAdmin(admin.ModelAdmin):
 
 @admin.register(Facilitator)
 class FacilitatorAdmin(admin.ModelAdmin):
-    list_display = ("id", "employee", "active")
+    list_display = ("id", "employee", "active", "can_create_employees","can_create_trainings","can_create_evaluations", "can_view_reports")
 
 
 @admin.register(TrainingSession)
