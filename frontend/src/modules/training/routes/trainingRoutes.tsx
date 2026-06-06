@@ -23,7 +23,7 @@ import FacilitatorEvaluationsPage from "../pages/facilitator/FacilitatorEvaluati
 import FacilitatorTrainingsPage from "../pages/facilitator/FacilitatorTrainingsPage";
 import EditFacilitatorPage from "../pages/EditFacilitatorPage";
 import CreateFacilitatorAccountPage from "../pages/CreateFacilitatorAccountPage";
-
+import EditEvaluationTemplatePage from "../pages/EditEvaluationTemplatePage";
 export const trainingRoutes = (
   <>
     <Route
@@ -48,6 +48,10 @@ export const trainingRoutes = (
         <Route path="evaluations" element={<EvaluationsPage />} />
         <Route path="standards" element={<StandardsPage />} />
         <Route path="evaluation-templates" element={<EvaluationTemplatesPage />} />
+        <Route
+        path="evaluation-templates/:id/edit"
+        element={<EditEvaluationTemplatePage />}
+      />
         <Route path="outlets" element={<OutletsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="reports" element={<ReportsPage />} />

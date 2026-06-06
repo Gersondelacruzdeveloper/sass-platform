@@ -339,20 +339,30 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
     serializer_class = EmployeeEvaluationSerializer
 
     def get_queryset(self):
-        return (
+        queryset = (
             EmployeeEvaluation.objects
             .filter(organisation=self.get_organisation())
             .select_related("employee", "template", "evaluator")
-            .prefetch_related("answers")
+            .prefetch_related(
+                "answers",
+                "answers__question",
+                "answers__question__standard",
+            )
             .order_by("-created_at")
         )
+
+        employee_id = self.request.query_params.get("employee")
+
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(
             organisation=self.get_organisation(),
             evaluator=self.request.user,
         )
-
 
 class EvaluationAnswerViewSet(TenantModelViewSet):
     serializer_class = EvaluationAnswerSerializer

@@ -7,8 +7,10 @@ import {
   Search,
   Trash2,
   XCircle,
+  Edit,
 } from "lucide-react";
 import api from "../../../api/axios";
+import { Link, useParams } from "react-router-dom";
 
 type Standard = {
   id: number;
@@ -476,7 +478,10 @@ function QuestionCard({
   );
 }
 
+
 function TemplateCard({ template }: { template: EvaluationTemplate }) {
+  const { organisationSlug } = useParams();
+
   return (
     <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
       <div className="flex items-start justify-between gap-4">
@@ -500,9 +505,23 @@ function TemplateCard({ template }: { template: EvaluationTemplate }) {
           {template.active ? "ACTIVE" : "INACTIVE"}
         </span>
       </div>
+
+      <div className="mt-5 flex gap-3">
+        <Link
+          to={`/training/${organisationSlug}/evaluation-templates/${template.id}/edit`}
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
+        >
+          <Edit size={16} />
+          Edit Template
+        </Link>
+      </div>
     </div>
   );
 }
+
+
+
+
 
 function SummaryCard({
   title,
