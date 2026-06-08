@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 
 from .models import (
@@ -34,18 +35,24 @@ from .serializers import (
     DiscoActivityLogSerializer,
 )
 
-
 class OrganisationQuerysetMixin:
     permission_classes = [permissions.IsAuthenticated]
 
     def get_organisation(self):
-        if hasattr(self.request, "organisation"):
+        if hasattr(self.request, "organisation") and self.request.organisation:
             return self.request.organisation
 
-        if hasattr(self.request.user, "organisation"):
-            return self.request.user.organisation
+        user_organisation = getattr(self.request.user, "organisation", None)
+        if user_organisation:
+            return user_organisation
 
-        membership = self.request.user.memberships.filter(is_active=True).first()
+        membership = (
+            self.request.user.memberships
+            .filter(is_active=True, organisation__is_active=True)
+            .select_related("organisation")
+            .first()
+        )
+
         if membership:
             return membership.organisation
 
@@ -53,10 +60,21 @@ class OrganisationQuerysetMixin:
 
     def get_queryset(self):
         organisation = self.get_organisation()
+
+        if organisation is None:
+            return self.queryset.none()
+
         return self.queryset.filter(organisation=organisation)
 
     def perform_create(self, serializer):
-        serializer.save(organisation=self.get_organisation())
+        organisation = self.get_organisation()
+
+        if organisation is None:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        serializer.save(organisation=organisation)
 
 
 class CategoryViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
@@ -115,14 +133,24 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         )
 
 
+
+
 class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = DiscoTable.objects.all()
     serializer_class = DiscoTableSerializer
 
     def perform_create(self, serializer):
-        serializer.save(
-            organisation=self.get_organisation()
-        )
+        organisation = self.get_organisation()
+
+        print("TABLE CREATE USER:", self.request.user)
+        print("TABLE CREATE ORG:", organisation)
+
+        if organisation is None:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        serializer.save(organisation=organisation)
 
 
 class CashShiftViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):

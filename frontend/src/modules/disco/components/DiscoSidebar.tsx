@@ -1,23 +1,29 @@
 // src/modules/disco/components/DiscoSidebar.tsx
 
-import { NavLink, useParams } from "react-router-dom";
+import { NavLink, useNavigate, useParams } from "react-router-dom";
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  Boxes,
+  Activity,
   ArrowLeftRight,
-  Table2,
+  BarChart3,
+  Boxes,
   CalendarDays,
+  LayoutDashboard,
+  LogOut,
+  Music4,
+  Package,
+  Receipt,
+  Settings,
+  ShoppingCart,
+  Table2,
+  UserCircle,
   Users,
   Wallet,
-  Receipt,
-  BarChart3,
-  Activity,
-  Settings,
   X,
-  Music4,
 } from "lucide-react";
+
+import api from "../../../api/axios";
+import { useAppDispatch, useAppSelector } from "../../../store/hooks";
+import { logoutUser } from "../../../features/auth/authSlice";
 
 type DiscoSidebarProps = {
   mobileOpen: boolean;
@@ -28,79 +34,111 @@ export default function DiscoSidebar({
   mobileOpen,
   onClose,
 }: DiscoSidebarProps) {
+  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const { organisationSlug } = useParams();
+  const { user } = useAppSelector((state) => state.auth);
+
+  const slug = organisationSlug || user?.organisation?.slug || "almond-brownie";
+
+  const displayName =
+    user?.disco_employee?.full_name ||
+    user?.username ||
+    user?.email ||
+    "Logged in user";
+
+  const role =
+    user?.disco_employee?.role ||
+    user?.role ||
+    "User";
+
+  const organisationName =
+    user?.disco_employee?.organisation_name ||
+    user?.organisation?.name ||
+    slug;
 
   const links = [
     {
       name: "Dashboard",
       icon: LayoutDashboard,
-      path: `/disco/${organisationSlug}/dashboard`,
+      path: `/disco/${slug}/dashboard`,
     },
     {
       name: "POS",
       icon: ShoppingCart,
-      path: `/disco/${organisationSlug}/pos`,
+      path: `/disco/${slug}/pos`,
     },
     {
       name: "Products",
       icon: Package,
-      path: `/disco/${organisationSlug}/products`,
+      path: `/disco/${slug}/products`,
     },
     {
       name: "Inventory",
       icon: Boxes,
-      path: `/disco/${organisationSlug}/inventory`,
+      path: `/disco/${slug}/inventory`,
     },
     {
       name: "Stock Movements",
       icon: ArrowLeftRight,
-      path: `/disco/${organisationSlug}/stock-movements`,
+      path: `/disco/${slug}/stock-movements`,
     },
     {
       name: "Tables",
       icon: Table2,
-      path: `/disco/${organisationSlug}/tables`,
+      path: `/disco/${slug}/tables`,
     },
     {
       name: "Reservations",
       icon: CalendarDays,
-      path: `/disco/${organisationSlug}/reservations`,
+      path: `/disco/${slug}/reservations`,
     },
     {
       name: "Employees",
       icon: Users,
-      path: `/disco/${organisationSlug}/employees`,
+      path: `/disco/${slug}/employees`,
     },
     {
       name: "Cash Shifts",
       icon: Wallet,
-      path: `/disco/${organisationSlug}/cash-shifts`,
+      path: `/disco/${slug}/cash-shifts`,
     },
     {
       name: "Expenses",
       icon: Receipt,
-      path: `/disco/${organisationSlug}/expenses`,
+      path: `/disco/${slug}/expenses`,
     },
     {
       name: "Reports",
       icon: BarChart3,
-      path: `/disco/${organisationSlug}/reports`,
+      path: `/disco/${slug}/reports`,
     },
     {
       name: "Activity Logs",
       icon: Activity,
-      path: `/disco/${organisationSlug}/activity-logs`,
+      path: `/disco/${slug}/activity-logs`,
     },
     {
       name: "Settings",
       icon: Settings,
-      path: `/disco/${organisationSlug}/settings`,
+      path: `/disco/${slug}/settings`,
     },
   ];
 
+  async function handleLogout() {
+    try {
+      await api.post("/accounts/logout/");
+    } catch (err) {
+      console.error("Logout request failed:", err);
+    } finally {
+      dispatch(logoutUser());
+      navigate(`/disco/${slug}/login`, { replace: true });
+      onClose();
+    }
+  }
+
   return (
     <>
-      {/* Mobile Overlay */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
@@ -108,7 +146,6 @@ export default function DiscoSidebar({
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`
           fixed left-0 top-0 z-50 h-screen w-72
@@ -118,7 +155,6 @@ export default function DiscoSidebar({
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Header */}
         <div className="flex h-20 items-center justify-between border-b border-slate-800 px-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
@@ -132,6 +168,7 @@ export default function DiscoSidebar({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="rounded-xl p-2 hover:bg-slate-800 lg:hidden"
           >
@@ -139,49 +176,76 @@ export default function DiscoSidebar({
           </button>
         </div>
 
-        {/* Navigation */}
-        <div className="h-[calc(100vh-80px)] overflow-y-auto p-4">
-          <nav className="space-y-2">
-            {links.map((link) => {
-              const Icon = link.icon;
+        <div className="flex h-[calc(100vh-80px)] flex-col overflow-hidden">
+          <div className="border-b border-slate-800 p-4">
+            <div className="rounded-3xl bg-slate-900 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-950">
+                  <UserCircle size={24} />
+                </div>
 
-              return (
-                <NavLink
-                  key={link.path}
-                  to={link.path}
-                  onClick={onClose}
-                  className={({ isActive }) =>
-                    `
-                      flex items-center gap-3 rounded-2xl px-4 py-3
-                      text-sm font-bold transition-all
-                      ${
-                        isActive
-                          ? "bg-white text-slate-950 shadow-lg"
-                          : "text-slate-300 hover:bg-slate-900 hover:text-white"
-                      }
-                    `
-                  }
-                >
-                  <Icon size={18} />
-                  {link.name}
-                </NavLink>
-              );
-            })}
-          </nav>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black text-white">
+                    {displayName}
+                  </p>
 
-          {/* Footer */}
-          <div className="mt-8 rounded-3xl bg-slate-900 p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Organisation
-            </p>
+                  <p className="truncate text-xs font-semibold capitalize text-slate-400">
+                    {role.replace("_", " ")}
+                  </p>
+                </div>
+              </div>
 
-            <h3 className="mt-1 truncate text-sm font-black">
-              {organisationSlug}
-            </h3>
+              <div className="mt-4 rounded-2xl bg-slate-950/60 p-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Organisation
+                </p>
 
-            <p className="mt-2 text-xs text-slate-400">
-              Multi-tenant Disco Management Platform
-            </p>
+                <p className="mt-1 truncate text-sm font-black text-white">
+                  {organisationName}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            <nav className="space-y-2">
+              {links.map((link) => {
+                const Icon = link.icon;
+
+                return (
+                  <NavLink
+                    key={link.path}
+                    to={link.path}
+                    onClick={onClose}
+                    className={({ isActive }) =>
+                      `
+                        flex items-center gap-3 rounded-2xl px-4 py-3
+                        text-sm font-bold transition-all
+                        ${
+                          isActive
+                            ? "bg-white text-slate-950 shadow-lg"
+                            : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                        }
+                      `
+                    }
+                  >
+                    <Icon size={18} />
+                    {link.name}
+                  </NavLink>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="border-t border-slate-800 p-4">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500/10 px-4 py-3 text-sm font-black text-red-300 transition hover:bg-red-500 hover:text-white"
+            >
+              <LogOut size={18} />
+              Logout
+            </button>
           </div>
         </div>
       </aside>
