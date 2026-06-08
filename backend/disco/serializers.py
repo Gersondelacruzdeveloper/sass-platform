@@ -163,8 +163,20 @@ class SaleSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         items = validated_data.pop("items")
 
+        membership = (
+            request.user.memberships
+            .filter(is_active=True, organisation__is_active=True)
+            .select_related("organisation")
+            .first()
+        )
+
+        if not membership:
+            raise serializers.ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
         sale = create_sale(
-            organisation=request.user.organisation,
+            organisation=membership.organisation,
             created_by=request.user,
             items=items,
             **validated_data
