@@ -86,14 +86,50 @@ class ProductViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = Product.objects.select_related("category").all()
     serializer_class = ProductSerializer
 
+    def perform_create(self, serializer):
+        product = serializer.save(
+            organisation=self.get_organisation()
+        )
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="product_created",
+            description=f"Created product '{product.name}' with stock {product.stock}",
+        )
+
+    def perform_update(self, serializer):
+        product = serializer.save()
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="product_updated",
+            description=f"Updated product '{product.name}'",
+        )
+
+    def perform_destroy(self, instance):
+        product_name = instance.name
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="product_deleted",
+            description=f"Deleted product '{product_name}'",
+        )
+
+        instance.delete()
+
     @action(detail=False, methods=["get"])
     def low_stock(self, request):
         organisation = self.get_organisation()
+
         products = Product.objects.filter(
             organisation=organisation,
             stock__lte=models.F("minimum_stock"),
             is_active=True,
         )
+
         serializer = self.get_serializer(products, many=True)
         return Response(serializer.data)
 
@@ -106,9 +142,38 @@ class StockMovementViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = StockMovementSerializer
 
     def perform_create(self, serializer):
-        serializer.save(
+        movement = serializer.save(
             organisation=self.get_organisation(),
             created_by=self.request.user,
+        )
+
+        product = movement.product
+        quantity = movement.quantity
+
+        if movement.movement_type == "in":
+            product.stock += quantity
+
+        elif movement.movement_type in ["out", "loss"]:
+            product.stock -= quantity
+
+        elif movement.movement_type == "adjustment":
+            product.stock = quantity
+
+        if product.stock < 0:
+            product.stock = 0
+
+        product.save(update_fields=["stock", "updated_at"])
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="stock_movement",
+            description=(
+                f"{movement.movement_type.upper()} | "
+                f"{product.name} | "
+                f"Qty: {quantity} | "
+                f"New stock: {product.stock}"
+            ),
         )
 
 
@@ -117,10 +182,39 @@ class ExpenseViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = ExpenseSerializer
 
     def perform_create(self, serializer):
-        serializer.save(
+        expense = serializer.save(
             organisation=self.get_organisation(),
             created_by=self.request.user,
         )
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="expense_created",
+            description=f"Created expense '{expense.title}' for {expense.amount}",
+        )
+
+    def perform_update(self, serializer):
+        expense = serializer.save()
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="expense_updated",
+            description=f"Updated expense '{expense.title}'",
+        )
+
+    def perform_destroy(self, instance):
+        title = instance.title
+
+        DiscoActivityLog.objects.create(
+            organisation=self.get_organisation(),
+            user=self.request.user,
+            action="expense_deleted",
+            description=f"Deleted expense '{title}'",
+        )
+
+        instance.delete()
 
 
 class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
@@ -131,7 +225,6 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         serializer.save(
             organisation=self.get_organisation()
         )
-
 
 
 

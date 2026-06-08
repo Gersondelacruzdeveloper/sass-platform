@@ -158,7 +158,6 @@ class SaleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-
     def create(self, validated_data):
         request = self.context["request"]
         items = validated_data.pop("items")
@@ -180,6 +179,13 @@ class SaleSerializer(serializers.ModelSerializer):
             created_by=request.user,
             items=items,
             **validated_data
+        )
+
+        DiscoActivityLog.objects.create(
+            organisation=membership.organisation,
+            user=request.user,
+            action="sale_created",
+            description=f"Created sale #{sale.id} for {sale.total}",
         )
 
         return sale
