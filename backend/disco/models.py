@@ -1,7 +1,123 @@
 from django.db import models
 from django.conf import settings
 from organisations.models import Organisation
-from django.utils import timezone
+
+
+class DiscoEmployee(models.Model):
+    ROLE_CHOICES = (
+        ("owner", "Owner"),
+        ("manager", "Manager"),
+        ("cashier", "Cashier"),
+        ("bartender", "Bartender"),
+        ("waiter", "Waiter"),
+        ("security", "Security"),
+        ("host", "Host"),
+        ("promoter", "Promoter"),
+        ("inventory_manager", "Inventory Manager"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="disco_employees"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="disco_employee_profiles"
+    )
+
+    full_name = models.CharField(max_length=150)
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES)
+    phone = models.CharField(max_length=30, blank=True, null=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.full_name
+
+    class Meta:
+        ordering = ["full_name"]
+
+
+class DiscoTable(models.Model):
+    STATUS_CHOICES = (
+        ("available", "Available"),
+        ("occupied", "Occupied"),
+        ("reserved", "Reserved"),
+        ("cleaning", "Cleaning"),
+        ("inactive", "Inactive"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="disco_tables"
+    )
+
+    name = models.CharField(max_length=50)
+    floor = models.CharField(max_length=100, blank=True, null=True)
+    capacity = models.PositiveIntegerField(default=4)
+    minimum_spend = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="available",
+        db_index=True
+    )
+    is_vip = models.BooleanField(default=False, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = ("organisation", "name")
+
+
+class CashShift(models.Model):
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="cash_shifts"
+    )
+
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="cash_shifts_opened"
+    )
+
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cash_shifts_closed"
+    )
+
+    opening_cash = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    closing_cash = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    opened_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    closed_at = models.DateTimeField(blank=True, null=True)
+
+    is_open = models.BooleanField(default=True, db_index=True)
+
+    def __str__(self):
+        return f"Cash Shift #{self.id}"
+
+    class Meta:
+        ordering = ["-opened_at"]
 
 
 class Category(models.Model):
@@ -11,17 +127,10 @@ class Category(models.Model):
         related_name="categories"
     )
 
-    name = models.CharField(
-        max_length=100
-    )
+    name = models.CharField(max_length=100)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
@@ -32,6 +141,16 @@ class Category(models.Model):
 
 
 class Product(models.Model):
+    UNIT_CHOICES = (
+        ("unit", "Unit"),
+        ("bottle", "Bottle"),
+        ("can", "Can"),
+        ("box", "Box"),
+        ("case", "Case"),
+        ("liter", "Liter"),
+        ("ml", "ML"),
+    )
+
     organisation = models.ForeignKey(
         Organisation,
         on_delete=models.CASCADE,
@@ -39,68 +158,37 @@ class Product(models.Model):
     )
 
     category = models.ForeignKey(
-        Category,
+        "Category",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="products"
     )
 
-    name = models.CharField(
-        max_length=150
-    )
+    name = models.CharField(max_length=150)
 
-    barcode = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        unique=True
-    )
+    barcode = models.CharField(max_length=100, blank=True, null=True)
+    sku = models.CharField(max_length=100, blank=True, null=True)
 
-    sku = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        unique=True
-    )
+    image = models.ImageField(upload_to="products/", blank=True, null=True)
 
-    image = models.ImageField(
-        upload_to="products/",
-        blank=True,
-        null=True
-    )
+    cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    sale_price = models.DecimalField(max_digits=10, decimal_places=2)
 
-    cost_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
+    stock = models.PositiveIntegerField(default=0)
+    minimum_stock = models.PositiveIntegerField(default=5)
 
-    sale_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
+    unit = models.CharField(max_length=50, choices=UNIT_CHOICES, default="unit")
+    is_alcohol = models.BooleanField(default=False)
 
-    stock = models.PositiveIntegerField(
-        default=0
-    )
+    brand = models.CharField(max_length=100, blank=True, null=True)
+    size_ml = models.PositiveIntegerField(blank=True, null=True)
+    supplier_name = models.CharField(max_length=150, blank=True, null=True)
 
-    minimum_stock = models.PositiveIntegerField(
-        default=5
-    )
+    is_active = models.BooleanField(default=True, db_index=True)
 
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     @property
     def is_low_stock(self):
@@ -115,6 +203,10 @@ class Product(models.Model):
 
     class Meta:
         ordering = ["name"]
+        unique_together = (
+            ("organisation", "barcode"),
+            ("organisation", "sku"),
+        )
 
 
 class StockMovement(models.Model):
@@ -132,7 +224,7 @@ class StockMovement(models.Model):
     )
 
     product = models.ForeignKey(
-        Product,
+        "Product",
         on_delete=models.CASCADE,
         related_name="stock_movements"
     )
@@ -144,33 +236,25 @@ class StockMovement(models.Model):
     )
 
     quantity = models.PositiveIntegerField()
-
-    note = models.TextField(
-        blank=True,
-        null=True
-    )
+    note = models.TextField(blank=True, null=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="stock_movements_created"
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.product.name} - {self.movement_type}"
 
     class Meta:
         ordering = ["-created_at"]
+
 
 class Sale(models.Model):
     PAYMENT_CHOICES = (
@@ -192,6 +276,8 @@ class Sale(models.Model):
         ("table", "Table"),
         ("delivery", "Delivery"),
         ("entry_fee", "Entry Fee"),
+        ("vip", "VIP"),
+        ("bottle_service", "Bottle Service"),
     )
 
     organisation = models.ForeignKey(
@@ -200,12 +286,7 @@ class Sale(models.Model):
         related_name="sales"
     )
 
-    receipt_number = models.CharField(
-        max_length=50,
-        unique=True,
-        blank=True,
-        null=True
-    )
+    receipt_number = models.CharField(max_length=50, blank=True, null=True)
 
     payment_method = models.CharField(
         max_length=20,
@@ -222,109 +303,95 @@ class Sale(models.Model):
     )
 
     sale_type = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=SALE_TYPE_CHOICES,
-        default="pos"
+        default="pos",
+        db_index=True
     )
 
-    customer_name = models.CharField(
-        max_length=255,
+    customer_name = models.CharField(max_length=255, blank=True, null=True)
+
+    table = models.ForeignKey(
+        "DiscoTable",
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
-        null=True
+        related_name="sales"
     )
 
-    table_number = models.CharField(
-        max_length=20,
+    table_number = models.CharField(max_length=20, blank=True, null=True)
+
+    cash_shift = models.ForeignKey(
+        "CashShift",
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
-        null=True
+        related_name="sales"
     )
 
-    subtotal = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
+    waiter = models.ForeignKey(
+        "DiscoEmployee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_as_waiter"
     )
 
-    discount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
+    bartender = models.ForeignKey(
+        "DiscoEmployee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_as_bartender"
     )
 
-    tax = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
-
-    total = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="sales_created"
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Sale #{self.id}"
 
     class Meta:
         ordering = ["-created_at"]
+        unique_together = ("organisation", "receipt_number")
+
 
 class SaleItem(models.Model):
     sale = models.ForeignKey(
-        Sale,
+        "Sale",
         on_delete=models.CASCADE,
         related_name="items"
     )
 
     product = models.ForeignKey(
-        Product,
+        "Product",
         on_delete=models.PROTECT,
         related_name="sale_items"
     )
 
     quantity = models.PositiveIntegerField(default=1)
 
-    unit_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
 
-    unit_cost = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
-
-    total = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     def profit(self):
-        return (
-            self.unit_price - self.unit_cost
-        ) * self.quantity
+        return (self.unit_price - self.unit_cost) * self.quantity
 
     def __str__(self):
         return f"{self.product.name} x {self.quantity}"
@@ -340,44 +407,108 @@ class Expense(models.Model):
         related_name="expenses"
     )
 
-    title = models.CharField(
-        max_length=150
-    )
-
-    category = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True
-    )
-
-    amount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
-
-    note = models.TextField(
-        blank=True,
-        null=True
-    )
+    title = models.CharField(max_length=150)
+    category = models.CharField(max_length=100, blank=True, null=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    note = models.TextField(blank=True, null=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="expenses_created"
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.title
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class DiscoReservation(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("confirmed", "Confirmed"),
+        ("arrived", "Arrived"),
+        ("cancelled", "Cancelled"),
+        ("no_show", "No Show"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="disco_reservations"
+    )
+
+    table = models.ForeignKey(
+        "DiscoTable",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reservations"
+    )
+
+    customer_name = models.CharField(max_length=150)
+    customer_phone = models.CharField(max_length=30, blank=True, null=True)
+    people_count = models.PositiveIntegerField(default=1)
+
+    reservation_datetime = models.DateTimeField(db_index=True)
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="pending",
+        db_index=True
+    )
+
+    note = models.TextField(blank=True, null=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="disco_reservations_created"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.customer_name} - {self.reservation_datetime}"
+
+    class Meta:
+        ordering = ["-reservation_datetime"]
+
+
+class DiscoActivityLog(models.Model):
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="disco_activity_logs"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="disco_activity_logs"
+    )
+
+    action = models.CharField(max_length=150)
+    description = models.TextField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return self.action
 
     class Meta:
         ordering = ["-created_at"]

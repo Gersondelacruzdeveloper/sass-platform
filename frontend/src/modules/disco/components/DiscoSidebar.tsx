@@ -1,154 +1,190 @@
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+// src/modules/disco/components/DiscoSidebar.tsx
+
+import { NavLink, useParams } from "react-router-dom";
 import {
   LayoutDashboard,
-  CreditCard,
   ShoppingCart,
+  Package,
   Boxes,
+  ArrowLeftRight,
+  Table2,
+  CalendarDays,
   Users,
+  Wallet,
   Receipt,
   BarChart3,
-  Crown,
+  Activity,
   Settings,
-  LogOut,
+  X,
+  Music4,
 } from "lucide-react";
 
-import api from "../../../api/axios";
+type DiscoSidebarProps = {
+  mobileOpen: boolean;
+  onClose: () => void;
+};
 
-export default function DiscoSidebar() {
-  const navigate = useNavigate();
+export default function DiscoSidebar({
+  mobileOpen,
+  onClose,
+}: DiscoSidebarProps) {
   const { organisationSlug } = useParams();
-
-  const basePath = `/disco/${organisationSlug}`;
 
   const links = [
     {
-      label: "Dashboard",
-      to: `${basePath}/dashboard`,
+      name: "Dashboard",
       icon: LayoutDashboard,
+      path: `/disco/${organisationSlug}/dashboard`,
     },
     {
-      label: "POS",
-      to: `${basePath}/pos`,
-      icon: CreditCard,
-    },
-    {
-      label: "Sales",
-      to: `${basePath}/sales`,
+      name: "POS",
       icon: ShoppingCart,
+      path: `/disco/${organisationSlug}/pos`,
     },
     {
-      label: "Inventory",
-      to: `${basePath}/inventory`,
+      name: "Products",
+      icon: Package,
+      path: `/disco/${organisationSlug}/products`,
+    },
+    {
+      name: "Inventory",
       icon: Boxes,
+      path: `/disco/${organisationSlug}/inventory`,
     },
     {
-      label: "Employees",
-      to: `${basePath}/employees`,
+      name: "Stock Movements",
+      icon: ArrowLeftRight,
+      path: `/disco/${organisationSlug}/stock-movements`,
+    },
+    {
+      name: "Tables",
+      icon: Table2,
+      path: `/disco/${organisationSlug}/tables`,
+    },
+    {
+      name: "Reservations",
+      icon: CalendarDays,
+      path: `/disco/${organisationSlug}/reservations`,
+    },
+    {
+      name: "Employees",
       icon: Users,
+      path: `/disco/${organisationSlug}/employees`,
     },
     {
-      label: "Expenses",
-      to: `${basePath}/expenses`,
+      name: "Cash Shifts",
+      icon: Wallet,
+      path: `/disco/${organisationSlug}/cash-shifts`,
+    },
+    {
+      name: "Expenses",
       icon: Receipt,
+      path: `/disco/${organisationSlug}/expenses`,
     },
     {
-      label: "Reports",
-      to: `${basePath}/reports`,
+      name: "Reports",
       icon: BarChart3,
+      path: `/disco/${organisationSlug}/reports`,
     },
     {
-      label: "Subscription",
-      to: `${basePath}/subscription`,
-      icon: Crown,
+      name: "Activity Logs",
+      icon: Activity,
+      path: `/disco/${organisationSlug}/activity-logs`,
     },
     {
-      label: "Settings",
-      to: `${basePath}/settings`,
+      name: "Settings",
       icon: Settings,
+      path: `/disco/${organisationSlug}/settings`,
     },
   ];
 
-  const handleLogout = async () => {
-    try {
-      await api.post("/accounts/logout/");
-    } catch (error) {
-      console.error(error);
-    } finally {
-      navigate(`/disco/${organisationSlug}/login`);
-    }
-  };
-
   return (
-    <aside className="hidden w-72 flex-col border-r border-white/10 bg-[#0f172a] text-white md:flex">
-      <div className="border-b border-white/10 px-6 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">
-          Disco<span className="text-cyan-400">OS</span>
-        </h1>
+    <>
+      {/* Mobile Overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onClose}
+        />
+      )}
 
-        <p className="mt-1 text-sm text-slate-400">
-          Premium nightclub management
-        </p>
-      </div>
+      {/* Sidebar */}
+      <aside
+        className={`
+          fixed left-0 top-0 z-50 h-screen w-72
+          transform border-r border-slate-800
+          bg-slate-950 text-white transition-transform duration-300
+          lg:translate-x-0
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+        `}
+      >
+        {/* Header */}
+        <div className="flex h-20 items-center justify-between border-b border-slate-800 px-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              Disco
+            </p>
 
-      <nav className="flex-1 space-y-2 p-4">
-        {links.map((link) => {
-          const Icon = link.icon;
+            <h2 className="flex items-center gap-2 text-xl font-black">
+              <Music4 size={22} />
+              Nightclub POS
+            </h2>
+          </div>
 
-          return (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              className={({ isActive }) =>
-                `
-                group flex items-center gap-3 rounded-2xl px-4 py-3
-                text-sm font-medium transition-all duration-200
-                ${
-                  isActive
-                    ? "bg-cyan-500 text-white shadow-lg shadow-cyan-500/20"
-                    : "text-slate-300 hover:bg-white/5 hover:text-white"
-                }
-              `
-              }
-            >
-              <Icon
-                size={20}
-                className="transition-transform duration-200 group-hover:scale-110"
-              />
+          <button
+            onClick={onClose}
+            className="rounded-xl p-2 hover:bg-slate-800 lg:hidden"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
-              <span>{link.label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
+        {/* Navigation */}
+        <div className="h-[calc(100vh-80px)] overflow-y-auto p-4">
+          <nav className="space-y-2">
+            {links.map((link) => {
+              const Icon = link.icon;
 
-      <div className="border-t border-white/10 p-4">
-        <div className="rounded-2xl bg-white/5 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">
-            Current Plan
-          </p>
+              return (
+                <NavLink
+                  key={link.path}
+                  to={link.path}
+                  onClick={onClose}
+                  className={({ isActive }) =>
+                    `
+                      flex items-center gap-3 rounded-2xl px-4 py-3
+                      text-sm font-bold transition-all
+                      ${
+                        isActive
+                          ? "bg-white text-slate-950 shadow-lg"
+                          : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                      }
+                    `
+                  }
+                >
+                  <Icon size={18} />
+                  {link.name}
+                </NavLink>
+              );
+            })}
+          </nav>
 
-          <div className="mt-2 flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold">Pro Plan</h3>
-              <p className="text-sm text-slate-400">
-                12 Employees Active
-              </p>
-            </div>
+          {/* Footer */}
+          <div className="mt-8 rounded-3xl bg-slate-900 p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Organisation
+            </p>
 
-            <div className="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-semibold text-cyan-300">
-              ACTIVE
-            </div>
+            <h3 className="mt-1 truncate text-sm font-black">
+              {organisationSlug}
+            </h3>
+
+            <p className="mt-2 text-xs text-slate-400">
+              Multi-tenant Disco Management Platform
+            </p>
           </div>
         </div>
-      </div>
-
-      <button
-        onClick={handleLogout}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-red-500 hover:text-white"
-      >
-        <LogOut size={18} />
-        Logout
-      </button>
-    </aside>
+      </aside>
+    </>
   );
 }

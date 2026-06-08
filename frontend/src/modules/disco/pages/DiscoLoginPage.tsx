@@ -1,267 +1,263 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useAppDispatch } from "../../../store/hooks";
+import { loginUser } from "../../../features/auth/authSlice";
 import {
-  ArrowRight,
-  Building2,
+  AlertCircle,
   Eye,
   EyeOff,
+  Loader2,
   Lock,
-  ShieldCheck,
-  Sparkles,
+  Music2,
   User,
 } from "lucide-react";
 
-import { loginUser } from "../../../features/auth/authSlice";
-import { useAppDispatch, useAppSelector } from "../../../store/hooks";
+import api from "../../../api/axios";
 
-import {
-  getPublicBranding,
-  defaultBranding,
-  type Branding,
-} from "../../../api/brandingApi";
+type Branding = {
+  company_name?: string;
+  platform_name?: string;
+  login_title?: string;
+  login_subtitle?: string;
+  logo?: string | null;
+  primary_color?: string;
+  secondary_color?: string;
+  accent_color?: string;
+};
 
 export default function DiscoLoginPage() {
-  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const { organisationSlug } = useParams();
 
-  const { loading, error } = useAppSelector((state) => state.auth);
-
-  const [login, setLogin] = useState("");
-  const [password, setPassword] = useState("");
+  const dispatch = useAppDispatch();
+  const [branding, setBranding] = useState<Branding | null>(null);
+  const [username, setUsername] = useState("admin@almondbrownie.com");
+  const [password, setPassword] = useState("Disco123!");
   const [showPassword, setShowPassword] = useState(false);
-  const [branding, setBranding] = useState<Branding>(defaultBranding);
-
-  const slug = useMemo(() => organisationSlug || "", [organisationSlug]);
+  const [loadingBranding, setLoadingBranding] = useState(true);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadBranding() {
-      let data = defaultBranding;
+      try {
+        setLoadingBranding(true);
 
-      if (slug) {
-        data = await getPublicBranding("disco", slug);
+        if (!organisationSlug) {
+          setLoadingBranding(false);
+          return;
+        }
+
+        const res = await api.get(
+          `/organisations/public-branding/disco/${organisationSlug}/`
+        );
+
+        setBranding(res.data);
+      } catch (err) {
+        console.error("Failed to load branding:", err);
+        setBranding(null);
+      } finally {
+        setLoadingBranding(false);
       }
-
-      setBranding(data);
-      document.title = data.platform_name || "Disco Login";
     }
 
     loadBranding();
-  }, [slug]);
+  }, [organisationSlug]);
 
-const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
 
-  try {
-    await dispatch(
-      loginUser({
-        login,
-        password,
-      })
-    ).unwrap();
+    try {
+      setLoggingIn(true);
+      setError("");
 
-    console.log("LOGIN SUCCESS");
+      await dispatch(
+        loginUser({
+          login: username,
+          password,
+        })
+      ).unwrap();
+      const slug = organisationSlug || "almond-brownie";
 
-    window.location.href = "/disco/dashboard";
-  } catch (err) {
-    console.error("LOGIN FAILED", err);
+      navigate(`/disco/${slug}/dashboard`, { replace: true });
+    } catch (err: any) {
+      console.error("Login failed:", err);
+
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Login failed. Please check your email and password.";
+
+      setError(message);
+    } finally {
+      setLoggingIn(false);
+    }
   }
-};
-  const companyInitial =
-    branding.company_name?.charAt(0)?.toUpperCase() || "D";
+
+  const title =
+    branding?.login_title ||
+    branding?.platform_name ||
+    branding?.company_name ||
+    "Disco Management";
+
+  const subtitle =
+    branding?.login_subtitle ||
+    "Sign in to manage POS, inventory, tables, staff, reservations, and reports.";
 
   return (
-    <div
-      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8"
-      style={{
-        background: `radial-gradient(circle at top left, ${branding.accent_color}35, transparent 32%),
-                     radial-gradient(circle at bottom right, ${branding.primary_color}55, transparent 36%),
-                     linear-gradient(135deg, ${branding.primary_color}, #020617)`,
-      }}
-    >
-      <div className="absolute left-10 top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
-      <div className="absolute bottom-10 right-10 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
-
-      <div className="relative grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-white/95 shadow-2xl backdrop-blur-xl lg:grid-cols-[1.1fr_0.9fr]">
-        <section
-          className="hidden min-h-[620px] p-10 text-white lg:flex lg:flex-col lg:justify-between"
-          style={{ backgroundColor: branding.primary_color }}
-        >
-          <div>
-            <div className="inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 shadow-lg backdrop-blur">
-              {branding.logo_url ? (
-                <img
-                  src={branding.logo_url}
-                  alt={branding.company_name}
-                  className="h-9 w-9 rounded-xl bg-white object-contain p-1"
-                />
-              ) : (
-                <div
-                  className="flex h-9 w-9 items-center justify-center rounded-xl font-black text-white"
-                  style={{ backgroundColor: branding.accent_color }}
-                >
-                  {companyInitial}
-                </div>
-              )}
-
-              <div>
-                <p className="text-sm text-white/60">{branding.company_name}</p>
-                <h2 className="text-lg font-black leading-tight">
-                  {branding.platform_name}
-                </h2>
-              </div>
-            </div>
-
-            <div className="mt-16 max-w-xl">
-              <div
-                className="mb-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
-                style={{ backgroundColor: `${branding.accent_color}30` }}
-              >
-                <Sparkles size={16} />
-                Disco workspace
+    <main className="min-h-screen bg-slate-950 px-4 py-6 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
+        <div className="grid w-full gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <section className="hidden lg:block">
+            <div className="rounded-[2rem] border border-white/10 bg-white/10 p-8 shadow-2xl backdrop-blur">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white text-slate-950">
+                <Music2 className="h-8 w-8" />
               </div>
 
-              <h1 className="text-5xl font-black leading-[1.05] tracking-tight">
-                {branding.login_title || `Welcome to ${branding.platform_name}`}
+              <h1 className="mt-8 max-w-xl text-5xl font-black leading-tight">
+                Run your disco from one modern dashboard.
               </h1>
 
-              <p className="mt-6 text-lg leading-8 text-white/70">
-                {branding.login_subtitle ||
-                  `Secure access for ${branding.company_name} sales, POS, inventory, staff and operations.`}
+              <p className="mt-5 max-w-lg text-lg font-medium leading-8 text-white/70">
+                POS, products, inventory, reservations, tables, staff, cash
+                shifts, expenses, and executive reports in one multi-tenant
+                platform.
               </p>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              "POS dashboard",
-              "Inventory control",
-              "Staff access",
-              "Sales reports",
-            ].map((item) => (
-              <div
-                key={item}
-                className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75"
-              >
-                <ShieldCheck className="mb-3 h-5 w-5" />
-                {item}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="flex items-center justify-center p-6 sm:p-8 lg:p-12">
-          <div className="w-full max-w-md">
-            <div className="mb-8 text-center">
-              <div className="mx-auto mb-5 flex justify-center">
-                {branding.logo_url ? (
-                  <img
-                    src={branding.logo_url}
-                    alt={branding.company_name}
-                    className="h-20 w-20 rounded-3xl border border-slate-200 bg-white object-contain p-2 shadow-lg"
-                  />
-                ) : (
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                {["POS", "Inventory", "Reports"].map((item) => (
                   <div
-                    className="flex h-20 w-20 items-center justify-center rounded-3xl text-3xl font-black text-white shadow-lg"
-                    style={{ backgroundColor: branding.accent_color }}
+                    key={item}
+                    className="rounded-3xl border border-white/10 bg-white/10 p-4"
                   >
-                    {companyInitial}
+                    <p className="text-sm font-black">{item}</p>
+                    <p className="mt-1 text-xs font-medium text-white/50">
+                      Live control
+                    </p>
                   </div>
-                )}
+                ))}
               </div>
-
-              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
-                {branding.company_name}
-              </p>
-
-              <h1 className="text-3xl font-black tracking-tight text-slate-950">
-                {branding.platform_name}
-              </h1>
-
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Sign in to continue to your disco workspace.
-              </p>
             </div>
+          </section>
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Username or email
-                </label>
+          <section className="mx-auto w-full max-w-md">
+            <div className="rounded-[2rem] border border-white/10 bg-white p-5 text-slate-950 shadow-2xl sm:p-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-3xl bg-slate-950 text-white">
+                  {branding?.logo ? (
+                    <img
+                      src={branding.logo}
+                      alt={branding.company_name || "Logo"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <Music2 className="h-7 w-7" />
+                  )}
+                </div>
 
-                <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 shadow-sm transition focus-within:border-slate-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-slate-100">
-                  <User size={18} className="text-slate-400" />
-
-                  <input
-                    type="text"
-                    className="w-full bg-transparent px-3 py-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                    value={login}
-                    onChange={(e) => setLogin(e.target.value)}
-                    placeholder="admin or admin@email.com"
-                    required
-                  />
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                    Disco Login
+                  </p>
+                  <h1 className="text-xl font-black text-slate-950">
+                    {loadingBranding ? "Loading..." : title}
+                  </h1>
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Password
-                </label>
-
-                <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 shadow-sm transition focus-within:border-slate-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-slate-100">
-                  <Lock size={18} className="text-slate-400" />
-
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    className="w-full bg-transparent px-3 py-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    required
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((value) => !value)}
-                    className="text-slate-400 transition hover:text-slate-700"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
+              <p className="mt-4 text-sm font-medium leading-6 text-slate-500">
+                {subtitle}
+              </p>
 
               {error && (
-                <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-medium text-red-600">
+                <div className="mt-5 flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
                   {error}
                 </div>
               )}
 
-              <button
-                disabled={loading}
-                className="group flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-bold text-white shadow-xl transition hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-60"
-                style={{ backgroundColor: branding.accent_color }}
-              >
-                {loading ? "Signing in..." : "Sign in"}
+              <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    Email Address
+                  </span>
 
-                {!loading && (
-                  <ArrowRight
-                    size={18}
-                    className="transition group-hover:translate-x-1"
-                  />
-                )}
-              </button>
-            </form>
+                  <div className="relative mt-2">
+                    <User className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
-            <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center text-xs leading-5 text-slate-500">
-              <Building2 className="mx-auto mb-2 h-5 w-5 text-slate-400" />
-              This secure workspace is configured for{" "}
-              <span className="font-semibold text-slate-700">
-                {branding.company_name}
-              </span>
-              .
+                    <input
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      required
+                      autoComplete="username"
+                      placeholder="admin@almondbrownie.com"
+                      className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                    />
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    Password
+                  </span>
+
+                  <div className="relative mt-2">
+                    <Lock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-12 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5" />
+                      ) : (
+                        <Eye className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={loggingIn}
+                  className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 py-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loggingIn && <Loader2 className="h-5 w-5 animate-spin" />}
+                  {loggingIn ? "Signing in..." : "Sign In"}
+                </button>
+              </form>
+
+              <div className="mt-5 rounded-3xl bg-slate-50 p-4">
+                <p className="text-xs font-bold leading-5 text-slate-500">
+                  Demo login:
+                  <span className="ml-1 text-slate-800">
+                    admin@almondbrownie.com / Disco123!
+                  </span>
+                </p>
+
+                <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                  Organisation:
+                  <span className="ml-1 text-slate-800">
+                    {organisationSlug || "almond-brownie"}
+                  </span>
+                </p>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

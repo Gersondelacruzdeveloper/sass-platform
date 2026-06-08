@@ -129,6 +129,25 @@ class MeView(APIView):
                     "can_view_reports": facilitator.can_view_reports,
                 }
 
+        disco_employee_data = None
+
+        disco_profile = (
+            user.disco_employee_profiles
+            .filter(is_active=True)
+            .select_related("organisation")
+            .first()
+        )
+
+        if disco_profile:
+            disco_employee_data = {
+                "id": disco_profile.id,
+                "full_name": disco_profile.full_name,
+                "role": disco_profile.role,
+                "organisation_id": disco_profile.organisation.id,
+                "organisation_slug": disco_profile.organisation.slug,
+                "organisation_name": disco_profile.organisation.name,
+            }
+
         return Response({
             "id": user.id,
             "email": user.email,
@@ -137,4 +156,5 @@ class MeView(APIView):
             "role": role,
             "organisation": organisation_data,
             "facilitator": facilitator_data,
+            "disco_employee": disco_employee_data,
         })

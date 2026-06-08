@@ -3,19 +3,26 @@ import { Route } from "react-router-dom";
 import ProtectedRoute from "../../../components/ProtectedRoute";
 
 import DiscoDashboardLayout from "../layouts/DiscoDashboardLayout";
-import DashboardHomePage from "../pages/DashboardHomePage";
-import PosPage from "../pages/PosPage";
-import SalesPage from "../pages/SalesPage";
-import InventoryPage from "../pages/InventoryPage";
-import EmployeesPage from "../pages/EmployeesPage";
-import ExpensesPage from "../pages/ExpensesPage";
-import ReportsPage from "../pages/ReportsPage";
-import SubscriptionPage from "../pages/SubscriptionPage";
-import SettingsPage from "../pages/SettingsPage";
-import OpenTabsPage from "../pages/OpenTabsPage";
-import EntryFeesPage from "../pages/EntryFeesPage";
-import TablesPage from "../pages/TablesPage";
+
 import DiscoLoginPage from "../pages/DiscoLoginPage";
+import DiscoDashboardPage from "../pages/DiscoDashboardPage";
+import DiscoPOSPage from "../pages/DiscoPOSPage";
+
+import DiscoProductsPage from "../pages/DiscoProductsPage";
+import DiscoInventoryPage from "../pages/DiscoInventoryPage";
+import DiscoStockMovementsPage from "../pages/DiscoStockMovementsPage";
+
+import DiscoTablesPage from "../pages/DiscoTablesPage";
+import DiscoReservationsPage from "../pages/DiscoReservationsPage";
+
+import DiscoEmployeesPage from "../pages/DiscoEmployeesPage";
+import DiscoCashShiftsPage from "../pages/DiscoCashShiftsPage";
+
+import DiscoExpensesPage from "../pages/DiscoExpensesPage";
+import DiscoReportsPage from "../pages/DiscoReportsPage";
+
+import DiscoActivityLogsPage from "../pages/DiscoActivityLogsPage";
+import DiscoSettingsPage from "../pages/DiscoSettingsPage";
 
 export const discoRoutes = (
   <>
@@ -25,21 +32,59 @@ export const discoRoutes = (
       element={<DiscoLoginPage />}
     />
 
-    {/* Protected Module */}
+    {/* Protected Disco Module */}
     <Route element={<ProtectedRoute />}>
-      <Route path="/disco/:organisationSlug" element={<DiscoDashboardLayout />}>
-        <Route path="dashboard" element={<DashboardHomePage />} />
-        <Route path="pos" element={<PosPage />} />
-        <Route path="tables" element={<TablesPage />} />
-        <Route path="open-tabs" element={<OpenTabsPage />} />
-        <Route path="entry-fees" element={<EntryFeesPage />} />
-        <Route path="sales" element={<SalesPage />} />
-        <Route path="inventory" element={<InventoryPage />} />
-        <Route path="employees" element={<EmployeesPage />} />
-        <Route path="expenses" element={<ExpensesPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="subscription" element={<SubscriptionPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+      <Route
+        path="/disco/:organisationSlug"
+        element={<DiscoDashboardLayout />}
+      >
+        {/* Dashboard */}
+        <Route path="dashboard" element={<DiscoDashboardPage />} />
+
+        {/* POS */}
+        <Route path="pos" element={<DiscoPOSPage />} />
+
+        {/* Products */}
+        <Route path="products" element={<DiscoProductsPage />} />
+
+        {/* Inventory */}
+        <Route path="inventory" element={<DiscoInventoryPage />} />
+
+        {/* Stock Movements */}
+        <Route
+          path="stock-movements"
+          element={<DiscoStockMovementsPage />}
+        />
+
+        {/* Tables */}
+        <Route path="tables" element={<DiscoTablesPage />} />
+
+        {/* Reservations */}
+        <Route
+          path="reservations"
+          element={<DiscoReservationsPage />}
+        />
+
+        {/* Employees */}
+        <Route path="employees" element={<DiscoEmployeesPage />} />
+
+        {/* Cash Shifts */}
+        <Route path="cash-shifts" element={<DiscoCashShiftsPage />} />
+
+        {/* Expenses */}
+        <Route path="expenses" element={<DiscoExpensesPage />} />
+
+        {/* Reports */}
+        <Route path="reports" element={<DiscoReportsPage />} />
+
+        {/* Activity Logs */}
+        <Route
+          path="activity-logs"
+          element={<DiscoActivityLogsPage />}
+        />
+
+        {/* Settings */}
+        <Route path="settings" element={<DiscoSettingsPage />} />
       </Route>
     </Route>
   </>

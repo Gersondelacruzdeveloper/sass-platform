@@ -25,6 +25,7 @@ export type User = {
   is_platform_owner: boolean;
 
   role: UserRole | null;
+  permissions?: Record<string, boolean>;
 
   organisation: {
     id: number;

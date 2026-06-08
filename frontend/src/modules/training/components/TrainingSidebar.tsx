@@ -64,7 +64,7 @@ export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
     if (!permission) return true;
     if (isAdmin) return true;
 
-    return Boolean(user?.permissions?.[permission]);
+    return Boolean((user as any)?.permissions?.[permission]);
   }
 
   const links: SidebarLink[] = useMemo(

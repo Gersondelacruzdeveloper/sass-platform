@@ -1,123 +1,182 @@
-// frontend/src/modules/disco/components/CartPanel.tsx
+// src/modules/disco/components/CartPanel.tsx
 
-import type { CartItem } from "../types/pos"
+import {
+  Minus,
+  Plus,
+  ShoppingCart,
+  Trash2,
+  CreditCard,
+  Banknote,
+} from "lucide-react";
 
-interface Props {
-  cart: CartItem[]
-  subtotal: number
-  tax: number
-  total: number
-  onRemove: (id: number) => void
-  onComplete: () => void
-}
+type CartItem = {
+  product_id: number;
+  name: string;
+  sale_price: number;
+  quantity: number;
+};
+
+type CartPanelProps = {
+  items: CartItem[];
+  onIncrease: (productId: number) => void;
+  onDecrease: (productId: number) => void;
+  onRemove: (productId: number) => void;
+  onClear: () => void;
+  onCheckout: (paymentMethod: "cash" | "card") => void;
+  loading?: boolean;
+};
 
 export default function CartPanel({
-  cart,
-  subtotal,
-  tax,
-  total,
+  items,
+  onIncrease,
+  onDecrease,
   onRemove,
-  onComplete,
-}: Props) {
+  onClear,
+  onCheckout,
+  loading = false,
+}: CartPanelProps) {
+  const subtotal = items.reduce(
+    (sum, item) => sum + Number(item.sale_price) * item.quantity,
+    0
+  );
+
+  const tax = subtotal * 0.18;
+  const total = subtotal + tax;
+
+  const formatMoney = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(value);
 
   return (
-    <div
-      className="
-        flex
-        h-full
-        flex-col
-        rounded-2xl
-        bg-white
-        p-5
-        shadow-xl
-      "
-    >
-      <h2 className="text-2xl font-bold">
-        Cart
-      </h2>
+    <aside className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 p-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+            Current Order
+          </p>
+          <h2 className="flex items-center gap-2 text-lg font-black text-slate-900">
+            <ShoppingCart size={20} />
+            Cart
+          </h2>
+        </div>
 
-      <div className="mt-5 flex-1 space-y-3 overflow-auto">
-
-        {cart.map((item) => (
-          <div
-            key={item.product.id}
-            className="
-              flex
-              items-center
-              justify-between
-              rounded-xl
-              border
-              p-3
-            "
+        {items.length > 0 && (
+          <button
+            onClick={onClear}
+            className="rounded-full bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100"
           >
-            <div>
-              <h4 className="font-medium">
-                {item.product.name}
-              </h4>
+            Clear
+          </button>
+        )}
+      </div>
 
-              <p className="text-sm text-slate-500">
-                Qty: {item.quantity}
-              </p>
-            </div>
+      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        {items.length === 0 ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+            <ShoppingCart className="mb-3 text-slate-300" size={42} />
+            <p className="text-sm font-bold text-slate-700">
+              No products added yet
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Select products from the POS to start an order.
+            </p>
+          </div>
+        ) : (
+          items.map((item) => (
+            <div
+              key={item.product_id}
+              className="rounded-2xl border border-slate-100 bg-slate-50 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-black text-slate-900">
+                    {item.name}
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-500">
+                    {formatMoney(Number(item.sale_price))} each
+                  </p>
+                </div>
 
-            <div className="text-right">
-              <div className="font-bold">
-                RD$
-                {(
-                  Number(item.product.sale_price) *
-                  item.quantity
-                ).toFixed(2)}
+                <button
+                  onClick={() => onRemove(item.product_id)}
+                  className="rounded-full bg-white p-2 text-red-500 shadow-sm hover:bg-red-50"
+                >
+                  <Trash2 size={15} />
+                </button>
               </div>
 
-              <button
-                onClick={() =>
-                  onRemove(item.product.id)
-                }
-                className="
-                  mt-1
-                  text-xs
-                  text-red-500
-                "
-              >
-                Remove
-              </button>
+              <div className="mt-3 flex items-center justify-between">
+                <div className="flex items-center rounded-full bg-white p-1 shadow-sm">
+                  <button
+                    onClick={() => onDecrease(item.product_id)}
+                    className="rounded-full bg-slate-100 p-2 text-slate-700 hover:bg-slate-200"
+                  >
+                    <Minus size={14} />
+                  </button>
+
+                  <span className="w-10 text-center text-sm font-black text-slate-900">
+                    {item.quantity}
+                  </span>
+
+                  <button
+                    onClick={() => onIncrease(item.product_id)}
+                    className="rounded-full bg-slate-900 p-2 text-white hover:bg-black"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+
+                <p className="text-sm font-black text-slate-900">
+                  {formatMoney(Number(item.sale_price) * item.quantity)}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="border-t border-slate-100 p-4">
+        <div className="space-y-2 rounded-2xl bg-slate-50 p-4">
+          <div className="flex justify-between text-sm font-semibold text-slate-500">
+            <span>Subtotal</span>
+            <span>{formatMoney(subtotal)}</span>
+          </div>
+
+          <div className="flex justify-between text-sm font-semibold text-slate-500">
+            <span>Tax 18%</span>
+            <span>{formatMoney(tax)}</span>
+          </div>
+
+          <div className="border-t border-slate-200 pt-2">
+            <div className="flex justify-between text-lg font-black text-slate-900">
+              <span>Total</span>
+              <span>{formatMoney(total)}</span>
             </div>
           </div>
-        ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            disabled={items.length === 0 || loading}
+            onClick={() => onCheckout("cash")}
+            className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Banknote size={18} />
+            Cash
+          </button>
+
+          <button
+            disabled={items.length === 0 || loading}
+            onClick={() => onCheckout("card")}
+            className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <CreditCard size={18} />
+            Card
+          </button>
+        </div>
       </div>
-
-      <div className="mt-5 border-t pt-5">
-
-        <div className="flex justify-between">
-          <span>Subtotal</span>
-          <span>RD$ {subtotal.toFixed(2)}</span>
-        </div>
-
-        <div className="mt-2 flex justify-between">
-          <span>Tax</span>
-          <span>RD$ {tax.toFixed(2)}</span>
-        </div>
-
-        <div className="mt-3 flex justify-between text-xl font-bold">
-          <span>Total</span>
-          <span>RD$ {total.toFixed(2)}</span>
-        </div>
-
-        <button
-          onClick={onComplete}
-          className="
-            mt-5
-            w-full
-            rounded-xl
-            bg-black
-            py-4
-            font-semibold
-            text-white
-          "
-        >
-          Complete Sale
-        </button>
-      </div>
-    </div>
-  )
+    </aside>
+  );
 }
