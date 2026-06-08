@@ -1,16 +1,55 @@
 // src/modules/disco/layouts/DiscoDashboardLayout.tsx
 
-import { Outlet } from "react-router-dom";
+import { useState } from "react";
+import { Outlet, useNavigate, useParams } from "react-router-dom";
+
 import DiscoSidebar from "../components/DiscoSidebar";
 import DiscoTopbar from "../components/DiscoTopbar";
 
+import { logoutUser } from "../../../features/auth/authSlice";
+import { useAppDispatch, useAppSelector } from "../../../store/hooks";
+
 export default function DiscoDashboardLayout() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const { organisationSlug } = useParams();
+
+  const { user } = useAppSelector((state) => state.auth);
+
+  const slug = organisationSlug || user?.organisation?.slug || "almond-brownie";
+
+  const userName =
+    user?.disco_employee?.full_name ||
+    user?.username ||
+    user?.email ||
+    "Staff Member";
+
+  const organisationName =
+    user?.disco_employee?.organisation_name ||
+    user?.organisation?.name ||
+    slug;
+
+  async function handleLogout() {
+    await dispatch(logoutUser());
+    navigate(`/disco/${slug}/login`, { replace: true });
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <DiscoSidebar />
+      <DiscoSidebar
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+      />
 
       <div className="min-h-screen lg:pl-72">
-        <DiscoTopbar />
+        <DiscoTopbar
+          userName={userName}
+          organisationName={organisationName}
+          onMenuClick={() => setMobileOpen(true)}
+          onLogout={handleLogout}
+        />
 
         <main className="px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-10">
           <div className="mx-auto w-full max-w-7xl">

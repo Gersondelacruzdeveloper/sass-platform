@@ -1,6 +1,6 @@
 // src/modules/disco/components/DiscoTopbar.tsx
 
-import { Menu, Bell, Search, User, LogOut } from "lucide-react";
+import { Bell, LogOut, Menu, Search, User } from "lucide-react";
 import { useParams } from "react-router-dom";
 
 type DiscoTopbarProps = {
@@ -23,9 +23,9 @@ export default function DiscoTopbar({
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="flex h-16 items-center justify-between gap-3 px-4 sm:h-20 sm:px-6">
-        {/* Left Section */}
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={onMenuClick}
             className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 lg:hidden"
           >
@@ -43,7 +43,6 @@ export default function DiscoTopbar({
           </div>
         </div>
 
-        {/* Search */}
         <div className="hidden flex-1 justify-center lg:flex">
           <div className="relative w-full max-w-lg">
             <Search
@@ -59,10 +58,11 @@ export default function DiscoTopbar({
           </div>
         </div>
 
-        {/* Right Section */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Notifications */}
-          <button className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50">
+          <button
+            type="button"
+            className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+          >
             <Bell size={18} />
 
             {notificationCount > 0 && (
@@ -72,7 +72,6 @@ export default function DiscoTopbar({
             )}
           </button>
 
-          {/* User */}
           <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <User size={18} className="text-slate-700" />
@@ -89,14 +88,13 @@ export default function DiscoTopbar({
             </div>
           </div>
 
-          {/* Mobile Avatar */}
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
             <User size={18} />
           </div>
 
-          {/* Logout */}
           {onLogout && (
             <button
+              type="button"
               onClick={onLogout}
               className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-600 shadow-sm hover:bg-red-100"
             >

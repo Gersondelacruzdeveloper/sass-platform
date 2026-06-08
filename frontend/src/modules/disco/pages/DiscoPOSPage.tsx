@@ -54,11 +54,12 @@ function money(value?: string | number | null) {
 
 export default function DiscoPOSPage() {
   const { products, loading, error, refresh } = useDiscoProducts();
+
   const {
     tables,
     loading: tablesLoading,
     error: tablesError,
-    refresh: refreshTables,
+    refreshTables,
   } = useDiscoTables();
 
   const { createSale, saving, error: saleError } = useDiscoSales();
@@ -66,20 +67,17 @@ export default function DiscoPOSPage() {
   const {
     items,
     subtotal,
-    discount,
     tax,
     total,
     addItem,
     removeItem,
-    updateQuantity,
+    increaseQuantity,
+    decreaseQuantity,
     clearCart,
-    setDiscount,
-    setTax,
   } = useCart();
 
   const [search, setSearch] = useState("");
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [customerName, setCustomerName] = useState("");
 
   const availableProducts = useMemo(() => {
@@ -113,24 +111,19 @@ export default function DiscoPOSPage() {
     );
   }, [tables]);
 
-  async function handleCheckout() {
+  async function handleCheckout(paymentMethod: "cash" | "card") {
     if (items.length === 0) return;
 
-    const payload = {
-      payment_method: paymentMethod,
-      sale_type: selectedTable ? "table" : "bar",
-      customer_name: customerName,
-      table: selectedTable?.id || null,
-      table_number: selectedTable?.name || "",
-      subtotal,
-      discount,
-      tax,
-      total,
-      items: items.map((item) => ({
-        product_id: item.product.id,
-        quantity: item.quantity,
-      })),
-    };
+const payload = {
+  payment_method: paymentMethod,
+  sale_type: selectedTable ? "table" : "pos",
+  customer_name: customerName || "",
+  table_number: selectedTable?.name || "",
+  items: items.map((item) => ({
+    product_id: item.product.id,
+    quantity: item.quantity,
+  })),
+};
 
     await createSale(payload);
 
@@ -161,7 +154,7 @@ export default function DiscoPOSPage() {
 
         <DiscoStatCard
           title="Cart Items"
-          value={items.length}
+          value={items.reduce((sum, item) => sum + item.quantity, 0)}
           icon={ShoppingCart}
           helper="Current order"
         />
@@ -170,7 +163,7 @@ export default function DiscoPOSPage() {
           title="Order Total"
           value={money(total)}
           icon={ShoppingCart}
-          helper="Including tax/discount"
+          helper="Including tax"
         />
 
         <DiscoStatCard
@@ -214,15 +207,11 @@ export default function DiscoPOSPage() {
           </section>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-black text-slate-950">
-                  Tables
-                </h2>
-                <p className="text-sm font-medium text-slate-500">
-                  Select a table for table service orders.
-                </p>
-              </div>
+            <div className="mb-4">
+              <h2 className="text-lg font-black text-slate-950">Tables</h2>
+              <p className="text-sm font-medium text-slate-500">
+                Select a table for table service orders.
+              </p>
             </div>
 
             {tablesLoading ? (
@@ -298,21 +287,14 @@ export default function DiscoPOSPage() {
           <CartPanel
             items={items}
             subtotal={subtotal}
-            discount={discount}
             tax={tax}
             total={total}
-            paymentMethod={paymentMethod}
-            customerName={customerName}
-            selectedTable={selectedTable}
-            saving={saving}
-            onRemoveItem={removeItem}
-            onUpdateQuantity={updateQuantity}
-            onClearCart={clearCart}
-            onDiscountChange={setDiscount}
-            onTaxChange={setTax}
-            onPaymentMethodChange={setPaymentMethod}
-            onCustomerNameChange={setCustomerName}
+            onIncrease={increaseQuantity}
+            onDecrease={decreaseQuantity}
+            onRemove={removeItem}
+            onClear={clearCart}
             onCheckout={handleCheckout}
+            loading={saving}
           />
         </aside>
       </section>

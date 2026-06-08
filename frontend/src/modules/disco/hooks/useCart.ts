@@ -2,60 +2,48 @@
 
 import { useMemo, useState } from "react";
 
-export interface CartItem {
-  productId: number;
+export interface CartProduct {
+  id: number;
   name: string;
-  price: number;
-  costPrice?: number;
+  sale_price: number | string;
+  cost_price?: number | string;
+  image?: string | null;
+}
+
+export interface CartItem {
+  product: CartProduct;
   quantity: number;
-  image?: string;
 }
 
 export function useCart() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
 
-  const addItem = (product: Omit<CartItem, "quantity">) => {
+  const addItem = (product: CartProduct) => {
     setItems((prev) => {
-      const existing = prev.find(
-        (item) => item.productId === product.productId
-      );
+      const existing = prev.find((item) => item.product.id === product.id);
 
       if (existing) {
         return prev.map((item) =>
-          item.productId === product.productId
-            ? {
-                ...item,
-                quantity: item.quantity + 1,
-              }
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
 
-      return [
-        ...prev,
-        {
-          ...product,
-          quantity: 1,
-        },
-      ];
+      return [...prev, { product, quantity: 1 }];
     });
   };
 
   const removeItem = (productId: number) => {
-    setItems((prev) =>
-      prev.filter((item) => item.productId !== productId)
-    );
+    setItems((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
   const increaseQuantity = (productId: number) => {
     setItems((prev) =>
       prev.map((item) =>
-        item.productId === productId
-          ? {
-              ...item,
-              quantity: item.quantity + 1,
-            }
+        item.product.id === productId
+          ? { ...item, quantity: item.quantity + 1 }
           : item
       )
     );
@@ -65,21 +53,15 @@ export function useCart() {
     setItems((prev) =>
       prev
         .map((item) =>
-          item.productId === productId
-            ? {
-                ...item,
-                quantity: item.quantity - 1,
-              }
+          item.product.id === productId
+            ? { ...item, quantity: item.quantity - 1 }
             : item
         )
         .filter((item) => item.quantity > 0)
     );
   };
 
-  const updateQuantity = (
-    productId: number,
-    quantity: number
-  ) => {
+  const updateQuantity = (productId: number, quantity: number) => {
     if (quantity <= 0) {
       removeItem(productId);
       return;
@@ -87,12 +69,7 @@ export function useCart() {
 
     setItems((prev) =>
       prev.map((item) =>
-        item.productId === productId
-          ? {
-              ...item,
-              quantity,
-            }
-          : item
+        item.product.id === productId ? { ...item, quantity } : item
       )
     );
   };
@@ -104,58 +81,48 @@ export function useCart() {
 
   const subtotal = useMemo(() => {
     return items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
+      (sum, item) =>
+        sum + Number(item.product.sale_price || 0) * item.quantity,
       0
     );
   }, [items]);
 
-  const tax = useMemo(() => {
-    return subtotal * 0.18;
-  }, [subtotal]);
+  const tax = useMemo(() => subtotal * 0.18, [subtotal]);
 
-  const total = useMemo(() => {
-    return subtotal + tax - discount;
-  }, [subtotal, tax, discount]);
+  const total = useMemo(
+    () => subtotal + tax - Number(discount || 0),
+    [subtotal, tax, discount]
+  );
 
   const totalItems = useMemo(() => {
-    return items.reduce(
-      (sum, item) => sum + item.quantity,
-      0
-    );
+    return items.reduce((sum, item) => sum + item.quantity, 0);
   }, [items]);
 
   const totalProfit = useMemo(() => {
     return items.reduce((sum, item) => {
-      const cost = item.costPrice || 0;
+      const sale = Number(item.product.sale_price || 0);
+      const cost = Number(item.product.cost_price || 0);
 
-      return (
-        sum +
-        (item.price - cost) *
-          item.quantity
-      );
+      return sum + (sale - cost) * item.quantity;
     }, 0);
   }, [items]);
 
   return {
     items,
-
     subtotal,
     tax,
     total,
-
     discount,
     setDiscount,
-
     totalItems,
     totalProfit,
-
     addItem,
     removeItem,
-
     increaseQuantity,
     decreaseQuantity,
     updateQuantity,
-
     clearCart,
   };
 }
+
+export default useCart;

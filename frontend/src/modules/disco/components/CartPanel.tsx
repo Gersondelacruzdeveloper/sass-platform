@@ -1,23 +1,28 @@
 // src/modules/disco/components/CartPanel.tsx
 
 import {
+  Banknote,
+  CreditCard,
   Minus,
   Plus,
   ShoppingCart,
   Trash2,
-  CreditCard,
-  Banknote,
 } from "lucide-react";
 
 type CartItem = {
-  product_id: number;
-  name: string;
-  sale_price: number;
+  product: {
+    id: number;
+    name: string;
+    sale_price: number | string;
+  };
   quantity: number;
 };
 
 type CartPanelProps = {
   items: CartItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
   onIncrease: (productId: number) => void;
   onDecrease: (productId: number) => void;
   onRemove: (productId: number) => void;
@@ -28,6 +33,9 @@ type CartPanelProps = {
 
 export default function CartPanel({
   items,
+  subtotal,
+  tax,
+  total,
   onIncrease,
   onDecrease,
   onRemove,
@@ -35,14 +43,6 @@ export default function CartPanel({
   onCheckout,
   loading = false,
 }: CartPanelProps) {
-  const subtotal = items.reduce(
-    (sum, item) => sum + Number(item.sale_price) * item.quantity,
-    0
-  );
-
-  const tax = subtotal * 0.18;
-  const total = subtotal + tax;
-
   const formatMoney = (value: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -64,6 +64,7 @@ export default function CartPanel({
 
         {items.length > 0 && (
           <button
+            type="button"
             onClick={onClear}
             className="rounded-full bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100"
           >
@@ -84,56 +85,64 @@ export default function CartPanel({
             </p>
           </div>
         ) : (
-          items.map((item) => (
-            <div
-              key={item.product_id}
-              className="rounded-2xl border border-slate-100 bg-slate-50 p-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-black text-slate-900">
-                    {item.name}
-                  </h3>
-                  <p className="text-xs font-semibold text-slate-500">
-                    {formatMoney(Number(item.sale_price))} each
+          items.map((item) => {
+            const productId = item.product.id;
+            const price = Number(item.product.sale_price || 0);
+
+            return (
+              <div
+                key={productId}
+                className="rounded-2xl border border-slate-100 bg-slate-50 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-black text-slate-900">
+                      {item.product.name}
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {formatMoney(price)} each
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onRemove(productId)}
+                    className="rounded-full bg-white p-2 text-red-500 shadow-sm hover:bg-red-50"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center rounded-full bg-white p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => onDecrease(productId)}
+                      className="rounded-full bg-slate-100 p-2 text-slate-700 hover:bg-slate-200"
+                    >
+                      <Minus size={14} />
+                    </button>
+
+                    <span className="w-10 text-center text-sm font-black text-slate-900">
+                      {item.quantity}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => onIncrease(productId)}
+                      className="rounded-full bg-slate-900 p-2 text-white hover:bg-black"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+
+                  <p className="text-sm font-black text-slate-900">
+                    {formatMoney(price * item.quantity)}
                   </p>
                 </div>
-
-                <button
-                  onClick={() => onRemove(item.product_id)}
-                  className="rounded-full bg-white p-2 text-red-500 shadow-sm hover:bg-red-50"
-                >
-                  <Trash2 size={15} />
-                </button>
               </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center rounded-full bg-white p-1 shadow-sm">
-                  <button
-                    onClick={() => onDecrease(item.product_id)}
-                    className="rounded-full bg-slate-100 p-2 text-slate-700 hover:bg-slate-200"
-                  >
-                    <Minus size={14} />
-                  </button>
-
-                  <span className="w-10 text-center text-sm font-black text-slate-900">
-                    {item.quantity}
-                  </span>
-
-                  <button
-                    onClick={() => onIncrease(item.product_id)}
-                    className="rounded-full bg-slate-900 p-2 text-white hover:bg-black"
-                  >
-                    <Plus size={14} />
-                  </button>
-                </div>
-
-                <p className="text-sm font-black text-slate-900">
-                  {formatMoney(Number(item.sale_price) * item.quantity)}
-                </p>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -159,6 +168,7 @@ export default function CartPanel({
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
+            type="button"
             disabled={items.length === 0 || loading}
             onClick={() => onCheckout("cash")}
             className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -168,6 +178,7 @@ export default function CartPanel({
           </button>
 
           <button
+            type="button"
             disabled={items.length === 0 || loading}
             onClick={() => onCheckout("card")}
             className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
