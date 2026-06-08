@@ -52,6 +52,105 @@ function money(value?: string | number | null) {
   }).format(Number(value || 0));
 }
 
+function printReceipt(sale: any) {
+  const printWindow = window.open("", "_blank");
+
+  if (!printWindow) return;
+
+  const items = sale.sale_items || sale.items || [];
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt ${sale.receipt_number || ""}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            width: 80mm;
+            padding: 10px;
+            font-size: 12px;
+          }
+
+          h2, p {
+            text-align: center;
+            margin: 4px 0;
+          }
+
+          .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+          }
+
+          hr {
+            border: none;
+            border-top: 1px dashed #000;
+            margin: 8px 0;
+          }
+
+          @media print {
+            body {
+              width: 80mm;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <h2>ALMOND BROWNIE</h2>
+        <p>Receipt #${sale.receipt_number || sale.id}</p>
+        <p>${new Date().toLocaleString()}</p>
+
+        <hr />
+
+        ${items
+          .map(
+            (item: any) => `
+              <div class="row">
+                <span>${item.quantity} x ${
+                  item.product_name || item.product?.name || "Product"
+                }</span>
+                <span>$${Number(item.total || 0).toFixed(2)}</span>
+              </div>
+            `
+          )
+          .join("")}
+
+        <hr />
+
+        <div class="row">
+          <strong>Subtotal</strong>
+          <strong>$${Number(sale.subtotal || 0).toFixed(2)}</strong>
+        </div>
+
+        <div class="row">
+          <strong>Tax</strong>
+          <strong>$${Number(sale.tax || 0).toFixed(2)}</strong>
+        </div>
+
+        <div class="row">
+          <strong>Total</strong>
+          <strong>$${Number(sale.total || 0).toFixed(2)}</strong>
+        </div>
+
+        <p>Payment: ${sale.payment_method || ""}</p>
+
+        <hr />
+
+        <p>Thank you!</p>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+  printWindow.focus();
+
+  setTimeout(() => {
+    printWindow.print();
+    printWindow.close();
+  }, 500);
+}
+
+
 export default function DiscoPOSPage() {
   const { products, loading, error, refresh } = useDiscoProducts();
 
@@ -82,7 +181,7 @@ export default function DiscoPOSPage() {
 
   const availableProducts = useMemo(() => {
     return products.filter(
-      (product: Product) => product.is_active && Number(product.stock || 0) > 0
+      (product: Product) => product.is_active && Number(product.stock || 0) > 0,
     );
   }, [products]);
 
@@ -101,38 +200,44 @@ export default function DiscoPOSPage() {
       ]
         .join(" ")
         .toLowerCase()
-        .includes(term)
+        .includes(term),
     );
   }, [availableProducts, search]);
 
   const openTables = useMemo(() => {
     return tables.filter((table: Table) =>
-      ["available", "open", "occupied", "reserved"].includes(table.status)
+      ["available", "open", "occupied", "reserved"].includes(table.status),
     );
   }, [tables]);
 
-  async function handleCheckout(paymentMethod: "cash" | "card") {
-    if (items.length === 0) return;
+async function handleCheckout(paymentMethod: "cash" | "card") {
+  if (items.length === 0) return;
 
-const payload = {
-  payment_method: paymentMethod,
-  sale_type: selectedTable ? "table" : "pos",
-  customer_name: customerName || "",
-  table_number: selectedTable?.name || "",
-  items: items.map((item) => ({
-    product_id: item.product.id,
-    quantity: item.quantity,
-  })),
-};
+  const payload = {
+    payment_method: paymentMethod,
+    sale_type: selectedTable ? "table" : "pos",
+    customer_name: customerName || "",
+    table_number: selectedTable?.name || "",
+    items: items.map((item) => ({
+      product_id: item.product.id,
+      quantity: item.quantity,
+    })),
+  };
 
-    await createSale(payload);
+  const createdSale = await createSale(payload);
 
-    clearCart();
-    setCustomerName("");
-    setSelectedTable(null);
-    await refresh();
-    await refreshTables();
+  if (createdSale) {
+    printReceipt(createdSale);
   }
+
+  clearCart();
+  setCustomerName("");
+  setSelectedTable(null);
+  await refresh();
+  await refreshTables();
+}
+
+
 
   return (
     <div className="space-y-5 pb-24">
@@ -237,7 +342,7 @@ const payload = {
                     type="button"
                     onClick={() =>
                       setSelectedTable((current) =>
-                        current?.id === table.id ? null : table
+                        current?.id === table.id ? null : table,
                       )
                     }
                     className={`rounded-3xl text-left transition ${
