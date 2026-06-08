@@ -4,6 +4,10 @@ from .models import Organisation, Membership,OrganisationBranding
 
 
 class OrganisationSerializer(serializers.ModelSerializer):
+    plan_price = serializers.ReadOnlyField()
+    max_users = serializers.ReadOnlyField()
+    max_employees = serializers.ReadOnlyField()
+
     class Meta:
         model = Organisation
         fields = "__all__"

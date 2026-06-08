@@ -4,9 +4,9 @@ from django.conf import settings
 
 class Organisation(models.Model):
     PLAN_CHOICES = (
-        ("basic", "Basic"),
-        ("pro", "Pro"),
-        ("premium", "Premium"),
+        ("basic", "Basic - $99/month"),
+        ("pro", "Pro - $159/month"),
+        ("premium", "Premium - $199/month"),
     )
 
     BUSINESS_TYPE_CHOICES = (
@@ -42,12 +42,34 @@ class Organisation(models.Model):
     )
 
     is_active = models.BooleanField(default=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def plan_price(self):
+        return {
+            "basic": 99,
+            "pro": 159,
+            "premium": 199,
+        }.get(self.plan, 99)
+
+    @property
+    def max_users(self):
+        return {
+            "basic": 3,
+            "pro": 10,
+            "premium": 25,
+        }.get(self.plan, 3)
+
+    @property
+    def max_employees(self):
+        return {
+            "basic": 25,
+            "pro": 100,
+            "premium": 300,
+        }.get(self.plan, 25)
 
     def __str__(self):
         return self.name
-
 
 class Membership(models.Model):
     ROLE_CHOICES = (

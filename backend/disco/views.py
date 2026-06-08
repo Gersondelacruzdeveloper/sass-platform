@@ -222,10 +222,38 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = DiscoEmployeeSerializer
 
     def perform_create(self, serializer):
-        serializer.save(
-            organisation=self.get_organisation()
-        )
+        organisation = self.get_organisation()
 
+        if not organisation:
+            raise ValidationError("No active organisation found for this user.")
+
+        active_employees = DiscoEmployee.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        ).count()
+
+        if active_employees >= organisation.max_employees:
+            raise ValidationError(
+                f"Your {organisation.get_plan_display()} plan allows up to "
+                f"{organisation.max_employees} employees."
+            )
+
+        user = serializer.validated_data.get("user")
+
+        if user:
+            active_user_logins = DiscoEmployee.objects.filter(
+                organisation=organisation,
+                user__isnull=False,
+                is_active=True,
+            ).count()
+
+            if active_user_logins >= organisation.max_users:
+                raise ValidationError(
+                    f"Your {organisation.get_plan_display()} plan allows up to "
+                    f"{organisation.max_users} user logins."
+                )
+
+        serializer.save(organisation=organisation)
 
 
 class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):

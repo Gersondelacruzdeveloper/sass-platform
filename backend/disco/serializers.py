@@ -15,6 +15,9 @@ from .models import (
 )
 
 from .services.sales_service import create_sale
+from organisations.models import Membership
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -24,14 +27,74 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ("organisation", "created_at", "updated_at")
 
 
+
 class DiscoEmployeeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
+
+    create_login = serializers.BooleanField(write_only=True, required=False, default=False)
+    login_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    login_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
+    login_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = DiscoEmployee
         fields = "__all__"
         read_only_fields = ("organisation", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        create_login = attrs.get("create_login", False)
+        login_email = attrs.get("login_email", "")
+        login_password = attrs.get("login_password", "")
+        login_username = attrs.get("login_username", "")
+
+        if create_login:
+            if not login_email:
+                raise serializers.ValidationError({"login_email": "Email is required."})
+
+            if not login_password:
+                raise serializers.ValidationError({"login_password": "Password is required."})
+
+            username = login_username or login_email
+
+            if User.objects.filter(username=username).exists():
+                raise serializers.ValidationError({"login_username": "Username already exists."})
+
+            if User.objects.filter(email=login_email).exists():
+                raise serializers.ValidationError({"login_email": "Email already exists."})
+
+        return attrs
+
+    def create(self, validated_data):
+        create_login = validated_data.pop("create_login", False)
+        login_username = validated_data.pop("login_username", "")
+        login_email = validated_data.pop("login_email", "")
+        login_password = validated_data.pop("login_password", "")
+
+        employee = DiscoEmployee.objects.create(**validated_data)
+
+        if create_login:
+            username = login_username or login_email
+
+            user = User.objects.create_user(
+                username=username,
+                email=login_email,
+                password=login_password,
+            )
+
+            employee.user = user
+            employee.save(update_fields=["user"])
+
+            Membership.objects.update_or_create(
+                user=user,
+                organisation=employee.organisation,
+                defaults={
+                    "role": employee.role,
+                    "is_active": True,
+                },
+            )
+
+        return employee
 
 
 class DiscoTableSerializer(serializers.ModelSerializer):
