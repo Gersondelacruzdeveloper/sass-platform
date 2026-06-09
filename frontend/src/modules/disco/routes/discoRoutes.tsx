@@ -23,6 +23,7 @@ import DiscoReportsPage from "../pages/DiscoReportsPage";
 
 import DiscoActivityLogsPage from "../pages/DiscoActivityLogsPage";
 import DiscoSettingsPage from "../pages/DiscoSettingsPage";
+import DiscoSignupPage from "../pages/DiscoSignupPage";
 
 export const discoRoutes = (
   <>
@@ -31,6 +32,7 @@ export const discoRoutes = (
       path="/disco/:organisationSlug/login"
       element={<DiscoLoginPage />}
     />
+    <Route path="/disco/signup" element={<DiscoSignupPage />} />
 
     {/* Protected Disco Module */}
     <Route element={<ProtectedRoute />}>

@@ -15,7 +15,7 @@ from .models import (
 )
 
 from .services.sales_service import create_sale
-from organisations.models import Membership
+from organisations.models import Membership 
 from django.contrib.auth import get_user_model
 User = get_user_model()
 

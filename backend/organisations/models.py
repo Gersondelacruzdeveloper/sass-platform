@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 
 
+
 class Organisation(models.Model):
     PLAN_CHOICES = (
         ("basic", "Basic - $99/month"),
@@ -35,17 +36,29 @@ class Organisation(models.Model):
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=30, blank=True, null=True)
 
+    # Keep this as a simple fallback/display field
     plan = models.CharField(
         max_length=20,
         choices=PLAN_CHOICES,
         default="basic",
     )
 
-    is_active = models.BooleanField(default=True)
+    # Real access control
+    is_active = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
+    def active_subscription(self):
+        return getattr(self, "subscription", None)
+
+    @property
     def plan_price(self):
+        subscription = self.active_subscription
+
+        if subscription and subscription.plan:
+            return subscription.plan.price
+
         return {
             "basic": 99,
             "pro": 159,
@@ -54,6 +67,11 @@ class Organisation(models.Model):
 
     @property
     def max_users(self):
+        subscription = self.active_subscription
+
+        if subscription and subscription.plan:
+            return subscription.plan.max_users
+
         return {
             "basic": 3,
             "pro": 10,
@@ -62,11 +80,43 @@ class Organisation(models.Model):
 
     @property
     def max_employees(self):
+        subscription = self.active_subscription
+
+        if subscription and subscription.plan:
+            return subscription.plan.max_employees
+
         return {
             "basic": 25,
             "pro": 100,
             "premium": 300,
         }.get(self.plan, 25)
+
+    @property
+    def subscription_status(self):
+        subscription = self.active_subscription
+
+        if subscription:
+            return subscription.status
+
+        return "inactive"
+
+    @property
+    def stripe_customer_id(self):
+        subscription = self.active_subscription
+
+        if subscription:
+            return subscription.stripe_customer_id
+
+        return None
+
+    @property
+    def stripe_subscription_id(self):
+        subscription = self.active_subscription
+
+        if subscription:
+            return subscription.stripe_subscription_id
+
+        return None
 
     def __str__(self):
         return self.name
@@ -116,6 +166,7 @@ class Membership(models.Model):
 
 # organisations/models.py
 class OrganisationBranding(models.Model):
+
     organisation = models.OneToOneField(
         "organisations.Organisation",
         on_delete=models.CASCADE,

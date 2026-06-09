@@ -18,6 +18,7 @@ class SubscriptionPlan(models.Model):
     interval = models.CharField(max_length=20, choices=INTERVAL_CHOICES, default="monthly")
 
     max_users = models.PositiveIntegerField(default=5)
+    max_employees = models.PositiveIntegerField(default=25)
     max_modules = models.PositiveIntegerField(default=1)
 
     stripe_price_id = models.CharField(max_length=255, blank=True, null=True)

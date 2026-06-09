@@ -1,17 +1,201 @@
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
+import stripe
 
-from .models import SubscriptionPlan, Subscription
-from .serializers import SubscriptionPlanSerializer, SubscriptionSerializer
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.utils.text import slugify
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+
+from organisations.models import Organisation, Membership
+from subscriptions.models import SubscriptionPlan, Subscription
+from subscriptions.serializers import (
+    SubscriptionPlanSerializer,
+    CreateCheckoutSessionSerializer,
+    MySubscriptionSerializer,
+)
+
+User = get_user_model()
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
-class SubscriptionPlanViewSet(viewsets.ModelViewSet):
-    queryset = SubscriptionPlan.objects.all()
-    serializer_class = SubscriptionPlanSerializer
-    permission_classes = [IsAuthenticated]
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def plans(request):
+    subscription_plans = SubscriptionPlan.objects.filter(
+        is_active=True,
+    ).order_by("price")
+
+    serializer = SubscriptionPlanSerializer(
+        subscription_plans,
+        many=True,
+    )
+
+    return Response(serializer.data)
 
 
-class SubscriptionViewSet(viewsets.ModelViewSet):
-    queryset = Subscription.objects.all()
-    serializer_class = SubscriptionSerializer
-    permission_classes = [IsAuthenticated]
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def create_checkout_session(request):
+    serializer = CreateCheckoutSessionSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    data = serializer.validated_data
+
+    company_name = data["company_name"]
+    owner_name = data.get("owner_name", "")
+    email = data["email"]
+    password = data["password"]
+    business_type = data.get("business_type", "disco")
+    plan_slug = data["plan"]
+
+    plan = SubscriptionPlan.objects.filter(
+        slug=plan_slug,
+        is_active=True,
+    ).first()
+
+    if not plan:
+        return Response(
+            {"detail": "Invalid plan."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not plan.stripe_price_id:
+        return Response(
+            {"detail": "Plan is not configured in Stripe."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    slug = slugify(company_name)
+
+    if Organisation.objects.filter(slug=slug).exists():
+        return Response(
+            {"detail": "Organisation already exists."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if User.objects.filter(email=email).exists():
+        return Response(
+            {"detail": "Email already exists."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    organisation = Organisation.objects.create(
+        name=company_name,
+        slug=slug,
+        business_type=business_type,
+        email=email,
+        plan=plan.slug,
+        is_active=False,
+    )
+
+    user = User.objects.create_user(
+        username=email,
+        email=email,
+        password=password,
+        first_name=owner_name or "",
+    )
+
+    Membership.objects.create(
+        user=user,
+        organisation=organisation,
+        role="owner",
+        is_active=True,
+    )
+
+    subscription = Subscription.objects.create(
+        organisation=organisation,
+        plan=plan,
+        status="trialing",
+    )
+
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            customer_email=email,
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price": plan.stripe_price_id,
+                    "quantity": 1,
+                }
+            ],
+            success_url=(
+                f"{settings.FRONTEND_URL}"
+                "/subscription/success"
+                "?session_id={CHECKOUT_SESSION_ID}"
+            ),
+            cancel_url=(
+                f"{settings.FRONTEND_URL}"
+                "/subscription/cancel"
+            ),
+            metadata={
+                "organisation_id": organisation.id,
+                "subscription_id": subscription.id,
+                "user_id": user.id,
+                "plan_slug": plan.slug,
+            },
+        )
+    except stripe.error.StripeError as exc:
+        subscription.delete()
+        organisation.delete()
+        user.delete()
+
+        return Response(
+            {
+                "detail": "Could not create Stripe checkout session.",
+                "stripe_error": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            "checkout_url": session.url,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_subscription(request):
+    membership = (
+        Membership.objects
+        .filter(
+            user=request.user,
+            is_active=True,
+        )
+        .select_related(
+            "organisation",
+            "organisation__subscription",
+            "organisation__subscription__plan",
+        )
+        .first()
+    )
+
+    if not membership:
+        return Response(
+            {"detail": "No organisation found."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    organisation = membership.organisation
+
+    if not hasattr(organisation, "subscription"):
+        return Response(
+            {"detail": "No subscription found."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    serializer = MySubscriptionSerializer(organisation.subscription)
+
+    return Response(serializer.data)
