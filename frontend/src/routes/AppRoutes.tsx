@@ -6,7 +6,7 @@ import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import DashboardPage from "../pages/DashboardPage";
 import OrganisationsPage from "../pages/OrganisationsPage";
-import SubscriptionsPage from "../pages/SubscriptionsPage";
+// import SubscriptionsPage from "../pages/SubscriptionsPage";
 import AuditLogsPage from "../pages/AuditLogsPage";
 import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
 
@@ -18,7 +18,7 @@ export default function AppRoutes() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/organisations" element={<OrganisationsPage />} />
-      <Route path="/subscriptions" element={<SubscriptionsPage />} />
+      {/* <Route path="/subscriptions" element={<SubscriptionsPage />} /> */}
       <Route path="/audit-logs" element={<AuditLogsPage />} />
    
       {trainingRoutes}

@@ -7,16 +7,50 @@ from django.views.decorators.csrf import csrf_exempt
 
 from subscriptions.models import Subscription
 
-
 stripe.api_key = settings.STRIPE_SECRET_KEY
-
 
 ACTIVE_STATUSES = ["active", "trialing"]
 
 
+def stripe_get(obj, key, default=None):
+    try:
+        return obj[key]
+    except Exception:
+        return getattr(obj, key, default)
+
+
+def stripe_metadata(obj):
+    metadata = stripe_get(obj, "metadata", None)
+
+    if not metadata:
+        return {}
+
+    try:
+        return dict(metadata)
+    except Exception:
+        return metadata
+
+
+def timestamp_to_datetime(value):
+    if not value:
+        return None
+
+    return timezone.datetime.fromtimestamp(
+        value,
+        tz=timezone.get_current_timezone(),
+    )
+
+
+def set_organisation_access(subscription):
+    organisation = subscription.organisation
+    organisation.is_active = subscription.status in ACTIVE_STATUSES
+    organisation.plan = subscription.plan.slug
+    organisation.save(update_fields=["is_active", "plan"])
+
+
 def update_subscription_from_stripe(stripe_subscription):
-    stripe_subscription_id = stripe_subscription.get("id")
-    status = stripe_subscription.get("status")
+    stripe_subscription_id = stripe_get(stripe_subscription, "id")
+    status = stripe_get(stripe_subscription, "status")
 
     subscription = (
         Subscription.objects
@@ -29,32 +63,27 @@ def update_subscription_from_stripe(stripe_subscription):
         return
 
     subscription.status = status
-    subscription.cancel_at_period_end = stripe_subscription.get(
+    subscription.cancel_at_period_end = stripe_get(
+        stripe_subscription,
         "cancel_at_period_end",
         False,
     )
 
-    current_period_start = stripe_subscription.get("current_period_start")
-    current_period_end = stripe_subscription.get("current_period_end")
+    current_period_start = timestamp_to_datetime(
+        stripe_get(stripe_subscription, "current_period_start")
+    )
+    current_period_end = timestamp_to_datetime(
+        stripe_get(stripe_subscription, "current_period_end")
+    )
 
     if current_period_start:
-        subscription.current_period_start = timezone.datetime.fromtimestamp(
-            current_period_start,
-            tz=timezone.get_current_timezone(),
-        )
+        subscription.current_period_start = current_period_start
 
     if current_period_end:
-        subscription.current_period_end = timezone.datetime.fromtimestamp(
-            current_period_end,
-            tz=timezone.get_current_timezone(),
-        )
+        subscription.current_period_end = current_period_end
 
     subscription.save()
-
-    organisation = subscription.organisation
-    organisation.is_active = status in ACTIVE_STATUSES
-    organisation.plan = subscription.plan.slug
-    organisation.save(update_fields=["is_active", "plan"])
+    set_organisation_access(subscription)
 
 
 @csrf_exempt
@@ -77,15 +106,21 @@ def stripe_webhook(request):
     data = event["data"]["object"]
 
     if event_type == "checkout.session.completed":
-        organisation_id = data.get("metadata", {}).get("organisation_id")
-        subscription_id = data.get("metadata", {}).get("subscription_id")
-        stripe_customer_id = data.get("customer")
-        stripe_subscription_id = data.get("subscription")
+        metadata = stripe_metadata(data)
+
+        organisation_id = metadata.get("organisation_id")
+        subscription_id = metadata.get("subscription_id")
+
+        stripe_customer_id = stripe_get(data, "customer")
+        stripe_subscription_id = stripe_get(data, "subscription")
 
         subscription = (
             Subscription.objects
             .select_related("organisation", "plan")
-            .filter(id=subscription_id, organisation_id=organisation_id)
+            .filter(
+                id=subscription_id,
+                organisation_id=organisation_id,
+            )
             .first()
         )
 
@@ -95,10 +130,7 @@ def stripe_webhook(request):
             subscription.status = "active"
             subscription.save()
 
-            organisation = subscription.organisation
-            organisation.is_active = True
-            organisation.plan = subscription.plan.slug
-            organisation.save(update_fields=["is_active", "plan"])
+            set_organisation_access(subscription)
 
     elif event_type in [
         "customer.subscription.created",
@@ -108,7 +140,7 @@ def stripe_webhook(request):
         update_subscription_from_stripe(data)
 
     elif event_type == "invoice.payment_succeeded":
-        stripe_subscription_id = data.get("subscription")
+        stripe_subscription_id = stripe_get(data, "subscription")
 
         subscription = (
             Subscription.objects
@@ -120,17 +152,14 @@ def stripe_webhook(request):
         if subscription:
             subscription.status = "active"
             subscription.save(update_fields=["status"])
-
-            organisation = subscription.organisation
-            organisation.is_active = True
-            organisation.save(update_fields=["is_active"])
+            set_organisation_access(subscription)
 
     elif event_type == "invoice.payment_failed":
-        stripe_subscription_id = data.get("subscription")
+        stripe_subscription_id = stripe_get(data, "subscription")
 
         subscription = (
             Subscription.objects
-            .select_related("organisation")
+            .select_related("organisation", "plan")
             .filter(stripe_subscription_id=stripe_subscription_id)
             .first()
         )
@@ -138,9 +167,6 @@ def stripe_webhook(request):
         if subscription:
             subscription.status = "past_due"
             subscription.save(update_fields=["status"])
-
-            organisation = subscription.organisation
-            organisation.is_active = False
-            organisation.save(update_fields=["is_active"])
+            set_organisation_access(subscription)
 
     return HttpResponse(status=200)

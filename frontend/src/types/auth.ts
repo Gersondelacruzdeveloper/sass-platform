@@ -33,6 +33,7 @@ export interface User {
 export interface LoginPayload {
   login: string;
   password: string;
+    organisation_slug?: string;
 }
 export interface RegisterPayload {
   email: string;

@@ -25,6 +25,13 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
     owner_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=8)
+
+    app = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="disco",
+    )
+
     business_type = serializers.ChoiceField(
         choices=[
             ("disco", "Disco"),
@@ -35,8 +42,8 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
         ],
         default="disco",
     )
-    plan = serializers.SlugField()
 
+    plan = serializers.SlugField()
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     plan_name = serializers.CharField(source="plan.name", read_only=True)

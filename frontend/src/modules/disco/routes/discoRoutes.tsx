@@ -24,6 +24,9 @@ import DiscoReportsPage from "../pages/DiscoReportsPage";
 import DiscoActivityLogsPage from "../pages/DiscoActivityLogsPage";
 import DiscoSettingsPage from "../pages/DiscoSettingsPage";
 import DiscoSignupPage from "../pages/DiscoSignupPage";
+import SubscriptionSuccessPage from "../pages/DiscoSubscriptionSuccessPage";
+import SubscriptionCancelPage from "../pages/DiscoSubscriptionCancelPage";
+import DiscoBillingLockedPage from "../pages/DiscoBillingLockedPage";
 
 export const discoRoutes = (
   <>
@@ -32,7 +35,25 @@ export const discoRoutes = (
       path="/disco/:organisationSlug/login"
       element={<DiscoLoginPage />}
     />
-    <Route path="/disco/signup" element={<DiscoSignupPage />} />
+
+    <Route
+      path="/disco/signup"
+      element={<DiscoSignupPage />}
+    />
+    <Route
+    path="/disco/:organisationSlug/billing-locked"
+    element={<DiscoBillingLockedPage />}
+  />
+
+    <Route
+      path="/disco/subscription/success"
+      element={<SubscriptionSuccessPage />}
+    />
+
+    <Route
+      path="/disco/subscription/cancel"
+      element={<SubscriptionCancelPage />}
+    />
 
     {/* Protected Disco Module */}
     <Route element={<ProtectedRoute />}>
@@ -40,53 +61,55 @@ export const discoRoutes = (
         path="/disco/:organisationSlug"
         element={<DiscoDashboardLayout />}
       >
-        {/* Dashboard */}
         <Route path="dashboard" element={<DiscoDashboardPage />} />
 
-        {/* POS */}
         <Route path="pos" element={<DiscoPOSPage />} />
 
-        {/* Products */}
         <Route path="products" element={<DiscoProductsPage />} />
 
-        {/* Inventory */}
         <Route path="inventory" element={<DiscoInventoryPage />} />
 
-        {/* Stock Movements */}
         <Route
           path="stock-movements"
           element={<DiscoStockMovementsPage />}
         />
 
-        {/* Tables */}
         <Route path="tables" element={<DiscoTablesPage />} />
 
-        {/* Reservations */}
         <Route
           path="reservations"
           element={<DiscoReservationsPage />}
         />
 
-        {/* Employees */}
-        <Route path="employees" element={<DiscoEmployeesPage />} />
+        <Route
+          path="employees"
+          element={<DiscoEmployeesPage />}
+        />
 
-        {/* Cash Shifts */}
-        <Route path="cash-shifts" element={<DiscoCashShiftsPage />} />
+        <Route
+          path="cash-shifts"
+          element={<DiscoCashShiftsPage />}
+        />
 
-        {/* Expenses */}
-        <Route path="expenses" element={<DiscoExpensesPage />} />
+        <Route
+          path="expenses"
+          element={<DiscoExpensesPage />}
+        />
 
-        {/* Reports */}
-        <Route path="reports" element={<DiscoReportsPage />} />
+        <Route
+          path="reports"
+          element={<DiscoReportsPage />}
+        />
 
-        {/* Activity Logs */}
         <Route
           path="activity-logs"
           element={<DiscoActivityLogsPage />}
         />
 
-        {/* Settings */}
-        <Route path="settings" element={<DiscoSettingsPage />} />
+        <Route
+          path="settings"
+          element={<DiscoSettingsPage />}
+        />
       </Route>
     </Route>
   </>

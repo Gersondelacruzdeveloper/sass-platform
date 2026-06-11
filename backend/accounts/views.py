@@ -81,7 +81,8 @@ class LogoutView(APIView):
         return Response({
             "detail": "Logged out"
         })
-
+    
+    
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
@@ -91,7 +92,7 @@ class MeView(APIView):
 
         membership = (
             user.memberships
-            .filter(is_active=True, organisation__is_active=True)
+            .filter(is_active=True)
             .select_related("organisation")
             .first()
         )
@@ -100,12 +101,15 @@ class MeView(APIView):
         role = None
 
         if membership:
+            organisation = membership.organisation
+
             organisation_data = {
-                "id": membership.organisation.id,
-                "name": membership.organisation.name,
-                "slug": membership.organisation.slug,
-                "business_type": membership.organisation.business_type,
-                "plan": membership.organisation.plan,
+                "id": organisation.id,
+                "name": organisation.name,
+                "slug": organisation.slug,
+                "business_type": organisation.business_type,
+                "plan": organisation.plan,
+                "is_active": organisation.is_active,
             }
 
             role = membership.role
@@ -146,6 +150,9 @@ class MeView(APIView):
                 "organisation_id": disco_profile.organisation.id,
                 "organisation_slug": disco_profile.organisation.slug,
                 "organisation_name": disco_profile.organisation.name,
+                "organisation_is_active": (
+                    disco_profile.organisation.is_active
+                ),
             }
 
         return Response({

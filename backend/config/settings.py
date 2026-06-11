@@ -18,7 +18,7 @@ from environs import Env  # new
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 env = Env()  # new.enb
-env.read_env()  # new
+env.read_env(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -157,6 +157,9 @@ AUTH_USER_MODEL = "accounts.CustomUser"
 
 STRIPE_SECRET_KEY = env.str("STRIPE_SECRET_KEY")
 STRIPE_PUBLIC_KEY = env.str("STRIPE_PUBLIC_KEY")
+STRIPE_WEBHOOK_SECRET = env.str("STRIPE_WEBHOOK_SECRET", default="")
+FRONTEND_URL = env.str("FRONTEND_URL", default="http://localhost:5173")
+BACKEND_URL = env.str("BACKEND_URL", default="http://localhost:8000")
 
 
 REST_FRAMEWORK = {
@@ -223,9 +226,4 @@ else:
     CSRF_COOKIE_HTTPONLY = False
     SESSION_COOKIE_HTTPONLY = True
 
-STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
-STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
 
-FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
-BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")

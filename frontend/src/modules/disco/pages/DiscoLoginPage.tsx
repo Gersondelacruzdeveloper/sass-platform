@@ -64,36 +64,56 @@ export default function DiscoLoginPage() {
     loadBranding();
   }, [organisationSlug]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
 
-    try {
-      setLoggingIn(true);
-      setError("");
+  try {
+    setLoggingIn(true);
+    setError("");
 
-      await dispatch(
-        loginUser({
-          login: username,
-          password,
-        })
-      ).unwrap();
-      const slug = organisationSlug || "almond-brownie";
+    const user = await dispatch(
+      loginUser({
+        login: username,
+        password,
+        organisation_slug: organisationSlug,
+      })
+    ).unwrap();
 
-      navigate(`/disco/${slug}/dashboard`, { replace: true });
-    } catch (err: any) {
-      console.error("Login failed:", err);
+    const organisation =
+      user?.organisation as
+        | { slug?: string; is_active?: boolean }
+        | undefined;
 
-      const message =
-        err?.response?.data?.detail ||
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        "Login failed. Please check your email and password.";
+    const slug =
+      organisation?.slug ||
+      organisationSlug ||
+      "almond-brownie";
 
-      setError(message);
-    } finally {
-      setLoggingIn(false);
+    if (organisation?.is_active === false) {
+      navigate(`/disco/${slug}/billing-locked`, {
+        replace: true,
+      });
+      return;
     }
+
+    navigate(`/disco/${slug}/dashboard`, {
+      replace: true,
+    });
+  } catch (err: any) {
+    console.error("Login failed:", err);
+
+    const message =
+      err?.response?.data?.detail ||
+      err?.response?.data?.error ||
+      err?.response?.data?.message ||
+      "Login failed. Please check your email and password.";
+
+    setError(message);
+  } finally {
+    setLoggingIn(false);
   }
+}
+
 
   const title =
     branding?.login_title ||
