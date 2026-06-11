@@ -3,26 +3,34 @@ export type BusinessType =
   | "hotel"
   | "restaurant"
   | "store"
-  | "excursions";
+  | "excursions"
+  | "training";
 
 export type UserRole =
-  | "platform_owner"
   | "owner"
   | "admin"
   | "manager"
   | "cashier"
   | "bartender"
-  | "door_staff"
+  | "waiter"
+  | "security"
+  | "host"
+  | "promoter"
   | "inventory_manager"
-  | "accountant"
-  | "staff"
-  | "viewer";
+  | "facilitator"
+  | string;
 
 export type User = {
   id: number;
   email: string;
   username: string;
-  is_platform_owner: boolean;
+
+  first_name?: string;
+  last_name?: string;
+  phone?: string | null;
+  avatar?: string | null;
+
+  is_platform_owner?: boolean;
 
   role: UserRole | null;
   permissions?: Record<string, boolean>;
@@ -30,7 +38,25 @@ export type User = {
   organisation: {
     id: number;
     name: string;
-    business_type: BusinessType;
+    slug?: string;
+    business_type: BusinessType | string;
     plan: string;
+  } | null;
+
+  disco_employee?: {
+    full_name?: string;
+    role?: UserRole;
+    organisation_name?: string;
+  } | null;
+
+  facilitator?: {
+    id: number;
+    employee_id: number;
+    employee_name: string;
+    active: boolean;
+    can_create_employees: boolean;
+    can_create_trainings: boolean;
+    can_create_evaluations: boolean;
+    can_view_reports: boolean;
   } | null;
 };

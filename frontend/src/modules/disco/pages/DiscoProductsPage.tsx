@@ -170,7 +170,7 @@ export default function DiscoProductsPage() {
         sale_price: Number(form.sale_price || 0),
         stock: Number(form.stock || 0),
         minimum_stock: Number(form.minimum_stock || 0),
-        unit: form.unit,
+        unit: form.unit as any,
         brand: form.brand,
         size_ml: form.size_ml ? Number(form.size_ml) : null,
         supplier_name: form.supplier_name,

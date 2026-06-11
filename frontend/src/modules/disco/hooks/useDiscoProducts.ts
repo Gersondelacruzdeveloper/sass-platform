@@ -51,7 +51,10 @@ export default function useDiscoProducts() {
       setError(null);
 
       const data = await getProducts();
-      setProducts(Array.isArray(data) ? data : data.results || []);
+      const productsData = Array.isArray(data)
+        ? data
+        : (data as { results?: DiscoProduct[] })?.results || [];
+      setProducts(productsData);
     } catch (err) {
       console.error("Failed to load disco products:", err);
       setError("Could not load products.");

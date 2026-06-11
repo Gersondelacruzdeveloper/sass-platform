@@ -20,7 +20,9 @@ export default function useDiscoSales() {
       setError(null);
 
       const data = await getSales();
-      setSales(Array.isArray(data) ? data : data.results || []);
+      // getSales may return an array or an object with a `results` field
+      const results = Array.isArray(data) ? data : (data as any)?.results || [];
+      setSales(results);
     } catch (err) {
       console.error("Failed to load disco sales:", err);
       setError("Could not load sales.");

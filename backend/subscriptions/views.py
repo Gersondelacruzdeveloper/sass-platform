@@ -9,7 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from organisations.models import Organisation, Membership
+from organisations.models import Organisation, Membership,OrganisationBranding
 from subscriptions.models import SubscriptionPlan, Subscription
 from subscriptions.serializers import (
     SubscriptionPlanSerializer,
@@ -37,7 +37,6 @@ def plans(request):
 
     return Response(serializer.data)
 
-
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def create_checkout_session(request):
@@ -58,7 +57,20 @@ def create_checkout_session(request):
     business_type = data.get("business_type", "disco")
     plan_slug = data["plan"]
 
-    app_slug = request.data.get("app") or business_type or "disco"
+    app_slug = data.get("app") or business_type or "disco"
+
+    branding_data = {
+        "company_name": request.data.get("branding_company_name") or company_name,
+        "platform_name": request.data.get("platform_name") or "Disco Management",
+        "login_title": request.data.get("login_title") or company_name,
+        "login_subtitle": (
+            request.data.get("login_subtitle")
+            or "Sign in to manage POS, inventory, tables, staff, reservations, and reports."
+        ),
+        "primary_color": request.data.get("primary_color") or "#020617",
+        "secondary_color": request.data.get("secondary_color") or "#0f172a",
+        "accent_color": request.data.get("accent_color") or "#06b6d4",
+    }
 
     plan = SubscriptionPlan.objects.filter(
         slug=plan_slug,
@@ -98,6 +110,17 @@ def create_checkout_session(request):
         email=email,
         plan=plan.slug,
         is_active=False,
+    )
+
+    OrganisationBranding.objects.create(
+        organisation=organisation,
+        company_name=branding_data["company_name"],
+        platform_name=branding_data["platform_name"],
+        login_title=branding_data["login_title"],
+        login_subtitle=branding_data["login_subtitle"],
+        primary_color=branding_data["primary_color"],
+        secondary_color=branding_data["secondary_color"],
+        accent_color=branding_data["accent_color"],
     )
 
     user = User.objects.create_user(
@@ -152,8 +175,8 @@ def create_checkout_session(request):
         )
     except stripe.error.StripeError as exc:
         subscription.delete()
-        organisation.delete()
         user.delete()
+        organisation.delete()
 
         return Response(
             {
@@ -171,7 +194,6 @@ def create_checkout_session(request):
         },
         status=status.HTTP_201_CREATED,
     )
-
 
 @api_view(["GET"])
 @permission_classes([AllowAny])

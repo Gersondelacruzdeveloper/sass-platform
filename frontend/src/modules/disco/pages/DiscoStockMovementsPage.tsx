@@ -16,6 +16,7 @@ import DiscoEmptyState from "../components/DiscoEmptyState";
 import DiscoPageHeader from "../components/DiscoPageHeader";
 import DiscoStatCard from "../components/DiscoStatCard";
 import DiscoDataTable from "../components/DiscoDataTable";
+import type { StockMovement } from "../api/stockMovementsApi";
 
 import useDiscoProducts from "../hooks/useDiscoProducts";
 import {
@@ -25,16 +26,6 @@ import {
 
 type MovementType = "in" | "out" | "adjustment" | "loss";
 
-type StockMovement = {
-  id: number;
-  product: number;
-  product_name?: string;
-  movement_type: MovementType;
-  quantity: number;
-  note?: string;
-  created_by_name?: string;
-  created_at: string;
-};
 
 type Product = {
   id: number;
@@ -57,7 +48,9 @@ const movementOptions = [
   { value: "loss", label: "Loss" },
 ];
 
-function formatDate(value: string) {
+function formatDate(value: string | undefined) {
+  if (!value) return "";
+
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -93,7 +86,10 @@ export default function DiscoStockMovementsPage() {
       setError(null);
 
       const data = await getStockMovements();
-      setMovements(Array.isArray(data) ? data : data?.results || []);
+      const results = Array.isArray(data)
+        ? data
+        : (data as { results?: StockMovement[] })?.results;
+      setMovements(results || []);
     } catch (err) {
       console.error("Failed to load stock movements:", err);
       setError("Could not load stock movements.");
@@ -249,7 +245,7 @@ export default function DiscoStockMovementsPage() {
       ) : (
         <DiscoDataTable
           data={filteredMovements}
-          columns={[
+          columns={([
             {
               header: "Product",
               accessor: "product_name",
@@ -304,7 +300,7 @@ export default function DiscoStockMovementsPage() {
                 </span>
               ),
             },
-          ]}
+          ] as any)}
         />
       )}
 

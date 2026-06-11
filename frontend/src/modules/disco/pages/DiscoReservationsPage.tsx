@@ -104,7 +104,7 @@ export default function DiscoReservationsPage() {
 
     if (!term) return reservations;
 
-    return reservations.filter((reservation: Reservation) =>
+    return reservations.filter((reservation) =>
       [
         reservation.customer_name,
         reservation.customer_phone,
@@ -120,21 +120,21 @@ export default function DiscoReservationsPage() {
 
   const stats = useMemo(() => {
     const pending = reservations.filter(
-      (reservation: Reservation) => reservation.status === "pending"
+      (reservation) => reservation.status === "pending"
     ).length;
 
     const confirmed = reservations.filter(
-      (reservation: Reservation) => reservation.status === "confirmed"
+      (reservation) => reservation.status === "confirmed"
     ).length;
 
     const completed = reservations.filter(
-      (reservation: Reservation) => reservation.status === "completed"
+      (reservation) => reservation.status === "completed"
     ).length;
 
     const today = new Date().toDateString();
 
     const todayReservations = reservations.filter(
-      (reservation: Reservation) =>
+      (reservation) =>
         new Date(reservation.reservation_datetime).toDateString() === today
     ).length;
 
@@ -208,20 +208,6 @@ export default function DiscoReservationsPage() {
       setLocalError("Could not save reservation.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function quickUpdateStatus(
-    reservation: Reservation,
-    status: ReservationStatus
-  ) {
-    try {
-      setLocalError("");
-      await updateReservation(reservation.id, { status });
-      refreshAll();
-    } catch (err) {
-      console.error(err);
-      setLocalError("Could not update reservation status.");
     }
   }
 
@@ -323,28 +309,27 @@ export default function DiscoReservationsPage() {
         />
       ) : (
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredReservations.map((reservation: Reservation) => (
-            <ReservationCard
-              key={reservation.id}
-              reservation={reservation}
-              onEdit={() => openEditModal(reservation)}
-              onConfirm={
-                reservation.status === "pending"
-                  ? () => quickUpdateStatus(reservation, "confirmed")
-                  : undefined
-              }
-              onComplete={
-                reservation.status === "confirmed"
-                  ? () => quickUpdateStatus(reservation, "completed")
-                  : undefined
-              }
-              onCancel={
-                !["cancelled", "completed"].includes(reservation.status)
-                  ? () => quickUpdateStatus(reservation, "cancelled")
-                  : undefined
-              }
-            />
-          ))}
+          {filteredReservations.map((reservation) => {
+            const typedReservation: Reservation = {
+              id: reservation.id,
+              table: reservation.table,
+              table_name: reservation.table_name,
+              customer_name: reservation.customer_name,
+              customer_phone: reservation.customer_phone,
+              people_count: reservation.people_count,
+              reservation_datetime: reservation.reservation_datetime,
+              deposit_amount: reservation.deposit_amount,
+              status: reservation.status as ReservationStatus,
+              note: reservation.note,
+            };
+            return (
+              <ReservationCard
+                key={typedReservation.id}
+                reservation={typedReservation}
+                onEdit={() => openEditModal(typedReservation)}
+              />
+            );
+          })}
         </section>
       )}
 

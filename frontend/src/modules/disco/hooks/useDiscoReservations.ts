@@ -49,7 +49,7 @@ export default function useDiscoReservations() {
       setError(null);
 
       const data = await getReservations();
-      setReservations(Array.isArray(data) ? data : data.results || []);
+      setReservations(Array.isArray(data) ? data : (data as any).results || []);
     } catch (err) {
       console.error("Failed to load disco reservations:", err);
       setError("Could not load reservations.");

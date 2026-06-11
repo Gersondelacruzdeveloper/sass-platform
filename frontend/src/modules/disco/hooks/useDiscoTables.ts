@@ -36,7 +36,10 @@ export default function useDiscoTables() {
       setError(null);
 
       const data = await getTables();
-      setTables(Array.isArray(data) ? data : data.results || []);
+      // getTables may return an array or an object with a `results` array.
+      // Cast to any to avoid TS errors when shape is uncertain.
+      const records = Array.isArray(data) ? data : (data as any)?.results ?? [];
+      setTables(records);
     } catch (err) {
       console.error("Failed to load disco tables:", err);
       setError("Could not load tables.");

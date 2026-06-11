@@ -1,5 +1,5 @@
 // src/modules/disco/components/SalesChart.tsx
-
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import {
   BarChart,
   Bar,
@@ -27,12 +27,12 @@ export default function SalesChart({
   subtitle = "Track sales performance over time.",
   data,
 }: SalesChartProps) {
-  const money = (value: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    }).format(Number(value || 0));
+  const tooltipFormatter = (
+    value: ValueType | undefined,
+    name: NameType | undefined
+  ): [string, string] => {
+    return [`$${Number(value || 0).toLocaleString()}`, String(name)];
+  };
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -70,10 +70,7 @@ export default function SalesChart({
               />
 
               <Tooltip
-                formatter={(value: number, name) => [
-                  money(value),
-                  name === "sales" ? "Sales" : "Profit",
-                ]}
+                formatter={tooltipFormatter}
                 labelStyle={{ fontWeight: 800 }}
                 contentStyle={{
                   borderRadius: "16px",

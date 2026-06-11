@@ -162,8 +162,8 @@ export default function DiscoActivityLogsPage() {
           data={filteredLogs}
           columns={[
             {
-              header: "Action",
-              accessor: "action",
+              key: "action",
+              label: "Action",
               render: (log: ActivityLog) => (
                 <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
                   {log.action || "Activity"}
@@ -171,8 +171,8 @@ export default function DiscoActivityLogsPage() {
               ),
             },
             {
-              header: "Description",
-              accessor: "description",
+              key: "description",
+              label: "Description",
               render: (log: ActivityLog) => (
                 <p className="max-w-xl text-sm font-semibold text-slate-700">
                   {log.description}
@@ -180,8 +180,8 @@ export default function DiscoActivityLogsPage() {
               ),
             },
             {
-              header: "User",
-              accessor: "user_name",
+              key: "user",
+              label: "User",
               render: (log: ActivityLog) => (
                 <span className="text-sm font-bold text-slate-600">
                   {log.user_name || "System"}
@@ -189,8 +189,8 @@ export default function DiscoActivityLogsPage() {
               ),
             },
             {
-              header: "Date",
-              accessor: "created_at",
+              key: "date",
+              label: "Date",
               render: (log: ActivityLog) => (
                 <span className="text-sm font-bold text-slate-500">
                   {formatDate(log.created_at)}

@@ -97,7 +97,7 @@ export default function DiscoEmployeesPage() {
       setError("");
 
       const data = await getEmployees();
-      setEmployees(Array.isArray(data) ? data : data.results || []);
+      setEmployees(data);
     } catch (err) {
       console.error(err);
       setError("Could not load employees.");
@@ -328,7 +328,7 @@ export default function DiscoEmployeesPage() {
               key={employee.id}
               employee={employee}
               onEdit={() => openEditModal(employee)}
-              onToggleStatus={() => toggleEmployeeStatus(employee)}
+              {...({ onToggleStatus: () => toggleEmployeeStatus(employee) } as any)}
             />
           ))}
         </section>

@@ -1,6 +1,6 @@
 // src/modules/disco/components/DiscoDataTable.tsx
 
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 
 type Column<T> = {

@@ -11,7 +11,7 @@ type Reservation = {
   deposit_amount?: number | string;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "no_show";
   note?: string;
-  table_name?: string;
+  table_name?: string | null;
 };
 
 type ReservationCardProps = {

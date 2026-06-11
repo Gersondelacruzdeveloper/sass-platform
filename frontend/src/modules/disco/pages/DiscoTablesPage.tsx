@@ -16,19 +16,12 @@ import DiscoStatCard from "../components/DiscoStatCard";
 import TableCard from "../components/TableCard";
 
 import { useDiscoTables } from "../hooks/useDiscoTables";
-import { createTable, updateTable } from "../api/tablesApi";
-
-type TableStatus = "available" | "occupied" | "reserved" | "cleaning" | "inactive";
-
-type DiscoTable = {
-  id: number;
-  name: string;
-  floor?: string;
-  capacity: number;
-  minimum_spend?: string | number;
-  status: TableStatus;
-  is_vip: boolean;
-};
+import {
+  createTable,
+  updateTable,
+  type DiscoTable,
+  type TableStatus,
+} from "../api/tablesApi";
 
 const initialForm = {
   name: "",
@@ -44,15 +37,7 @@ const statusOptions: { value: TableStatus; label: string }[] = [
   { value: "occupied", label: "Occupied" },
   { value: "reserved", label: "Reserved" },
   { value: "cleaning", label: "Cleaning" },
-  { value: "inactive", label: "Inactive" },
 ];
-
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(Number(value || 0));
-}
 
 export default function DiscoTablesPage() {
   const { tables, loading, error, refresh } = useDiscoTables();
@@ -65,11 +50,12 @@ export default function DiscoTablesPage() {
   const [editingTable, setEditingTable] = useState<DiscoTable | null>(null);
   const [form, setForm] = useState(initialForm);
 
-  const filteredTables = useMemo(() => {
+  const filteredTables = useMemo<DiscoTable[]>(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return tables;
+    const safeTables = tables as DiscoTable[];
+    if (!term) return safeTables;
 
-    return tables.filter((table: DiscoTable) =>
+    return safeTables.filter((table) =>
       [
         table.name,
         table.floor,
@@ -85,22 +71,16 @@ export default function DiscoTablesPage() {
   }, [tables, search]);
 
   const stats = useMemo(() => {
-    const available = tables.filter(
-      (table: DiscoTable) => table.status === "available"
-    ).length;
+    const available = tables.filter((table: any) => table.status === "available").length;
 
-    const occupied = tables.filter(
-      (table: DiscoTable) => table.status === "occupied"
-    ).length;
+    const occupied = tables.filter((table: any) => table.status === "occupied").length;
 
-    const reserved = tables.filter(
-      (table: DiscoTable) => table.status === "reserved"
-    ).length;
+    const reserved = tables.filter((table: any) => table.status === "reserved").length;
 
-    const vip = tables.filter((table: DiscoTable) => table.is_vip).length;
+    const vip = tables.filter((table: any) => table.is_vip).length;
 
     const totalCapacity = tables.reduce(
-      (sum: number, table: DiscoTable) => sum + Number(table.capacity || 0),
+      (sum: number, table: any) => sum + Number(table.capacity || 0),
       0
     );
 
@@ -157,17 +137,6 @@ export default function DiscoTablesPage() {
       setLocalError("Could not save table.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function quickStatusUpdate(table: DiscoTable, status: TableStatus) {
-    try {
-      setLocalError("");
-      await updateTable(table.id, { status });
-      await refresh();
-    } catch (err) {
-      console.error(err);
-      setLocalError("Could not update table status.");
     }
   }
 
@@ -273,11 +242,8 @@ export default function DiscoTablesPage() {
           {filteredTables.map((table: DiscoTable) => (
             <TableCard
               key={table.id}
-              table={table}
+              table={table as any}
               onEdit={() => openEditModal(table)}
-              onSetAvailable={() => quickStatusUpdate(table, "available")}
-              onSetOccupied={() => quickStatusUpdate(table, "occupied")}
-              onSetReserved={() => quickStatusUpdate(table, "reserved")}
             />
           ))}
         </section>

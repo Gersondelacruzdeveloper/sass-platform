@@ -170,29 +170,29 @@ export default function DiscoReportsPage() {
             <KPIStatCard
               title="Sales Today"
               value={money(report.salesToday)}
+              change="N/A"
               icon={DollarSign}
-              helper="Daily revenue"
             />
 
             <KPIStatCard
               title="Sales This Month"
               value={money(report.salesMonth)}
+              change="N/A"
               icon={ShoppingCart}
-              helper="Monthly revenue"
             />
 
             <KPIStatCard
               title="Net Profit"
               value={money(report.netProfit)}
+              change="N/A"
               icon={TrendingUp}
-              helper="Estimated profit"
             />
 
             <KPIStatCard
               title="Open Cash Shifts"
-              value={report.openCashShifts}
+              value={String(report.openCashShifts)}
+              change="N/A"
               icon={Banknote}
-              helper="Active shifts"
             />
           </section>
 

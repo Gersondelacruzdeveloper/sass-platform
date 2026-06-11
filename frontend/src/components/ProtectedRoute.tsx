@@ -45,7 +45,9 @@ export default function ProtectedRoute() {
     return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
   }
 
-  const organisation = user.organisation;
+  const organisation = user.organisation as typeof user.organisation & {
+    is_active?: boolean;
+  };
 
   if (
     organisation &&

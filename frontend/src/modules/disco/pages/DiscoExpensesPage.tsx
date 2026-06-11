@@ -91,7 +91,10 @@ export default function DiscoExpensesPage() {
       setError("");
 
       const data = await getExpenses();
-      setExpenses(Array.isArray(data) ? data : data.results || []);
+      const expensesData = Array.isArray(data)
+        ? data
+        : (data as { results?: Expense[] }).results || [];
+      setExpenses(expensesData);
     } catch (err) {
       console.error(err);
       setError("Could not load expenses.");
@@ -305,8 +308,8 @@ export default function DiscoExpensesPage() {
           data={filteredExpenses}
           columns={[
             {
-              header: "Expense",
-              accessor: "title",
+              label: "Expense",
+              key: "title",
               render: (expense: Expense) => (
                 <div>
                   <p className="text-sm font-black text-slate-950">
@@ -321,8 +324,8 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              header: "Category",
-              accessor: "category",
+              label: "Category",
+              key: "category",
               render: (expense: Expense) => (
                 <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
                   {categoryLabel(expense.category)}
@@ -330,8 +333,8 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              header: "Amount",
-              accessor: "amount",
+              label: "Amount",
+              key: "amount",
               render: (expense: Expense) => (
                 <span className="text-sm font-black text-slate-950">
                   {money(expense.amount)}
@@ -339,8 +342,8 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              header: "Created By",
-              accessor: "created_by_name",
+              label: "Created By",
+              key: "created_by_name",
               render: (expense: Expense) => (
                 <span className="text-sm font-bold text-slate-600">
                   {expense.created_by_name || "System"}
@@ -348,8 +351,8 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              header: "Date",
-              accessor: "created_at",
+              label: "Date",
+              key: "created_at",
               render: (expense: Expense) => (
                 <span className="text-sm font-bold text-slate-500">
                   {formatDate(expense.created_at)}
@@ -357,8 +360,8 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              header: "Actions",
-              accessor: "id",
+              label: "Actions",
+              key: "id",
               render: (expense: Expense) => (
                 <button
                   type="button"

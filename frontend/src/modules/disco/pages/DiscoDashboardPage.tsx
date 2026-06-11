@@ -101,28 +101,28 @@ export default function DiscoDashboardPage() {
           title="Sales Today"
           value={money(dashboardStats.salesToday)}
           icon={DollarSign}
-          helper="Revenue generated today"
+          change="Today's total"
         />
 
         <KPIStatCard
           title="Sales This Month"
           value={money(dashboardStats.salesMonth)}
           icon={ShoppingCart}
-          helper="Monthly revenue"
+          change="This month"
         />
 
         <KPIStatCard
           title="Net Profit"
           value={money(dashboardStats.netProfit)}
           icon={TrendingUp}
-          helper="Estimated profit"
+          change="Month to date"
         />
 
         <KPIStatCard
           title="Open Cash Shifts"
-          value={dashboardStats.openCashShifts}
+          value={String(dashboardStats.openCashShifts)}
           icon={Banknote}
-          helper="Active cashier shifts"
+          change="Active shifts"
         />
       </section>
 
@@ -250,7 +250,6 @@ export default function DiscoDashboardPage() {
                     cost_price: 0,
                     is_active: true,
                   }}
-                  compact
                 />
               ))
             ) : (
@@ -276,8 +275,15 @@ export default function DiscoDashboardPage() {
               pendingReservations.slice(0, 4).map((reservation) => (
                 <ReservationCard
                   key={reservation.id}
-                  reservation={reservation}
-                  compact
+                  reservation={{
+                    ...reservation,
+                    status: reservation.status as
+                      | "pending"
+                      | "confirmed"
+                      | "cancelled"
+                      | "completed"
+                      | "no_show",
+                  }}
                 />
               ))
             ) : (

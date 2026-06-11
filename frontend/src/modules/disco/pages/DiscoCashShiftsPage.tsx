@@ -62,8 +62,8 @@ export default function DiscoCashShiftsPage() {
       isRefresh ? setRefreshing(true) : setLoading(true);
       setError("");
 
-      const data = await getCashShifts();
-      setShifts(Array.isArray(data) ? data : data.results || []);
+      const data: any = await getCashShifts();
+      setShifts(Array.isArray(data) ? data : (data && data.results) || []);
     } catch (err) {
       console.error(err);
       setError("Could not load cash shifts.");
@@ -149,7 +149,7 @@ export default function DiscoCashShiftsPage() {
       setError("");
 
       await updateCashShift(selectedShift.id, {
-        closing_cash: Number(closingCash || 0),
+        closing_cash: String(Number(closingCash || 0)),
         is_open: false,
       });
 
@@ -284,15 +284,26 @@ export default function DiscoCashShiftsPage() {
         />
       ) : (
         <section className="grid gap-3 lg:grid-cols-2">
-          {filteredShifts.map((shift) => (
-            <CashShiftCard
-              key={shift.id}
-              shift={shift}
-              onCloseShift={
-                shift.is_open ? () => startCloseShift(shift) : undefined
-              }
-            />
-          ))}
+          {filteredShifts.map((shift) => {
+            const normalizedShift = {
+              ...shift,
+              opened_by_name:
+                shift.opened_by_name === null ? undefined : shift.opened_by_name,
+              closed_by_name:
+                shift.closed_by_name === null ? undefined : shift.closed_by_name,
+            } as any; // normalize null -> undefined to satisfy component prop types
+
+            return (
+              <CashShiftCard
+                key={shift.id}
+                shift={normalizedShift}
+                // @ts-ignore: component accepts runtime prop for closing shift
+                onCloseShift={
+                  shift.is_open ? () => startCloseShift(shift) : undefined
+                }
+              />
+            );
+          })}
         </section>
       )}
 

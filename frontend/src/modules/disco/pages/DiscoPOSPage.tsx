@@ -351,7 +351,7 @@ async function handleCheckout(paymentMethod: "cash" | "card") {
                         : ""
                     }`}
                   >
-                    <TableCard table={table} compact />
+                    <TableCard table={table as any} />
                   </button>
                 ))}
               </div>
@@ -376,13 +376,20 @@ async function handleCheckout(paymentMethod: "cash" | "card") {
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredProducts.map((product: Product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onAddToCart={() => addItem(product)}
-                  />
-                ))}
+                {filteredProducts.map((product: Product) => {
+                  const safeProduct = {
+                    ...product,
+                    minimum_stock: product.minimum_stock ?? 0,
+                  } as Product;
+
+                  return (
+                    <ProductCard
+                      key={product.id}
+                      product={safeProduct as any}
+                      onAddToCart={() => addItem(product)}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
