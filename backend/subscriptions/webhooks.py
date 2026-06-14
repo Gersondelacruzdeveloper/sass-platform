@@ -1,12 +1,13 @@
+import logging
 import stripe
 
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-import logging
 
 from subscriptions.models import Subscription
+
 logger = logging.getLogger(__name__)
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -23,7 +24,6 @@ def stripe_get(obj, key, default=None):
 
 def stripe_metadata(obj):
     metadata = stripe_get(obj, "metadata", None)
-
     if not metadata:
         return {}
 
@@ -46,13 +46,30 @@ def timestamp_to_datetime(value):
 def set_organisation_access(subscription):
     organisation = subscription.organisation
     organisation.is_active = subscription.status in ACTIVE_STATUSES
-    organisation.plan = subscription.plan.slug
-    organisation.save(update_fields=["is_active", "plan"])
+
+    update_fields = ["is_active"]
+
+    if subscription.plan:
+        organisation.plan = subscription.plan.slug
+        update_fields.append("plan")
+
+    organisation.save(update_fields=update_fields)
 
 
 def update_subscription_from_stripe(stripe_subscription):
     stripe_subscription_id = stripe_get(stripe_subscription, "id")
-    status = stripe_get(stripe_subscription, "status")
+    status_value = stripe_get(stripe_subscription, "status")
+
+    metadata = stripe_metadata(stripe_subscription)
+    subscription_id = metadata.get("subscription_id")
+    organisation_id = metadata.get("organisation_id")
+
+    logger.info(
+        "Stripe subscription event | stripe_subscription_id=%s | status=%s | metadata=%s",
+        stripe_subscription_id,
+        status_value,
+        metadata,
+    )
 
     subscription = (
         Subscription.objects
@@ -61,10 +78,20 @@ def update_subscription_from_stripe(stripe_subscription):
         .first()
     )
 
+    if not subscription and subscription_id and organisation_id:
+        subscription = (
+            Subscription.objects
+            .select_related("organisation", "plan")
+            .filter(id=subscription_id, organisation_id=organisation_id)
+            .first()
+        )
+
     if not subscription:
+        logger.warning("No local subscription found for Stripe subscription.")
         return
 
-    subscription.status = status
+    subscription.stripe_subscription_id = stripe_subscription_id
+    subscription.status = status_value or subscription.status
     subscription.cancel_at_period_end = stripe_get(
         stripe_subscription,
         "cancel_at_period_end",
@@ -92,9 +119,6 @@ def update_subscription_from_stripe(stripe_subscription):
 def stripe_webhook(request):
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-    event_type = event["type"]
-    data = event["data"]["object"]
-    logger.info("Received Stripe webhook: %s", event_type)
 
     try:
         event = stripe.Webhook.construct_event(
@@ -110,11 +134,10 @@ def stripe_webhook(request):
     event_type = event["type"]
     data = event["data"]["object"]
 
+    logger.info("Received Stripe webhook: %s", event_type)
+
     if event_type == "checkout.session.completed":
         metadata = stripe_metadata(data)
-        logger.info("CHECKOUT SESSION METADATA: %s", metadata)
-        logger.info("ORG ID: %s | SUB ID: %s", organisation_id, subscription_id)
-        logger.info("STRIPE CUSTOMER: %s | STRIPE SUB: %s", stripe_customer_id, stripe_subscription_id)
 
         organisation_id = metadata.get("organisation_id")
         subscription_id = metadata.get("subscription_id")
@@ -122,28 +145,48 @@ def stripe_webhook(request):
         stripe_customer_id = stripe_get(data, "customer")
         stripe_subscription_id = stripe_get(data, "subscription")
 
+        logger.info(
+            "Checkout completed | organisation_id=%s | subscription_id=%s | customer=%s | stripe_subscription=%s | metadata=%s",
+            organisation_id,
+            subscription_id,
+            stripe_customer_id,
+            stripe_subscription_id,
+            metadata,
+        )
+
         subscription = (
             Subscription.objects
             .select_related("organisation", "plan")
-            .filter(
-                id=subscription_id,
-                organisation_id=organisation_id,
-            )
+            .filter(id=subscription_id, organisation_id=organisation_id)
             .first()
         )
 
-    if subscription:
-        subscription.stripe_customer_id = stripe_customer_id
-        subscription.stripe_subscription_id = stripe_subscription_id
+        if not subscription and stripe_subscription_id:
+            subscription = (
+                Subscription.objects
+                .select_related("organisation", "plan")
+                .filter(stripe_subscription_id=stripe_subscription_id)
+                .first()
+            )
 
-        if stripe_subscription_id:
-            stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
-            subscription.status = stripe_sub.status
+        if subscription:
+            subscription.stripe_customer_id = stripe_customer_id
+            subscription.stripe_subscription_id = stripe_subscription_id
+
+            if stripe_subscription_id:
+                try:
+                    stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+                    subscription.status = stripe_get(stripe_sub, "status", "active")
+                except Exception as exc:
+                    logger.exception("Could not retrieve Stripe subscription: %s", exc)
+                    subscription.status = "active"
+            else:
+                subscription.status = "active"
+
+            subscription.save()
+            set_organisation_access(subscription)
         else:
-            subscription.status = "active"
-
-        subscription.save()
-        set_organisation_access(subscription)
+            logger.warning("No local subscription found for checkout.session.completed.")
 
     elif event_type in [
         "customer.subscription.created",
