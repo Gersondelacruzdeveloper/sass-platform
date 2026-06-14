@@ -24,13 +24,19 @@ def stripe_get(obj, key, default=None):
 
 def stripe_metadata(obj):
     metadata = stripe_get(obj, "metadata", None)
+
     if not metadata:
         return {}
 
     try:
+        return metadata.to_dict()
+    except Exception:
+        pass
+
+    try:
         return dict(metadata)
     except Exception:
-        return metadata
+        return {}
 
 
 def timestamp_to_datetime(value):
