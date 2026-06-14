@@ -15,9 +15,14 @@ router.register("memberships", MembershipViewSet, basename="memberships")
 
 urlpatterns = [
 path(
-    "public-branding/<str:business_type>/<slug:slug>/",
-    PublicOrganisationBrandingView.as_view(),
-    name="public-organisation-branding",
+        "public-branding/<str:business_type>/<slug:slug>/",
+        PublicOrganisationBrandingView.as_view(),
+        name="public-organisation-branding",
+    ),
+path(
+    "branding/<str:business_type>/<slug:slug>/",
+    OrganisationBrandingView.as_view(),
+    name="organisation-branding-detail",
 ),
 ]
 
