@@ -113,12 +113,15 @@ def update_subscription_from_stripe(stripe_subscription):
 
     subscription.save()
     set_organisation_access(subscription)
-
-
+    
 @csrf_exempt
 def stripe_webhook(request):
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+
+    logger.info("========== STRIPE WEBHOOK START ==========")
+    logger.info("Webhook payload length: %s", len(payload))
+    logger.info("Stripe signature exists: %s", bool(sig_header))
 
     try:
         event = stripe.Webhook.construct_event(
@@ -126,42 +129,104 @@ def stripe_webhook(request):
             sig_header,
             settings.STRIPE_WEBHOOK_SECRET,
         )
-    except ValueError:
+    except ValueError as exc:
+        logger.exception("Stripe webhook invalid payload: %s", exc)
         return HttpResponse(status=400)
-    except stripe.error.SignatureVerificationError:
+    except stripe.error.SignatureVerificationError as exc:
+        logger.exception("Stripe webhook invalid signature: %s", exc)
         return HttpResponse(status=400)
 
-    event_type = event["type"]
-    data = event["data"]["object"]
+    try:
+        event_type = event["type"]
+        data = event["data"]["object"]
 
-    logger.info("Received Stripe webhook: %s", event_type)
+        logger.info("Received Stripe webhook: %s", event_type)
+        logger.info("Stripe event id: %s", event.get("id"))
+        logger.info("Stripe object id: %s", stripe_get(data, "id"))
+        logger.info("Stripe object metadata: %s", stripe_metadata(data))
 
-    if event_type == "checkout.session.completed":
-        metadata = stripe_metadata(data)
+        if event_type == "checkout.session.completed":
+            metadata = stripe_metadata(data)
 
-        organisation_id = metadata.get("organisation_id")
-        subscription_id = metadata.get("subscription_id")
+            organisation_id = metadata.get("organisation_id")
+            subscription_id = metadata.get("subscription_id")
 
-        stripe_customer_id = stripe_get(data, "customer")
-        stripe_subscription_id = stripe_get(data, "subscription")
+            stripe_customer_id = stripe_get(data, "customer")
+            stripe_subscription_id = stripe_get(data, "subscription")
 
-        logger.info(
-            "Checkout completed | organisation_id=%s | subscription_id=%s | customer=%s | stripe_subscription=%s | metadata=%s",
-            organisation_id,
-            subscription_id,
-            stripe_customer_id,
-            stripe_subscription_id,
-            metadata,
-        )
+            logger.info("Checkout organisation_id: %s", organisation_id)
+            logger.info("Checkout subscription_id: %s", subscription_id)
+            logger.info("Checkout stripe_customer_id: %s", stripe_customer_id)
+            logger.info("Checkout stripe_subscription_id: %s", stripe_subscription_id)
 
-        subscription = (
-            Subscription.objects
-            .select_related("organisation", "plan")
-            .filter(id=subscription_id, organisation_id=organisation_id)
-            .first()
-        )
+            subscription = (
+                Subscription.objects
+                .select_related("organisation", "plan")
+                .filter(id=subscription_id, organisation_id=organisation_id)
+                .first()
+            )
 
-        if not subscription and stripe_subscription_id:
+            logger.info("Local subscription found by metadata: %s", bool(subscription))
+
+            if not subscription and stripe_subscription_id:
+                subscription = (
+                    Subscription.objects
+                    .select_related("organisation", "plan")
+                    .filter(stripe_subscription_id=stripe_subscription_id)
+                    .first()
+                )
+
+                logger.info("Local subscription found by stripe id: %s", bool(subscription))
+
+            if subscription:
+                logger.info(
+                    "Before update | local_sub_id=%s | org_slug=%s | old_status=%s | old_customer=%s | old_stripe_sub=%s",
+                    subscription.id,
+                    subscription.organisation.slug,
+                    subscription.status,
+                    subscription.stripe_customer_id,
+                    subscription.stripe_subscription_id,
+                )
+
+                subscription.stripe_customer_id = stripe_customer_id
+                subscription.stripe_subscription_id = stripe_subscription_id
+
+                if stripe_subscription_id:
+                    try:
+                        stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+                        subscription.status = stripe_get(stripe_sub, "status", "active")
+                        logger.info("Retrieved Stripe subscription status: %s", subscription.status)
+                    except Exception as exc:
+                        logger.exception("Could not retrieve Stripe subscription: %s", exc)
+                        subscription.status = "active"
+                else:
+                    subscription.status = "active"
+
+                subscription.save()
+                set_organisation_access(subscription)
+
+                logger.info(
+                    "After update | local_sub_id=%s | org_slug=%s | new_status=%s | org_active=%s",
+                    subscription.id,
+                    subscription.organisation.slug,
+                    subscription.status,
+                    subscription.organisation.is_active,
+                )
+            else:
+                logger.warning("No local subscription found for checkout.session.completed.")
+
+        elif event_type in [
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+        ]:
+            logger.info("Sending event to update_subscription_from_stripe")
+            update_subscription_from_stripe(data)
+
+        elif event_type == "invoice.payment_succeeded":
+            stripe_subscription_id = stripe_get(data, "subscription")
+            logger.info("invoice.payment_succeeded stripe_subscription_id: %s", stripe_subscription_id)
+
             subscription = (
                 Subscription.objects
                 .select_related("organisation", "plan")
@@ -169,60 +234,36 @@ def stripe_webhook(request):
                 .first()
             )
 
-        if subscription:
-            subscription.stripe_customer_id = stripe_customer_id
-            subscription.stripe_subscription_id = stripe_subscription_id
+            logger.info("Invoice local subscription found: %s", bool(subscription))
 
-            if stripe_subscription_id:
-                try:
-                    stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
-                    subscription.status = stripe_get(stripe_sub, "status", "active")
-                except Exception as exc:
-                    logger.exception("Could not retrieve Stripe subscription: %s", exc)
-                    subscription.status = "active"
-            else:
+            if subscription:
                 subscription.status = "active"
+                subscription.save(update_fields=["status"])
+                set_organisation_access(subscription)
+                logger.info("Invoice activated organisation: %s", subscription.organisation.slug)
 
-            subscription.save()
-            set_organisation_access(subscription)
-        else:
-            logger.warning("No local subscription found for checkout.session.completed.")
+        elif event_type == "invoice.payment_failed":
+            stripe_subscription_id = stripe_get(data, "subscription")
+            logger.info("invoice.payment_failed stripe_subscription_id: %s", stripe_subscription_id)
 
-    elif event_type in [
-        "customer.subscription.created",
-        "customer.subscription.updated",
-        "customer.subscription.deleted",
-    ]:
-        update_subscription_from_stripe(data)
+            subscription = (
+                Subscription.objects
+                .select_related("organisation", "plan")
+                .filter(stripe_subscription_id=stripe_subscription_id)
+                .first()
+            )
 
-    elif event_type == "invoice.payment_succeeded":
-        stripe_subscription_id = stripe_get(data, "subscription")
+            logger.info("Payment failed local subscription found: %s", bool(subscription))
 
-        subscription = (
-            Subscription.objects
-            .select_related("organisation", "plan")
-            .filter(stripe_subscription_id=stripe_subscription_id)
-            .first()
-        )
+            if subscription:
+                subscription.status = "past_due"
+                subscription.save(update_fields=["status"])
+                set_organisation_access(subscription)
+                logger.info("Payment failed deactivated organisation: %s", subscription.organisation.slug)
 
-        if subscription:
-            subscription.status = "active"
-            subscription.save(update_fields=["status"])
-            set_organisation_access(subscription)
+        logger.info("========== STRIPE WEBHOOK END OK ==========")
+        return HttpResponse(status=200)
 
-    elif event_type == "invoice.payment_failed":
-        stripe_subscription_id = stripe_get(data, "subscription")
-
-        subscription = (
-            Subscription.objects
-            .select_related("organisation", "plan")
-            .filter(stripe_subscription_id=stripe_subscription_id)
-            .first()
-        )
-
-        if subscription:
-            subscription.status = "past_due"
-            subscription.save(update_fields=["status"])
-            set_organisation_access(subscription)
-
-    return HttpResponse(status=200)
+    except Exception as exc:
+        logger.exception("STRIPE WEBHOOK CRASHED: %s", exc)
+        return HttpResponse(status=500)
