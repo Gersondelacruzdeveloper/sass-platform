@@ -113,7 +113,7 @@ def update_subscription_from_stripe(stripe_subscription):
 
     subscription.save()
     set_organisation_access(subscription)
-    
+
 @csrf_exempt
 def stripe_webhook(request):
     payload = request.body
@@ -141,7 +141,7 @@ def stripe_webhook(request):
         data = event["data"]["object"]
 
         logger.info("Received Stripe webhook: %s", event_type)
-        logger.info("Stripe event id: %s", event.get("id"))
+        logger.info("Stripe event id: %s", stripe_get(event, "id"))
         logger.info("Stripe object id: %s", stripe_get(data, "id"))
         logger.info("Stripe object metadata: %s", stripe_metadata(data))
 
