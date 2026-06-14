@@ -43,10 +43,7 @@ def create_checkout_session(request):
     serializer = CreateCheckoutSessionSerializer(data=request.data)
 
     if not serializer.is_valid():
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     data = serializer.validated_data
 
@@ -56,7 +53,6 @@ def create_checkout_session(request):
     password = data["password"]
     business_type = data.get("business_type", "disco")
     plan_slug = data["plan"]
-
     app_slug = data.get("app") or business_type or "disco"
 
     branding_data = {
@@ -72,16 +68,10 @@ def create_checkout_session(request):
         "accent_color": request.data.get("accent_color") or "#06b6d4",
     }
 
-    plan = SubscriptionPlan.objects.filter(
-        slug=plan_slug,
-        is_active=True,
-    ).first()
+    plan = SubscriptionPlan.objects.filter(slug=plan_slug, is_active=True).first()
 
     if not plan:
-        return Response(
-            {"detail": "Invalid plan."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response({"detail": "Invalid plan."}, status=status.HTTP_400_BAD_REQUEST)
 
     if not plan.stripe_price_id:
         return Response(
@@ -143,6 +133,16 @@ def create_checkout_session(request):
         status="trialing",
     )
 
+    stripe_metadata = {
+        "organisation_id": str(organisation.id),
+        "organisation_slug": organisation.slug,
+        "subscription_id": str(subscription.id),
+        "user_id": str(user.id),
+        "plan_slug": plan.slug,
+        "app_slug": app_slug,
+        "business_type": business_type,
+    }
+
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -163,16 +163,12 @@ def create_checkout_session(request):
                 f"{settings.FRONTEND_URL}"
                 f"/{app_slug}/subscription/cancel"
             ),
-            metadata={
-                "organisation_id": str(organisation.id),
-                "organisation_slug": organisation.slug,
-                "subscription_id": str(subscription.id),
-                "user_id": str(user.id),
-                "plan_slug": plan.slug,
-                "app_slug": app_slug,
-                "business_type": business_type,
+            metadata=stripe_metadata,
+            subscription_data={
+                "metadata": stripe_metadata,
             },
         )
+
     except stripe.error.StripeError as exc:
         subscription.delete()
         user.delete()
@@ -194,6 +190,7 @@ def create_checkout_session(request):
         },
         status=status.HTTP_201_CREATED,
     )
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])

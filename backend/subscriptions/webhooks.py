@@ -4,8 +4,10 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+import logging
 
 from subscriptions.models import Subscription
+logger = logging.getLogger(__name__)
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -90,6 +92,9 @@ def update_subscription_from_stripe(stripe_subscription):
 def stripe_webhook(request):
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+    event_type = event["type"]
+    data = event["data"]["object"]
+    logger.info("Received Stripe webhook: %s", event_type)
 
     try:
         event = stripe.Webhook.construct_event(
@@ -107,6 +112,9 @@ def stripe_webhook(request):
 
     if event_type == "checkout.session.completed":
         metadata = stripe_metadata(data)
+        logger.info("CHECKOUT SESSION METADATA: %s", metadata)
+        logger.info("ORG ID: %s | SUB ID: %s", organisation_id, subscription_id)
+        logger.info("STRIPE CUSTOMER: %s | STRIPE SUB: %s", stripe_customer_id, stripe_subscription_id)
 
         organisation_id = metadata.get("organisation_id")
         subscription_id = metadata.get("subscription_id")
@@ -124,13 +132,18 @@ def stripe_webhook(request):
             .first()
         )
 
-        if subscription:
-            subscription.stripe_customer_id = stripe_customer_id
-            subscription.stripe_subscription_id = stripe_subscription_id
-            subscription.status = "active"
-            subscription.save()
+    if subscription:
+        subscription.stripe_customer_id = stripe_customer_id
+        subscription.stripe_subscription_id = stripe_subscription_id
 
-            set_organisation_access(subscription)
+        if stripe_subscription_id:
+            stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+            subscription.status = stripe_sub.status
+        else:
+            subscription.status = "active"
+
+        subscription.save()
+        set_organisation_access(subscription)
 
     elif event_type in [
         "customer.subscription.created",
