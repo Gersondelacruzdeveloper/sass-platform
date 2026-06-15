@@ -187,208 +187,210 @@ export default function EvaluationTemplatesPage() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
-        <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
-                <FileQuestion size={16} />
-                Evaluation Builder
-              </div>
-
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                Evaluation Templates
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Crea auditorías, evaluaciones y checklists dinámicos basados en estándares A&B.
-              </p>
+return (
+  <div className="min-h-screen bg-slate-50">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
+      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
+              <FileQuestion size={16} />
+              Creador de Evaluaciones
             </div>
 
-            <div className="rounded-3xl bg-white/10 p-5 lg:min-w-80">
-              <p className="text-sm font-semibold text-white/60">
-                Current Template Questions
-              </p>
-              <p className="mt-2 text-5xl font-black">{questions.length}</p>
-              <p className="mt-1 text-sm text-white/60">
-                Total weight: {totalWeight}
-              </p>
-            </div>
-          </div>
-        </section>
+            <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+              Plantillas de Evaluación
+            </h1>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Templates" value={templates.length} icon={<Layers3 />} />
-          <SummaryCard title="Active" value={activeTemplates} icon={<BadgeCheck />} />
-          <SummaryCard title="Inactive" value={inactiveTemplates} icon={<XCircle />} />
-          <SummaryCard title="Standards" value={standards.length} icon={<FileQuestion />} />
-        </section>
-
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-        >
-          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">
-                Create Template
-              </h2>
-              <p className="text-sm text-slate-500">
-                Define el nombre, descripción y preguntas que se usarán en evaluaciones.
-              </p>
-            </div>
-
-            <label className="flex w-fit cursor-pointer items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
-              <input
-                type="checkbox"
-                checked={form.active}
-                onChange={(e) => setForm({ ...form, active: e.target.checked })}
-                className="h-4 w-4 accent-slate-950"
-              />
-              <span className="font-bold text-slate-700">Active template</span>
-            </label>
+            <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
+              Crea auditorías, evaluaciones y checklists dinámicos basados en estándares A&B.
+            </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Input
-              required
-              label="Template Name"
-              placeholder="Guest Service Audit"
-              value={form.name}
-              onChange={(value) => setForm({ ...form, name: value })}
+          <div className="rounded-3xl bg-white/10 p-5 lg:min-w-80">
+            <p className="text-sm font-semibold text-white/60">
+              Preguntas de la Plantilla Actual
+            </p>
+            <p className="mt-2 text-5xl font-black">{questions.length}</p>
+            <p className="mt-1 text-sm text-white/60">
+              Peso total: {totalWeight}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard title="Plantillas" value={templates.length} icon={<Layers3 />} />
+        <SummaryCard title="Activas" value={activeTemplates} icon={<BadgeCheck />} />
+        <SummaryCard title="Inactivas" value={inactiveTemplates} icon={<XCircle />} />
+        <SummaryCard title="Estándares" value={standards.length} icon={<FileQuestion />} />
+      </section>
+
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+      >
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">
+              Crear Plantilla
+            </h2>
+            <p className="text-sm text-slate-500">
+              Define el nombre, descripción y preguntas que se usarán en evaluaciones.
+            </p>
+          </div>
+
+          <label className="flex w-fit cursor-pointer items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) => setForm({ ...form, active: e.target.checked })}
+              className="h-4 w-4 accent-slate-950"
             />
+            <span className="font-bold text-slate-700">Plantilla activa</span>
+          </label>
+        </div>
 
-            <label className="space-y-2 md:row-span-2">
-              <span className="text-sm font-bold text-slate-700">
-                Description
-              </span>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input
+            required
+            label="Nombre de la Plantilla"
+            placeholder="Auditoría de Servicio al Huésped"
+            value={form.name}
+            onChange={(value) => setForm({ ...form, name: value })}
+          />
 
-              <textarea
-                className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                placeholder="Describe what this template evaluates..."
-                value={form.description}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    description: e.target.value,
-                  })
-                }
-              />
-            </label>
-          </div>
+          <label className="space-y-2 md:row-span-2">
+            <span className="text-sm font-bold text-slate-700">
+              Descripción
+            </span>
 
-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-              <div>
-                <h3 className="text-xl font-black text-slate-950">Questions</h3>
-                <p className="text-sm text-slate-500">
-                  Agrega preguntas, conecta estándares y define el tipo de respuesta.
-                </p>
-              </div>
+            <textarea
+              className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              placeholder="Describe qué evalúa esta plantilla..."
+              value={form.description}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  description: e.target.value,
+                })
+              }
+            />
+          </label>
+        </div>
 
-              <button
-                type="button"
-                onClick={addQuestion}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 font-black text-white transition hover:bg-slate-800"
-              >
-                <PlusCircle size={18} />
-                Add Question
-              </button>
+        <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <h3 className="text-xl font-black text-slate-950">Preguntas</h3>
+              <p className="text-sm text-slate-500">
+                Agrega preguntas, conecta estándares y define el tipo de respuesta.
+              </p>
             </div>
-
-            <div className="space-y-4">
-              {questions.map((question, index) => (
-                <QuestionCard
-                  key={index}
-                  index={index}
-                  question={question}
-                  standards={standards}
-                  canRemove={questions.length > 1}
-                  onRemove={() => removeQuestion(index)}
-                  onUpdate={(field, value) =>
-                    updateQuestion(index, field, value)
-                  }
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              disabled={saving}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-950 px-6 py-3 font-black text-white transition hover:bg-slate-800 disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save Template"}
-            </button>
 
             <button
               type="button"
-              onClick={resetForm}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-100 px-6 py-3 font-black text-slate-700 transition hover:bg-slate-200"
+              onClick={addQuestion}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 font-black text-white transition hover:bg-slate-800"
             >
-              Clear
+              <PlusCircle size={18} />
+              Agregar Pregunta
             </button>
           </div>
-        </form>
 
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">
-                Existing Templates
-              </h2>
-              <p className="text-sm text-slate-500">
-                Busca templates activos o inactivos.
-              </p>
-            </div>
+          <div className="space-y-4">
+            {questions.map((question, index) => (
+              <QuestionCard
+                key={index}
+                index={index}
+                question={question}
+                standards={standards}
+                canRemove={questions.length > 1}
+                onRemove={() => removeQuestion(index)}
+                onUpdate={(field, value) =>
+                  updateQuestion(index, field, value)
+                }
+              />
+            ))}
+          </div>
+        </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:min-w-[520px]">
-              <div className="relative">
-                <Search
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={18}
-                />
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                  placeholder="Search template..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button
+            disabled={saving}
+            className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-950 px-6 py-3 font-black text-white transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            {saving ? "Guardando..." : "Guardar Plantilla"}
+          </button>
 
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
+          <button
+            type="button"
+            onClick={resetForm}
+            className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-100 px-6 py-3 font-black text-slate-700 transition hover:bg-slate-200"
+          >
+            Limpiar
+          </button>
+        </div>
+      </form>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">
+              Plantillas Existentes
+            </h2>
+            <p className="text-sm text-slate-500">
+              Busca templates activos o inactivos.
+            </p>
           </div>
 
-          <div className="mb-4 text-sm font-semibold text-slate-500">
-            Mostrando {filteredTemplates.length} de {templates.length} templates
-          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:min-w-[520px]">
+            <div className="relative">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                placeholder="Buscar plantilla..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
 
-          {filteredTemplates.length === 0 ? (
-            <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-semibold text-slate-500">
-              No templates found.
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {filteredTemplates.map((template) => (
-                <TemplateCard key={template.id} template={template} />
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos los estados</option>
+              <option value="active">Activa</option>
+              <option value="inactive">Inactiva</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mb-4 text-sm font-semibold text-slate-500">
+          Mostrando {filteredTemplates.length} de {templates.length} plantillas
+        </div>
+
+        {filteredTemplates.length === 0 ? (
+          <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-semibold text-slate-500">
+            No se encontraron plantillas.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {filteredTemplates.map((template) => (
+              <TemplateCard key={template.id} template={template} />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
-  );
+  </div>
+);
+
+
 }
 
 function QuestionCard({

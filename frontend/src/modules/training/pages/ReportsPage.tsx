@@ -83,238 +83,238 @@ export default function ReportsPage() {
 
   const generatedAt = new Date().toLocaleString();
 
-  return (
-    <div className="min-h-screen bg-slate-50 print:bg-white">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8 print:max-w-none print:p-0">
-        <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8 print:rounded-none print:bg-white print:text-slate-950 print:shadow-none">
-          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80 print:bg-slate-100 print:text-slate-700">
-                <FileText size={16} />
-                Executive Report
+return (
+  <div className="min-h-screen bg-slate-50 print:bg-white">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8 print:max-w-none print:p-0">
+      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8 print:rounded-none print:bg-white print:text-slate-950 print:shadow-none">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80 print:bg-slate-100 print:text-slate-700">
+              <FileText size={16} />
+              Reporte Ejecutivo
+            </div>
+
+            <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+              Reporte de Entrenamiento A&B
+            </h1>
+
+            <p className="mt-3 max-w-3xl text-sm text-white/65 md:text-base print:text-slate-600">
+              Resumen ejecutivo de rendimiento A&B, estándares Hard Rock,
+              entrenamientos, talento destacado y próximos pasos.
+            </p>
+
+            <p className="mt-4 text-sm font-semibold text-white/50 print:text-slate-500">
+              Generado: {generatedAt}
+            </p>
+          </div>
+
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 font-black text-slate-950 transition hover:bg-slate-100 print:hidden"
+          >
+            <Download size={18} />
+            Imprimir / Guardar PDF
+          </button>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <ReportMetric
+          label="Rendimiento A&B"
+          value={`${analytics.ab_performance_score}%`}
+          icon={<Sparkles />}
+          score={analytics.ab_performance_score}
+        />
+
+        <ReportMetric
+          label="Puntuación Hard Rock"
+          value={`${analytics.hard_rock_score}%`}
+          icon={<Trophy />}
+          score={analytics.hard_rock_score}
+        />
+
+        <ReportMetric
+          label="Finalización de Entrenamientos"
+          value={`${analytics.training_completion}%`}
+          icon={<GraduationCap />}
+          score={analytics.training_completion}
+        />
+
+        <ReportMetric
+          label="Personas en Entrenamiento Hoy"
+          value={dashboard.people_training_today}
+          icon={<Users />}
+        />
+      </section>
+
+      <ReportSection
+        title="Resumen Ejecutivo Semanal"
+        subtitle="Vista rápida para dirección"
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <InsightCard
+            type="success"
+            title="Mejor Outlet"
+            value={bestOutlet?.name || "N/A"}
+            description={`Puntuación actual de rendimiento: ${bestOutlet?.score || 0}%. Utilice este outlet como referencia de mejores prácticas.`}
+          />
+
+          <InsightCard
+            type="warning"
+            title="Necesita Atención"
+            value={lowestOutlet?.name || "N/A"}
+            description={`Puntuación actual de rendimiento: ${lowestOutlet?.score || 0}%. Priorice coaching, observación de estándares y seguimiento.`}
+          />
+
+          <InsightCard
+            type="info"
+            title="Actividad de Entrenamiento"
+            value={`${completedRate}%`}
+            description={`${completedSessions.length} entrenamientos completados, ${scheduledSessions.length} programados, ${sessions.length} sesiones totales.`}
+          />
+        </div>
+      </ReportSection>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <ReportSection title="Mejores Colaboradores" subtitle="Empleados con mejores resultados actuales">
+          <div className="space-y-3">
+            {analytics.top_employees.length === 0 ? (
+              <EmptyState text="No se encontraron mejores colaboradores." />
+            ) : (
+              analytics.top_employees.map((employee, index) => (
+                <ReportRow
+                  key={employee.id}
+                  index={index + 1}
+                  title={employee.name}
+                  subtitle={`${employee.position} · ${employee.outlet_name || "Sin outlet"}`}
+                  value={`${employee.total_score}%`}
+                  type="success"
+                />
+              ))
+            )}
+          </div>
+        </ReportSection>
+
+        <ReportSection title="Empleados que Necesitan Coaching" subtitle="Empleados que requieren seguimiento">
+          <div className="space-y-3">
+            {analytics.low_performers.length === 0 ? (
+              <EmptyState text="No se encontraron empleados." />
+            ) : (
+              analytics.low_performers.map((employee, index) => (
+                <ReportRow
+                  key={employee.id}
+                  index={index + 1}
+                  title={employee.name}
+                  subtitle={`${employee.position} · ${employee.outlet_name || "Sin outlet"}`}
+                  value={`${employee.total_score}%`}
+                  type="warning"
+                />
+              ))
+            )}
+          </div>
+        </ReportSection>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <ReportSection title="Mejores Outlets" subtitle="Rendimiento de outlets y puntuación Hard Rock">
+          <div className="space-y-3">
+            {analytics.top_outlets.length === 0 ? (
+              <EmptyState text="No se encontraron outlets." />
+            ) : (
+              analytics.top_outlets.map((outlet, index) => (
+                <ReportRow
+                  key={outlet.name}
+                  index={index + 1}
+                  title={outlet.name}
+                  subtitle={`${outlet.employees_count} empleados · Puntuación HR ${outlet.hard_rock_score}%`}
+                  value={`${outlet.score}%`}
+                  type="info"
+                />
+              ))
+            )}
+          </div>
+        </ReportSection>
+
+        <ReportSection title="Actividad de Entrenamiento" subtitle="Movimiento de sesiones">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
+            <ActivityBox
+              label="Entrenamientos Completados"
+              value={completedSessions.length}
+              helper="Sesiones ya completadas"
+            />
+
+            <ActivityBox
+              label="Entrenamientos Programados"
+              value={scheduledSessions.length}
+              helper="Próximas sesiones"
+            />
+
+            <ActivityBox
+              label="Entrenamientos Totales"
+              value={sessions.length}
+              helper="Todas las sesiones registradas"
+            />
+          </div>
+        </ReportSection>
+      </section>
+
+      <ReportSection title="Próximo Entrenamiento" subtitle="Próxima sesión de entrenamiento">
+        {dashboard.next_training ? (
+          <div className="rounded-[1.5rem] bg-slate-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+                <CalendarClock size={22} />
               </div>
 
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                A&B Training Report
-              </h1>
+              <div>
+                <h3 className="text-xl font-black text-slate-950">
+                  {dashboard.next_training.title}
+                </h3>
 
-              <p className="mt-3 max-w-3xl text-sm text-white/65 md:text-base print:text-slate-600">
-                Resumen ejecutivo de rendimiento A&B, estándares Hard Rock,
-                entrenamientos, talento destacado y próximos pasos.
-              </p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {dashboard.next_training.topic}
+                </p>
 
-              <p className="mt-4 text-sm font-semibold text-white/50 print:text-slate-500">
-                Generated: {generatedAt}
-              </p>
-            </div>
-
-            <button
-              onClick={() => window.print()}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 font-black text-slate-950 transition hover:bg-slate-100 print:hidden"
-            >
-              <Download size={18} />
-              Print / Save PDF
-            </button>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <ReportMetric
-            label="A&B Performance"
-            value={`${analytics.ab_performance_score}%`}
-            icon={<Sparkles />}
-            score={analytics.ab_performance_score}
-          />
-
-          <ReportMetric
-            label="Hard Rock Score"
-            value={`${analytics.hard_rock_score}%`}
-            icon={<Trophy />}
-            score={analytics.hard_rock_score}
-          />
-
-          <ReportMetric
-            label="Training Completion"
-            value={`${analytics.training_completion}%`}
-            icon={<GraduationCap />}
-            score={analytics.training_completion}
-          />
-
-          <ReportMetric
-            label="People Training Today"
-            value={dashboard.people_training_today}
-            icon={<Users />}
-          />
-        </section>
-
-        <ReportSection
-          title="Weekly Executive Summary"
-          subtitle="Vista rápida para dirección"
-        >
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <InsightCard
-              type="success"
-              title="Best Outlet"
-              value={bestOutlet?.name || "N/A"}
-              description={`Current performance score: ${bestOutlet?.score || 0}%. Use this outlet as a reference for best practices.`}
-            />
-
-            <InsightCard
-              type="warning"
-              title="Needs Focus"
-              value={lowestOutlet?.name || "N/A"}
-              description={`Current performance score: ${lowestOutlet?.score || 0}%. Prioritize coaching, standards observation, and follow-up.`}
-            />
-
-            <InsightCard
-              type="info"
-              title="Training Activity"
-              value={`${completedRate}%`}
-              description={`${completedSessions.length} completed trainings, ${scheduledSessions.length} scheduled, ${sessions.length} total sessions.`}
-            />
-          </div>
-        </ReportSection>
-
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <ReportSection title="Top Performers" subtitle="Employees with strongest current results">
-            <div className="space-y-3">
-              {analytics.top_employees.length === 0 ? (
-                <EmptyState text="No top performers found." />
-              ) : (
-                analytics.top_employees.map((employee, index) => (
-                  <ReportRow
-                    key={employee.id}
-                    index={index + 1}
-                    title={employee.name}
-                    subtitle={`${employee.position} · ${employee.outlet_name || "No outlet"}`}
-                    value={`${employee.total_score}%`}
-                    type="success"
-                  />
-                ))
-              )}
-            </div>
-          </ReportSection>
-
-          <ReportSection title="Employees Needing Coaching" subtitle="Employees requiring follow-up">
-            <div className="space-y-3">
-              {analytics.low_performers.length === 0 ? (
-                <EmptyState text="No employees found." />
-              ) : (
-                analytics.low_performers.map((employee, index) => (
-                  <ReportRow
-                    key={employee.id}
-                    index={index + 1}
-                    title={employee.name}
-                    subtitle={`${employee.position} · ${employee.outlet_name || "No outlet"}`}
-                    value={`${employee.total_score}%`}
-                    type="warning"
-                  />
-                ))
-              )}
-            </div>
-          </ReportSection>
-        </section>
-
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <ReportSection title="Top Outlets" subtitle="Outlet performance and Hard Rock score">
-            <div className="space-y-3">
-              {analytics.top_outlets.length === 0 ? (
-                <EmptyState text="No outlets found." />
-              ) : (
-                analytics.top_outlets.map((outlet, index) => (
-                  <ReportRow
-                    key={outlet.name}
-                    index={index + 1}
-                    title={outlet.name}
-                    subtitle={`${outlet.employees_count} employees · HR Score ${outlet.hard_rock_score}%`}
-                    value={`${outlet.score}%`}
-                    type="info"
-                  />
-                ))
-              )}
-            </div>
-          </ReportSection>
-
-          <ReportSection title="Training Activity" subtitle="Session movement">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <ActivityBox
-                label="Completed Trainings"
-                value={completedSessions.length}
-                helper="Sessions already completed"
-              />
-
-              <ActivityBox
-                label="Scheduled Trainings"
-                value={scheduledSessions.length}
-                helper="Upcoming sessions"
-              />
-
-              <ActivityBox
-                label="Total Trainings"
-                value={sessions.length}
-                helper="All registered sessions"
-              />
-            </div>
-          </ReportSection>
-        </section>
-
-        <ReportSection title="Next Training" subtitle="Upcoming training session">
-          {dashboard.next_training ? (
-            <div className="rounded-[1.5rem] bg-slate-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
-                  <CalendarClock size={22} />
-                </div>
-
-                <div>
-                  <h3 className="text-xl font-black text-slate-950">
-                    {dashboard.next_training.title}
-                  </h3>
-
-                  <p className="mt-1 text-sm font-semibold text-slate-500">
-                    {dashboard.next_training.topic}
-                  </p>
-
-                  <p className="mt-3 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-600">
-                    {new Date(
-                      dashboard.next_training.start_datetime
-                    ).toLocaleString()}
-                  </p>
-                </div>
+                <p className="mt-3 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-600">
+                  {new Date(
+                    dashboard.next_training.start_datetime
+                  ).toLocaleString()}
+                </p>
               </div>
             </div>
-          ) : (
-            <EmptyState text="No upcoming training found." />
-          )}
-        </ReportSection>
-
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <RoadmapReport title="30 Days" items={dashboard.roadmap_30} />
-          <RoadmapReport title="60 Days" items={dashboard.roadmap_60} />
-          <RoadmapReport title="90 Days" items={dashboard.roadmap_90} />
-        </section>
-
-        <ReportSection title="Executive Notes" subtitle="Recommended leadership focus">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <NoteCard
-              title="Service Consistency"
-              text="Maintain focus on greeting standards, service speed, product knowledge, and guest recovery."
-            />
-
-            <NoteCard
-              title="Talent Development"
-              text="Recognize top performers and consider them for mentorship, facilitator support, or leadership pipeline."
-            />
-
-            <NoteCard
-              title="Coaching Follow-up"
-              text="Low performers should receive direct observation, coaching plans, and follow-up evaluations within 7 to 14 days."
-            />
           </div>
-        </ReportSection>
-      </div>
+        ) : (
+          <EmptyState text="No se encontró próximo entrenamiento." />
+        )}
+      </ReportSection>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <RoadmapReport title="30 Días" items={dashboard.roadmap_30} />
+        <RoadmapReport title="60 Días" items={dashboard.roadmap_60} />
+        <RoadmapReport title="90 Días" items={dashboard.roadmap_90} />
+      </section>
+
+      <ReportSection title="Notas Ejecutivas" subtitle="Enfoque recomendado para liderazgo">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <NoteCard
+            title="Consistencia en el Servicio"
+            text="Mantener el enfoque en estándares de bienvenida, rapidez del servicio, conocimiento del producto y recuperación del huésped."
+          />
+
+          <NoteCard
+            title="Desarrollo de Talento"
+            text="Reconocer a los mejores colaboradores y considerarlos para mentoría, apoyo como facilitadores o línea de liderazgo."
+          />
+
+          <NoteCard
+            title="Seguimiento de Coaching"
+            text="Los colaboradores con bajo desempeño deben recibir observación directa, planes de coaching y evaluaciones de seguimiento dentro de 7 a 14 días."
+          />
+        </div>
+      </ReportSection>
     </div>
-  );
+  </div>
+);
 }
 
 function ReportMetric({

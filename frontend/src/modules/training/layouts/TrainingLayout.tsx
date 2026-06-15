@@ -55,7 +55,7 @@ export default function TrainingLayout() {
           style={{ backgroundColor: branding.primary_color }}
         >
           <Menu size={18} />
-          Menu
+          Menú
         </button>
       </header>
 
@@ -69,7 +69,7 @@ export default function TrainingLayout() {
         {sidebarOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
-              aria-label="Close sidebar overlay"
+              aria-label="Cerrar menú lateral"
               className="absolute inset-0 bg-black/50"
               onClick={() => setSidebarOpen(false)}
             />
@@ -78,7 +78,7 @@ export default function TrainingLayout() {
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="absolute right-3 top-3 z-10 rounded-2xl bg-white/90 p-2 text-slate-700 shadow-sm backdrop-blur"
-                aria-label="Close menu"
+                aria-label="Cerrar menú"
               >
                 <X size={20} />
               </button>

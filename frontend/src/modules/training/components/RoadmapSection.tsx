@@ -15,14 +15,14 @@ export default function RoadmapSection({
         <h2 className="text-lg font-bold">{title}</h2>
 
         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-          {items.length} Items
+          {items.length} Elementos
         </span>
       </div>
 
       <div className="space-y-3">
         {items.length === 0 ? (
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-500">
-            No roadmap items yet.
+            No hay elementos en la hoja de ruta todavía.
           </div>
         ) : (
           items.map((item) => (
@@ -56,7 +56,11 @@ export default function RoadmapSection({
                       : "bg-green-100 text-green-700"
                   }`}
                 >
-                  {item.priority}
+                  {item.priority === "high"
+                    ? "Alta"
+                    : item.priority === "medium"
+                    ? "Media"
+                    : "Baja"}
                 </span>
               </div>
 
@@ -67,11 +71,11 @@ export default function RoadmapSection({
 
                 {item.completed ? (
                   <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                    Completed
+                    Completado
                   </span>
                 ) : (
                   <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-                    In Progress
+                    En Progreso
                   </span>
                 )}
               </div>

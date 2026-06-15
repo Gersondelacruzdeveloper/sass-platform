@@ -125,208 +125,210 @@ export default function StandardsPage() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
-        <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
-                <BookOpenCheck size={16} />
-                Standards Control Center
-              </div>
-
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                Hard Rock A&B Standards
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Define estándares de servicio, bebidas, cocina, lujo, liderazgo y cultura para que todos los facilitadores evalúen con la misma base.
-              </p>
+return (
+  <div className="min-h-screen bg-slate-50">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
+      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
+              <BookOpenCheck size={16} />
+              Centro de Control de Estándares
             </div>
 
-            <div className="rounded-3xl bg-white/10 p-5">
-              <p className="text-sm font-semibold text-white/60">
-                Critical / High Priority
-              </p>
-              <p className="mt-2 text-4xl font-black">
-                {criticalCount + highPriorityCount}
-              </p>
-              <p className="mt-1 text-sm text-white/60">
-                estándares que requieren foco
-              </p>
-            </div>
-          </div>
-        </section>
+            <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+              Estándares A&B Hard Rock
+            </h1>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Standards" value={standards.length} icon={<BookOpenCheck />} />
-          <SummaryCard title="Active" value={activeCount} icon={<CheckCircle2 />} />
-          <SummaryCard title="Critical" value={criticalCount} icon={<AlertTriangle />} />
-          <SummaryCard title="High Priority" value={highPriorityCount} icon={<Flame />} />
-        </section>
-
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-        >
-          <div className="mb-5">
-            <h2 className="text-2xl font-black text-slate-950">
-              Create Standard
-            </h2>
-            <p className="text-sm text-slate-500">
-              Crea un estándar claro que luego pueda usarse en evaluaciones y entrenamientos.
+            <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
+              Define estándares de servicio, bebidas, cocina, lujo, liderazgo y cultura para que todos los facilitadores evalúen con la misma base.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Input
-              required
-              label="Título"
-              placeholder="Greet guest within 10 seconds"
-              value={form.title}
-              onChange={(value) => setForm({ ...form, title: value })}
-            />
+          <div className="rounded-3xl bg-white/10 p-5">
+            <p className="text-sm font-semibold text-white/60">
+              Críticos / Alta Prioridad
+            </p>
+            <p className="mt-2 text-4xl font-black">
+              {criticalCount + highPriorityCount}
+            </p>
+            <p className="mt-1 text-sm text-white/60">
+              estándares que requieren foco
+            </p>
+          </div>
+        </div>
+      </section>
 
-            <Select
-              label="Categoría"
-              value={form.category}
-              onChange={(value) => setForm({ ...form, category: value })}
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard title="Estándares" value={standards.length} icon={<BookOpenCheck />} />
+        <SummaryCard title="Activos" value={activeCount} icon={<CheckCircle2 />} />
+        <SummaryCard title="Críticos" value={criticalCount} icon={<AlertTriangle />} />
+        <SummaryCard title="Alta Prioridad" value={highPriorityCount} icon={<Flame />} />
+      </section>
+
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+      >
+        <div className="mb-5">
+          <h2 className="text-2xl font-black text-slate-950">
+            Crear Estándar
+          </h2>
+          <p className="text-sm text-slate-500">
+            Crea un estándar claro que luego pueda usarse en evaluaciones y entrenamientos.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Input
+            required
+            label="Título"
+            placeholder="Saludar al huésped en menos de 10 segundos"
+            value={form.title}
+            onChange={(value) => setForm({ ...form, title: value })}
+          />
+
+          <Select
+            label="Categoría"
+            value={form.category}
+            onChange={(value) => setForm({ ...form, category: value })}
+          >
+            {categories.map((category) => (
+              <option key={category.value} value={category.value}>
+                {category.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            label="Prioridad"
+            value={form.priority}
+            onChange={(value) =>
+              setForm({
+                ...form,
+                priority: value as Standard["priority"],
+              })
+            }
+          >
+            <option value="low">Prioridad Baja</option>
+            <option value="medium">Prioridad Media</option>
+            <option value="high">Prioridad Alta</option>
+            <option value="critical">Crítico</option>
+          </Select>
+        </div>
+
+        <textarea
+          className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+          placeholder="Descripción: ¿qué debe hacer el empleado? ¿Cómo se ve un servicio excelente?"
+          rows={4}
+          value={form.description}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              description: e.target.value,
+            })
+          }
+        />
+
+        <label className="mt-4 flex w-fit cursor-pointer items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+          <input
+            type="checkbox"
+            checked={form.active}
+            onChange={(e) => setForm({ ...form, active: e.target.checked })}
+            className="h-4 w-4 accent-slate-950"
+          />
+          <span className="font-bold text-slate-700">Activo</span>
+        </label>
+
+        <button
+          disabled={saving}
+          className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
+        >
+          {saving ? "Guardando..." : "Guardar Estándar"}
+        </button>
+      </form>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">
+              Biblioteca de Estándares
+            </h2>
+            <p className="text-sm text-slate-500">
+              Busca por estándar, descripción, categoría o prioridad.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:min-w-[720px]">
+            <div className="relative">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                placeholder="Buscar estándares..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
             >
+              <option value="all">Todas las Categorías</option>
+
               {categories.map((category) => (
                 <option key={category.value} value={category.value}>
                   {category.label}
                 </option>
               ))}
-            </Select>
+            </select>
 
-            <Select
-              label="Prioridad"
-              value={form.priority}
-              onChange={(value) =>
-                setForm({
-                  ...form,
-                  priority: value as Standard["priority"],
-                })
-              }
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={selectedPriority}
+              onChange={(e) => setSelectedPriority(e.target.value)}
             >
-              <option value="low">Low Priority</option>
-              <option value="medium">Medium Priority</option>
-              <option value="high">High Priority</option>
-              <option value="critical">Critical</option>
-            </Select>
+              <option value="all">Todas las Prioridades</option>
+              <option value="low">Prioridad Baja</option>
+              <option value="medium">Prioridad Media</option>
+              <option value="high">Prioridad Alta</option>
+              <option value="critical">Crítico</option>
+            </select>
           </div>
+        </div>
 
-          <textarea
-            className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-            placeholder="Description: what should the employee do? What does excellent service look like?"
-            rows={4}
-            value={form.description}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                description: e.target.value,
-              })
-            }
-          />
+        <div className="mb-4 text-sm font-semibold text-slate-500">
+          Mostrando {filteredStandards.length} de {standards.length} estándares
+        </div>
 
-          <label className="mt-4 flex w-fit cursor-pointer items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
-            <input
-              type="checkbox"
-              checked={form.active}
-              onChange={(e) => setForm({ ...form, active: e.target.checked })}
-              className="h-4 w-4 accent-slate-950"
-            />
-            <span className="font-bold text-slate-700">Activo</span>
-          </label>
-
-          <button
-            disabled={saving}
-            className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
-          >
-            {saving ? "Saving..." : "Save Standard"}
-          </button>
-        </form>
-
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">
-                Standards Library
-              </h2>
-              <p className="text-sm text-slate-500">
-                Busca por estándar, descripción, categoría o prioridad.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:min-w-[720px]">
-              <div className="relative">
-                <Search
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={18}
-                />
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                  placeholder="Search standards..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-              >
-                <option value="all">All Categories</option>
-
-                {categories.map((category) => (
-                  <option key={category.value} value={category.value}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={selectedPriority}
-                onChange={(e) => setSelectedPriority(e.target.value)}
-              >
-                <option value="all">All Priorities</option>
-                <option value="low">Low Priority</option>
-                <option value="medium">Medium Priority</option>
-                <option value="high">High Priority</option>
-                <option value="critical">Critical</option>
-              </select>
-            </div>
+        {filteredStandards.length === 0 ? (
+          <div className="rounded-[2rem] bg-slate-50 p-10 text-center">
+            <p className="font-black text-slate-950">No se encontraron estándares.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Intenta cambiar la búsqueda o los filtros.
+            </p>
           </div>
-
-          <div className="mb-4 text-sm font-semibold text-slate-500">
-            Mostrando {filteredStandards.length} de {standards.length} estándares
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {filteredStandards.map((standard) => (
+              <StandardCard
+                key={standard.id}
+                standard={standard}
+                onToggleActive={() => toggleActive(standard)}
+              />
+            ))}
           </div>
-
-          {filteredStandards.length === 0 ? (
-            <div className="rounded-[2rem] bg-slate-50 p-10 text-center">
-              <p className="font-black text-slate-950">No standards found.</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Intenta cambiar la búsqueda o los filtros.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {filteredStandards.map((standard) => (
-                <StandardCard
-                  key={standard.id}
-                  standard={standard}
-                  onToggleActive={() => toggleActive(standard)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+        )}
+      </section>
     </div>
-  );
+  </div>
+);
+
+
 }
 
 function StandardCard({

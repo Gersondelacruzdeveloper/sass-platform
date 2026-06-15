@@ -88,188 +88,192 @@ export default function CreateFacilitatorAccountPage() {
     (employee) => String(employee.id) !== form.employee,
   );
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6 lg:p-8">
-        <Link
-          to={`/training/${organisationSlug}/facilitators`}
-          className="inline-flex items-center gap-2 font-bold text-slate-600 hover:text-slate-950"
+
+return (
+  <div className="min-h-screen bg-slate-50">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6 lg:p-8">
+      <Link
+        to={`/training/${organisationSlug}/facilitators`}
+        className="inline-flex items-center gap-2 font-bold text-slate-600 hover:text-slate-950"
+      >
+        <ArrowLeft size={18} />
+        Volver a facilitadores
+      </Link>
+
+      <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
+          <ShieldCheck size={16} />
+          Crear Login de Facilitador
+        </div>
+
+        <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+          Crear cuenta de facilitador
+        </h1>
+
+        <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
+          Crea el usuario, asigna empleados, outlets y permisos para que el facilitador pueda trabajar desde su propio login.
+        </p>
+      </section>
+
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-sm font-bold text-slate-700">
+              Empleado facilitador
+            </span>
+
+            <select
+              required
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              value={form.employee}
+              onChange={(e) => setForm({ ...form, employee: e.target.value })}
+            >
+              <option value="">Seleccionar empleado</option>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name} — {employee.position}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-sm font-bold text-slate-700">
+              Especialidades
+            </span>
+
+            <input
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              placeholder="Vinos, Servicio al Huésped, Venta Sugestiva, Liderazgo"
+              value={form.specialties}
+              onChange={(e) => setForm({ ...form, specialties: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+          <h3 className="mb-4 text-lg font-black text-slate-950">
+            Cuenta de Login
+          </h3>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Input
+              label="Usuario"
+              value={form.username}
+              placeholder="facilitador01"
+              onChange={(value) => setForm({ ...form, username: value })}
+            />
+
+            <Input
+              label="Correo"
+              type="email"
+              value={form.email}
+              placeholder="facilitador@hardrockacademy.com"
+              onChange={(value) => setForm({ ...form, email: value })}
+            />
+
+            <Input
+              label="Contraseña Temporal"
+              type="password"
+              value={form.password}
+              placeholder="HardRock123!"
+              onChange={(value) => setForm({ ...form, password: value })}
+            />
+          </div>
+        </div>
+
+        <SelectionBox
+          title="Empleados asignados"
+          subtitle="Personas que este facilitador va a evaluar y acompañar."
+          count={form.assigned_employees.length}
         >
-          <ArrowLeft size={18} />
-          Back to facilitators
-        </Link>
+          {availableEmployees.map((employee) => {
+            const selected = form.assigned_employees.includes(employee.id);
 
-        <section className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
-            <ShieldCheck size={16} />
-            Create Facilitator Login
-          </div>
+            return (
+              <SelectCard
+                key={employee.id}
+                selected={selected}
+                title={employee.name}
+                subtitle={`${employee.position} · ${employee.outlet_name || "Sin outlet"}`}
+                onClick={() => toggleAssignedEmployee(employee.id)}
+              />
+            );
+          })}
+        </SelectionBox>
 
-          <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-            Crear cuenta de facilitador
-          </h1>
-
-          <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-            Crea el usuario, asigna empleados, outlets y permisos para que el facilitador pueda trabajar desde su propio login.
-          </p>
-        </section>
-
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+        <SelectionBox
+          title="Outlets asignados"
+          subtitle="Áreas donde este facilitador puede dar seguimiento."
+          count={form.assigned_outlets.length}
         >
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-700">
-                Empleado facilitador
-              </span>
+          {outlets.map((outlet) => {
+            const selected = form.assigned_outlets.includes(outlet.id);
 
-              <select
-                required
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                value={form.employee}
-                onChange={(e) => setForm({ ...form, employee: e.target.value })}
-              >
-                <option value="">Seleccionar empleado</option>
-                {employees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name} — {employee.position}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-700">
-                Especialidades
-              </span>
-
-              <input
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                placeholder="Wine, Guest Service, Upselling, Leadership"
-                value={form.specialties}
-                onChange={(e) => setForm({ ...form, specialties: e.target.value })}
+            return (
+              <SelectCard
+                key={outlet.id}
+                selected={selected}
+                title={outlet.name}
+                subtitle="Outlet asignado"
+                onClick={() => toggleAssignedOutlet(outlet.id)}
               />
-            </label>
+            );
+          })}
+        </SelectionBox>
+
+        <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+          <h3 className="mb-4 text-lg font-black text-slate-950">
+            Permisos
+          </h3>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <PermissionToggle
+              label="Puede crear empleados"
+              checked={form.can_create_employees}
+              onChange={(checked) => setForm({ ...form, can_create_employees: checked })}
+            />
+
+            <PermissionToggle
+              label="Puede crear entrenamientos"
+              checked={form.can_create_trainings}
+              onChange={(checked) => setForm({ ...form, can_create_trainings: checked })}
+            />
+
+            <PermissionToggle
+              label="Puede crear evaluaciones"
+              checked={form.can_create_evaluations}
+              onChange={(checked) => setForm({ ...form, can_create_evaluations: checked })}
+            />
+
+            <PermissionToggle
+              label="Puede ver reportes"
+              checked={form.can_view_reports}
+              onChange={(checked) => setForm({ ...form, can_view_reports: checked })}
+            />
+
+            <PermissionToggle
+              label="Cuenta activa"
+              checked={form.active}
+              onChange={(checked) => setForm({ ...form, active: checked })}
+            />
           </div>
+        </div>
 
-          <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-            <h3 className="mb-4 text-lg font-black text-slate-950">
-              Login Account
-            </h3>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <Input
-                label="Username"
-                value={form.username}
-                placeholder="facilitator01"
-                onChange={(value) => setForm({ ...form, username: value })}
-              />
-
-              <Input
-                label="Email"
-                type="email"
-                value={form.email}
-                placeholder="facilitator@hardrockacademy.com"
-                onChange={(value) => setForm({ ...form, email: value })}
-              />
-
-              <Input
-                label="Temporary Password"
-                type="password"
-                value={form.password}
-                placeholder="HardRock123!"
-                onChange={(value) => setForm({ ...form, password: value })}
-              />
-            </div>
-          </div>
-
-          <SelectionBox
-            title="Empleados asignados"
-            subtitle="Personas que este facilitador va a evaluar y acompañar."
-            count={form.assigned_employees.length}
-          >
-            {availableEmployees.map((employee) => {
-              const selected = form.assigned_employees.includes(employee.id);
-
-              return (
-                <SelectCard
-                  key={employee.id}
-                  selected={selected}
-                  title={employee.name}
-                  subtitle={`${employee.position} · ${employee.outlet_name || "No outlet"}`}
-                  onClick={() => toggleAssignedEmployee(employee.id)}
-                />
-              );
-            })}
-          </SelectionBox>
-
-          <SelectionBox
-            title="Outlets asignados"
-            subtitle="Áreas donde este facilitador puede dar seguimiento."
-            count={form.assigned_outlets.length}
-          >
-            {outlets.map((outlet) => {
-              const selected = form.assigned_outlets.includes(outlet.id);
-
-              return (
-                <SelectCard
-                  key={outlet.id}
-                  selected={selected}
-                  title={outlet.name}
-                  subtitle="Outlet asignado"
-                  onClick={() => toggleAssignedOutlet(outlet.id)}
-                />
-              );
-            })}
-          </SelectionBox>
-
-          <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-            <h3 className="mb-4 text-lg font-black text-slate-950">
-              Permissions
-            </h3>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <PermissionToggle
-                label="Can create employees"
-                checked={form.can_create_employees}
-                onChange={(checked) => setForm({ ...form, can_create_employees: checked })}
-              />
-
-              <PermissionToggle
-                label="Can create trainings"
-                checked={form.can_create_trainings}
-                onChange={(checked) => setForm({ ...form, can_create_trainings: checked })}
-              />
-
-              <PermissionToggle
-                label="Can create evaluations"
-                checked={form.can_create_evaluations}
-                onChange={(checked) => setForm({ ...form, can_create_evaluations: checked })}
-              />
-
-              <PermissionToggle
-                label="Can view reports"
-                checked={form.can_view_reports}
-                onChange={(checked) => setForm({ ...form, can_view_reports: checked })}
-              />
-
-              <PermissionToggle
-                label="Active account"
-                checked={form.active}
-                onChange={(checked) => setForm({ ...form, active: checked })}
-              />
-            </div>
-          </div>
-
-          <button className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 md:w-auto">
-            <UserCheck size={18} />
-            Create Facilitator Account
-          </button>
-        </form>
-      </div>
+        <button className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 md:w-auto">
+          <UserCheck size={18} />
+          Crear Cuenta de Facilitador
+        </button>
+      </form>
     </div>
-  );
+  </div>
+);
+
+
+
 }
 
 function Input({

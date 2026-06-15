@@ -129,205 +129,205 @@ export default function RoadmapPage() {
       </div>
     );
   }
-
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
-        <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
-                <Target size={16} />
-                90-Day Execution Plan
-              </div>
-
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                A&B 90-Day Roadmap
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Plan de implementación para mejorar servicio, estándares,
-                entrenamientos, liderazgo y resultados operativos.
-              </p>
+return (
+  <div className="min-h-screen bg-slate-50">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
+      <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
+              <Target size={16} />
+              Plan de Ejecución de 90 Días
             </div>
 
-            <div className="rounded-3xl bg-white/10 p-5 lg:min-w-80">
-              <p className="text-sm font-semibold text-white/60">
-                Roadmap Completion
-              </p>
+            <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+              Roadmap A&B de 90 Días
+            </h1>
 
-              <div className="mt-2 flex items-end justify-between gap-4">
-                <p className="text-5xl font-black">{completionRate}%</p>
-                <p className="text-sm font-semibold text-white/60">
-                  {completed}/{items.length} done
-                </p>
-              </div>
-
-              <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/20">
-                <div
-                  className="h-full rounded-full bg-white"
-                  style={{ width: `${completionRate}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Total objetivos" value={items.length} icon={<Flag />} />
-          <SummaryCard title="Completados" value={completed} icon={<CheckCircle2 />} />
-          <SummaryCard title="Abiertos" value={open} icon={<Clock />} />
-          <SummaryCard title="30 días" value={roadmap30.length} icon={<CalendarDays />} />
-        </section>
-
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-        >
-          <div className="mb-5">
-            <h2 className="text-2xl font-black text-slate-950">
-              Nuevo objetivo
-            </h2>
-            <p className="text-sm text-slate-500">
-              Agrega una acción clara para que dirección pueda dar seguimiento.
+            <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
+              Plan de implementación para mejorar servicio, estándares,
+              entrenamientos, liderazgo y resultados operativos.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Input
-              required
-              label="Título del objetivo"
-              placeholder="Ej: Mejorar consistencia del saludo"
-              value={form.title}
-              onChange={(value) => setForm({ ...form, title: value })}
-            />
+          <div className="rounded-3xl bg-white/10 p-5 lg:min-w-80">
+            <p className="text-sm font-semibold text-white/60">
+              Finalización del Roadmap
+            </p>
 
-            <Select
-              label="Periodo"
-              value={form.period}
-              onChange={(value) => setForm({ ...form, period: value })}
-            >
-              <option value="30_days">Próximos 30 días</option>
-              <option value="60_days">Próximos 60 días</option>
-              <option value="90_days">Próximos 90 días</option>
-            </Select>
-
-            <Select
-              label="Prioridad"
-              value={form.priority}
-              onChange={(value) => setForm({ ...form, priority: value })}
-            >
-              <option value="low">Baja prioridad</option>
-              <option value="medium">Media prioridad</option>
-              <option value="high">Alta prioridad</option>
-            </Select>
-          </div>
-
-          <textarea
-            className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-            placeholder="Descripción: qué vamos a implementar, por qué y qué resultado buscamos..."
-            rows={4}
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
-
-          <button
-            disabled={saving}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
-          >
-            <PlusCircle size={18} />
-            {saving ? "Guardando..." : "Guardar objetivo"}
-          </button>
-        </form>
-
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <RoadmapSection title="30 días" items={roadmap30} />
-          <RoadmapSection title="60 días" items={roadmap60} />
-          <RoadmapSection title="90 días" items={roadmap90} />
-        </section>
-
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">
-                Actualizar progreso
-              </h2>
-              <p className="text-sm text-slate-500">
-                Busca, filtra y marca objetivos como completados.
+            <div className="mt-2 flex items-end justify-between gap-4">
+              <p className="text-5xl font-black">{completionRate}%</p>
+              <p className="text-sm font-semibold text-white/60">
+                {completed}/{items.length} completados
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4 lg:min-w-[900px]">
-              <div className="relative md:col-span-1">
-                <Search
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={18}
-                />
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                  placeholder="Search objective..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={periodFilter}
-                onChange={(e) => setPeriodFilter(e.target.value)}
-              >
-                <option value="all">All periods</option>
-                <option value="30_days">30 días</option>
-                <option value="60_days">60 días</option>
-                <option value="90_days">90 días</option>
-              </select>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                <option value="all">All priorities</option>
-                <option value="low">Baja</option>
-                <option value="medium">Media</option>
-                <option value="high">Alta</option>
-              </select>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All status</option>
-                <option value="open">Open</option>
-                <option value="completed">Completed</option>
-              </select>
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/20">
+              <div
+                className="h-full rounded-full bg-white"
+                style={{ width: `${completionRate}%` }}
+              />
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="mb-4 text-sm font-semibold text-slate-500">
-            Mostrando {filteredItems.length} de {items.length} objetivos
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard title="Total objetivos" value={items.length} icon={<Flag />} />
+        <SummaryCard title="Completados" value={completed} icon={<CheckCircle2 />} />
+        <SummaryCard title="Abiertos" value={open} icon={<Clock />} />
+        <SummaryCard title="30 días" value={roadmap30.length} icon={<CalendarDays />} />
+      </section>
+
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+      >
+        <div className="mb-5">
+          <h2 className="text-2xl font-black text-slate-950">
+            Nuevo objetivo
+          </h2>
+          <p className="text-sm text-slate-500">
+            Agrega una acción clara para que dirección pueda dar seguimiento.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Input
+            required
+            label="Título del objetivo"
+            placeholder="Ej: Mejorar consistencia del saludo"
+            value={form.title}
+            onChange={(value) => setForm({ ...form, title: value })}
+          />
+
+          <Select
+            label="Periodo"
+            value={form.period}
+            onChange={(value) => setForm({ ...form, period: value })}
+          >
+            <option value="30_days">Próximos 30 días</option>
+            <option value="60_days">Próximos 60 días</option>
+            <option value="90_days">Próximos 90 días</option>
+          </Select>
+
+          <Select
+            label="Prioridad"
+            value={form.priority}
+            onChange={(value) => setForm({ ...form, priority: value })}
+          >
+            <option value="low">Baja prioridad</option>
+            <option value="medium">Media prioridad</option>
+            <option value="high">Alta prioridad</option>
+          </Select>
+        </div>
+
+        <textarea
+          className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+          placeholder="Descripción: qué vamos a implementar, por qué y qué resultado buscamos..."
+          rows={4}
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+        />
+
+        <button
+          disabled={saving}
+          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
+        >
+          <PlusCircle size={18} />
+          {saving ? "Guardando..." : "Guardar objetivo"}
+        </button>
+      </form>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <RoadmapSection title="30 días" items={roadmap30} />
+        <RoadmapSection title="60 días" items={roadmap60} />
+        <RoadmapSection title="90 días" items={roadmap90} />
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">
+              Actualizar progreso
+            </h2>
+            <p className="text-sm text-slate-500">
+              Busca, filtra y marca objetivos como completados.
+            </p>
           </div>
 
-          <div className="space-y-3">
-            {filteredItems.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-semibold text-slate-500">
-                No roadmap items found.
-              </div>
-            ) : (
-              filteredItems.map((item) => (
-                <RoadmapProgressRow
-                  key={item.id}
-                  item={item}
-                  onToggleComplete={() => toggleComplete(item)}
-                />
-              ))
-            )}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4 lg:min-w-[900px]">
+            <div className="relative md:col-span-1">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                placeholder="Buscar objetivo..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+            >
+              <option value="all">Todos los periodos</option>
+              <option value="30_days">30 días</option>
+              <option value="60_days">60 días</option>
+              <option value="90_days">90 días</option>
+            </select>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+            >
+              <option value="all">Todas las prioridades</option>
+              <option value="low">Baja</option>
+              <option value="medium">Media</option>
+              <option value="high">Alta</option>
+            </select>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos los estados</option>
+              <option value="open">Abierto</option>
+              <option value="completed">Completado</option>
+            </select>
           </div>
-        </section>
-      </div>
+        </div>
+
+        <div className="mb-4 text-sm font-semibold text-slate-500">
+          Mostrando {filteredItems.length} de {items.length} objetivos
+        </div>
+
+        <div className="space-y-3">
+          {filteredItems.length === 0 ? (
+            <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-semibold text-slate-500">
+              No se encontraron objetivos del roadmap.
+            </div>
+          ) : (
+            filteredItems.map((item) => (
+              <RoadmapProgressRow
+                key={item.id}
+                item={item}
+                onToggleComplete={() => toggleComplete(item)}
+              />
+            ))
+          )}
+        </div>
+      </section>
     </div>
-  );
+  </div>
+);
+
 }
 
 function RoadmapProgressRow({

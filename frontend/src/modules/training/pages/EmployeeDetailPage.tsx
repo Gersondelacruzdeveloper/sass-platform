@@ -74,215 +74,218 @@ export default function EmployeeDetailPage() {
     return <div className="p-6">Loading employee profile...</div>;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <Link
-          to={`/training/${organisationSlug}/employees`}
-          className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-950"
-        >
-          <ArrowLeft size={17} />
-          Back to Employees
-        </Link>
 
-        <div className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="bg-slate-950 p-6 text-white md:p-8">
-            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-5">
-                {employee.photo ? (
-                  <img
-                    src={employee.photo}
-                    className="h-24 w-24 rounded-3xl border-4 border-white/20 object-cover md:h-28 md:w-28"
-                  />
-                ) : (
-                  <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-white/10 text-5xl font-black md:h-28 md:w-28">
-                    {employee.name[0]}
-                  </div>
-                )}
+return (
+  <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <Link
+        to={`/training/${organisationSlug}/employees`}
+        className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-950"
+      >
+        <ArrowLeft size={17} />
+        Volver a Empleados
+      </Link>
 
-                <div>
-                  <h1 className="text-3xl font-black md:text-5xl">
-                    {employee.name}
-                  </h1>
+      <div className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-slate-200">
+        <div className="bg-slate-950 p-6 text-white md:p-8">
+          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-5">
+              {employee.photo ? (
+                <img
+                  src={employee.photo}
+                  className="h-24 w-24 rounded-3xl border-4 border-white/20 object-cover md:h-28 md:w-28"
+                />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-white/10 text-5xl font-black md:h-28 md:w-28">
+                  {employee.name[0]}
+                </div>
+              )}
 
-                  <p className="mt-1 text-white/70">
-                    {employee.position} · {employee.outlet_name || "No outlet"}
-                  </p>
+              <div>
+                <h1 className="text-3xl font-black md:text-5xl">
+                  {employee.name}
+                </h1>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge>{employee.potential_level.replace("_", " ")}</Badge>
-                    {employee.promotion_ready && <Badge>Promotion Ready</Badge>}
-                    <Badge>{employee.active ? "Active" : "Inactive"}</Badge>
-                  </div>
+                <p className="mt-1 text-white/70">
+                  {employee.position} · {employee.outlet_name || "Sin outlet"}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge>{employee.potential_level.replace("_", " ")}</Badge>
+                  {employee.promotion_ready && <Badge>Listo para Promoción</Badge>}
+                  <Badge>{employee.active ? "Activo" : "Inactivo"}</Badge>
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-3xl bg-white/10 p-6 text-center backdrop-blur">
-                <p className="text-sm font-bold text-white/60">
-                  Average Score
-                </p>
+            <div className="rounded-3xl bg-white/10 p-6 text-center backdrop-blur">
+              <p className="text-sm font-bold text-white/60">
+                Promedio
+              </p>
 
-                <p className="text-5xl font-black">
-                  {averageEvaluationScore}%
-                </p>
+              <p className="text-5xl font-black">
+                {averageEvaluationScore}%
+              </p>
 
-                <p className="mt-1 text-xs text-white/50">
-                  {evaluations.length} evaluations completed
-                </p>
-              </div>
+              <p className="mt-1 text-xs text-white/50">
+                {evaluations.length} evaluaciones completadas
+              </p>
             </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 gap-6 p-5 md:p-6 xl:grid-cols-3">
-            <div className="space-y-6 xl:col-span-2">
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <ScoreCard title="Evaluations" value={evaluations.length} suffix="" />
-                <ScoreCard title="Average Score" value={averageEvaluationScore} suffix="%" />
-                <ScoreCard title="Latest Score" value={latestEvaluationScore} suffix="%" />
-                <ScoreCard title="HR Standard" value={employee.hard_rock_standard_score} suffix="%" />
+        <div className="grid grid-cols-1 gap-6 p-5 md:p-6 xl:grid-cols-3">
+          <div className="space-y-6 xl:col-span-2">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <ScoreCard title="Evaluaciones" value={evaluations.length} suffix="" />
+              <ScoreCard title="Promedio" value={averageEvaluationScore} suffix="%" />
+              <ScoreCard title="Última Puntuación" value={latestEvaluationScore} suffix="%" />
+              <ScoreCard title="Estándar HR" value={employee.hard_rock_standard_score} suffix="%" />
+            </div>
+
+            <Section title="Desglose de Competencias">
+              <div className="space-y-4">
+                <CompetencyBar title="Servicio" value={employee.service_score} />
+                <CompetencyBar title="Liderazgo" value={employee.leadership_score} />
+                <CompetencyBar title="Actitud" value={employee.attitude_score} />
+                <CompetencyBar title="Venta Sugestiva" value={employee.upselling_score} />
               </div>
+            </Section>
 
-              <Section title="Competency Breakdown">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <InfoCard title="Fortalezas" items={employee.strengths} positive />
+              <InfoCard title="Áreas de Mejora" items={employee.weaknesses} />
+            </div>
+
+            <Section title="Evaluaciones Recientes por Plantilla">
+              {evaluations.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  Todavía no se han encontrado evaluaciones por plantilla para este empleado.
+                </p>
+              ) : (
                 <div className="space-y-4">
-                  <CompetencyBar title="Service" value={employee.service_score} />
-                  <CompetencyBar title="Leadership" value={employee.leadership_score} />
-                  <CompetencyBar title="Attitude" value={employee.attitude_score} />
-                  <CompetencyBar title="Upselling" value={employee.upselling_score} />
-                </div>
-              </Section>
+                  {evaluations.map((evaluation) => {
+                    const score = getEvaluationScore(evaluation);
 
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <InfoCard title="Strengths" items={employee.strengths} positive />
-                <InfoCard title="Weaknesses" items={employee.weaknesses} />
-              </div>
-
-              <Section title="Recent Template Evaluations">
-                {evaluations.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No template evaluations found for this employee yet.
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {evaluations.map((evaluation) => {
-                      const score = getEvaluationScore(evaluation);
-
-                      return (
-                        <div
-                          key={evaluation.id}
-                          className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                        >
-                          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-                            <div>
-                              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">
-                                <ClipboardCheck size={14} />
-                                {evaluation.template_name || "Evaluation"}
-                              </div>
-
-                              <p className="text-sm font-semibold text-slate-500">
-                                {formatDate(evaluation.created_at)}
-                              </p>
-
-                              {evaluation.evaluator_name && (
-                                <p className="mt-1 text-sm text-slate-500">
-                                  Evaluated by: {evaluation.evaluator_name}
-                                </p>
-                              )}
-
-                              {evaluation.notes && (
-                                <p className="mt-3 text-sm leading-6 text-slate-600">
-                                  {evaluation.notes}
-                                </p>
-                              )}
+                    return (
+                      <div
+                        key={evaluation.id}
+                        className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                      >
+                        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                          <div>
+                            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">
+                              <ClipboardCheck size={14} />
+                              {evaluation.template_name || "Evaluación"}
                             </div>
 
-                            <div className="rounded-3xl bg-slate-950 px-5 py-4 text-center text-white">
-                              <p className="text-xs font-bold text-white/60">
-                                Final Score
+                            <p className="text-sm font-semibold text-slate-500">
+                              {formatDate(evaluation.created_at)}
+                            </p>
+
+                            {evaluation.evaluator_name && (
+                              <p className="mt-1 text-sm text-slate-500">
+                                Evaluado por: {evaluation.evaluator_name}
                               </p>
-                              <p className="text-3xl font-black">{score}%</p>
-                            </div>
+                            )}
+
+                            {evaluation.notes && (
+                              <p className="mt-3 text-sm leading-6 text-slate-600">
+                                {evaluation.notes}
+                              </p>
+                            )}
                           </div>
 
-                          <div className="mt-4 space-y-2">
-                            {evaluation.answers?.map((answer) => (
-                              <div
-                                key={answer.id}
-                                className="rounded-2xl bg-white p-4"
-                              >
-                                <p className="text-sm font-black text-slate-950">
-                                  {answer.question_text ||
-                                    `Question #${answer.question}`}
-                                </p>
-
-                                {answer.standard_title && (
-                                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                                    Standard: {answer.standard_title}
-                                  </p>
-                                )}
-
-                                <p className="mt-2 text-sm font-bold text-slate-700">
-                                  {formatAnswer(answer)}
-                                </p>
-                              </div>
-                            ))}
+                          <div className="rounded-3xl bg-slate-950 px-5 py-4 text-center text-white">
+                            <p className="text-xs font-bold text-white/60">
+                              Puntuación Final
+                            </p>
+                            <p className="text-3xl font-black">{score}%</p>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </Section>
 
-              <Section title="Manager Notes">
-                <p className="text-slate-600">
-                  {employee.notes || "No notes added yet."}
-                </p>
-              </Section>
-            </div>
+                        <div className="mt-4 space-y-2">
+                          {evaluation.answers?.map((answer) => (
+                            <div
+                              key={answer.id}
+                              className="rounded-2xl bg-white p-4"
+                            >
+                              <p className="text-sm font-black text-slate-950">
+                                {answer.question_text ||
+                                  `Pregunta #${answer.question}`}
+                              </p>
 
-            <div className="space-y-6">
-              <Section title="Profile Details">
-                <Detail label="Employee Code" value={employee.employee_code || "N/A"} />
-                <Detail label="Department" value={employee.department} />
-                <Detail label="Supervisor" value={employee.supervisor_name || "No supervisor"} />
-                <Detail label="Hire Date" value={employee.hire_date || "No hire date"} />
-                <Detail label="Career Goal" value={employee.career_goal || "No career goal"} />
-              </Section>
+                              {answer.standard_title && (
+                                <p className="mt-1 text-xs font-semibold text-slate-500">
+                                  Estándar: {answer.standard_title}
+                                </p>
+                              )}
 
-              <Section title="Languages">
-                <div className="flex flex-wrap gap-2">
-                  {employee.languages?.length ? (
-                    employee.languages.map((lang) => (
-                      <span
-                        key={lang}
-                        className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700"
-                      >
-                        {lang}
-                      </span>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No languages added.</p>
-                  )}
+                              <p className="mt-2 text-sm font-bold text-slate-700">
+                                {formatAnswer(answer)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </Section>
+              )}
+            </Section>
 
-              <Section title="Growth Recommendation">
-                <p className="text-sm text-slate-600">
-                  {averageEvaluationScore >= 85
-                    ? "Strong candidate for recognition, mentorship, or future leadership."
-                    : averageEvaluationScore >= 70
-                      ? "Good performance. Keep developing consistency and standards."
-                      : evaluations.length === 0
-                        ? "No evaluations yet. Complete the first evaluation to generate a recommendation."
-                        : "Needs coaching plan, observation, and follow-up evaluation."}
-                </p>
-              </Section>
-            </div>
+            <Section title="Notas del Gerente">
+              <p className="text-slate-600">
+                {employee.notes || "Todavía no se han agregado notas."}
+              </p>
+            </Section>
+          </div>
+
+          <div className="space-y-6">
+            <Section title="Detalles del Perfil">
+              <Detail label="Código de Empleado" value={employee.employee_code || "N/A"} />
+              <Detail label="Departamento" value={employee.department} />
+              <Detail label="Supervisor" value={employee.supervisor_name || "Sin supervisor"} />
+              <Detail label="Fecha de Contratación" value={employee.hire_date || "Sin fecha de contratación"} />
+              <Detail label="Meta Profesional" value={employee.career_goal || "Sin meta profesional"} />
+            </Section>
+
+            <Section title="Idiomas">
+              <div className="flex flex-wrap gap-2">
+                {employee.languages?.length ? (
+                  employee.languages.map((lang) => (
+                    <span
+                      key={lang}
+                      className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700"
+                    >
+                      {lang}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">No se han agregado idiomas.</p>
+                )}
+              </div>
+            </Section>
+
+            <Section title="Recomendación de Crecimiento">
+              <p className="text-sm text-slate-600">
+                {averageEvaluationScore >= 85
+                  ? "Candidato fuerte para reconocimiento, mentoría o futuro liderazgo."
+                  : averageEvaluationScore >= 70
+                    ? "Buen desempeño. Continuar desarrollando consistencia y estándares."
+                    : evaluations.length === 0
+                      ? "Aún no hay evaluaciones. Complete la primera evaluación para generar una recomendación."
+                      : "Necesita plan de coaching, observación y evaluación de seguimiento."}
+              </p>
+            </Section>
           </div>
         </div>
       </div>
     </div>
-  );
+  </div>
+);
+
+
 }
 
 function getEvaluationScore(evaluation: EmployeeEvaluation) {

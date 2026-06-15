@@ -11,27 +11,29 @@ import {
   type Branding,
 } from "../../../api/brandingApi";
 
-type TrainingSidebarProps = {
+type PropiedadesBarraLateralCapacitacion = {
   onNavigate?: () => void;
 };
 
-type PermissionKey =
+type ClavePermiso =
   | "can_create_employees"
   | "can_create_trainings"
   | "can_create_evaluations"
   | "can_view_reports";
 
-type SidebarLink = {
+type EnlaceBarraLateral = {
   label: string;
   path: string;
   icon: string;
   end?: boolean;
   adminOnly?: boolean;
   facilitatorOnly?: boolean;
-  permission?: PermissionKey;
+  permission?: ClavePermiso;
 };
 
-export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
+export default function BarraLateralCapacitacion({
+  onNavigate,
+}: PropiedadesBarraLateralCapacitacion) {
   const navigate = useNavigate();
   const { organisationSlug } = useParams();
   const dispatch = useAppDispatch();
@@ -41,143 +43,143 @@ export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
   const [branding, setBranding] = useState<Branding>(defaultBranding);
 
   useEffect(() => {
-    async function loadBranding() {
+    async function cargarMarca() {
       if (!organisationSlug) return;
 
       const data = await getPublicBranding("hotel", organisationSlug);
       setBranding(data);
     }
 
-    loadBranding();
+    cargarMarca();
   }, [organisationSlug]);
 
-  const basePath = `/training/${organisationSlug}`;
+  const rutaBase = `/training/${organisationSlug}`;
 
-  const isAdmin =
+  const esAdmin =
     user?.role === "owner" ||
     user?.role === "admin" ||
     user?.role === "manager";
 
-  const isFacilitator = user?.role === "facilitator";
+  const esFacilitador = user?.role === "facilitator";
 
-  function hasPermission(permission?: PermissionKey) {
+  function tienePermiso(permission?: ClavePermiso) {
     if (!permission) return true;
-    if (isAdmin) return true;
+    if (esAdmin) return true;
 
     return Boolean((user as any)?.permissions?.[permission]);
   }
 
-  const links: SidebarLink[] = useMemo(
+  const enlaces: EnlaceBarraLateral[] = useMemo(
     () => [
       {
-        label: "Dashboard",
-        path: basePath,
+        label: "Panel Principal",
+        path: rutaBase,
         icon: "📊",
         adminOnly: true,
         end: true,
       },
       {
-        label: "Employees",
-        path: `${basePath}/employees`,
+        label: "Empleados",
+        path: `${rutaBase}/employees`,
         icon: "👥",
         adminOnly: true,
       },
       {
-        label: "Facilitators",
-        path: `${basePath}/facilitators`,
+        label: "Facilitadores",
+        path: `${rutaBase}/facilitators`,
         icon: "🎓",
         adminOnly: true,
       },
       {
-        label: "Training Sessions",
-        path: `${basePath}/training-sessions`,
+        label: "Sesiones de Capacitación",
+        path: `${rutaBase}/training-sessions`,
         icon: "📚",
         permission: "can_create_trainings",
       },
       {
-        label: "Evaluations",
-        path: `${basePath}/evaluations`,
+        label: "Evaluaciones",
+        path: `${rutaBase}/evaluations`,
         icon: "⭐",
         permission: "can_create_evaluations",
       },
       {
-        label: "Standards",
-        path: `${basePath}/standards`,
+        label: "Estándares",
+        path: `${rutaBase}/standards`,
         icon: "🏆",
         adminOnly: true,
       },
       {
-        label: "Templates",
-        path: `${basePath}/evaluation-templates`,
+        label: "Plantillas",
+        path: `${rutaBase}/evaluation-templates`,
         icon: "📝",
         adminOnly: true,
       },
       {
-        label: "Outlets",
-        path: `${basePath}/outlets`,
+        label: "Centros de Consumo",
+        path: `${rutaBase}/outlets`,
         icon: "🍽️",
         adminOnly: true,
       },
       {
-        label: "Analytics",
-        path: `${basePath}/analytics`,
+        label: "Analíticas",
+        path: `${rutaBase}/analytics`,
         icon: "📈",
         adminOnly: true,
       },
       {
-        label: "Reports",
-        path: `${basePath}/reports`,
+        label: "Reportes",
+        path: `${rutaBase}/reports`,
         icon: "📄",
         permission: "can_view_reports",
       },
       {
-        label: "Roadmap",
-        path: `${basePath}/roadmap`,
+        label: "Plan 30/60/90",
+        path: `${rutaBase}/roadmap`,
         icon: "🚀",
         adminOnly: true,
       },
       {
-        label: "My Workspace",
-        path: `${basePath}/facilitator`,
+        label: "Mi Espacio de Trabajo",
+        path: `${rutaBase}/facilitator`,
         icon: "🧑‍🏫",
         facilitatorOnly: true,
         end: true,
       },
       {
-        label: "My Employees",
-        path: `${basePath}/facilitator/employees`,
+        label: "Mis Empleados",
+        path: `${rutaBase}/facilitator/employees`,
         icon: "👥",
         facilitatorOnly: true,
       },
       {
-        label: "Create Evaluation",
-        path: `${basePath}/facilitator/evaluations`,
+        label: "Crear Evaluación",
+        path: `${rutaBase}/facilitator/evaluations`,
         icon: "✅",
         facilitatorOnly: true,
         permission: "can_create_evaluations",
       },
       {
-        label: "My Trainings",
-        path: `${basePath}/facilitator/trainings`,
+        label: "Mis Capacitaciones",
+        path: `${rutaBase}/facilitator/trainings`,
         icon: "📚",
         facilitatorOnly: true,
         permission: "can_create_trainings",
       },
     ],
-    [basePath],
+    [rutaBase],
   );
 
-  const visibleLinks = links.filter((link) => {
+  const enlacesVisibles = enlaces.filter((link) => {
     if (!user) return false;
 
-    if (link.adminOnly && !isAdmin) return false;
-    if (link.facilitatorOnly && !isFacilitator) return false;
-    if (!hasPermission(link.permission)) return false;
+    if (link.adminOnly && !esAdmin) return false;
+    if (link.facilitatorOnly && !esFacilitador) return false;
+    if (!tienePermiso(link.permission)) return false;
 
     return true;
   });
 
-  const handleLogout = async () => {
+  const manejarCerrarSesion = async () => {
     try {
       await dispatch(logoutUser()).unwrap();
     } catch (error) {
@@ -214,7 +216,7 @@ export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
 
       <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
         <div className="space-y-2 pb-6">
-          {visibleLinks.map((link) => (
+          {enlacesVisibles.map((link) => (
             <NavLink
               key={link.path}
               to={link.path}
@@ -241,7 +243,7 @@ export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
       <div className="shrink-0 border-t border-slate-200 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="mb-4 rounded-2xl bg-slate-50 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">
-            Platform
+            Plataforma
           </p>
 
           <h3 className="mt-1 truncate font-semibold text-slate-950">
@@ -255,27 +257,27 @@ export default function TrainingSidebar({ onNavigate }: TrainingSidebarProps) {
 
         <div className="mb-4 rounded-2xl bg-slate-50 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">
-            Logged In As
+            Sesión iniciada como
           </p>
 
           <h3 className="mt-1 truncate font-semibold text-slate-950">
             {user?.facilitator?.employee_name ||
               user?.first_name ||
               user?.username ||
-              "User"}
+              "Usuario"}
           </h3>
 
           <p className="text-sm capitalize text-slate-500">
-            {user?.role || "No role"}
+            {user?.role || "Sin rol"}
           </p>
         </div>
 
         <button
-          onClick={handleLogout}
+          onClick={manejarCerrarSesion}
           className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-red-500 hover:text-white"
         >
           <LogOut size={18} />
-          Logout
+          Cerrar sesión
         </button>
       </div>
     </aside>

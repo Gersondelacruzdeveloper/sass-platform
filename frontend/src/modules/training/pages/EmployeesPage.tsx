@@ -141,7 +141,7 @@ export default function EmployeesPage() {
       setSaving(true);
 
       if (editingEmployee) {
-        await api.patch(`/training/${tenantSlug}employees/${editingEmployee.id}/`, payload);
+        await api.patch(`/training/employees/${editingEmployee.id}/`, payload);
       } else {
        await api.post("/training/employees/", payload);
       }

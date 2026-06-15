@@ -185,265 +185,266 @@ export default function OutletsPage() {
     );
   }
 
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
-        <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
-                <Building2 size={16} />
-                Outlet Performance Center
-              </div>
-
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                Restaurantes & Bares A&B
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Vista ejecutiva de restaurantes, bares y áreas A&B con score,
-                empleados, managers y cumplimiento de estándares.
-              </p>
+  <div className="min-h-screen bg-slate-50">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6 lg:p-8">
+      <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
+              <Building2 size={16} />
+              Centro de Rendimiento de Outlets
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[420px]">
-              <HeroMiniCard
-                label="Top Outlet"
-                value={topOutlet?.name || "N/A"}
-                helper={`${topOutlet?.average_score || 0}%`}
-              />
-              <HeroMiniCard
-                label="Needs Focus"
-                value={lowestOutlet?.name || "N/A"}
-                helper={`${lowestOutlet?.average_score || 0}%`}
-              />
-            </div>
+            <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+              Restaurantes & Bares A&B
+            </h1>
+
+            <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
+              Vista ejecutiva de restaurantes, bares y áreas A&B con score,
+              empleados, managers y cumplimiento de estándares.
+            </p>
           </div>
-        </section>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Outlets" value={outlets.length} icon={<Building2 />} />
-          <SummaryCard title="Activos" value={activeOutlets} icon={<CheckCircle2 />} />
-          <SummaryCard title="Employees" value={totalEmployees} icon={<Users />} />
-          <SummaryCard title="Avg A&B Score" value={`${avgOutletScore}%`} icon={<BarChart3 />} />
-        </section>
-
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6 xl:col-span-2"
-          >
-            <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-              <div>
-                <h2 className="text-2xl font-black text-slate-950">
-                  {editingOutlet ? "Actualizar outlet" : "Crear nuevo outlet"}
-                </h2>
-
-                <p className="text-sm text-slate-500">
-                  {editingOutlet
-                    ? `Editando: ${editingOutlet.name}`
-                    : "Crea restaurantes, bares, buffet, room service o puntos A&B."}
-                </p>
-              </div>
-
-              {editingOutlet && (
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-black text-slate-700 transition hover:bg-slate-200"
-                >
-                  <X size={16} />
-                  Cancel edit
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input
-                required
-                label="Nombre"
-                placeholder="Toro, Zen, Eclipse Bar..."
-                value={form.name}
-                onChange={(value) => setForm({ ...form, name: value })}
-              />
-
-              <Input
-                label="Área"
-                placeholder="Restaurant, Bar, Buffet, Room Service..."
-                value={form.area}
-                onChange={(value) => setForm({ ...form, area: value })}
-              />
-
-              <Input
-                label="Manager encargado"
-                placeholder="Nombre del manager"
-                value={form.manager}
-                onChange={(value) => setForm({ ...form, manager: value })}
-              />
-
-              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={form.active}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      active: e.target.checked,
-                    })
-                  }
-                  className="h-4 w-4 accent-slate-950"
-                />
-                <span className="font-bold text-slate-700">Active outlet</span>
-              </label>
-            </div>
-
-            <textarea
-              className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-              placeholder="Notas del outlet: enfoque, problemas, oportunidades, estándares críticos..."
-              rows={4}
-              value={form.description}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  description: e.target.value,
-                })
-              }
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+            <HeroMiniCard
+              label="Mejor Outlet"
+              value={topOutlet?.name || "N/A"}
+              helper={`${topOutlet?.average_score || 0}%`}
             />
-
-            <button
-              disabled={saving}
-              className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
-            >
-              {saving
-                ? "Saving..."
-                : editingOutlet
-                  ? "Update outlet"
-                  : "Guardar outlet"}
-            </button>
-          </form>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
-                <Trophy size={22} />
-              </div>
-              <div>
-                <h2 className="text-xl font-black text-slate-950">
-                  Outlet Ranking
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Vista rápida por score.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {[...outlets]
-                .sort(
-                  (a, b) =>
-                    Number(b.average_score || 0) - Number(a.average_score || 0)
-                )
-                .slice(0, 5)
-                .map((outlet, index) => (
-                  <div
-                    key={outlet.id}
-                    className="flex items-center justify-between rounded-2xl bg-slate-50 p-3"
-                  >
-                    <div>
-                      <p className="font-black text-slate-950">
-                        #{index + 1} {outlet.name}
-                      </p>
-                      <p className="text-xs font-semibold text-slate-500">
-                        {outlet.area || "No area"}
-                      </p>
-                    </div>
-
-                    <span className="rounded-full bg-white px-3 py-1 text-sm font-black text-slate-950">
-                      {outlet.average_score || 0}%
-                    </span>
-                  </div>
-                ))}
-            </div>
+            <HeroMiniCard
+              label="Necesita Atención"
+              value={lowestOutlet?.name || "N/A"}
+              helper={`${lowestOutlet?.average_score || 0}%`}
+            />
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard title="Outlets" value={outlets.length} icon={<Building2 />} />
+        <SummaryCard title="Activos" value={activeOutlets} icon={<CheckCircle2 />} />
+        <SummaryCard title="Empleados" value={totalEmployees} icon={<Users />} />
+        <SummaryCard title="Promedio A&B" value={`${avgOutletScore}%`} icon={<BarChart3 />} />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6 xl:col-span-2"
+        >
+          <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
               <h2 className="text-2xl font-black text-slate-950">
-                Lista de outlets
+                {editingOutlet ? "Actualizar outlet" : "Crear nuevo outlet"}
+              </h2>
+
+              <p className="text-sm text-slate-500">
+                {editingOutlet
+                  ? `Editando: ${editingOutlet.name}`
+                  : "Crea restaurantes, bares, buffet, room service o puntos A&B."}
+              </p>
+            </div>
+
+            {editingOutlet && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-black text-slate-700 transition hover:bg-slate-200"
+              >
+                <X size={16} />
+                Cancelar edición
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Input
+              required
+              label="Nombre"
+              placeholder="Toro, Zen, Eclipse Bar..."
+              value={form.name}
+              onChange={(value) => setForm({ ...form, name: value })}
+            />
+
+            <Input
+              label="Área"
+              placeholder="Restaurante, Bar, Buffet, Room Service..."
+              value={form.area}
+              onChange={(value) => setForm({ ...form, area: value })}
+            />
+
+            <Input
+              label="Manager encargado"
+              placeholder="Nombre del manager"
+              value={form.manager}
+              onChange={(value) => setForm({ ...form, manager: value })}
+            />
+
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    active: e.target.checked,
+                  })
+                }
+                className="h-4 w-4 accent-slate-950"
+              />
+              <span className="font-bold text-slate-700">Outlet activo</span>
+            </label>
+          </div>
+
+          <textarea
+            className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+            placeholder="Notas del outlet: enfoque, problemas, oportunidades, estándares críticos..."
+            rows={4}
+            value={form.description}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                description: e.target.value,
+              })
+            }
+          />
+
+          <button
+            disabled={saving}
+            className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
+          >
+            {saving
+              ? "Guardando..."
+              : editingOutlet
+                ? "Actualizar outlet"
+                : "Guardar outlet"}
+          </button>
+        </form>
+
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+              <Trophy size={22} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-950">
+                Ranking de Outlets
               </h2>
               <p className="text-sm text-slate-500">
-                Busca por nombre, área, manager o descripción.
+                Vista rápida por score.
               </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:min-w-[760px]">
-              <div className="relative">
-                <Search
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={18}
-                />
-                <input
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                  placeholder="Search outlet..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">Todos</option>
-                <option value="active">Activos</option>
-                <option value="inactive">Inactivos</option>
-              </select>
-
-              <select
-                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                value={performanceFilter}
-                onChange={(e) => setPerformanceFilter(e.target.value)}
-              >
-                <option value="all">All Performance</option>
-                <option value="excellent">90+ Excellent</option>
-                <option value="good">80-89 Good</option>
-                <option value="attention">70-79 Attention</option>
-                <option value="critical">Below 70 Critical</option>
-              </select>
             </div>
           </div>
 
-          <div className="mb-4 text-sm font-semibold text-slate-500">
-            Mostrando {filteredOutlets.length} de {outlets.length} outlets
-          </div>
-
-          {filteredOutlets.length === 0 ? (
-            <div className="rounded-[2rem] bg-slate-50 p-10 text-center">
-              <p className="font-black text-slate-950">No outlets found.</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Intenta cambiar la búsqueda o los filtros.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {filteredOutlets.map((outlet) => (
-                <OutletCard
+          <div className="mt-5 space-y-3">
+            {[...outlets]
+              .sort(
+                (a, b) =>
+                  Number(b.average_score || 0) - Number(a.average_score || 0)
+              )
+              .slice(0, 5)
+              .map((outlet, index) => (
+                <div
                   key={outlet.id}
-                  outlet={outlet}
-                  onEdit={() => handleEdit(outlet)}
-                  onDelete={() => handleDelete(outlet)}
-                  onToggleActive={() => toggleActive(outlet)}
-                />
+                  className="flex items-center justify-between rounded-2xl bg-slate-50 p-3"
+                >
+                  <div>
+                    <p className="font-black text-slate-950">
+                      #{index + 1} {outlet.name}
+                    </p>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {outlet.area || "Sin área"}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-white px-3 py-1 text-sm font-black text-slate-950">
+                    {outlet.average_score || 0}%
+                  </span>
+                </div>
               ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">
+              Lista de outlets
+            </h2>
+            <p className="text-sm text-slate-500">
+              Busca por nombre, área, manager o descripción.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:min-w-[760px]">
+            <div className="relative">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                placeholder="Buscar outlet..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
-          )}
-        </section>
-      </div>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos</option>
+              <option value="active">Activos</option>
+              <option value="inactive">Inactivos</option>
+            </select>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              value={performanceFilter}
+              onChange={(e) => setPerformanceFilter(e.target.value)}
+            >
+              <option value="all">Todos los Rendimientos</option>
+              <option value="excellent">90+ Excelente</option>
+              <option value="good">80-89 Bueno</option>
+              <option value="attention">70-79 Atención</option>
+              <option value="critical">Menor de 70 Crítico</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mb-4 text-sm font-semibold text-slate-500">
+          Mostrando {filteredOutlets.length} de {outlets.length} outlets
+        </div>
+
+        {filteredOutlets.length === 0 ? (
+          <div className="rounded-[2rem] bg-slate-50 p-10 text-center">
+            <p className="font-black text-slate-950">No se encontraron outlets.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Intenta cambiar la búsqueda o los filtros.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {filteredOutlets.map((outlet) => (
+              <OutletCard
+                key={outlet.id}
+                outlet={outlet}
+                onEdit={() => handleEdit(outlet)}
+                onDelete={() => handleDelete(outlet)}
+                onToggleActive={() => toggleActive(outlet)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
-  );
+  </div>
+);
 }
 
 function OutletCard({
