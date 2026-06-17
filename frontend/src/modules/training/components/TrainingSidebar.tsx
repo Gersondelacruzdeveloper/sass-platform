@@ -71,6 +71,7 @@ export default function BarraLateralCapacitacion({
 
   const enlaces: EnlaceBarraLateral[] = useMemo(
     () => [
+      // ADMIN / MANAGER
       {
         label: "Panel Principal",
         path: rutaBase,
@@ -91,21 +92,9 @@ export default function BarraLateralCapacitacion({
         adminOnly: true,
       },
       {
-        label: "Sesiones de Capacitación",
-        path: `${rutaBase}/training-sessions`,
-        icon: "📚",
-        permission: "can_create_trainings",
-      },
-      {
         label: "Evaluaciones",
         path: `${rutaBase}/evaluations`,
         icon: "⭐",
-        permission: "can_create_evaluations",
-      },
-      {
-        label: "Estándares",
-        path: `${rutaBase}/standards`,
-        icon: "🏆",
         adminOnly: true,
       },
       {
@@ -115,9 +104,45 @@ export default function BarraLateralCapacitacion({
         adminOnly: true,
       },
       {
+        label: "Recursos Visuales",
+        path: `${rutaBase}/resources`,
+        icon: "📸",
+        adminOnly: true,
+      },
+      {
+        label: "Planes de Refuerzo",
+        path: `${rutaBase}/recovery-plans`,
+        icon: "🛡️",
+        adminOnly: true,
+      },
+      {
+        label: "Cola de Entrenamiento",
+        path: `${rutaBase}/facilitator-queue`,
+        icon: "🎓",
+        adminOnly: true,
+      },
+      {
+        label: "Estándares",
+        path: `${rutaBase}/standards`,
+        icon: "🏆",
+        adminOnly: true,
+      },
+      {
+        label: "Sesiones Formales",
+        path: `${rutaBase}/training-sessions`,
+        icon: "📚",
+        adminOnly: true,
+      },
+      {
         label: "Centros de Consumo",
         path: `${rutaBase}/outlets`,
         icon: "🍽️",
+        adminOnly: true,
+      },
+      {
+        label: "Plan 30/60/90",
+        path: `${rutaBase}/roadmap`,
+        icon: "🚀",
         adminOnly: true,
       },
       {
@@ -130,40 +155,28 @@ export default function BarraLateralCapacitacion({
         label: "Reportes",
         path: `${rutaBase}/reports`,
         icon: "📄",
-        permission: "can_view_reports",
-      },
-      {
-        label: "Plan 30/60/90",
-        path: `${rutaBase}/roadmap`,
-        icon: "🚀",
         adminOnly: true,
       },
+
+      // FACILITADOR
       {
-        label: "Mi Espacio de Trabajo",
-        path: `${rutaBase}/facilitator`,
-        icon: "🧑‍🏫",
-        facilitatorOnly: true,
-        end: true,
-      },
-      {
-        label: "Mis Empleados",
+        label: "Colaboradores Asignados",
         path: `${rutaBase}/facilitator/employees`,
         icon: "👥",
         facilitatorOnly: true,
       },
+
       {
+        label: "Mi Cola de Entrenamiento",
+        path: `${rutaBase}/facilitator-queue`,
+        icon: "🎓",
+        facilitatorOnly: true,
+      },
+        {
         label: "Crear Evaluación",
         path: `${rutaBase}/facilitator/evaluations`,
-        icon: "✅",
+        icon: "⭐",
         facilitatorOnly: true,
-        permission: "can_create_evaluations",
-      },
-      {
-        label: "Mis Capacitaciones",
-        path: `${rutaBase}/facilitator/trainings`,
-        icon: "📚",
-        facilitatorOnly: true,
-        permission: "can_create_trainings",
       },
     ],
     [rutaBase],

@@ -1,5 +1,8 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -451,3 +454,170 @@ class EvaluationAnswer(models.Model):
         null=True,
         blank=True,
     )
+
+
+
+#------------------------------------------------------------TrainingResource
+class TrainingResource(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="training_resources",
+        null=True,
+        blank=True,
+    )
+
+    RESOURCE_TYPES = [
+        ("visual_poster", "Visual Poster"),
+        ("microlearning", "Microlearning"),
+        ("checklist", "Checklist"),
+        ("facilitator_guide", "Facilitator Guide"),
+    ]
+
+    title = models.CharField(max_length=255)
+
+    standard = models.ForeignKey(
+        "Standard",
+        on_delete=models.CASCADE,
+        related_name="resources",
+        null=True,
+        blank=True,
+    )
+
+    resource_type = models.CharField(
+        max_length=50,
+        choices=RESOURCE_TYPES,
+        default="visual_poster",
+    )
+
+    incorrect_image = models.ImageField(
+        upload_to="training/resources/incorrect/",
+        null=True,
+        blank=True,
+    )
+
+    correct_image = models.ImageField(
+        upload_to="training/resources/correct/",
+        null=True,
+        blank=True,
+    )
+
+    short_explanation = models.TextField(blank=True)
+    facilitator_notes = models.TextField(blank=True)
+    estimated_minutes = models.PositiveIntegerField(default=5)
+
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+
+class StandardRecoveryPlan(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="standard_recovery_plans",
+        null=True,
+        blank=True,
+    )
+
+    standard = models.OneToOneField(
+        "Standard",
+        on_delete=models.CASCADE,
+        related_name="recovery_plan",
+    )
+
+    resource = models.ForeignKey(
+        TrainingResource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recovery_plans",
+    )
+
+    trigger_fail_count = models.PositiveIntegerField(default=1)
+    reevaluation_after_days = models.PositiveIntegerField(default=3)
+
+    instructions = models.TextField(blank=True)
+    active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"Recovery Plan - {self.standard.title}"
+class EmployeeAssignedTraining(models.Model):
+    organisation = models.ForeignKey(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="employee_assigned_trainings",
+        null=True,
+        blank=True,
+    )
+
+    STATUS_CHOICES = [
+        ("assigned", "Assigned"),
+        ("in_progress", "In Progress"),
+        ("completed", "Completed"),
+        ("reevaluation_pending", "Re-evaluation Pending"),
+        ("closed", "Closed"),
+    ]
+
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.CASCADE,
+        related_name="assigned_trainings",
+    )
+
+    standard = models.ForeignKey(
+        "Standard",
+        on_delete=models.CASCADE,
+        related_name="assigned_trainings",
+    )
+
+    resource = models.ForeignKey(
+        TrainingResource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_trainings",
+    )
+
+    assigned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_training_resources",
+    )
+
+    reason = models.TextField(blank=True)
+
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_CHOICES,
+        default="assigned",
+    )
+
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    reevaluation_due_date = models.DateField(null=True, blank=True)
+    reevaluated_at = models.DateTimeField(null=True, blank=True)
+
+    supervisor_notes = models.TextField(blank=True)
+
+    def mark_completed(self):
+        self.status = "reevaluation_pending"
+        self.completed_at = timezone.now()
+
+        if not self.reevaluation_due_date:
+            self.reevaluation_due_date = timezone.now().date() + timedelta(days=3)
+
+        self.save()
+
+    def close_training(self):
+        self.status = "closed"
+        self.reevaluated_at = timezone.now()
+        self.save()
+
+    def __str__(self):
+        return f"{self.employee.name} - {self.standard.title} - {self.status}"

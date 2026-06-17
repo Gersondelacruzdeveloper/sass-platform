@@ -12,7 +12,9 @@ from .models import (
     EvaluationQuestion,
     EmployeeEvaluation,
     EvaluationAnswer,
-
+    TrainingResource,
+    StandardRecoveryPlan,
+    EmployeeAssignedTraining,
 )
 
 
@@ -188,3 +190,113 @@ class EmployeeEvaluationSerializer(serializers.ModelSerializer):
             return 0
 
         return round(sum(score_answers) / len(score_answers), 2)
+    
+
+class TrainingResourceSerializer(serializers.ModelSerializer):
+    standard_title = serializers.CharField(source="standard.title", read_only=True)
+
+    class Meta:
+        model = TrainingResource
+        fields = [
+            "id",
+            "organisation",
+            "title",
+            "standard",
+            "standard_title",
+            "resource_type",
+            "incorrect_image",
+            "correct_image",
+            "short_explanation",
+            "facilitator_notes",
+            "estimated_minutes",
+            "active",
+            "created_at",
+        ]
+        read_only_fields = ["id", "organisation", "created_at"]
+
+
+class StandardRecoveryPlanSerializer(serializers.ModelSerializer):
+    standard_title = serializers.CharField(source="standard.title", read_only=True)
+    resource_title = serializers.CharField(source="resource.title", read_only=True)
+
+    class Meta:
+        model = StandardRecoveryPlan
+        fields = [
+            "id",
+            "organisation",
+            "standard",
+            "standard_title",
+            "resource",
+            "resource_title",
+            "trigger_fail_count",
+            "reevaluation_after_days",
+            "instructions",
+            "active",
+        ]
+        read_only_fields = ["id", "organisation"]
+
+
+class EmployeeAssignedTrainingSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source="employee.name", read_only=True)
+    standard_title = serializers.CharField(source="standard.title", read_only=True)
+    resource_title = serializers.CharField(source="resource.title", read_only=True)
+    incorrect_image = serializers.ImageField(
+    source="resource.incorrect_image",
+    read_only=True,
+    )
+
+    correct_image = serializers.ImageField(
+        source="resource.correct_image",
+        read_only=True,
+    )
+
+    short_explanation = serializers.CharField(
+        source="resource.short_explanation",
+        read_only=True,
+    )
+
+    facilitator_notes = serializers.CharField(
+        source="resource.facilitator_notes",
+        read_only=True,
+    )
+
+    estimated_minutes = serializers.IntegerField(
+        source="resource.estimated_minutes",
+        read_only=True,
+    )
+    assigned_by_name = serializers.CharField(source="assigned_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = EmployeeAssignedTraining
+        fields = [
+            "id",
+            "organisation",
+            "employee",
+            "employee_name",
+            "standard",
+            "standard_title",
+            "resource",
+            "resource_title",
+            "assigned_by",
+            "assigned_by_name",
+            "reason",
+            "status",
+            "assigned_at",
+            "completed_at",
+            "reevaluation_due_date",
+            "reevaluated_at",
+            "incorrect_image",
+            "correct_image",
+            "short_explanation",
+            "facilitator_notes",
+            "estimated_minutes",
+            "supervisor_notes",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "assigned_by",
+            "assigned_at",
+            "completed_at",
+            "reevaluated_at",
+        ]

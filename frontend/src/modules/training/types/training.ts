@@ -199,3 +199,54 @@ export type EvaluationAnswer = {
   text_answer?: string;
   yes_no_answer?: boolean | null;
 };
+
+
+
+export type TrainingResource = {
+  id: number;
+  organisation?: number;
+  title: string;
+  standard?: number | null;
+  standard_title?: string;
+  resource_type: "visual_poster" | "microlearning" | "checklist" | "facilitator_guide";
+  incorrect_image?: string | null;
+  correct_image?: string | null;
+  short_explanation?: string;
+  facilitator_notes?: string;
+  estimated_minutes: number;
+  active: boolean;
+  created_at?: string;
+};
+
+export type StandardRecoveryPlan = {
+  id: number;
+  organisation?: number;
+  standard: number;
+  standard_title?: string;
+  resource?: number | null;
+  resource_title?: string;
+  trigger_fail_count: number;
+  reevaluation_after_days: number;
+  instructions?: string;
+  active: boolean;
+};
+
+export type EmployeeAssignedTraining = {
+  id: number;
+  organisation?: number;
+  employee: number;
+  employee_name?: string;
+  standard: number;
+  standard_title?: string;
+  resource?: number | null;
+  resource_title?: string;
+  assigned_by?: number | null;
+  assigned_by_name?: string;
+  reason?: string;
+  status: "assigned" | "in_progress" | "completed" | "reevaluation_pending" | "closed";
+  assigned_at: string;
+  completed_at?: string | null;
+  reevaluation_due_date?: string | null;
+  reevaluated_at?: string | null;
+  supervisor_notes?: string;
+};

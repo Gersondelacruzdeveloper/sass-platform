@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    EmployeeAssignedTrainingViewSet,
     GuestFeedbackViewSet,
     OutletViewSet,
     EmployeeViewSet,
@@ -9,6 +10,8 @@ from .views import (
     TrainingSessionViewSet,
     EvaluationViewSet,
     RoadmapItemViewSet,
+    TrainingResourceViewSet,
+    StandardRecoveryPlanViewSet,
     training_dashboard,
     analytics_dashboard,
     EvaluationTemplateViewSet,
@@ -30,6 +33,23 @@ router.register("evaluation-templates", EvaluationTemplateViewSet, basename="eva
 router.register("evaluation-questions", EvaluationQuestionViewSet, basename="evaluation-question")
 router.register("employee-evaluations", EmployeeEvaluationViewSet, basename="employee-evaluation")
 router.register("evaluation-answers", EvaluationAnswerViewSet, basename="evaluation-answer")
+router.register(
+    "training-resources",
+    TrainingResourceViewSet,
+    basename="training-resource",
+)
+
+router.register(
+    "standard-recovery-plans",
+    StandardRecoveryPlanViewSet,
+    basename="standard-recovery-plan",
+)
+
+router.register(
+    "assigned-trainings",
+    EmployeeAssignedTrainingViewSet,
+    basename="assigned-training",
+)
 urlpatterns = [
     path("", include(router.urls)),
     path("dashboard/", training_dashboard),

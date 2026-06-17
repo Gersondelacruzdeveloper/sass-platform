@@ -24,6 +24,11 @@ import FacilitatorTrainingsPage from "../pages/facilitator/FacilitatorTrainingsP
 import EditFacilitatorPage from "../pages/EditFacilitatorPage";
 import CreateFacilitatorAccountPage from "../pages/CreateFacilitatorAccountPage";
 import EditEvaluationTemplatePage from "../pages/EditEvaluationTemplatePage";
+import TrainingResourcesPage from "../pages/TrainingResourcesPage";
+import RecoveryPlansPage from "../pages/RecoveryPlansPage";
+import AssignedTrainingsPage from "../pages/AssignedTrainingsPage";
+import FacilitatorTrainingQueuePage from "../pages/FacilitatorTrainingQueuePage";
+
 export const trainingRoutes = (
   <>
     <Route
@@ -61,6 +66,14 @@ export const trainingRoutes = (
         <Route path="facilitator/employees" element={<FacilitatorEmployeesPage />} />
         <Route path="facilitator/evaluations" element={<FacilitatorEvaluationsPage />} />
         <Route path="facilitator/trainings" element={<FacilitatorTrainingsPage />} />
+        <Route path="resources" element={<TrainingResourcesPage />} />
+        <Route path="recovery-plans" element={<RecoveryPlansPage />} />
+        <Route path="assigned-trainings" element={<AssignedTrainingsPage />} />
+        <Route
+          path="facilitator-queue"
+          element={<FacilitatorTrainingQueuePage />}
+        />
+
       </Route>
     </Route>
   </>

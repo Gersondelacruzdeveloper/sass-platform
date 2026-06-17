@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from django.db.models import Avg, Count
 from rest_framework import viewsets
@@ -32,6 +34,9 @@ from .models import (
     EvaluationQuestion,
     EmployeeEvaluation,
     EvaluationAnswer,
+    TrainingResource,
+    StandardRecoveryPlan,
+    EmployeeAssignedTraining,
 )
 from .serializers import (
     GuestFeedbackSerializer,
@@ -46,6 +51,9 @@ from .serializers import (
     EvaluationQuestionSerializer,
     EmployeeEvaluationSerializer,
     EvaluationAnswerSerializer,
+    TrainingResourceSerializer,
+    StandardRecoveryPlanSerializer,
+    EmployeeAssignedTrainingSerializer,
 )
 
 
@@ -333,10 +341,12 @@ class EvaluationQuestionViewSet(TenantModelViewSet):
             .select_related("template", "standard")
             .order_by("template", "order")
         )
-
+    
 
 class EmployeeEvaluationViewSet(TenantModelViewSet):
     serializer_class = EmployeeEvaluationSerializer
+
+    FAIL_SCORE_THRESHOLD = 3
 
     def get_queryset(self):
         queryset = (
@@ -359,21 +369,188 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(
-            organisation=self.get_organisation(),
+        organisation = self.get_organisation()
+
+        evaluation = serializer.save(
+            organisation=organisation,
             evaluator=self.request.user,
         )
 
+        self.create_recovery_trainings(evaluation, organisation)
+
+    def create_recovery_trainings(self, evaluation, organisation):
+        answers = (
+            EvaluationAnswer.objects
+            .filter(
+                organisation=organisation,
+                evaluation=evaluation,
+            )
+            .select_related(
+                "question",
+                "question__standard",
+            )
+        )
+
+        created_count = 0
+
+        for answer in answers:
+            question = answer.question
+            standard = question.standard
+
+            if not standard:
+                continue
+
+            failed = False
+
+            if question.score_type == "score":
+                failed = answer.score < self.FAIL_SCORE_THRESHOLD
+
+            elif question.score_type == "yes_no":
+                failed = answer.yes_no_answer is False
+
+            if not failed:
+                continue
+
+            recovery_plan = (
+                StandardRecoveryPlan.objects
+                .filter(
+                    organisation=organisation,
+                    standard=standard,
+                    active=True,
+                )
+                .select_related("resource")
+                .first()
+            )
+
+            if not recovery_plan:
+                continue
+
+            existing_training = EmployeeAssignedTraining.objects.filter(
+                organisation=organisation,
+                employee=evaluation.employee,
+                standard=standard,
+                status__in=[
+                    "assigned",
+                    "in_progress",
+                    "reevaluation_pending",
+                ],
+            ).first()
+
+            if existing_training:
+                continue
+
+            EmployeeAssignedTraining.objects.create(
+                organisation=organisation,
+                employee=evaluation.employee,
+                standard=standard,
+                resource=recovery_plan.resource,
+                assigned_by=self.request.user,
+                reason=(
+                    f"El colaborador no cumplió el estándar "
+                    f"'{standard.title}' en la evaluación "
+                    f"'{evaluation.template.name}'."
+                ),
+                status="assigned",
+                reevaluation_due_date=(
+                    timezone.now().date()
+                    + timedelta(days=recovery_plan.reevaluation_after_days)
+                ),
+            )
+
+            created_count += 1
+
+        return created_count
+
+
 class EvaluationAnswerViewSet(TenantModelViewSet):
     serializer_class = EvaluationAnswerSerializer
+    FAIL_SCORE_THRESHOLD = 3
 
     def get_queryset(self):
         return (
             EvaluationAnswer.objects
             .filter(organisation=self.get_organisation())
-            .select_related("evaluation", "question")
+            .select_related(
+                "evaluation",
+                "evaluation__employee",
+                "evaluation__template",
+                "question",
+                "question__standard",
+            )
         )
 
+    def perform_create(self, serializer):
+        organisation = self.get_organisation()
+
+        answer = serializer.save(
+            organisation=organisation,
+        )
+
+        self.create_recovery_training_from_answer(answer, organisation)
+
+    def create_recovery_training_from_answer(self, answer, organisation):
+        question = answer.question
+        standard = question.standard
+
+        if not standard:
+            return None
+
+        failed = False
+
+        if question.score_type == "score":
+            failed = answer.score < self.FAIL_SCORE_THRESHOLD
+
+        elif question.score_type == "yes_no":
+            failed = answer.yes_no_answer is False
+
+        if not failed:
+            return None
+
+        recovery_plan = (
+            StandardRecoveryPlan.objects
+            .filter(
+                organisation=organisation,
+                standard=standard,
+                active=True,
+            )
+            .select_related("resource")
+            .first()
+        )
+
+        if not recovery_plan:
+            return None
+
+        existing_training = EmployeeAssignedTraining.objects.filter(
+            organisation=organisation,
+            employee=answer.evaluation.employee,
+            standard=standard,
+            status__in=[
+                "assigned",
+                "in_progress",
+                "reevaluation_pending",
+            ],
+        ).first()
+
+        if existing_training:
+            return existing_training
+
+        return EmployeeAssignedTraining.objects.create(
+            organisation=organisation,
+            employee=answer.evaluation.employee,
+            standard=standard,
+            resource=recovery_plan.resource,
+            assigned_by=self.request.user,
+            reason=(
+                f"El colaborador no cumplió el estándar "
+                f"'{standard.title}' en la evaluación "
+                f"'{answer.evaluation.template.name}'."
+            ),
+            status="assigned",
+            reevaluation_due_date=(
+                timezone.now().date()
+                + timedelta(days=recovery_plan.reevaluation_after_days)
+            ),
+        )
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -580,3 +757,127 @@ def analytics_dashboard(request):
     }
 
     return Response(analytics)
+
+
+# ------------------------------------------------TrainingResourceViewSet
+class TrainingResourceViewSet(TenantModelViewSet):
+    serializer_class = TrainingResourceSerializer
+
+    def get_queryset(self):
+        queryset = (
+            TrainingResource.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("standard")
+            .order_by("-created_at")
+        )
+
+        standard_id = self.request.query_params.get("standard")
+        resource_type = self.request.query_params.get("resource_type")
+        active = self.request.query_params.get("active")
+
+        if standard_id:
+            queryset = queryset.filter(standard_id=standard_id)
+
+        if resource_type:
+            queryset = queryset.filter(resource_type=resource_type)
+
+        if active is not None:
+            queryset = queryset.filter(active=active.lower() == "true")
+
+        return queryset
+
+
+class StandardRecoveryPlanViewSet(TenantModelViewSet):
+    serializer_class = StandardRecoveryPlanSerializer
+
+    def get_queryset(self):
+        queryset = (
+            StandardRecoveryPlan.objects
+            .filter(organisation=self.get_organisation())
+            .select_related("standard", "resource")
+            .order_by("standard__title")
+        )
+
+        standard_id = self.request.query_params.get("standard")
+        active = self.request.query_params.get("active")
+
+        if standard_id:
+            queryset = queryset.filter(standard_id=standard_id)
+
+        if active is not None:
+            queryset = queryset.filter(active=active.lower() == "true")
+
+        return queryset
+
+
+class EmployeeAssignedTrainingViewSet(TenantModelViewSet):
+    serializer_class = EmployeeAssignedTrainingSerializer
+
+    def get_queryset(self):
+        queryset = (
+            EmployeeAssignedTraining.objects
+            .filter(organisation=self.get_organisation())
+            .select_related(
+                "employee",
+                "standard",
+                "resource",
+                "assigned_by",
+            )
+            .order_by("-assigned_at")
+        )
+
+        employee_id = self.request.query_params.get("employee")
+        standard_id = self.request.query_params.get("standard")
+        status_filter = self.request.query_params.get("status")
+
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+
+        if standard_id:
+            queryset = queryset.filter(standard_id=standard_id)
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.get_organisation(),
+            assigned_by=self.request.user,
+        )
+
+    @action(detail=True, methods=["post"])
+    def mark_completed(self, request, pk=None):
+        assigned_training = self.get_object()
+
+        assigned_training.status = "reevaluation_pending"
+        assigned_training.completed_at = timezone.now()
+
+        if not assigned_training.reevaluation_due_date:
+            assigned_training.reevaluation_due_date = timezone.now().date() + timedelta(days=3)
+
+        assigned_training.save()
+
+        return Response(
+            self.get_serializer(assigned_training).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        assigned_training = self.get_object()
+
+        assigned_training.status = "closed"
+        assigned_training.reevaluated_at = timezone.now()
+
+        supervisor_notes = request.data.get("supervisor_notes")
+        if supervisor_notes:
+            assigned_training.supervisor_notes = supervisor_notes
+
+        assigned_training.save()
+
+        return Response(
+            self.get_serializer(assigned_training).data,
+            status=status.HTTP_200_OK,
+        )
