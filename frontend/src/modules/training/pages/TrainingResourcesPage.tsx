@@ -52,7 +52,10 @@ export default function TrainingResourcesPage() {
       ]);
 
       setResources(resourcesResponse.data);
-      setStandards(Array.isArray(standardsData) ? standardsData : standardsData.results || []);
+      const loadedStandards = Array.isArray(standardsData)
+        ? standardsData
+        : (standardsData as { results?: Standard[] }).results ?? [];
+      setStandards(loadedStandards);
     } catch (error) {
       console.error("Error loading training resources:", error);
     } finally {

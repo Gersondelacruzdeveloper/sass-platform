@@ -54,9 +54,12 @@ export default function RecoveryPlansPage() {
 
       setPlans(plansResponse.data);
       setResources(resourcesResponse.data);
-      setStandards(
-        Array.isArray(standardsData) ? standardsData : standardsData.results || [],
-      );
+
+      const standardList = Array.isArray(standardsData)
+        ? standardsData
+        : (standardsData as { results?: Standard[] }).results || [];
+
+      setStandards(standardList);
     } catch (error) {
       console.error("Error loading recovery plans:", error);
     } finally {

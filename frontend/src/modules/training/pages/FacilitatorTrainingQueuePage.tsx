@@ -12,12 +12,20 @@ import {
 import { assignedTrainingsApi } from "../api/trainingRecoveryApi";
 import type { EmployeeAssignedTraining } from "../types/training";
 
+type EmployeeAssignedTrainingWithResource = EmployeeAssignedTraining & {
+  incorrect_image?: string | null;
+  correct_image?: string | null;
+  short_explanation?: string;
+  facilitator_notes?: string;
+  estimated_minutes?: number;
+};
+
 export default function FacilitatorTrainingQueuePage() {
   const [items, setItems] = useState<EmployeeAssignedTraining[]>([]);
   const [search, setSearch] = useState("");
   const [selectedView, setSelectedView] = useState("open");
   const [selectedResource, setSelectedResource] =
-    useState<EmployeeAssignedTraining | null>(null);
+    useState<EmployeeAssignedTrainingWithResource | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -381,7 +389,7 @@ function ResourceModal({
   item,
   onClose,
 }: {
-  item: EmployeeAssignedTraining;
+  item: EmployeeAssignedTrainingWithResource;
   onClose: () => void;
 }) {
   const hasTwoImages = Boolean(item.incorrect_image && item.correct_image);
