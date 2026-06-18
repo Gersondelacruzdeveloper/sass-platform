@@ -2,28 +2,61 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   BadgeCheck,
+  CheckCircle2,
   Eye,
+  RefreshCcw,
   Search,
-  Sparkles,
+  ShieldAlert,
   TrendingUp,
   Users,
 } from "lucide-react";
 
 import api from "../../../../api/axios";
-import type { Employee } from "../../types/training";
+import { assignedTrainingsApi } from "../../api/trainingRecoveryApi";
+import { getEmployeeEvaluations } from "../../api/trainingApi";
+
+import type {
+  Employee,
+  EmployeeAssignedTraining,
+  EmployeeEvaluation,
+} from "../../types/training";
+
+type EmployeeProgress = {
+  evaluationsCount: number;
+  latestScore: number;
+  averageScore: number;
+  totalTrainings: number;
+  openTrainings: number;
+  completedTrainings: number;
+  reevaluationPending: number;
+};
 
 export default function FacilitatorEmployeesPage() {
   const { organisationSlug } = useParams();
 
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [assignedTrainings, setAssignedTrainings] = useState<
+    EmployeeAssignedTraining[]
+  >([]);
+  const [evaluations, setEvaluations] = useState<EmployeeEvaluation[]>([]);
+
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
   async function loadEmployees() {
     try {
       setLoading(true);
-      const response = await api.get("/training/employees/");
-      setEmployees(response.data);
+
+      const [employeesRes, assignedTrainingsRes, evaluationsData] =
+        await Promise.all([
+          api.get<Employee[]>("/training/employees/"),
+          assignedTrainingsApi.list(),
+          getEmployeeEvaluations(),
+        ]);
+
+      setEmployees(employeesRes.data);
+      setAssignedTrainings(assignedTrainingsRes.data);
+      setEvaluations(evaluationsData);
     } catch (error) {
       console.error("Error loading assigned employees:", error);
     } finally {
@@ -35,35 +68,131 @@ export default function FacilitatorEmployeesPage() {
     loadEmployees();
   }, []);
 
+  const progressByEmployee = useMemo(() => {
+    const map = new Map<number, EmployeeProgress>();
+
+    employees.forEach((employee) => {
+      map.set(employee.id, {
+        evaluationsCount: 0,
+        latestScore: 0,
+        averageScore: 0,
+        totalTrainings: 0,
+        openTrainings: 0,
+        completedTrainings: 0,
+        reevaluationPending: 0,
+      });
+    });
+
+    evaluations.forEach((evaluation) => {
+      const current =
+        map.get(evaluation.employee) ||
+        {
+          evaluationsCount: 0,
+          latestScore: 0,
+          averageScore: 0,
+          totalTrainings: 0,
+          openTrainings: 0,
+          completedTrainings: 0,
+          reevaluationPending: 0,
+        };
+
+      const employeeEvaluations = evaluations.filter(
+        (item) => item.employee === evaluation.employee,
+      );
+
+      const scores = employeeEvaluations.map((item) =>
+        Number(item.final_score || 0),
+      );
+
+      const average =
+        scores.length > 0
+          ? Math.round(
+              scores.reduce((sum, score) => sum + score, 0) / scores.length,
+            )
+          : 0;
+
+      const latest = employeeEvaluations
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() -
+            new Date(a.created_at).getTime(),
+        )[0];
+
+      current.evaluationsCount = employeeEvaluations.length;
+      current.averageScore = average;
+      current.latestScore = Number(latest?.final_score || 0);
+
+      map.set(evaluation.employee, current);
+    });
+
+    assignedTrainings.forEach((training) => {
+      const current =
+        map.get(training.employee) ||
+        {
+          evaluationsCount: 0,
+          latestScore: 0,
+          averageScore: 0,
+          totalTrainings: 0,
+          openTrainings: 0,
+          completedTrainings: 0,
+          reevaluationPending: 0,
+        };
+
+      current.totalTrainings += 1;
+
+      if (training.status !== "closed") current.openTrainings += 1;
+      if (training.status === "closed") current.completedTrainings += 1;
+      if (training.status === "reevaluation_pending") {
+        current.reevaluationPending += 1;
+      }
+
+      map.set(training.employee, current);
+    });
+
+    return map;
+  }, [employees, evaluations, assignedTrainings]);
+
   const filteredEmployees = useMemo(() => {
     return employees.filter((employee) => {
+      const progress = progressByEmployee.get(employee.id);
+
       const value = `
         ${employee.name}
         ${employee.position}
         ${employee.outlet_name || ""}
-        ${employee.potential_level || ""}
+        ${employee.department || ""}
+        ${progress?.openTrainings || 0}
+        ${progress?.reevaluationPending || 0}
       `.toLowerCase();
 
       return value.includes(search.toLowerCase());
     });
-  }, [employees, search]);
-
-  const averageScore = useMemo(() => {
-    if (!employees.length) return 0;
-
-    const total = employees.reduce(
-      (sum, employee) => sum + Number(employee.total_score || 0),
-      0,
-    );
-
-    return Math.round(total / employees.length);
-  }, [employees]);
-
-  const promotionReadyCount = employees.filter(
-    (employee) => employee.promotion_ready,
-  ).length;
+  }, [employees, search, progressByEmployee]);
 
   const activeCount = employees.filter((employee) => employee.active).length;
+
+  const employeesWithOpenTraining = employees.filter(
+    (employee) =>
+      Number(progressByEmployee.get(employee.id)?.openTrainings || 0) > 0,
+  ).length;
+
+  const reevaluationPendingCount = assignedTrainings.filter(
+    (training) => training.status === "reevaluation_pending",
+  ).length;
+
+  const averageScore = useMemo(() => {
+    const scores = employees
+      .map((employee) => {
+        const progress = progressByEmployee.get(employee.id);
+        return Number(progress?.averageScore || employee.total_score || 0);
+      })
+      .filter((score) => score > 0);
+
+    if (!scores.length) return 0;
+
+    return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+  }, [employees, progressByEmployee]);
 
   if (loading) {
     return (
@@ -88,48 +217,50 @@ export default function FacilitatorEmployeesPage() {
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/80">
                 <Users size={16} />
-                Facilitator Workspace
+                Espacio del Facilitador
               </div>
 
               <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                My Assigned Employees
+                Colaboradores Asignados
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Review your assigned team, follow their progress, and open each
-                profile to evaluate or coach them.
+                Revisa tus colaboradores, su progreso, evaluaciones, refuerzos
+                pendientes y reevaluaciones en operación.
               </p>
             </div>
 
             <div className="rounded-3xl bg-white/10 p-5 lg:min-w-72">
               <p className="text-sm font-semibold text-white/60">
-                Assigned Employees
+                Colaboradores Asignados
               </p>
               <p className="mt-2 text-5xl font-black">{employees.length}</p>
               <p className="mt-1 text-sm text-white/60">
-                under your follow-up
+                bajo seguimiento
               </p>
             </div>
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <SummaryCard
-            title="Active"
-            value={activeCount}
-            icon={<BadgeCheck />}
-          />
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard title="Activos" value={activeCount} icon={<BadgeCheck />} />
 
           <SummaryCard
-            title="Average Score"
+            title="Score Promedio"
             value={`${averageScore}%`}
             icon={<TrendingUp />}
           />
 
           <SummaryCard
-            title="Promotion Ready"
-            value={promotionReadyCount}
-            icon={<Sparkles />}
+            title="Con Refuerzo"
+            value={employeesWithOpenTraining}
+            icon={<ShieldAlert />}
+          />
+
+          <SummaryCard
+            title="Re-evaluar"
+            value={reevaluationPendingCount}
+            icon={<RefreshCcw />}
           />
         </section>
 
@@ -137,10 +268,10 @@ export default function FacilitatorEmployeesPage() {
           <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
               <h2 className="text-2xl font-black text-slate-950">
-                Employee List
+                Lista de Colaboradores
               </h2>
               <p className="text-sm text-slate-500">
-                Search by name, position, outlet, or potential level.
+                Busca por nombre, posición, outlet o estado de seguimiento.
               </p>
             </div>
 
@@ -152,7 +283,7 @@ export default function FacilitatorEmployeesPage() {
 
               <input
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                placeholder="Search employee..."
+                placeholder="Buscar colaborador..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -160,14 +291,16 @@ export default function FacilitatorEmployeesPage() {
           </div>
 
           <div className="mb-4 text-sm font-semibold text-slate-500">
-            Showing {filteredEmployees.length} of {employees.length} employees
+            Mostrando {filteredEmployees.length} de {employees.length} colaboradores
           </div>
 
           {filteredEmployees.length === 0 ? (
             <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="font-black text-slate-950">No employees found.</p>
+              <p className="font-black text-slate-950">
+                No se encontraron colaboradores.
+              </p>
               <p className="mt-1 text-sm text-slate-500">
-                Try another search term.
+                Intenta con otra búsqueda.
               </p>
             </div>
           ) : (
@@ -176,6 +309,7 @@ export default function FacilitatorEmployeesPage() {
                 <EmployeeCard
                   key={employee.id}
                   employee={employee}
+                  progress={progressByEmployee.get(employee.id)}
                   profileUrl={`/training/${organisationSlug}/employees/${employee.id}`}
                 />
               ))}
@@ -189,12 +323,36 @@ export default function FacilitatorEmployeesPage() {
 
 function EmployeeCard({
   employee,
+  progress,
   profileUrl,
 }: {
   employee: Employee;
+  progress?: EmployeeProgress;
   profileUrl: string;
 }) {
-  const totalScore = Number(employee.total_score || 0);
+  const score = Number(
+    progress?.averageScore || progress?.latestScore || employee.total_score || 0,
+  );
+
+  const scoreColor =
+    score >= 85 ? "bg-emerald-500" : score >= 70 ? "bg-amber-500" : "bg-red-500";
+
+  const openTrainings = Number(progress?.openTrainings || 0);
+  const completedTrainings = Number(progress?.completedTrainings || 0);
+  const totalTrainings = Number(progress?.totalTrainings || 0);
+  const reevaluationPending = Number(progress?.reevaluationPending || 0);
+
+  const completion =
+    totalTrainings > 0
+      ? Math.round((completedTrainings / totalTrainings) * 100)
+      : 0;
+
+  const status =
+    reevaluationPending > 0
+      ? "Re-evaluación pendiente"
+      : openTrainings > 0
+        ? "En seguimiento"
+        : "Sin refuerzo abierto";
 
   return (
     <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
@@ -221,7 +379,7 @@ function EmployeeCard({
           </p>
 
           <p className="mt-1 truncate text-xs font-semibold text-slate-400">
-            {employee.outlet_name || "No outlet"}
+            {employee.outlet_name || "Sin outlet"}
           </p>
         </div>
 
@@ -232,37 +390,77 @@ function EmployeeCard({
               : "bg-red-100 text-red-700"
           }`}
         >
-          {employee.active ? "ACTIVE" : "INACTIVE"}
+          {employee.active ? "ACTIVO" : "INACTIVO"}
         </span>
       </div>
 
       <div className="mt-5 rounded-3xl bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Total Score
+            Progreso general
           </p>
 
-          <p className="text-lg font-black text-slate-950">
-            {totalScore}%
+          <p className="text-lg font-black text-slate-950">{score}%</p>
+        </div>
+
+        <div className="h-2 rounded-full bg-slate-100">
+          <div
+            className={`h-2 rounded-full ${scoreColor}`}
+            style={{ width: `${Math.min(score, 100)}%` }}
+          />
+        </div>
+
+        <p className="mt-2 text-xs font-semibold text-slate-400">
+          {progress?.evaluationsCount || 0} evaluaciones registradas
+        </p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <MiniMetric label="Abiertos" value={openTrainings} icon={<ShieldAlert size={14} />} />
+        <MiniMetric label="Cerrados" value={completedTrainings} icon={<CheckCircle2 size={14} />} />
+        <MiniMetric label="Re-evaluar" value={reevaluationPending} icon={<RefreshCcw size={14} />} />
+      </div>
+
+      <div className="mt-4 rounded-3xl bg-white p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+            Microtraining
           </p>
+          <p className="text-sm font-black text-slate-950">{completion}%</p>
         </div>
 
         <div className="h-2 rounded-full bg-slate-100">
           <div
             className="h-2 rounded-full bg-slate-950"
-            style={{ width: `${Math.min(totalScore, 100)}%` }}
+            style={{ width: `${Math.min(completion, 100)}%` }}
           />
         </div>
+
+        <p className="mt-2 text-xs font-semibold text-slate-500">
+          {completedTrainings} de {totalTrainings} refuerzos completados
+        </p>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black capitalize text-slate-600">
-          {employee.potential_level?.replace("_", " ") || "No potential"}
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black ${
+            reevaluationPending > 0
+              ? "bg-amber-100 text-amber-700"
+              : openTrainings > 0
+                ? "bg-orange-100 text-orange-700"
+                : "bg-emerald-100 text-emerald-700"
+          }`}
+        >
+          {status}
         </span>
 
-        {employee.promotion_ready && (
-          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">
-            Promotion Ready
+        {progress?.latestScore ? (
+          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
+            Última evaluación: {progress.latestScore}%
+          </span>
+        ) : (
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            Sin evaluación
           </span>
         )}
       </div>
@@ -272,8 +470,28 @@ function EmployeeCard({
         className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
       >
         <Eye size={16} />
-        View Profile
+        Ver Perfil
       </Link>
+    </div>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-black text-slate-400">{label}</p>
+        <span className="text-slate-400">{icon}</span>
+      </div>
+      <p className="mt-1 text-xl font-black text-slate-950">{value}</p>
     </div>
   );
 }
