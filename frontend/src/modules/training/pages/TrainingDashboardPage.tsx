@@ -2,13 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   BarChart3,
-  CheckCircle2,
   ClipboardCheck,
   GraduationCap,
   MapPin,
   RefreshCcw,
   Target,
-  TrendingUp,
   Users,
   Video,
 } from "lucide-react";

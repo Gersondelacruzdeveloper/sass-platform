@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   BadgeCheck,
-  Building2,
   CheckCircle2,
   ClipboardCheck,
   GraduationCap,
@@ -98,10 +97,7 @@ export default function EmployeeDetailPage() {
     loadData();
   }, [employeeId]);
 
-  const latestEvaluationScore = useMemo(() => {
-    if (!evaluations.length) return 0;
-    return getEvaluationScore(evaluations[0]);
-  }, [evaluations]);
+
 
   const averageEvaluationScore = useMemo(() => {
     if (!evaluations.length) return 0;

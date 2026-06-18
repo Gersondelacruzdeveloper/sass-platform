@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck,
   CheckCircle2,
+  Edit3,
   ImagePlus,
   MonitorPlay,
   Search,
   Timer,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import { getStandards } from "../api/trainingApi";
@@ -38,6 +41,8 @@ export default function TrainingResourcesPage() {
   const [form, setForm] = useState(initialForm);
   const [incorrectImage, setIncorrectImage] = useState<File | null>(null);
   const [correctImage, setCorrectImage] = useState<File | null>(null);
+  const [editingResource, setEditingResource] =
+    useState<TrainingResource | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,9 +57,11 @@ export default function TrainingResourcesPage() {
       ]);
 
       setResources(resourcesResponse.data);
+
       const loadedStandards = Array.isArray(standardsData)
         ? standardsData
         : (standardsData as { results?: Standard[] }).results ?? [];
+
       setStandards(loadedStandards);
     } catch (error) {
       console.error("Error loading training resources:", error);
@@ -67,11 +74,29 @@ export default function TrainingResourcesPage() {
     loadData();
   }, []);
 
+  function resetForm() {
+    setForm(initialForm);
+    setIncorrectImage(null);
+    setCorrectImage(null);
+    setEditingResource(null);
+
+    const incorrectInput = document.getElementById(
+      "incorrect_image",
+    ) as HTMLInputElement | null;
+
+    const correctInput = document.getElementById(
+      "correct_image",
+    ) as HTMLInputElement | null;
+
+    if (incorrectInput) incorrectInput.value = "";
+    if (correctInput) correctInput.value = "";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     if (!form.title.trim()) {
-      alert("Title is required.");
+      alert("El título es requerido.");
       return;
     }
 
@@ -99,24 +124,70 @@ export default function TrainingResourcesPage() {
         formData.append("correct_image", correctImage);
       }
 
-      await trainingResourcesApi.create(formData);
+      if (editingResource) {
+        await trainingResourcesApi.update(editingResource.id, formData);
+      } else {
+        await trainingResourcesApi.create(formData);
+      }
 
-      setForm(initialForm);
-      setIncorrectImage(null);
-      setCorrectImage(null);
+      resetForm();
+      await loadData();
+    } catch (error) {
+      console.error("Error saving resource:", error);
+      alert("No se pudo guardar el recurso visual.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
-      const incorrectInput = document.getElementById("incorrect_image") as HTMLInputElement | null;
-      const correctInput = document.getElementById("correct_image") as HTMLInputElement | null;
+  function handleEdit(resource: TrainingResource) {
+    setEditingResource(resource);
 
-      if (incorrectInput) incorrectInput.value = "";
-      if (correctInput) correctInput.value = "";
+    setForm({
+      title: resource.title || "",
+      standard: resource.standard ? String(resource.standard) : "",
+      resource_type: resource.resource_type || "visual_poster",
+      short_explanation: resource.short_explanation || "",
+      facilitator_notes: resource.facilitator_notes || "",
+      estimated_minutes: resource.estimated_minutes || 5,
+      active: resource.active ?? true,
+    });
+
+    setIncorrectImage(null);
+    setCorrectImage(null);
+
+    const incorrectInput = document.getElementById(
+      "incorrect_image",
+    ) as HTMLInputElement | null;
+
+    const correctInput = document.getElementById(
+      "correct_image",
+    ) as HTMLInputElement | null;
+
+    if (incorrectInput) incorrectInput.value = "";
+    if (correctInput) correctInput.value = "";
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleDelete(resource: TrainingResource) {
+    const confirmed = window.confirm(
+      `¿Eliminar el recurso "${resource.title}"?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await trainingResourcesApi.delete(resource.id);
+
+      if (editingResource?.id === resource.id) {
+        resetForm();
+      }
 
       await loadData();
     } catch (error) {
-      console.error("Error creating resource:", error);
-      alert("Could not create training resource.");
-    } finally {
-      setSaving(false);
+      console.error("Error deleting resource:", error);
+      alert("No se pudo eliminar el recurso.");
     }
   }
 
@@ -131,15 +202,20 @@ export default function TrainingResourcesPage() {
       `.toLowerCase();
 
       const matchesSearch = value.includes(search.toLowerCase());
-      const matchesType = selectedType === "all" || item.resource_type === selectedType;
+      const matchesType =
+        selectedType === "all" || item.resource_type === selectedType;
 
       return matchesSearch && matchesType;
     });
   }, [resources, search, selectedType]);
 
   const activeCount = resources.filter((item) => item.active).length;
-  const posterCount = resources.filter((item) => item.resource_type === "visual_poster").length;
-  const microlearningCount = resources.filter((item) => item.resource_type === "microlearning").length;
+  const posterCount = resources.filter(
+    (item) => item.resource_type === "visual_poster",
+  ).length;
+  const microlearningCount = resources.filter(
+    (item) => item.resource_type === "microlearning",
+  ).length;
 
   if (loading) {
     return (
@@ -172,35 +248,87 @@ export default function TrainingResourcesPage() {
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm text-white/65 md:text-base">
-                Crea pósters, microtrainings y guías para que los facilitadores puedan explicar claramente qué es correcto y qué no cumple el estándar.
+                Crea, edita y administra pósters, microtrainings y guías para
+                que los facilitadores expliquen claramente qué es correcto y qué
+                no cumple el estándar.
               </p>
             </div>
 
             <div className="rounded-3xl bg-white/10 p-5">
-              <p className="text-sm font-semibold text-white/60">Recursos Activos</p>
+              <p className="text-sm font-semibold text-white/60">
+                Recursos Activos
+              </p>
               <p className="mt-2 text-4xl font-black">{activeCount}</p>
-              <p className="mt-1 text-sm text-white/60">listos para entrenamiento</p>
+              <p className="mt-1 text-sm text-white/60">
+                listos para entrenamiento
+              </p>
             </div>
           </div>
         </section>
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Recursos" value={resources.length} icon={<BookOpenCheck />} />
-          <SummaryCard title="Activos" value={activeCount} icon={<CheckCircle2 />} />
-          <SummaryCard title="Pósters" value={posterCount} icon={<ImagePlus />} />
-          <SummaryCard title="Microlearning" value={microlearningCount} icon={<Timer />} />
+          <SummaryCard
+            title="Recursos"
+            value={resources.length}
+            icon={<BookOpenCheck />}
+          />
+          <SummaryCard
+            title="Activos"
+            value={activeCount}
+            icon={<CheckCircle2 />}
+          />
+          <SummaryCard
+            title="Pósters"
+            value={posterCount}
+            icon={<ImagePlus />}
+          />
+          <SummaryCard
+            title="Microlearning"
+            value={microlearningCount}
+            icon={<Timer />}
+          />
         </section>
 
         <form
           onSubmit={handleSubmit}
           className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
         >
-          <div className="mb-5">
-            <h2 className="text-2xl font-black text-slate-950">Crear Recurso Visual</h2>
-            <p className="text-sm text-slate-500">
-              Sube imágenes de INCORRECTO y CORRECTO, y agrega la explicación que usará el facilitador.
-            </p>
+          <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-start">
+            <div>
+              <h2 className="text-2xl font-black text-slate-950">
+                {editingResource
+                  ? "Actualizar Recurso Visual"
+                  : "Crear Recurso Visual"}
+              </h2>
+              <p className="text-sm text-slate-500">
+                Sube imágenes de INCORRECTO y CORRECTO, y agrega la explicación
+                que usará el facilitador.
+              </p>
+            </div>
+
+            {editingResource && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-200"
+              >
+                <X size={16} />
+                Cancelar edición
+              </button>
+            )}
           </div>
+
+          {editingResource && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-bold text-amber-800">
+                Estás editando: {editingResource.title}
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Si no seleccionas nuevas imágenes, se conservarán las imágenes
+                actuales.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Input
@@ -239,24 +367,32 @@ export default function TrainingResourcesPage() {
 
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-700">Imagen INCORRECTO</span>
+              <span className="text-sm font-bold text-slate-700">
+                Imagen INCORRECTO
+              </span>
               <input
                 id="incorrect_image"
                 type="file"
                 accept="image/*"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                onChange={(e) => setIncorrectImage(e.target.files ? e.target.files[0] : null)}
+                onChange={(e) =>
+                  setIncorrectImage(e.target.files ? e.target.files[0] : null)
+                }
               />
             </label>
 
             <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-700">Imagen CORRECTO</span>
+              <span className="text-sm font-bold text-slate-700">
+                Imagen CORRECTO
+              </span>
               <input
                 id="correct_image"
                 type="file"
                 accept="image/*"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
-                onChange={(e) => setCorrectImage(e.target.files ? e.target.files[0] : null)}
+                onChange={(e) =>
+                  setCorrectImage(e.target.files ? e.target.files[0] : null)
+                }
               />
             </label>
 
@@ -278,7 +414,9 @@ export default function TrainingResourcesPage() {
             placeholder="Explicación corta: qué está mal, qué está correcto y por qué impacta al huésped."
             rows={3}
             value={form.short_explanation}
-            onChange={(e) => setForm({ ...form, short_explanation: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, short_explanation: e.target.value })
+            }
           />
 
           <textarea
@@ -286,7 +424,9 @@ export default function TrainingResourcesPage() {
             placeholder="Nota para el facilitador: cómo debe explicar este recurso en 3-5 minutos."
             rows={4}
             value={form.facilitator_notes}
-            onChange={(e) => setForm({ ...form, facilitator_notes: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, facilitator_notes: e.target.value })
+            }
           />
 
           <label className="mt-4 flex w-fit cursor-pointer items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
@@ -303,14 +443,20 @@ export default function TrainingResourcesPage() {
             disabled={saving}
             className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 font-black text-white transition hover:bg-slate-800 disabled:opacity-50 md:w-auto"
           >
-            {saving ? "Guardando..." : "Guardar Recurso"}
+            {saving
+              ? "Guardando..."
+              : editingResource
+                ? "Actualizar Recurso"
+                : "Guardar Recurso"}
           </button>
         </form>
 
         <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="text-2xl font-black text-slate-950">Biblioteca de Recursos</h2>
+              <h2 className="text-2xl font-black text-slate-950">
+                Biblioteca de Recursos
+              </h2>
               <p className="text-sm text-slate-500">
                 Recursos para facilitadores: imágenes, guías y microlearning.
               </p>
@@ -318,7 +464,10 @@ export default function TrainingResourcesPage() {
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:min-w-[560px]">
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <Search
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={18}
+                />
                 <input
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
                   placeholder="Buscar recursos..."
@@ -348,7 +497,9 @@ export default function TrainingResourcesPage() {
 
           {filteredResources.length === 0 ? (
             <div className="rounded-[2rem] bg-slate-50 p-10 text-center">
-              <p className="font-black text-slate-950">No se encontraron recursos.</p>
+              <p className="font-black text-slate-950">
+                No se encontraron recursos.
+              </p>
               <p className="mt-1 text-sm text-slate-500">
                 Crea el primer póster visual o cambia los filtros.
               </p>
@@ -356,7 +507,12 @@ export default function TrainingResourcesPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {filteredResources.map((resource) => (
-                <ResourceCard key={resource.id} resource={resource} />
+                <ResourceCard
+                  key={resource.id}
+                  resource={resource}
+                  onEdit={() => handleEdit(resource)}
+                  onDelete={() => handleDelete(resource)}
+                />
               ))}
             </div>
           )}
@@ -366,13 +522,23 @@ export default function TrainingResourcesPage() {
   );
 }
 
-function ResourceCard({ resource }: { resource: TrainingResource }) {
+function ResourceCard({
+  resource,
+  onEdit,
+  onDelete,
+}: {
+  resource: TrainingResource;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
     <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-5">
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-xl font-black text-slate-950">{resource.title}</h3>
+            <h3 className="text-xl font-black text-slate-950">
+              {resource.title}
+            </h3>
             <p className="mt-1 text-sm font-bold text-slate-500">
               {resource.standard_title || "Sin estándar asignado"}
             </p>
@@ -380,7 +546,9 @@ function ResourceCard({ resource }: { resource: TrainingResource }) {
 
           <span
             className={`rounded-full px-3 py-1 text-xs font-black ${
-              resource.active ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+              resource.active
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-red-100 text-red-700"
             }`}
           >
             {resource.active ? "ACTIVE" : "INACTIVE"}
@@ -388,8 +556,16 @@ function ResourceCard({ resource }: { resource: TrainingResource }) {
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <ImageBox label="INCORRECTO" image={resource.incorrect_image} tone="red" />
-          <ImageBox label="CORRECTO" image={resource.correct_image} tone="green" />
+          <ImageBox
+            label="INCORRECTO"
+            image={resource.incorrect_image}
+            tone="red"
+          />
+          <ImageBox
+            label="CORRECTO"
+            image={resource.correct_image}
+            tone="green"
+          />
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -399,17 +575,43 @@ function ResourceCard({ resource }: { resource: TrainingResource }) {
 
         {resource.short_explanation && (
           <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-400">Explicación</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{resource.short_explanation}</p>
+            <p className="text-xs font-black uppercase text-slate-400">
+              Explicación
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {resource.short_explanation}
+            </p>
           </div>
         )}
 
         {resource.facilitator_notes && (
           <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-400">Nota Facilitador</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{resource.facilitator_notes}</p>
+            <p className="text-xs font-black uppercase text-slate-400">
+              Nota Facilitador
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {resource.facilitator_notes}
+            </p>
           </div>
         )}
+
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <button
+            onClick={onEdit}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
+          >
+            <Edit3 size={16} />
+            Editar
+          </button>
+
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 transition hover:bg-red-100"
+          >
+            <Trash2 size={16} />
+            Eliminar
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -424,7 +626,10 @@ function ImageBox({
   image?: string | null;
   tone: "red" | "green";
 }) {
-  const style = tone === "red" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700";
+  const style =
+    tone === "red"
+      ? "bg-red-100 text-red-700"
+      : "bg-emerald-100 text-emerald-700";
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -455,10 +660,14 @@ function SummaryCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-slate-500">{title}</p>
-          <p className="mt-2 text-4xl font-black tracking-tight text-slate-950">{value}</p>
+          <p className="mt-2 text-4xl font-black tracking-tight text-slate-950">
+            {value}
+          </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">{icon}</div>
+        <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+          {icon}
+        </div>
       </div>
     </div>
   );
