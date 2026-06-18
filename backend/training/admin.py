@@ -13,6 +13,10 @@ from .models import (
     EvaluationQuestion,
     EmployeeEvaluation,
     EvaluationAnswer,
+    TrainingResource,
+    StandardRecoveryPlan,
+    EmployeeAssignedTraining,
+
 )
 
 
@@ -135,4 +139,66 @@ class EvaluationAnswerAdmin(admin.ModelAdmin):
         "evaluation",
         "question",
         "score",
+    )
+
+@admin.register(TrainingResource)
+class TrainingResourceAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "standard",
+        "title",
+        "resource_type",
+        "estimated_minutes",
+        "active",
+    )
+    list_filter = ("active", "resource_type", "standard")
+    search_fields = ("title", "standard__title", "short_explanation")
+
+@admin.register(StandardRecoveryPlan)
+class StandardRecoveryPlanAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "organisation",
+        "standard",
+        "resource",
+        "trigger_fail_count",
+        "reevaluation_after_days",
+        "active",
+    )
+    list_filter = (
+        "active",
+        "organisation",
+        "standard",
+        "resource",
+    )
+    search_fields = (
+        "standard__title",
+        "resource__title",
+        "instructions",
+    )
+
+@admin.register(EmployeeAssignedTraining)
+class EmployeeAssignedTrainingAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "employee",
+        "standard",
+        "resource",
+        "status",
+        "assigned_by",
+        "assigned_at",
+        "completed_at",
+        "reevaluation_due_date",
+    )
+    list_filter = (
+        "status",
+        "standard",
+        "assigned_at",
+        "completed_at",
+    )
+    search_fields = (
+        "employee__name",
+        "standard__title",
+        "resource__title",
+        "reason",
     )
