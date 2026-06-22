@@ -437,27 +437,36 @@ export default function DiscoTablesPage() {
                 </div>
               ) : (
                 <p className="text-sm font-semibold text-slate-500">
-                  No products added yet. Next step: connect the product selector
-                  so the bartender can add drinks to this bill.
+No products added yet. Go to the POS page, select this table, and add products there.
                 </p>
               )}
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
-              >
-                Add Products
-              </button>
+<div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+  <button
+    type="button"
+    onClick={() => setSelectedBill(null)}
+    className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
+  >
+    Close
+  </button>
 
-              <button
-                type="button"
-                className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800"
-              >
-                Checkout
-              </button>
-            </div>
+  <button
+    type="button"
+    onClick={refreshAll}
+    className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800"
+  >
+    Refresh Bill
+  </button>
+</div>
+
+<p className="mt-3 text-center text-xs font-semibold text-slate-500">
+  To add products or checkout this table, go to the POS page and select this table.
+</p>
+
+
+
+
           </div>
         </div>
       )}
