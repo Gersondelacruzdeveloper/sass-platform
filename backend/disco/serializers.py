@@ -360,21 +360,59 @@ class CashShiftSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    is_low_stock = serializers.ReadOnlyField()
-    profit_per_unit = serializers.ReadOnlyField()
     category_name = serializers.CharField(source="category.name", read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = "__all__"
-        read_only_fields = (
+        fields = [
+            "id",
             "organisation",
-            "created_at",
-            "updated_at",
+            "category",
+            "category_name",
+            "name",
+            "barcode",
+            "sku",
+            "image",
+            "image_url",
+            "cost_price",
+            "sale_price",
+            "stock",
+            "minimum_stock",
+            "unit",
+            "is_alcohol",
+            "brand",
+            "size_ml",
+            "supplier_name",
+            "is_active",
             "is_low_stock",
             "profit_per_unit",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = (
+            "id",
+            "organisation",
+            "category_name",
+            "image_url",
+            "is_low_stock",
+            "profit_per_unit",
+            "created_at",
+            "updated_at",
         )
 
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+
+        request = self.context.get("request")
+        url = obj.image.url
+
+        if request and url.startswith("/"):
+            return request.build_absolute_uri(url)
+
+        return url
 
 class StockMovementSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)

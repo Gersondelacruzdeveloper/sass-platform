@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Boxes,
+  Image as ImageIcon,
   Package,
   Plus,
   RefreshCcw,
   Search,
   TrendingDown,
+  Upload,
   Wine,
   X,
 } from "lucide-react";
@@ -25,6 +27,7 @@ type Product = {
   barcode?: string;
   sku?: string;
   image?: string | null;
+  image_url?: string | null;
   cost_price: string | number;
   sale_price: string | number;
   stock: number;
@@ -40,7 +43,25 @@ type Product = {
   is_low_stock?: boolean;
 };
 
-const initialForm = {
+type ProductForm = {
+  name: string;
+  barcode: string;
+  sku: string;
+  cost_price: string;
+  sale_price: string;
+  stock: string;
+  minimum_stock: string;
+  unit: string;
+  brand: string;
+  size_ml: string;
+  supplier_name: string;
+  imageFile: File | null;
+  imagePreview: string;
+  is_alcohol: boolean;
+  is_active: boolean;
+};
+
+const initialForm: ProductForm = {
   name: "",
   barcode: "",
   sku: "",
@@ -52,6 +73,8 @@ const initialForm = {
   brand: "",
   size_ml: "",
   supplier_name: "",
+  imageFile: null,
+  imagePreview: "",
   is_alcohol: false,
   is_active: true,
 };
@@ -73,6 +96,54 @@ function money(value?: string | number | null) {
   }).format(Number(value || 0));
 }
 
+function getApiOrigin() {
+  return (
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
+    "http://127.0.0.1:8000"
+  );
+}
+
+function resolveImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  const apiOrigin = getApiOrigin();
+  return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function getProductImage(product?: Product | null) {
+  if (!product) return "";
+  return resolveImageUrl(product.image_url || product.image || "");
+}
+
+function getErrorMessage(err: any) {
+  const data = err?.response?.data;
+
+  if (!data) return "Could not save product.";
+  if (typeof data === "string") return data;
+
+  return (
+    data.detail ||
+    data.non_field_errors?.[0] ||
+    data.name?.[0] ||
+    data.image?.[0] ||
+    data.sale_price?.[0] ||
+    data.cost_price?.[0] ||
+    data.stock?.[0] ||
+    data.minimum_stock?.[0] ||
+    data.barcode?.[0] ||
+    data.sku?.[0] ||
+    "Could not save product."
+  );
+}
+
 export default function DiscoProductsPage() {
   const { products, loading, error, refresh } = useDiscoProducts();
 
@@ -82,7 +153,7 @@ export default function DiscoProductsPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState<ProductForm>(initialForm);
 
   const filteredProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -137,6 +208,7 @@ export default function DiscoProductsPage() {
 
   function openEditModal(product: Product) {
     setEditingProduct(product);
+
     setForm({
       name: product.name || "",
       barcode: product.barcode || "",
@@ -149,10 +221,66 @@ export default function DiscoProductsPage() {
       brand: product.brand || "",
       size_ml: String(product.size_ml || ""),
       supplier_name: product.supplier_name || "",
+      imageFile: null,
+      imagePreview: getProductImage(product),
       is_alcohol: Boolean(product.is_alcohol),
       is_active: Boolean(product.is_active),
     });
+
     setModalOpen(true);
+  }
+
+  function closeModal() {
+    if (form.imagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(form.imagePreview);
+    }
+
+    setModalOpen(false);
+    setEditingProduct(null);
+    setForm(initialForm);
+  }
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setLocalError("Please upload a valid product image.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setLocalError("The product image must be 5MB or smaller.");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+
+    setForm((prev) => {
+      if (prev.imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(prev.imagePreview);
+      }
+
+      return {
+        ...prev,
+        imageFile: file,
+        imagePreview: previewUrl,
+      };
+    });
+  }
+
+  function resetSelectedImage() {
+    setForm((prev) => {
+      if (prev.imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(prev.imagePreview);
+      }
+
+      return {
+        ...prev,
+        imageFile: null,
+        imagePreview: getProductImage(editingProduct),
+      };
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -162,21 +290,28 @@ export default function DiscoProductsPage() {
       setSaving(true);
       setLocalError("");
 
-      const payload = {
-        name: form.name,
-        barcode: form.barcode,
-        sku: form.sku,
-        cost_price: Number(form.cost_price || 0),
-        sale_price: Number(form.sale_price || 0),
-        stock: Number(form.stock || 0),
-        minimum_stock: Number(form.minimum_stock || 0),
-        unit: form.unit as any,
-        brand: form.brand,
-        size_ml: form.size_ml ? Number(form.size_ml) : null,
-        supplier_name: form.supplier_name,
-        is_alcohol: form.is_alcohol,
-        is_active: form.is_active,
-      };
+      const payload = new FormData();
+
+      payload.append("name", form.name.trim());
+      payload.append("barcode", form.barcode.trim());
+      payload.append("sku", form.sku.trim());
+      payload.append("cost_price", String(Number(form.cost_price || 0)));
+      payload.append("sale_price", String(Number(form.sale_price || 0)));
+      payload.append("stock", String(Number(form.stock || 0)));
+      payload.append("minimum_stock", String(Number(form.minimum_stock || 0)));
+      payload.append("unit", form.unit);
+      payload.append("brand", form.brand.trim());
+      payload.append("supplier_name", form.supplier_name.trim());
+      payload.append("is_alcohol", String(form.is_alcohol));
+      payload.append("is_active", String(form.is_active));
+
+      if (form.size_ml) {
+        payload.append("size_ml", String(Number(form.size_ml)));
+      }
+
+      if (form.imageFile) {
+        payload.append("image", form.imageFile);
+      }
 
       if (editingProduct) {
         await updateProduct(editingProduct.id, payload);
@@ -184,17 +319,23 @@ export default function DiscoProductsPage() {
         await createProduct(payload);
       }
 
-      setModalOpen(false);
-      setEditingProduct(null);
-      setForm(initialForm);
+      closeModal();
       await refresh();
-    } catch (err) {
-      console.error(err);
-      setLocalError("Could not save product.");
+    } catch (err: any) {
+      console.error("Product save error:", err?.response?.data || err);
+      setLocalError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
   }
+
+  useEffect(() => {
+    return () => {
+      if (form.imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(form.imagePreview);
+      }
+    };
+  }, [form.imagePreview]);
 
   return (
     <div className="space-y-5 pb-24">
@@ -316,13 +457,13 @@ export default function DiscoProductsPage() {
                   {editingProduct ? "Edit Product" : "New Product"}
                 </h2>
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Add product details for POS and inventory control.
+                  Add product details, image, POS pricing, and inventory control.
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setModalOpen(false)}
+                onClick={closeModal}
                 className="rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -330,6 +471,64 @@ export default function DiscoProductsPage() {
             </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black text-slate-950">
+                      Product Image
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      Optional. Upload an image for POS, inventory, and product cards.
+                    </p>
+                  </div>
+
+                  <ImageIcon className="h-5 w-5 text-slate-400" />
+                </div>
+
+                <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="h-28 w-28 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                    {form.imagePreview ? (
+                      <img
+                        src={form.imagePreview}
+                        alt={form.name || "Product preview"}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-slate-300">
+                        <Package className="h-9 w-9" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
+                      <Upload className="h-4 w-4" />
+                      Upload Image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {form.imagePreview && (
+                      <button
+                        type="button"
+                        onClick={resetSelectedImage}
+                        className="ml-2 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Reset
+                      </button>
+                    )}
+
+                    <p className="text-xs font-medium text-slate-500">
+                      JPG, PNG, or WEBP. Maximum size: 5MB.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <label className="block sm:col-span-2">
                 <span className="text-sm font-bold text-slate-700">Name</span>
                 <input

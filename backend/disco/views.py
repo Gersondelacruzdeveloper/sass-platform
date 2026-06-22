@@ -84,37 +84,52 @@ class CategoryViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = CategorySerializer
 
 
+
 class ProductViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
-    queryset = Product.objects.select_related("category").all()
+    queryset = Product.objects.select_related("category", "organisation").all()
     serializer_class = ProductSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
-        product = serializer.save(
-            organisation=self.get_organisation()
-        )
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError("No active organisation found for this user.")
+
+        product = serializer.save(organisation=organisation)
 
         DiscoActivityLog.objects.create(
-            organisation=self.get_organisation(),
+            organisation=organisation,
             user=self.request.user,
             action="product_created",
             description=f"Created product '{product.name}' with stock {product.stock}",
         )
 
     def perform_update(self, serializer):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError("No active organisation found for this user.")
+
         product = serializer.save()
 
         DiscoActivityLog.objects.create(
-            organisation=self.get_organisation(),
+            organisation=organisation,
             user=self.request.user,
             action="product_updated",
             description=f"Updated product '{product.name}'",
         )
 
     def perform_destroy(self, instance):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError("No active organisation found for this user.")
+
         product_name = instance.name
 
         DiscoActivityLog.objects.create(
-            organisation=self.get_organisation(),
+            organisation=organisation,
             user=self.request.user,
             action="product_deleted",
             description=f"Deleted product '{product_name}'",
