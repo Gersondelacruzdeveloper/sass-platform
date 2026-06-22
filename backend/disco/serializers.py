@@ -32,6 +32,15 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
 
+    # Frontend sends the uploaded image as "photo".
+    # Backend decides where to save it.
+    photo = serializers.ImageField(write_only=True, required=False, allow_null=True)
+
+    # Useful URLs for frontend
+    profile_image_url = serializers.SerializerMethodField()
+    user_avatar_url = serializers.SerializerMethodField()
+    employee_photo_url = serializers.SerializerMethodField()
+
     create_login = serializers.BooleanField(write_only=True, required=False, default=False)
     login_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
     login_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
@@ -39,8 +48,92 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DiscoEmployee
-        fields = "__all__"
-        read_only_fields = ("organisation", "created_at", "updated_at")
+        fields = [
+            "id",
+            "organisation",
+            "user",
+            "username",
+            "email",
+
+            "photo",
+            "profile_image_url",
+            "user_avatar_url",
+            "employee_photo_url",
+
+            "full_name",
+            "role",
+            "phone",
+            "is_active",
+
+            "create_login",
+            "login_username",
+            "login_email",
+            "login_password",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = (
+            "id",
+            "organisation",
+            "user",
+            "username",
+            "email",
+            "profile_image_url",
+            "user_avatar_url",
+            "employee_photo_url",
+            "created_at",
+            "updated_at",
+        )
+
+    def _build_url(self, image_field):
+        if not image_field:
+            return None
+
+        request = self.context.get("request")
+        url = image_field.url
+
+        if request and url.startswith("/"):
+            return request.build_absolute_uri(url)
+
+        return url
+
+    def get_user_avatar_url(self, obj):
+        if obj.user and obj.user.avatar:
+            return self._build_url(obj.user.avatar)
+
+        return None
+
+    def get_employee_photo_url(self, obj):
+        if obj.photo:
+            return self._build_url(obj.photo)
+
+        return None
+
+    def get_profile_image_url(self, obj):
+        """
+        Final display rule:
+
+        1. If employee has login user, use CustomUser.avatar.
+        2. If employee has no login user, use DiscoEmployee.photo.
+        3. Optional fallback: if user exists but avatar is empty, use employee photo.
+        """
+
+        if obj.user:
+            if obj.user.avatar:
+                return self._build_url(obj.user.avatar)
+
+            # fallback for old data
+            if obj.photo:
+                return self._build_url(obj.photo)
+
+            return None
+
+        if obj.photo:
+            return self._build_url(obj.photo)
+
+        return None
 
     def validate(self, attrs):
         create_login = attrs.get("create_login", False)
@@ -48,24 +141,65 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
         login_password = attrs.get("login_password", "")
         login_username = attrs.get("login_username", "")
 
-        if create_login:
+        existing_user = getattr(self.instance, "user", None)
+
+        # Creating a new login account
+        if create_login and not existing_user:
             if not login_email:
-                raise serializers.ValidationError({"login_email": "Email is required."})
+                raise serializers.ValidationError({
+                    "login_email": "Email is required."
+                })
 
             if not login_password:
-                raise serializers.ValidationError({"login_password": "Password is required."})
+                raise serializers.ValidationError({
+                    "login_password": "Password is required."
+                })
 
             username = login_username or login_email
 
             if User.objects.filter(username=username).exists():
-                raise serializers.ValidationError({"login_username": "Username already exists."})
+                raise serializers.ValidationError({
+                    "login_username": "Username already exists."
+                })
 
             if User.objects.filter(email=login_email).exists():
-                raise serializers.ValidationError({"login_email": "Email already exists."})
+                raise serializers.ValidationError({
+                    "login_email": "Email already exists."
+                })
+
+        # Editing existing linked user
+        if existing_user:
+            if login_username:
+                username_exists = (
+                    User.objects
+                    .filter(username=login_username)
+                    .exclude(id=existing_user.id)
+                    .exists()
+                )
+
+                if username_exists:
+                    raise serializers.ValidationError({
+                        "login_username": "Username already exists."
+                    })
+
+            if login_email:
+                email_exists = (
+                    User.objects
+                    .filter(email=login_email)
+                    .exclude(id=existing_user.id)
+                    .exists()
+                )
+
+                if email_exists:
+                    raise serializers.ValidationError({
+                        "login_email": "Email already exists."
+                    })
 
         return attrs
 
     def create(self, validated_data):
+        uploaded_photo = validated_data.pop("photo", None)
+
         create_login = validated_data.pop("create_login", False)
         login_username = validated_data.pop("login_username", "")
         login_email = validated_data.pop("login_email", "")
@@ -80,7 +214,14 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
                 username=username,
                 email=login_email,
                 password=login_password,
+                organisation=employee.organisation,
+                phone=employee.phone or "",
             )
+
+            # Employee has login, so image goes to CustomUser.avatar
+            if uploaded_photo:
+                user.avatar = uploaded_photo
+                user.save(update_fields=["avatar"])
 
             employee.user = user
             employee.save(update_fields=["user"])
@@ -90,13 +231,105 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
                 organisation=employee.organisation,
                 defaults={
                     "role": employee.role,
-                    "is_active": True,
+                    "is_active": employee.is_active,
                 },
             )
 
+        else:
+            # Employee has no login, so image goes to DiscoEmployee.photo
+            if uploaded_photo:
+                employee.photo = uploaded_photo
+                employee.save(update_fields=["photo"])
+
         return employee
 
+    def update(self, instance, validated_data):
+        uploaded_photo = validated_data.pop("photo", None)
 
+        create_login = validated_data.pop("create_login", False)
+        login_username = validated_data.pop("login_username", "")
+        login_email = validated_data.pop("login_email", "")
+        login_password = validated_data.pop("login_password", "")
+
+        instance.full_name = validated_data.get("full_name", instance.full_name)
+        instance.role = validated_data.get("role", instance.role)
+        instance.phone = validated_data.get("phone", instance.phone)
+        instance.is_active = validated_data.get("is_active", instance.is_active)
+        instance.save()
+
+        # Case 1: Employee already has login
+        if instance.user:
+            user = instance.user
+
+            if login_username:
+                user.username = login_username
+
+            if login_email:
+                user.email = login_email
+
+            if login_password:
+                user.set_password(login_password)
+
+            user.organisation = instance.organisation
+            user.phone = instance.phone or ""
+
+            # Has login, so uploaded image goes to CustomUser.avatar
+            if uploaded_photo:
+                user.avatar = uploaded_photo
+
+            user.save()
+
+            Membership.objects.update_or_create(
+                user=user,
+                organisation=instance.organisation,
+                defaults={
+                    "role": instance.role,
+                    "is_active": instance.is_active,
+                },
+            )
+
+        # Case 2: Employee does not have login, but now you are creating one
+        elif create_login:
+            username = login_username or login_email
+
+            user = User.objects.create_user(
+                username=username,
+                email=login_email,
+                password=login_password,
+                organisation=instance.organisation,
+                phone=instance.phone or "",
+            )
+
+            # If a new photo was uploaded, use it.
+            # If not, but employee already had photo, move/copy it to user avatar.
+            if uploaded_photo:
+                user.avatar = uploaded_photo
+                user.save(update_fields=["avatar"])
+            elif instance.photo:
+                user.avatar = instance.photo
+                user.save(update_fields=["avatar"])
+
+            instance.user = user
+            instance.save(update_fields=["user"])
+
+            Membership.objects.update_or_create(
+                user=user,
+                organisation=instance.organisation,
+                defaults={
+                    "role": instance.role,
+                    "is_active": instance.is_active,
+                },
+            )
+
+        # Case 3: Employee still has no login
+        else:
+            # No login, so uploaded image goes to DiscoEmployee.photo
+            if uploaded_photo:
+                instance.photo = uploaded_photo
+                instance.save(update_fields=["photo"])
+
+        return instance
+    
 class DiscoTableSerializer(serializers.ModelSerializer):
     class Meta:
         model = DiscoTable

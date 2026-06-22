@@ -29,6 +29,11 @@ class DiscoEmployee(models.Model):
         blank=True,
         related_name="disco_employee_profiles"
     )
+    photo = models.ImageField(
+        upload_to="disco/employees/",
+        blank=True,
+        null=True
+    )
 
     full_name = models.CharField(max_length=150)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)

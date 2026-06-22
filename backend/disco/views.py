@@ -6,6 +6,8 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+
 
 
 from .models import (
@@ -217,9 +219,15 @@ class ExpenseViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         instance.delete()
 
 
+
+
 class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = DiscoEmployee.objects.select_related("user", "organisation").all()
     serializer_class = DiscoEmployeeSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def _is_true(self, value):
+        return value in [True, "true", "True", "1", 1, "yes", "Yes", "on"]
 
     def perform_create(self, serializer):
         organisation = self.get_organisation()
@@ -238,9 +246,9 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
                 f"{organisation.max_employees} employees."
             )
 
-        user = serializer.validated_data.get("user")
+        create_login = self._is_true(self.request.data.get("create_login"))
 
-        if user:
+        if create_login:
             active_user_logins = DiscoEmployee.objects.filter(
                 organisation=organisation,
                 user__isnull=False,
@@ -254,6 +262,47 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
                 )
 
         serializer.save(organisation=organisation)
+
+    def perform_update(self, serializer):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError("No active organisation found for this user.")
+
+        instance = self.get_object()
+
+        will_be_active = self._is_true(
+            self.request.data.get("is_active", instance.is_active)
+        )
+
+        create_login = self._is_true(self.request.data.get("create_login"))
+
+        if will_be_active and not instance.is_active:
+            active_employees = DiscoEmployee.objects.filter(
+                organisation=organisation,
+                is_active=True,
+            ).exclude(id=instance.id).count()
+
+            if active_employees >= organisation.max_employees:
+                raise ValidationError(
+                    f"Your {organisation.get_plan_display()} plan allows up to "
+                    f"{organisation.max_employees} employees."
+                )
+
+        if create_login and not instance.user:
+            active_user_logins = DiscoEmployee.objects.filter(
+                organisation=organisation,
+                user__isnull=False,
+                is_active=True,
+            ).exclude(id=instance.id).count()
+
+            if active_user_logins >= organisation.max_users:
+                raise ValidationError(
+                    f"Your {organisation.get_plan_display()} plan allows up to "
+                    f"{organisation.max_users} user logins."
+                )
+
+        serializer.save()
 
 
 class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
