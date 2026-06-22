@@ -1,3 +1,5 @@
+// src/modules/disco/api/tablesApi.ts
+
 import api from "../../../api/axios";
 
 export type TableStatus =
@@ -5,14 +7,14 @@ export type TableStatus =
   | "occupied"
   | "reserved"
   | "cleaning"
-  | "out_of_service";
+  | "inactive";
 
 export interface DiscoTable {
   id: number;
   organisation: number;
 
   name: string;
-  floor: string;
+  floor?: string | null;
 
   capacity: number;
   minimum_spend: string;
@@ -33,41 +35,28 @@ export interface CreateTablePayload {
   is_vip?: boolean;
 }
 
-export interface UpdateTablePayload
-  extends Partial<CreateTablePayload> {}
+export interface UpdateTablePayload extends Partial<CreateTablePayload> {}
 
-export async function getTables() {
-  const res = await api.get<DiscoTable[]>("/disco/tables/");
+export async function getTables(params?: { status?: TableStatus }) {
+  const res = await api.get<DiscoTable[]>("/disco/tables/", {
+    params,
+  });
+
   return res.data;
 }
 
 export async function getTable(id: number) {
-  const res = await api.get<DiscoTable>(
-    `/disco/tables/${id}/`
-  );
+  const res = await api.get<DiscoTable>(`/disco/tables/${id}/`);
   return res.data;
 }
 
-export async function createTable(
-  payload: CreateTablePayload
-) {
-  const res = await api.post<DiscoTable>(
-    "/disco/tables/",
-    payload
-  );
-
+export async function createTable(payload: CreateTablePayload) {
+  const res = await api.post<DiscoTable>("/disco/tables/", payload);
   return res.data;
 }
 
-export async function updateTable(
-  id: number,
-  payload: UpdateTablePayload
-) {
-  const res = await api.patch<DiscoTable>(
-    `/disco/tables/${id}/`,
-    payload
-  );
-
+export async function updateTable(id: number, payload: UpdateTablePayload) {
+  const res = await api.patch<DiscoTable>(`/disco/tables/${id}/`, payload);
   return res.data;
 }
 
@@ -76,75 +65,41 @@ export async function deleteTable(id: number) {
 }
 
 export async function getAvailableTables() {
-  const res = await api.get<DiscoTable[]>("/disco/tables/", {
-    params: {
-      status: "available",
-    },
-  });
-
-  return res.data;
+  return getTables({ status: "available" });
 }
 
 export async function getReservedTables() {
-  const res = await api.get<DiscoTable[]>("/disco/tables/", {
-    params: {
-      status: "reserved",
-    },
-  });
-
-  return res.data;
+  return getTables({ status: "reserved" });
 }
 
 export async function getOccupiedTables() {
-  const res = await api.get<DiscoTable[]>("/disco/tables/", {
-    params: {
-      status: "occupied",
-    },
-  });
+  return getTables({ status: "occupied" });
+}
 
-  return res.data;
+export async function getCleaningTables() {
+  return getTables({ status: "cleaning" });
+}
+
+export async function getInactiveTables() {
+  return getTables({ status: "inactive" });
 }
 
 export async function markTableAvailable(id: number) {
-  const res = await api.patch<DiscoTable>(
-    `/disco/tables/${id}/`,
-    {
-      status: "available",
-    }
-  );
-
-  return res.data;
+  return updateTable(id, { status: "available" });
 }
 
 export async function markTableOccupied(id: number) {
-  const res = await api.patch<DiscoTable>(
-    `/disco/tables/${id}/`,
-    {
-      status: "occupied",
-    }
-  );
-
-  return res.data;
+  return updateTable(id, { status: "occupied" });
 }
 
 export async function markTableReserved(id: number) {
-  const res = await api.patch<DiscoTable>(
-    `/disco/tables/${id}/`,
-    {
-      status: "reserved",
-    }
-  );
-
-  return res.data;
+  return updateTable(id, { status: "reserved" });
 }
 
 export async function markTableCleaning(id: number) {
-  const res = await api.patch<DiscoTable>(
-    `/disco/tables/${id}/`,
-    {
-      status: "cleaning",
-    }
-  );
+  return updateTable(id, { status: "cleaning" });
+}
 
-  return res.data;
+export async function markTableInactive(id: number) {
+  return updateTable(id, { status: "inactive" });
 }

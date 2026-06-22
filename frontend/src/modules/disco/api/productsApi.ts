@@ -1,3 +1,5 @@
+// src/modules/disco/api/productsApi.ts
+
 import api from "../../../api/axios";
 
 export interface Product {
@@ -8,10 +10,11 @@ export interface Product {
   category_name?: string;
 
   name: string;
-  barcode: string;
-  sku: string;
+  barcode?: string | null;
+  sku?: string | null;
 
   image?: string | null;
+  image_url?: string | null;
 
   cost_price: string;
   sale_price: string;
@@ -30,13 +33,13 @@ export interface Product {
 
   is_alcohol: boolean;
 
-  brand: string;
-  size_ml: number | null;
-  supplier_name: string;
+  brand?: string | null;
+  size_ml?: number | null;
+  supplier_name?: string | null;
 
   is_active: boolean;
   is_low_stock?: boolean;
-  profit_per_unit?: number;
+  profit_per_unit?: number | string;
 
   created_at?: string;
   updated_at?: string;
@@ -49,7 +52,7 @@ export interface CreateProductPayload {
   barcode?: string;
   sku?: string;
 
-  image?: string;
+  image?: File | string | null;
 
   cost_price: number | string;
   sale_price: number | string;
@@ -68,42 +71,36 @@ export interface CreateProductPayload {
   is_active?: boolean;
 }
 
-export interface UpdateProductPayload
-  extends Partial<CreateProductPayload> {}
+export interface UpdateProductPayload extends Partial<CreateProductPayload> {}
 
-export async function getProducts() {
-  const res = await api.get<Product[]>("/disco/products/");
+export interface ProductFilters {
+  category?: number;
+  search?: string;
+  is_active?: boolean;
+}
+
+type ProductPayload = CreateProductPayload | UpdateProductPayload | FormData;
+
+export async function getProducts(filters?: ProductFilters) {
+  const res = await api.get<Product[]>("/disco/products/", {
+    params: filters,
+  });
+
   return res.data;
 }
 
 export async function getProduct(id: number) {
-  const res = await api.get<Product>(
-    `/disco/products/${id}/`
-  );
-
+  const res = await api.get<Product>(`/disco/products/${id}/`);
   return res.data;
 }
 
-export async function createProduct(
-  payload: CreateProductPayload
-) {
-  const res = await api.post<Product>(
-    "/disco/products/",
-    payload
-  );
-
+export async function createProduct(payload: ProductPayload) {
+  const res = await api.post<Product>("/disco/products/", payload);
   return res.data;
 }
 
-export async function updateProduct(
-  id: number,
-  payload: UpdateProductPayload
-) {
-  const res = await api.patch<Product>(
-    `/disco/products/${id}/`,
-    payload
-  );
-
+export async function updateProduct(id: number, payload: ProductPayload) {
+  const res = await api.patch<Product>(`/disco/products/${id}/`, payload);
   return res.data;
 }
 
@@ -112,47 +109,34 @@ export async function deleteProduct(id: number) {
 }
 
 export async function getLowStockProducts() {
-  const res = await api.get<Product[]>("/disco/products/", {
-    params: {
-      low_stock: true,
-    },
-  });
-
+  const res = await api.get<Product[]>("/disco/products/low_stock/");
   return res.data;
 }
 
-export async function getProductsByCategory(
-  categoryId: number
-) {
-  const res = await api.get<Product[]>("/disco/products/", {
-    params: {
-      category: categoryId,
-    },
+export async function getProductsByCategory(categoryId: number) {
+  return getProducts({
+    category: categoryId,
+    is_active: true,
   });
-
-  return res.data;
 }
 
 export async function searchProducts(search: string) {
-  const res = await api.get<Product[]>("/disco/products/", {
-    params: {
-      search,
-    },
+  return getProducts({
+    search,
+    is_active: true,
   });
-
-  return res.data;
 }
 
-export async function updateProductStock(
-  id: number,
-  stock: number
-) {
-  const res = await api.patch<Product>(
-    `/disco/products/${id}/`,
-    {
-      stock,
-    }
-  );
+export async function getActiveProducts() {
+  return getProducts({
+    is_active: true,
+  });
+}
+
+export async function updateProductStock(id: number, stock: number) {
+  const res = await api.patch<Product>(`/disco/products/${id}/`, {
+    stock,
+  });
 
   return res.data;
 }

@@ -1,5 +1,5 @@
 
-from django.db import models
+from django.db import models,transaction
 from django.db.models import Sum, Count
 from django.utils import timezone
 from rest_framework import viewsets, permissions
@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from decimal import Decimal
 
 
 
@@ -21,6 +22,7 @@ from .models import (
     CashShift,
     DiscoReservation,
     DiscoActivityLog,
+    SaleItem,
 )
 
 from .serializers import (
@@ -35,6 +37,12 @@ from .serializers import (
     CashShiftSerializer,
     DiscoReservationSerializer,
     DiscoActivityLogSerializer,
+
+    OpenTableBillSerializer,
+    AddSaleItemSerializer,
+    UpdateSaleItemQuantitySerializer,
+    RemoveSaleItemSerializer,
+    CheckoutSaleSerializer,
 )
 
 class OrganisationQuerysetMixin:
@@ -324,11 +332,18 @@ class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = DiscoTable.objects.all()
     serializer_class = DiscoTableSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        status_value = self.request.query_params.get("status")
+
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+
+        return queryset
+
     def perform_create(self, serializer):
         organisation = self.get_organisation()
-
-        print("TABLE CREATE USER:", self.request.user)
-        print("TABLE CREATE ORG:", organisation)
 
         if organisation is None:
             raise ValidationError({
@@ -336,7 +351,6 @@ class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
             })
 
         serializer.save(organisation=organisation)
-
 
 class CashShiftViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = CashShift.objects.select_related(
@@ -376,12 +390,396 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     ).prefetch_related("items__product").all()
 
     def get_serializer_class(self):
-        if self.action in ["list", "retrieve"]:
+        if self.action in ["list", "retrieve", "open_bills"]:
             return SaleReadSerializer
+
         return SaleSerializer
 
     def perform_create(self, serializer):
         serializer.save()
+
+    def _get_open_cash_shift(self, organisation):
+        return CashShift.objects.filter(
+            organisation=organisation,
+            is_open=True,
+        ).first()
+
+    def _generate_receipt_number(self, sale):
+        if sale.receipt_number:
+            return sale.receipt_number
+
+        return f"DSC-{sale.organisation_id}-{sale.id:06d}"
+
+    def _recalculate_sale(self, sale, discount=None, tax=None):
+        subtotal = (
+            sale.items.aggregate(total=models.Sum("total"))["total"]
+            or Decimal("0.00")
+        )
+
+        if discount is not None:
+            sale.discount = Decimal(str(discount))
+
+        if tax is not None:
+            sale.tax = Decimal(str(tax))
+
+        sale.subtotal = subtotal
+        sale.total = subtotal - sale.discount + sale.tax
+
+        if sale.total < 0:
+            sale.total = Decimal("0.00")
+
+        sale.save(update_fields=[
+            "subtotal",
+            "discount",
+            "tax",
+            "total",
+            "updated_at",
+        ])
+
+        return sale
+
+    def _get_pending_table_bill(self):
+        sale = self.get_object()
+
+        if sale.sale_type != "table":
+            raise ValidationError({
+                "sale": "This sale is not a table bill."
+            })
+
+        if sale.status != "pending":
+            raise ValidationError({
+                "sale": "This table bill is not open."
+            })
+
+        return sale
+
+    @action(detail=False, methods=["get"])
+    def open_bills(self, request):
+        organisation = self.get_organisation()
+
+        bills = self.get_queryset().filter(
+            organisation=organisation,
+            sale_type="table",
+            status="pending",
+        )
+
+        serializer = SaleReadSerializer(
+            bills,
+            many=True,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def open_table(self, request):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        serializer = OpenTableBillSerializer(
+            data=request.data,
+            context={"organisation": organisation},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        table = serializer.validated_data["table_obj"]
+        waiter = serializer.validated_data.get("waiter_obj")
+        bartender = serializer.validated_data.get("bartender_obj")
+        customer_name = serializer.validated_data.get("customer_name") or table.name
+
+        with transaction.atomic():
+            table.status = "occupied"
+            table.save(update_fields=["status", "updated_at"])
+
+            sale = Sale.objects.create(
+                organisation=organisation,
+                receipt_number=None,
+                payment_method="cash",
+                status="pending",
+                sale_type="table",
+                customer_name=customer_name,
+                table=table,
+                table_number=table.name,
+                cash_shift=self._get_open_cash_shift(organisation),
+                waiter=waiter,
+                bartender=bartender,
+                subtotal=Decimal("0.00"),
+                discount=Decimal("0.00"),
+                tax=Decimal("0.00"),
+                total=Decimal("0.00"),
+                created_by=request.user,
+            )
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_bill_opened",
+                description=f"Opened bill #{sale.id} for table {table.name}",
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def add_item(self, request, pk=None):
+        organisation = self.get_organisation()
+        sale = self._get_pending_table_bill()
+
+        serializer = AddSaleItemSerializer(
+            data=request.data,
+            context={"organisation": organisation},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        product_id = serializer.validated_data["product_id"]
+        quantity = serializer.validated_data["quantity"]
+
+        with transaction.atomic():
+            product = Product.objects.select_for_update().get(
+                id=product_id,
+                organisation=organisation,
+                is_active=True,
+            )
+
+            if product.stock < quantity:
+                raise ValidationError({
+                    "quantity": f"Not enough stock. Available: {product.stock}."
+                })
+
+            existing_item = SaleItem.objects.filter(
+                sale=sale,
+                product=product,
+            ).first()
+
+            if existing_item:
+                existing_item.quantity += quantity
+                existing_item.total = existing_item.unit_price * existing_item.quantity
+                existing_item.save(update_fields=["quantity", "total"])
+            else:
+                SaleItem.objects.create(
+                    sale=sale,
+                    product=product,
+                    quantity=quantity,
+                    unit_price=product.sale_price,
+                    unit_cost=product.cost_price,
+                    total=product.sale_price * quantity,
+                )
+
+            product.stock -= quantity
+            product.save(update_fields=["stock", "updated_at"])
+
+            self._recalculate_sale(sale)
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_item_added",
+                description=(
+                    f"Added {quantity} x {product.name} "
+                    f"to table bill #{sale.id}"
+                ),
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def update_item(self, request, pk=None):
+        organisation = self.get_organisation()
+        sale = self._get_pending_table_bill()
+
+        serializer = UpdateSaleItemQuantitySerializer(
+            data=request.data,
+            context={"sale": sale},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        item = serializer.validated_data["item_obj"]
+        new_quantity = serializer.validated_data["quantity"]
+        difference = serializer.validated_data["difference"]
+
+        with transaction.atomic():
+            product = Product.objects.select_for_update().get(
+                id=item.product_id,
+                organisation=organisation,
+            )
+
+            if difference > 0 and product.stock < difference:
+                raise ValidationError({
+                    "quantity": f"Not enough stock. Available: {product.stock}."
+                })
+
+            product.stock -= difference
+
+            if product.stock < 0:
+                product.stock = 0
+
+            product.save(update_fields=["stock", "updated_at"])
+
+            item.quantity = new_quantity
+            item.total = item.unit_price * new_quantity
+            item.save(update_fields=["quantity", "total"])
+
+            self._recalculate_sale(sale)
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_item_updated",
+                description=(
+                    f"Updated item #{item.id} to quantity {new_quantity} "
+                    f"on table bill #{sale.id}"
+                ),
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def remove_item(self, request, pk=None):
+        organisation = self.get_organisation()
+        sale = self._get_pending_table_bill()
+
+        serializer = RemoveSaleItemSerializer(
+            data=request.data,
+            context={"sale": sale},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        item = serializer.validated_data["item_obj"]
+
+        with transaction.atomic():
+            product = Product.objects.select_for_update().get(
+                id=item.product_id,
+                organisation=organisation,
+            )
+
+            product.stock += item.quantity
+            product.save(update_fields=["stock", "updated_at"])
+
+            description = (
+                f"Removed {item.quantity} x {product.name} "
+                f"from bill #{sale.id}"
+            )
+
+            item.delete()
+
+            self._recalculate_sale(sale)
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_item_removed",
+                description=description,
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def checkout(self, request, pk=None):
+        organisation = self.get_organisation()
+        sale = self._get_pending_table_bill()
+
+        serializer = CheckoutSaleSerializer(
+            data=request.data,
+            context={"sale": sale},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        payment_method = serializer.validated_data.get("payment_method", "cash")
+        discount = serializer.validated_data.get("discount", Decimal("0.00"))
+        tax = serializer.validated_data.get("tax", Decimal("0.00"))
+
+        with transaction.atomic():
+            self._recalculate_sale(sale, discount=discount, tax=tax)
+
+            sale.payment_method = payment_method
+            sale.status = "completed"
+            sale.receipt_number = self._generate_receipt_number(sale)
+            sale.save(update_fields=[
+                "payment_method",
+                "status",
+                "receipt_number",
+                "updated_at",
+            ])
+
+            if sale.table:
+                sale.table.status = "available"
+                sale.table.save(update_fields=["status", "updated_at"])
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_bill_checked_out",
+                description=(
+                    f"Checked out table bill #{sale.id} "
+                    f"for total {sale.total}"
+                ),
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def cancel_bill(self, request, pk=None):
+        organisation = self.get_organisation()
+        sale = self._get_pending_table_bill()
+
+        with transaction.atomic():
+            for item in sale.items.select_related("product").all():
+                product = Product.objects.select_for_update().get(
+                    id=item.product_id,
+                    organisation=organisation,
+                )
+
+                product.stock += item.quantity
+                product.save(update_fields=["stock", "updated_at"])
+
+            sale.status = "cancelled"
+            sale.save(update_fields=["status", "updated_at"])
+
+            if sale.table:
+                sale.table.status = "available"
+                sale.table.save(update_fields=["status", "updated_at"])
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="table_bill_cancelled",
+                description=f"Cancelled table bill #{sale.id}",
+            )
+
+        response_serializer = SaleReadSerializer(
+            sale,
+            context={"request": request},
+        )
+
+        return Response(response_serializer.data)
 
 
 class DiscoReservationViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):

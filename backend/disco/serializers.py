@@ -414,6 +414,61 @@ class ProductSerializer(serializers.ModelSerializer):
 
         return url
 
+    def validate(self, attrs):
+        sku = attrs.get("sku")
+        barcode = attrs.get("barcode")
+
+        if isinstance(sku, str):
+            cleaned_sku = sku.strip()
+            attrs["sku"] = cleaned_sku or None
+
+        if isinstance(barcode, str):
+            cleaned_barcode = barcode.strip()
+            attrs["barcode"] = cleaned_barcode or None
+
+        organisation = None
+
+        if self.instance:
+            organisation = self.instance.organisation
+        else:
+            request = self.context.get("request")
+
+            if request:
+                organisation = getattr(request, "organisation", None)
+
+                if not organisation and request.user:
+                    organisation = getattr(request.user, "organisation", None)
+
+        if organisation and attrs.get("sku"):
+            duplicate_sku = Product.objects.filter(
+                organisation=organisation,
+                sku=attrs["sku"],
+            )
+
+            if self.instance:
+                duplicate_sku = duplicate_sku.exclude(id=self.instance.id)
+
+            if duplicate_sku.exists():
+                raise serializers.ValidationError({
+                    "sku": "Another product already uses this SKU."
+                })
+
+        if organisation and attrs.get("barcode"):
+            duplicate_barcode = Product.objects.filter(
+                organisation=organisation,
+                barcode=attrs["barcode"],
+            )
+
+            if self.instance:
+                duplicate_barcode = duplicate_barcode.exclude(id=self.instance.id)
+
+            if duplicate_barcode.exists():
+                raise serializers.ValidationError({
+                    "barcode": "Another product already uses this barcode."
+                })
+
+        return attrs
+
 class StockMovementSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     created_by_name = serializers.CharField(
@@ -467,7 +522,7 @@ class SaleItemSerializer(serializers.ModelSerializer):
 
 
 class SaleSerializer(serializers.ModelSerializer):
-    items = SaleItemCreateSerializer(many=True, write_only=True)
+    items = SaleItemCreateSerializer(many=True, write_only=True, required=True)
 
     sale_items = SaleItemSerializer(
         source="items",
@@ -540,6 +595,201 @@ class SaleReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = "__all__"
+
+
+
+
+class OpenTableBillSerializer(serializers.Serializer):
+    table_id = serializers.IntegerField()
+    customer_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+    waiter_id = serializers.IntegerField(required=False, allow_null=True)
+    bartender_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        organisation = self.context.get("organisation")
+
+        table = DiscoTable.objects.filter(
+            id=attrs["table_id"],
+            organisation=organisation,
+        ).first()
+
+        if not table:
+            raise serializers.ValidationError({
+                "table_id": "Table not found for this organisation."
+            })
+
+        if table.status == "inactive":
+            raise serializers.ValidationError({
+                "table_id": "This table is inactive."
+            })
+
+        existing_open_sale = Sale.objects.filter(
+            organisation=organisation,
+            table=table,
+            sale_type="table",
+            status="pending",
+        ).first()
+
+        if existing_open_sale:
+            raise serializers.ValidationError({
+                "table_id": "This table already has an open bill."
+            })
+
+        waiter = None
+        bartender = None
+
+        waiter_id = attrs.get("waiter_id")
+        bartender_id = attrs.get("bartender_id")
+
+        if waiter_id:
+            waiter = DiscoEmployee.objects.filter(
+                id=waiter_id,
+                organisation=organisation,
+                is_active=True,
+            ).first()
+
+            if not waiter:
+                raise serializers.ValidationError({
+                    "waiter_id": "Waiter not found or inactive."
+                })
+
+        if bartender_id:
+            bartender = DiscoEmployee.objects.filter(
+                id=bartender_id,
+                organisation=organisation,
+                is_active=True,
+            ).first()
+
+            if not bartender:
+                raise serializers.ValidationError({
+                    "bartender_id": "Bartender not found or inactive."
+                })
+
+        attrs["table_obj"] = table
+        attrs["waiter_obj"] = waiter
+        attrs["bartender_obj"] = bartender
+
+        return attrs
+
+
+class AddSaleItemSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+    def validate(self, attrs):
+        organisation = self.context.get("organisation")
+
+        product = Product.objects.filter(
+            id=attrs["product_id"],
+            organisation=organisation,
+            is_active=True,
+        ).first()
+
+        if not product:
+            raise serializers.ValidationError({
+                "product_id": "Product not found or inactive."
+            })
+
+        if product.stock < attrs["quantity"]:
+            raise serializers.ValidationError({
+                "quantity": f"Not enough stock. Available: {product.stock}."
+            })
+
+        attrs["product_obj"] = product
+        return attrs
+
+
+class UpdateSaleItemQuantitySerializer(serializers.Serializer):
+    item_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+    def validate(self, attrs):
+        sale = self.context.get("sale")
+
+        item = SaleItem.objects.filter(
+            id=attrs["item_id"],
+            sale=sale,
+        ).select_related("product").first()
+
+        if not item:
+            raise serializers.ValidationError({
+                "item_id": "Sale item not found for this bill."
+            })
+
+        difference = attrs["quantity"] - item.quantity
+
+        if difference > 0 and item.product.stock < difference:
+            raise serializers.ValidationError({
+                "quantity": f"Not enough stock. Available: {item.product.stock}."
+            })
+
+        attrs["item_obj"] = item
+        attrs["difference"] = difference
+
+        return attrs
+
+
+class RemoveSaleItemSerializer(serializers.Serializer):
+    item_id = serializers.IntegerField()
+
+    def validate(self, attrs):
+        sale = self.context.get("sale")
+
+        item = SaleItem.objects.filter(
+            id=attrs["item_id"],
+            sale=sale,
+        ).select_related("product").first()
+
+        if not item:
+            raise serializers.ValidationError({
+                "item_id": "Sale item not found for this bill."
+            })
+
+        attrs["item_obj"] = item
+        return attrs
+
+
+class CheckoutSaleSerializer(serializers.Serializer):
+    payment_method = serializers.ChoiceField(
+        choices=Sale.PAYMENT_CHOICES,
+        default="cash",
+    )
+    discount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        default="0.00",
+    )
+    tax = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        default="0.00",
+    )
+
+    def validate(self, attrs):
+        sale = self.context.get("sale")
+
+        if sale.status != "pending":
+            raise serializers.ValidationError({
+                "sale": "Only pending bills can be checked out."
+            })
+
+        if sale.sale_type != "table":
+            raise serializers.ValidationError({
+                "sale": "Only table bills can use table checkout."
+            })
+
+        if not sale.items.exists():
+            raise serializers.ValidationError({
+                "items": "Cannot checkout an empty bill."
+            })
+
+        return attrs
 
 
 class DiscoReservationSerializer(serializers.ModelSerializer):
