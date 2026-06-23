@@ -55,8 +55,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
         return user
-
 class UserSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.SerializerMethodField()
+    profile_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
         fields = [
@@ -67,4 +69,19 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "phone",
             "avatar",
+            "avatar_url",
+            "profile_image_url",
         ]
+
+    def get_avatar_url(self, obj):
+        request = self.context.get("request")
+
+        if obj.avatar:
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+
+        return None
+
+    def get_profile_image_url(self, obj):
+        return self.get_avatar_url(obj)

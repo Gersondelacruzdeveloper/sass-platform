@@ -1,5 +1,6 @@
 // src/modules/disco/components/DiscoSidebar.tsx
 
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import {
   Activity,
@@ -39,23 +40,64 @@ export default function DiscoSidebar({
   const { organisationSlug } = useParams();
   const { user } = useAppSelector((state) => state.auth);
 
-  const slug = organisationSlug || user?.organisation?.slug || "almond-brownie";
+  const authUser = user as any;
+
+  const [imageError, setImageError] = useState(false);
+
+  const apiOrigin =
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
+    "http://127.0.0.1:8000";
+
+  const slug =
+    organisationSlug || authUser?.organisation?.slug || "almond-brownie";
 
   const displayName =
-    user?.disco_employee?.full_name ||
-    user?.username ||
-    user?.email ||
+    authUser?.disco_employee?.full_name ||
+    authUser?.full_name ||
+    authUser?.name ||
+    authUser?.username ||
+    authUser?.email ||
     "Logged in user";
 
   const role =
-    user?.disco_employee?.role ||
-    user?.role ||
+    authUser?.disco_employee?.role ||
+    authUser?.role ||
     "User";
 
   const organisationName =
-    user?.disco_employee?.organisation_name ||
-    user?.organisation?.name ||
+    authUser?.disco_employee?.organisation_name ||
+    authUser?.organisation?.name ||
     slug;
+
+  const rawProfileImageUrl =
+    authUser?.disco_employee?.profile_image_url ||
+    authUser?.disco_employee?.photo_url ||
+    authUser?.disco_employee?.employee_photo_url ||
+    authUser?.disco_employee?.photo ||
+    authUser?.profile_image_url ||
+    authUser?.avatar_url ||
+    authUser?.user_avatar_url ||
+    authUser?.image_url ||
+    authUser?.avatar ||
+    "";
+
+  useEffect(() => {
+    setImageError(false);
+  }, [rawProfileImageUrl]);
+
+  const profileImageUrl = useMemo(() => {
+    if (!rawProfileImageUrl || imageError) return "";
+
+    if (
+      rawProfileImageUrl.startsWith("http://") ||
+      rawProfileImageUrl.startsWith("https://") ||
+      rawProfileImageUrl.startsWith("blob:")
+    ) {
+      return rawProfileImageUrl;
+    }
+
+    return `${apiOrigin}${rawProfileImageUrl.startsWith("/") ? "" : "/"}${rawProfileImageUrl}`;
+  }, [rawProfileImageUrl, imageError, apiOrigin]);
 
   const links = [
     {
@@ -180,8 +222,17 @@ export default function DiscoSidebar({
           <div className="border-b border-slate-800 p-4">
             <div className="rounded-3xl bg-slate-900 p-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-950">
-                  <UserCircle size={24} />
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-slate-950">
+                  {profileImageUrl ? (
+                    <img
+                      src={profileImageUrl}
+                      alt={displayName}
+                      onError={() => setImageError(true)}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <UserCircle size={24} />
+                  )}
                 </div>
 
                 <div className="min-w-0">
@@ -190,7 +241,7 @@ export default function DiscoSidebar({
                   </p>
 
                   <p className="truncate text-xs font-semibold capitalize text-slate-400">
-                    {role.replace("_", " ")}
+                    {String(role).replace("_", " ")}
                   </p>
                 </div>
               </div>

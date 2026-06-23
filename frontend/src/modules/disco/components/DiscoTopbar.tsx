@@ -1,24 +1,173 @@
 // src/modules/disco/components/DiscoTopbar.tsx
 
 import { Bell, LogOut, Menu, Search, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+
+type DiscoUserLike = {
+  full_name?: string | null;
+  name?: string | null;
+  username?: string | null;
+  email?: string | null;
+
+  profile_image_url?: string | null;
+  employee_photo_url?: string | null;
+  user_avatar_url?: string | null;
+
+  photo?: string | null;
+  photo_url?: string | null;
+  avatar?: string | null;
+  avatar_url?: string | null;
+};
 
 type DiscoTopbarProps = {
   onMenuClick: () => void;
+
+  user?: DiscoUserLike | null;
+
   userName?: string;
+  userEmail?: string;
+
+  // Old / current prop support
+  userImage?: string | null;
+  userAvatar?: string | null;
+  userAvatarUrl?: string | null;
+
+  // New employee image prop support
+  profileImageUrl?: string | null;
+  employeePhotoUrl?: string | null;
+  userAvatarImageUrl?: string | null;
+  photoUrl?: string | null;
+  photo?: string | null;
+  avatarUrl?: string | null;
+  avatar?: string | null;
+
   organisationName?: string;
   notificationCount?: number;
   onLogout?: () => void;
 };
 
+function getApiOrigin() {
+  return (
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
+    "http://127.0.0.1:8000"
+  );
+}
+
+function resolveImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  const apiOrigin = getApiOrigin();
+  return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
 export default function DiscoTopbar({
   onMenuClick,
-  userName = "Staff Member",
+  user,
+
+  userName,
+  userEmail,
+
+  userImage,
+  userAvatar,
+  userAvatarUrl,
+
+  profileImageUrl,
+  employeePhotoUrl,
+  userAvatarImageUrl,
+  photoUrl,
+  photo,
+  avatarUrl,
+  avatar,
+
   organisationName,
   notificationCount = 0,
   onLogout,
 }: DiscoTopbarProps) {
   const { organisationSlug } = useParams();
+  const [imageError, setImageError] = useState(false);
+
+  const displayName =
+    userName ||
+    user?.full_name ||
+    user?.name ||
+    user?.username ||
+    "Staff Member";
+
+  const displayEmail = userEmail || user?.email || "Staff Account";
+
+  const rawImageUrl = useMemo(() => {
+    return (
+      profileImageUrl ||
+      employeePhotoUrl ||
+      userAvatarImageUrl ||
+      userAvatarUrl ||
+      userImage ||
+      photoUrl ||
+      photo ||
+      avatarUrl ||
+      avatar ||
+      userAvatar ||
+      user?.profile_image_url ||
+      user?.employee_photo_url ||
+      user?.user_avatar_url ||
+      user?.photo_url ||
+      user?.photo ||
+      user?.avatar_url ||
+      user?.avatar ||
+      ""
+    );
+  }, [
+    profileImageUrl,
+    employeePhotoUrl,
+    userAvatarImageUrl,
+    userAvatarUrl,
+    userImage,
+    photoUrl,
+    photo,
+    avatarUrl,
+    avatar,
+    userAvatar,
+    user,
+  ]);
+
+  const resolvedProfileImageUrl = useMemo(() => {
+    if (!rawImageUrl || imageError) return "";
+    return resolveImageUrl(rawImageUrl);
+  }, [rawImageUrl, imageError]);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [rawImageUrl]);
+
+  function Avatar({ mobile = false }: { mobile?: boolean }) {
+    const sizeClass = mobile ? "h-11 w-11 rounded-2xl" : "h-10 w-10 rounded-xl";
+
+    return (
+      <div
+        className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 ${sizeClass}`}
+      >
+        {resolvedProfileImageUrl ? (
+          <img
+            src={resolvedProfileImageUrl}
+            alt={displayName}
+            onError={() => setImageError(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <User size={18} className="text-slate-700" />
+        )}
+      </div>
+    );
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -73,23 +222,21 @@ export default function DiscoTopbar({
           </button>
 
           <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
-              <User size={18} className="text-slate-700" />
-            </div>
+            <Avatar />
 
             <div className="min-w-0">
               <p className="truncate text-sm font-black text-slate-900">
-                {userName}
+                {displayName}
               </p>
 
-              <p className="text-xs font-medium text-slate-500">
-                Staff Account
+              <p className="truncate text-xs font-medium text-slate-500">
+                {displayEmail}
               </p>
             </div>
           </div>
 
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
-            <User size={18} />
+          <div className="sm:hidden">
+            <Avatar mobile />
           </div>
 
           {onLogout && (
