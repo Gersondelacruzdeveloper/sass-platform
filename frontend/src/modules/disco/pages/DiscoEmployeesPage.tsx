@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Banknote,
-  CalendarDays,
   Image as ImageIcon,
   Plus,
   RefreshCcw,
@@ -74,7 +73,7 @@ type DiscoEmployee = {
 
   full_name: string;
   role: EmployeeRole;
-  phone?: string;
+  phone?: string | null;
 
   daily_pay?: string | number;
   start_date?: string | null;
@@ -961,7 +960,7 @@ export default function DiscoEmployeesPage() {
           {filteredEmployees.map((employee) => (
             <EmployeeCard
               key={employee.id}
-              employee={employee}
+              employee={{ ...employee, phone: employee.phone ?? undefined }}
               onEdit={() => openEditModal(employee)}
               onToggleStatus={() => toggleEmployeeStatus(employee)}
             />

@@ -13,8 +13,6 @@ import {
   Percent,
   Save,
   Settings,
-  ShieldCheck,
-  Smartphone,
   Upload,
 } from "lucide-react";
 
