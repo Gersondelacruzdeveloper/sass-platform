@@ -1,10 +1,12 @@
 // src/modules/disco/components/DiscoTopbar.tsx
 
-import { Bell, LogOut, Menu, Music4, Search, User } from "lucide-react";
+import { Bell, Languages, LogOut, Menu, Music4, Search, User } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { getPublicDiscoBranding } from "../api/brandingApi";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type DiscoUserLike = {
   full_name?: string | null;
@@ -42,12 +44,10 @@ type DiscoTopbarProps = {
   userName?: string;
   userEmail?: string;
 
-  // Old / current prop support
   userImage?: string | null;
   userAvatar?: string | null;
   userAvatarUrl?: string | null;
 
-  // New employee image prop support
   profileImageUrl?: string | null;
   employeePhotoUrl?: string | null;
   userAvatarImageUrl?: string | null;
@@ -107,6 +107,7 @@ export default function DiscoTopbar({
   onLogout,
 }: DiscoTopbarProps) {
   const { organisationSlug } = useParams();
+  const { language, setLanguage, t } = useDiscoTranslation();
 
   const [imageError, setImageError] = useState(false);
   const [brandingLogoError, setBrandingLogoError] = useState(false);
@@ -134,16 +135,16 @@ export default function DiscoTopbar({
     user?.full_name ||
     user?.name ||
     user?.username ||
-    "Staff Member";
+    t("common.staffMember");
 
-  const displayEmail = userEmail || user?.email || "Staff Account";
+  const displayEmail = userEmail || user?.email || t("common.staffAccount");
 
   const displayOrganisationName =
     branding?.platform_name ||
     branding?.company_name ||
     organisationName ||
     organisationSlug ||
-    "Disco Platform";
+    t("common.discoPlatform");
 
   const rawBrandingLogoUrl = branding?.logo_url || branding?.logo || "";
 
@@ -245,6 +246,7 @@ export default function DiscoTopbar({
           <button
             type="button"
             onClick={onMenuClick}
+            aria-label={t("topbar.openMenu")}
             className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 lg:hidden"
           >
             <Menu size={20} />
@@ -254,7 +256,7 @@ export default function DiscoTopbar({
 
           <div className="hidden sm:block">
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-              Disco Platform
+              {t("common.discoPlatform")}
             </p>
 
             <h1 className="max-w-[220px] truncate text-lg font-black text-slate-900 xl:max-w-md">
@@ -272,15 +274,32 @@ export default function DiscoTopbar({
 
             <input
               type="text"
-              placeholder="Search products, reservations, employees..."
+              placeholder={t("topbar.searchPlaceholder")}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-700 outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm md:flex">
+            <Languages size={17} className="text-slate-500" />
+
+            <select
+              value={language}
+              aria-label={t("topbar.language")}
+              onChange={(event) =>
+                setLanguage(event.target.value as DiscoLanguage)
+              }
+              className="bg-transparent text-sm font-black text-slate-700 outline-none"
+            >
+              <option value="en">EN</option>
+              <option value="es">ES</option>
+            </select>
+          </div>
+
           <button
             type="button"
+            aria-label={t("topbar.notifications")}
             className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <Bell size={18} />
@@ -314,6 +333,7 @@ export default function DiscoTopbar({
             <button
               type="button"
               onClick={onLogout}
+              aria-label={t("topbar.logout")}
               className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-600 shadow-sm hover:bg-red-100"
             >
               <LogOut size={18} />

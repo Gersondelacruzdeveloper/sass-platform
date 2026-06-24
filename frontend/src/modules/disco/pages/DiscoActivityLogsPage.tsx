@@ -7,6 +7,9 @@ import DiscoStatCard from "../components/DiscoStatCard";
 import DiscoDataTable from "../components/DiscoDataTable";
 import { getDiscoActivityLogs } from "../api/discoApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type ActivityLog = {
   id: number;
   user?: number | null;
@@ -16,14 +19,18 @@ type ActivityLog = {
   created_at: string;
 };
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en", {
+function formatDate(value: string, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
 }
 
 export default function DiscoActivityLogsPage() {
+  const { language, t } = useDiscoTranslation();
+
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,7 +46,7 @@ export default function DiscoActivityLogsPage() {
       setLogs(Array.isArray(data) ? data : (data as any).results || []);
     } catch (err) {
       console.error(err);
-      setError("Could not load activity logs.");
+      setError(t("activityLogs.errorLoad"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -48,6 +55,7 @@ export default function DiscoActivityLogsPage() {
 
   useEffect(() => {
     loadLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredLogs = useMemo(() => {
@@ -59,53 +67,57 @@ export default function DiscoActivityLogsPage() {
         log.action,
         log.description,
         log.user_name,
-        formatDate(log.created_at),
+        log.user_name ? "" : t("activityLogs.system"),
+        formatDate(log.created_at, language),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [logs, search]);
+  }, [logs, search, language, t]);
 
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
+
     return logs.filter(
       (log) => new Date(log.created_at).toDateString() === today
     ).length;
   }, [logs]);
 
   const uniqueUsers = useMemo(() => {
-    return new Set(logs.map((log) => log.user_name || "System")).size;
-  }, [logs]);
+    return new Set(
+      logs.map((log) => log.user_name || t("activityLogs.system"))
+    ).size;
+  }, [logs, t]);
 
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Activity Logs"
-        subtitle="Monitor staff actions, sales updates, inventory changes, reservations, and system activity."
+        title={t("activityLogs.title")}
+        subtitle={t("activityLogs.subtitle")}
         icon={Activity}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <DiscoStatCard
-          title="Total Logs"
+          title={t("activityLogs.totalLogs")}
           value={logs.length}
           icon={Activity}
-          helper="All recorded activity"
+          helper={t("activityLogs.allRecordedActivity")}
         />
 
         <DiscoStatCard
-          title="Today"
+          title={t("activityLogs.today")}
           value={todayCount}
           icon={RefreshCcw}
-          helper="Actions recorded today"
+          helper={t("activityLogs.actionsRecordedToday")}
         />
 
         <DiscoStatCard
-          title="Users"
+          title={t("activityLogs.users")}
           value={uniqueUsers}
           icon={Activity}
-          helper="Active users in logs"
+          helper={t("activityLogs.activeUsersInLogs")}
         />
       </section>
 
@@ -113,10 +125,11 @@ export default function DiscoActivityLogsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search logs..."
+              placeholder={t("activityLogs.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -130,7 +143,7 @@ export default function DiscoActivityLogsPage() {
             <RefreshCcw
               className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
             />
-            Refresh
+            {t("pos.refresh")}
           </button>
         </div>
       </section>
@@ -154,8 +167,8 @@ export default function DiscoActivityLogsPage() {
       ) : filteredLogs.length === 0 ? (
         <DiscoEmptyState
           icon={Activity}
-          title="No activity logs found"
-          description="Activity will appear here when your team creates sales, updates inventory, manages tables, or changes reservations."
+          title={t("activityLogs.noLogsFound")}
+          description={t("activityLogs.noLogsFoundDescription")}
         />
       ) : (
         <DiscoDataTable
@@ -163,16 +176,16 @@ export default function DiscoActivityLogsPage() {
           columns={[
             {
               key: "action",
-              label: "Action",
+              label: t("activityLogs.action"),
               render: (log: ActivityLog) => (
                 <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
-                  {log.action || "Activity"}
+                  {log.action || t("activityLogs.activity")}
                 </span>
               ),
             },
             {
               key: "description",
-              label: "Description",
+              label: t("activityLogs.description"),
               render: (log: ActivityLog) => (
                 <p className="max-w-xl text-sm font-semibold text-slate-700">
                   {log.description}
@@ -181,19 +194,19 @@ export default function DiscoActivityLogsPage() {
             },
             {
               key: "user",
-              label: "User",
+              label: t("activityLogs.user"),
               render: (log: ActivityLog) => (
                 <span className="text-sm font-bold text-slate-600">
-                  {log.user_name || "System"}
+                  {log.user_name || t("activityLogs.system")}
                 </span>
               ),
             },
             {
               key: "date",
-              label: "Date",
+              label: t("activityLogs.date"),
               render: (log: ActivityLog) => (
                 <span className="text-sm font-bold text-slate-500">
-                  {formatDate(log.created_at)}
+                  {formatDate(log.created_at, language)}
                 </span>
               ),
             },

@@ -22,6 +22,9 @@ import {
   updateCashShift,
 } from "../api/cashShiftsApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type CashShift = {
   id: number;
   opening_cash: string | number;
@@ -35,14 +38,18 @@ type CashShift = {
   closed_by_name?: string | null;
 };
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
 export default function DiscoCashShiftsPage() {
+  const { language, t } = useDiscoTranslation();
+
   const [shifts, setShifts] = useState<CashShift[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,7 +73,7 @@ export default function DiscoCashShiftsPage() {
       setShifts(Array.isArray(data) ? data : (data && data.results) || []);
     } catch (err) {
       console.error(err);
-      setError("Could not load cash shifts.");
+      setError(t("cashShifts.errorLoad"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -75,6 +82,7 @@ export default function DiscoCashShiftsPage() {
 
   useEffect(() => {
     loadShifts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openShift = useMemo(
@@ -94,12 +102,15 @@ export default function DiscoCashShiftsPage() {
         shift.opened_by_name,
         shift.closed_by_name,
         shift.is_open ? "open" : "closed",
+        shift.is_open
+          ? t("cashShifts.search.open")
+          : t("cashShifts.search.closed"),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [shifts, search]);
+  }, [shifts, search, t]);
 
   const stats = useMemo(() => {
     const open = shifts.filter((shift) => shift.is_open).length;
@@ -134,7 +145,7 @@ export default function DiscoCashShiftsPage() {
       await loadShifts(true);
     } catch (err) {
       console.error(err);
-      setError("Could not open cash shift.");
+      setError(t("cashShifts.errorOpen"));
     } finally {
       setSaving(false);
     }
@@ -159,7 +170,7 @@ export default function DiscoCashShiftsPage() {
       await loadShifts(true);
     } catch (err) {
       console.error(err);
-      setError("Could not close cash shift.");
+      setError(t("cashShifts.errorClose"));
     } finally {
       setSaving(false);
     }
@@ -174,40 +185,42 @@ export default function DiscoCashShiftsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Cash Shifts"
-        subtitle="Open, monitor, and close POS cashier shifts with full cash control."
+        title={t("cashShifts.title")}
+        subtitle={t("cashShifts.subtitle")}
         icon={Banknote}
-        actionLabel={openShift ? "Shift Open" : "Open Shift"}
+        actionLabel={
+          openShift ? t("cashShifts.shiftOpen") : t("cashShifts.openShift")
+        }
         onAction={openShift ? undefined : () => setOpenModal(true)}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Open Shifts"
+          title={t("cashShifts.openShifts")}
           value={stats.open}
           icon={Unlock}
-          helper="Currently active"
+          helper={t("cashShifts.currentlyActive")}
         />
 
         <DiscoStatCard
-          title="Closed Shifts"
+          title={t("cashShifts.closedShifts")}
           value={stats.closed}
           icon={Lock}
-          helper="Completed shifts"
+          helper={t("cashShifts.completedShifts")}
         />
 
         <DiscoStatCard
-          title="Opening Cash"
-          value={money(stats.openingTotal)}
+          title={t("cashShifts.openingCash")}
+          value={money(stats.openingTotal, language)}
           icon={Banknote}
-          helper="Total starting cash"
+          helper={t("cashShifts.totalStartingCash")}
         />
 
         <DiscoStatCard
-          title="Closing Cash"
-          value={money(stats.closingTotal)}
+          title={t("cashShifts.closingCash")}
+          value={money(stats.closingTotal, language)}
           icon={CheckCircle2}
-          helper="Total final cash"
+          helper={t("cashShifts.totalFinalCash")}
         />
       </section>
 
@@ -222,10 +235,11 @@ export default function DiscoCashShiftsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search shifts..."
+              placeholder={t("cashShifts.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -240,7 +254,7 @@ export default function DiscoCashShiftsPage() {
               <RefreshCcw
                 className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
               />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -250,7 +264,7 @@ export default function DiscoCashShiftsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
-              Open
+              {t("cashShifts.open")}
             </button>
           </div>
         </div>
@@ -258,10 +272,12 @@ export default function DiscoCashShiftsPage() {
         {openShift && (
           <div className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
             <p className="text-sm font-black text-emerald-950">
-              Current shift is open
+              {t("cashShifts.currentShiftOpen")}
             </p>
+
             <p className="mt-1 text-sm font-semibold text-emerald-800">
-              Opening cash: {money(openShift.opening_cash)}
+              {t("cashShifts.openingCash")}:{" "}
+              {money(openShift.opening_cash, language)}
             </p>
           </div>
         )}
@@ -279,8 +295,8 @@ export default function DiscoCashShiftsPage() {
       ) : filteredShifts.length === 0 ? (
         <DiscoEmptyState
           icon={Banknote}
-          title="No cash shifts found"
-          description="Open your first cash shift before processing POS sales."
+          title={t("cashShifts.noShiftsFound")}
+          description={t("cashShifts.noShiftsFoundDescription")}
         />
       ) : (
         <section className="grid gap-3 lg:grid-cols-2">
@@ -288,9 +304,13 @@ export default function DiscoCashShiftsPage() {
             const normalizedShift = {
               ...shift,
               opened_by_name:
-                shift.opened_by_name === null ? undefined : shift.opened_by_name,
+                shift.opened_by_name === null
+                  ? undefined
+                  : shift.opened_by_name,
               closed_by_name:
-                shift.closed_by_name === null ? undefined : shift.closed_by_name,
+                shift.closed_by_name === null
+                  ? undefined
+                  : shift.closed_by_name,
             } as any; // normalize null -> undefined to satisfy component prop types
 
             return (
@@ -316,10 +336,11 @@ export default function DiscoCashShiftsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  Open Cash Shift
+                  {t("cashShifts.openModalTitle")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Enter the starting cash amount for this shift.
+                  {t("cashShifts.openModalSubtitle")}
                 </p>
               </div>
 
@@ -334,8 +355,9 @@ export default function DiscoCashShiftsPage() {
 
             <label className="mt-5 block">
               <span className="text-sm font-bold text-slate-700">
-                Opening Cash
+                {t("cashShifts.openingCash")}
               </span>
+
               <input
                 type="number"
                 min="0"
@@ -353,7 +375,9 @@ export default function DiscoCashShiftsPage() {
               disabled={saving}
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
-              {saving ? "Opening..." : "Open Shift"}
+              {saving
+                ? t("cashShifts.opening")
+                : t("cashShifts.openShift")}
             </button>
           </form>
         </div>
@@ -368,10 +392,11 @@ export default function DiscoCashShiftsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  Close Cash Shift
+                  {t("cashShifts.closeModalTitle")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Enter the final cash amount for this shift.
+                  {t("cashShifts.closeModalSubtitle")}
                 </p>
               </div>
 
@@ -386,14 +411,16 @@ export default function DiscoCashShiftsPage() {
 
             <div className="mt-5 rounded-3xl bg-slate-50 p-4">
               <p className="text-sm font-black text-slate-950">
-                Opening Cash: {money(selectedShift.opening_cash)}
+                {t("cashShifts.openingCash")}:{" "}
+                {money(selectedShift.opening_cash, language)}
               </p>
             </div>
 
             <label className="mt-5 block">
               <span className="text-sm font-bold text-slate-700">
-                Closing Cash
+                {t("cashShifts.closingCash")}
               </span>
+
               <input
                 type="number"
                 min="0"
@@ -411,7 +438,9 @@ export default function DiscoCashShiftsPage() {
               disabled={saving}
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
-              {saving ? "Closing..." : "Close Shift"}
+              {saving
+                ? t("cashShifts.closing")
+                : t("cashShifts.closeShift")}
             </button>
           </form>
         </div>

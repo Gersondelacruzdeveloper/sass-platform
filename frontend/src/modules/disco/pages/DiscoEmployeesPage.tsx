@@ -23,6 +23,8 @@ import {
   updateEmployee,
 } from "../api/employeesApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
 type EmployeeRole =
   | "owner"
   | "manager"
@@ -71,16 +73,19 @@ type EmployeeForm = {
   is_active: boolean;
 };
 
-const roleOptions: { value: EmployeeRole; label: string }[] = [
-  { value: "owner", label: "Owner" },
-  { value: "manager", label: "Manager" },
-  { value: "cashier", label: "Cashier" },
-  { value: "bartender", label: "Bartender" },
-  { value: "waiter", label: "Waiter" },
-  { value: "security", label: "Security" },
-  { value: "host", label: "Host" },
-  { value: "promoter", label: "Promoter" },
-  { value: "inventory_manager", label: "Inventory Manager" },
+const roleOptions: { value: EmployeeRole; translationKey: string }[] = [
+  { value: "owner", translationKey: "employees.role.owner" },
+  { value: "manager", translationKey: "employees.role.manager" },
+  { value: "cashier", translationKey: "employees.role.cashier" },
+  { value: "bartender", translationKey: "employees.role.bartender" },
+  { value: "waiter", translationKey: "employees.role.waiter" },
+  { value: "security", translationKey: "employees.role.security" },
+  { value: "host", translationKey: "employees.role.host" },
+  { value: "promoter", translationKey: "employees.role.promoter" },
+  {
+    value: "inventory_manager",
+    translationKey: "employees.role.inventory_manager",
+  },
 ];
 
 const initialForm: EmployeeForm = {
@@ -133,10 +138,20 @@ function getEmployeeDisplayImage(employee?: DiscoEmployee | null) {
   );
 }
 
-function getErrorMessage(err: any) {
+function getEmployeeRoleLabel(
+  role: EmployeeRole,
+  t: (key: string, fallback?: string) => string
+) {
+  return t(`employees.role.${role}`, role.replace(/_/g, " "));
+}
+
+function getErrorMessage(
+  err: any,
+  t: (key: string, fallback?: string) => string
+) {
   const data = err?.response?.data;
 
-  if (!data) return "Could not save employee.";
+  if (!data) return t("employees.errorSave");
 
   if (typeof data === "string") return data;
 
@@ -150,11 +165,13 @@ function getErrorMessage(err: any) {
     data.login_email?.[0] ||
     data.login_username?.[0] ||
     data.login_password?.[0] ||
-    "Could not save employee."
+    t("employees.errorSave")
   );
 }
 
 export default function DiscoEmployeesPage() {
+  const { t } = useDiscoTranslation();
+
   const [employees, setEmployees] = useState<DiscoEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -181,7 +198,7 @@ export default function DiscoEmployeesPage() {
       setEmployees(data);
     } catch (err) {
       console.error(err);
-      setError("Could not load employees.");
+      setError(t("employees.errorLoad"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -190,6 +207,7 @@ export default function DiscoEmployeesPage() {
 
   useEffect(() => {
     loadEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredEmployees = useMemo(() => {
@@ -202,15 +220,22 @@ export default function DiscoEmployeesPage() {
         employee.username,
         employee.email,
         employee.role,
+        getEmployeeRoleLabel(employee.role, t),
         employee.phone,
         employee.user ? "login account" : "no login",
+        employee.user
+          ? t("employees.search.loginAccount")
+          : t("employees.search.noLogin"),
         employee.is_active ? "active" : "inactive",
+        employee.is_active
+          ? t("employees.search.active")
+          : t("employees.search.inactive"),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [employees, search]);
+  }, [employees, search, t]);
 
   const stats = useMemo(() => {
     const active = employees.filter((employee) => employee.is_active).length;
@@ -263,12 +288,12 @@ export default function DiscoEmployeesPage() {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setError("Please upload a valid employee photo.");
+      setError(t("employees.errorInvalidPhoto"));
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError("The employee photo must be 5MB or smaller.");
+      setError(t("employees.errorPhotoTooLarge"));
       return;
     }
 
@@ -341,7 +366,7 @@ export default function DiscoEmployeesPage() {
       await loadEmployees(true);
     } catch (err: any) {
       console.error("Employee save error:", err?.response?.data || err);
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(err, t));
     } finally {
       setSaving(false);
     }
@@ -358,47 +383,47 @@ export default function DiscoEmployeesPage() {
       await loadEmployees(true);
     } catch (err) {
       console.error(err);
-      setError("Could not update employee status.");
+      setError(t("employees.errorUpdateStatus"));
     }
   }
 
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Employees & Users"
-        subtitle="Manage staff profiles, roles, user logins, permissions, and active team members."
+        title={t("employees.title")}
+        subtitle={t("employees.subtitle")}
         icon={Users}
-        actionLabel="New Employee"
+        actionLabel={t("employees.newEmployee")}
         onAction={openCreateModal}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Total Employees"
+          title={t("employees.totalEmployees")}
           value={employees.length}
           icon={Users}
-          helper="Registered team members"
+          helper={t("employees.registeredTeamMembers")}
         />
 
         <DiscoStatCard
-          title="Active"
+          title={t("employees.active")}
           value={stats.active}
           icon={UserCheck}
-          helper="Currently active"
+          helper={t("employees.currentlyActive")}
         />
 
         <DiscoStatCard
-          title="User Logins"
+          title={t("employees.userLogins")}
           value={stats.userLogins}
           icon={UserCog}
-          helper="Can access the system"
+          helper={t("employees.canAccessSystem")}
         />
 
         <DiscoStatCard
-          title="Managers"
+          title={t("employees.managers")}
           value={stats.managers}
           icon={UserCheck}
-          helper="Owner and manager roles"
+          helper={t("employees.ownerAndManagerRoles")}
         />
       </section>
 
@@ -413,10 +438,11 @@ export default function DiscoEmployeesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search employee, role, email..."
+              placeholder={t("employees.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -431,7 +457,7 @@ export default function DiscoEmployeesPage() {
               <RefreshCcw
                 className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
               />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -440,7 +466,7 @@ export default function DiscoEmployeesPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("employees.add")}
             </button>
           </div>
         </div>
@@ -458,8 +484,8 @@ export default function DiscoEmployeesPage() {
       ) : filteredEmployees.length === 0 ? (
         <DiscoEmptyState
           icon={Users}
-          title="No employees found"
-          description="Create staff profiles and optional login accounts for cashiers, bartenders, waiters, managers, security, hosts, and inventory staff."
+          title={t("employees.noEmployeesFound")}
+          description={t("employees.noEmployeesFoundDescription")}
         />
       ) : (
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -483,11 +509,13 @@ export default function DiscoEmployeesPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  {editingEmployee ? "Edit Employee" : "New Employee"}
+                  {editingEmployee
+                    ? t("employees.editEmployee")
+                    : t("employees.newEmployee")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Add staff details, profile photo, and optionally create a
-                  login account.
+                  {t("employees.modalSubtitle")}
                 </p>
               </div>
 
@@ -503,8 +531,9 @@ export default function DiscoEmployeesPage() {
             <div className="mt-5 space-y-4">
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Full Name
+                  {t("employees.fullName")}
                 </span>
+
                 <input
                   value={form.full_name}
                   onChange={(e) =>
@@ -514,13 +543,16 @@ export default function DiscoEmployeesPage() {
                     }))
                   }
                   required
-                  placeholder="Example: Maria Rodriguez"
+                  placeholder={t("employees.fullNamePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Role</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("employees.role")}
+                </span>
+
                 <select
                   value={form.role}
                   onChange={(e) =>
@@ -533,14 +565,17 @@ export default function DiscoEmployeesPage() {
                 >
                   {roleOptions.map((role) => (
                     <option key={role.value} value={role.value}>
-                      {role.label}
+                      {t(role.translationKey)}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Phone</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("employees.phone")}
+                </span>
+
                 <input
                   value={form.phone}
                   onChange={(e) =>
@@ -549,7 +584,7 @@ export default function DiscoEmployeesPage() {
                       phone: e.target.value,
                     }))
                   }
-                  placeholder="Example: +1 809 000 0000"
+                  placeholder={t("employees.phonePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
               </label>
@@ -558,11 +593,11 @@ export default function DiscoEmployeesPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-black text-slate-950">
-                      Employee Photo
+                      {t("employees.employeePhoto")}
                     </p>
+
                     <p className="mt-1 text-xs font-medium text-slate-500">
-                      Optional. Use this to identify staff, even when they do
-                      not have a login account.
+                      {t("employees.employeePhotoDescription")}
                     </p>
                   </div>
 
@@ -574,7 +609,7 @@ export default function DiscoEmployeesPage() {
                     {form.photoPreview ? (
                       <img
                         src={form.photoPreview}
-                        alt={form.full_name || "Employee preview"}
+                        alt={form.full_name || t("employees.employeePreview")}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -587,7 +622,8 @@ export default function DiscoEmployeesPage() {
                   <div className="flex-1 space-y-2">
                     <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
                       <Upload className="h-4 w-4" />
-                      Upload Photo
+                      {t("employees.uploadPhoto")}
+
                       <input
                         type="file"
                         accept="image/*"
@@ -602,12 +638,12 @@ export default function DiscoEmployeesPage() {
                         onClick={removeSelectedPhoto}
                         className="ml-2 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                       >
-                        Reset
+                        {t("employees.reset")}
                       </button>
                     )}
 
                     <p className="text-xs font-medium text-slate-500">
-                      JPG, PNG, or WEBP. Maximum size: 5MB.
+                      {t("employees.imageHelp")}
                     </p>
                   </div>
                 </div>
@@ -616,10 +652,11 @@ export default function DiscoEmployeesPage() {
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div>
                   <p className="text-sm font-black text-slate-950">
-                    Create Login Account
+                    {t("employees.createLoginAccount")}
                   </p>
+
                   <p className="text-xs font-medium text-slate-500">
-                    Allow this employee to log into the system.
+                    {t("employees.createLoginDescription")}
                   </p>
                 </div>
 
@@ -641,18 +678,19 @@ export default function DiscoEmployeesPage() {
                 <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   <div>
                     <h3 className="text-sm font-black text-slate-950">
-                      Login Details
+                      {t("employees.loginDetails")}
                     </h3>
+
                     <p className="mt-1 text-xs font-medium text-slate-500">
-                      These credentials are used by the employee to access the
-                      Disco module.
+                      {t("employees.loginDetailsDescription")}
                     </p>
                   </div>
 
                   <label className="block">
                     <span className="text-sm font-bold text-slate-700">
-                      Username
+                      {t("employees.username")}
                     </span>
+
                     <input
                       value={form.username}
                       onChange={(e) =>
@@ -662,15 +700,16 @@ export default function DiscoEmployeesPage() {
                         }))
                       }
                       required={form.create_login && !editingEmployee?.user}
-                      placeholder="Example: maria.cashier"
+                      placeholder={t("employees.usernamePlaceholder")}
                       className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
                     />
                   </label>
 
                   <label className="block">
                     <span className="text-sm font-bold text-slate-700">
-                      Email
+                      {t("employees.email")}
                     </span>
+
                     <input
                       type="email"
                       value={form.email}
@@ -681,15 +720,16 @@ export default function DiscoEmployeesPage() {
                         }))
                       }
                       required={form.create_login && !editingEmployee?.user}
-                      placeholder="Example: maria@company.com"
+                      placeholder={t("employees.emailPlaceholder")}
                       className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
                     />
                   </label>
 
                   <label className="block">
                     <span className="text-sm font-bold text-slate-700">
-                      Password
+                      {t("employees.password")}
                     </span>
+
                     <input
                       type="password"
                       value={form.password}
@@ -702,8 +742,8 @@ export default function DiscoEmployeesPage() {
                       required={form.create_login && !editingEmployee?.user}
                       placeholder={
                         editingEmployee?.user
-                          ? "Leave empty to keep current password"
-                          : "Create a temporary password"
+                          ? t("employees.passwordPlaceholderExisting")
+                          : t("employees.passwordPlaceholderNew")
                       }
                       className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
                     />
@@ -714,10 +754,11 @@ export default function DiscoEmployeesPage() {
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div>
                   <p className="text-sm font-black text-slate-950">
-                    Active Employee
+                    {t("employees.activeEmployee")}
                   </p>
+
                   <p className="text-xs font-medium text-slate-500">
-                    Inactive employees cannot be used for active operations.
+                    {t("employees.activeEmployeeDescription")}
                   </p>
                 </div>
 
@@ -741,10 +782,10 @@ export default function DiscoEmployeesPage() {
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
               {saving
-                ? "Saving..."
+                ? t("employees.saving")
                 : editingEmployee
-                  ? "Save Changes"
-                  : "Create Employee"}
+                  ? t("employees.saveChanges")
+                  : t("employees.createEmployee")}
             </button>
           </form>
         </div>

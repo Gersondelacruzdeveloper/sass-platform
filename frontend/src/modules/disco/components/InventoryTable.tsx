@@ -2,6 +2,9 @@
 
 import { AlertTriangle, Package, Search } from "lucide-react";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type Product = {
   id: number;
   name: string;
@@ -24,6 +27,15 @@ type InventoryTableProps = {
   onView?: (product: Product) => void;
 };
 
+function money(value: number | string, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
 export default function InventoryTable({
   products,
   searchValue = "",
@@ -31,22 +43,32 @@ export default function InventoryTable({
   onAdjustStock,
   onView,
 }: InventoryTableProps) {
-  const money = (value: number | string) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value || 0));
+  const { language, t } = useDiscoTranslation();
 
   const isLowStock = (product: Product) =>
     Number(product.stock) <= Number(product.minimum_stock);
+
+  const tableHeads = [
+    t("inventoryTable.product"),
+    t("inventoryTable.sku"),
+    t("inventoryTable.stock"),
+    t("inventoryTable.minimum"),
+    t("inventoryTable.cost"),
+    t("inventoryTable.price"),
+    t("inventoryTable.status"),
+    t("inventoryTable.actions"),
+  ];
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="space-y-4 border-b border-slate-100 p-4 sm:p-5 lg:flex lg:items-center lg:justify-between lg:space-y-0">
         <div>
-          <h2 className="text-lg font-black text-slate-900">Inventory</h2>
+          <h2 className="text-lg font-black text-slate-900">
+            {t("inventoryTable.title")}
+          </h2>
+
           <p className="text-sm font-semibold text-slate-500">
-            Track stock levels, costs, pricing and low stock alerts.
+            {t("inventoryTable.description")}
           </p>
         </div>
 
@@ -56,10 +78,11 @@ export default function InventoryTable({
               size={17}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
             />
+
             <input
               value={searchValue}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search inventory..."
+              placeholder={t("inventoryTable.searchPlaceholder")}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white sm:w-80"
             />
           </div>
@@ -78,28 +101,44 @@ export default function InventoryTable({
                   <h3 className="truncate text-base font-black text-slate-900">
                     {product.name}
                   </h3>
+
                   <p className="text-xs font-bold text-slate-400">
-                    {product.category_name || "Uncategorized"}
+                    {product.category_name || t("inventoryTable.uncategorized")}
                   </p>
                 </div>
 
                 {isLowStock(product) ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
                     <AlertTriangle size={13} />
-                    Low
+                    {t("inventoryTable.low")}
                   </span>
                 ) : (
                   <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
-                    OK
+                    {t("inventoryTable.ok")}
                   </span>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <Info label="Stock" value={`${product.stock} ${product.unit}`} />
-                <Info label="Minimum" value={`${product.minimum_stock}`} />
-                <Info label="Cost" value={money(product.cost_price)} />
-                <Info label="Price" value={money(product.sale_price)} />
+                <Info
+                  label={t("inventoryTable.stock")}
+                  value={`${product.stock} ${product.unit}`}
+                />
+
+                <Info
+                  label={t("inventoryTable.minimum")}
+                  value={`${product.minimum_stock}`}
+                />
+
+                <Info
+                  label={t("inventoryTable.cost")}
+                  value={money(product.cost_price, language)}
+                />
+
+                <Info
+                  label={t("inventoryTable.price")}
+                  value={money(product.sale_price, language)}
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -108,7 +147,7 @@ export default function InventoryTable({
                     onClick={() => onView(product)}
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700"
                   >
-                    View
+                    {t("inventoryTable.view")}
                   </button>
                 )}
 
@@ -117,7 +156,7 @@ export default function InventoryTable({
                     onClick={() => onAdjustStock(product)}
                     className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"
                   >
-                    Adjust Stock
+                    {t("inventoryTable.adjustStock")}
                   </button>
                 )}
               </div>
@@ -131,16 +170,7 @@ export default function InventoryTable({
         <table className="min-w-full divide-y divide-slate-100">
           <thead className="bg-slate-50">
             <tr>
-              {[
-                "Product",
-                "SKU",
-                "Stock",
-                "Minimum",
-                "Cost",
-                "Price",
-                "Status",
-                "Actions",
-              ].map((head) => (
+              {tableHeads.map((head) => (
                 <th
                   key={head}
                   className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500"
@@ -163,8 +193,10 @@ export default function InventoryTable({
                 <tr key={product.id} className="hover:bg-slate-50">
                   <td className="px-5 py-4">
                     <p className="font-black text-slate-900">{product.name}</p>
+
                     <p className="text-xs font-semibold text-slate-400">
-                      {product.category_name || "Uncategorized"}
+                      {product.category_name ||
+                        t("inventoryTable.uncategorized")}
                     </p>
                   </td>
 
@@ -181,22 +213,22 @@ export default function InventoryTable({
                   </td>
 
                   <td className="px-5 py-4 text-sm font-bold text-slate-600">
-                    {money(product.cost_price)}
+                    {money(product.cost_price, language)}
                   </td>
 
                   <td className="px-5 py-4 text-sm font-black text-slate-900">
-                    {money(product.sale_price)}
+                    {money(product.sale_price, language)}
                   </td>
 
                   <td className="px-5 py-4">
                     {isLowStock(product) ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
                         <AlertTriangle size={13} />
-                        Low Stock
+                        {t("inventoryTable.lowStock")}
                       </span>
                     ) : (
                       <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
-                        In Stock
+                        {t("inventoryTable.inStock")}
                       </span>
                     )}
                   </td>
@@ -208,7 +240,7 @@ export default function InventoryTable({
                           onClick={() => onView(product)}
                           className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
                         >
-                          View
+                          {t("inventoryTable.view")}
                         </button>
                       )}
 
@@ -217,7 +249,7 @@ export default function InventoryTable({
                           onClick={() => onAdjustStock(product)}
                           className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white hover:bg-black"
                         >
-                          Adjust
+                          {t("inventoryTable.adjust")}
                         </button>
                       )}
                     </div>
@@ -242,14 +274,18 @@ function Info({ label, value }: { label: string; value: string }) {
 }
 
 function Empty() {
+  const { t } = useDiscoTranslation();
+
   return (
     <div className="flex min-h-[220px] flex-col items-center justify-center p-8 text-center">
       <Package size={42} className="mb-3 text-slate-300" />
+
       <p className="text-sm font-black text-slate-700">
-        No inventory products found
+        {t("inventoryTable.noProductsFound")}
       </p>
+
       <p className="mt-1 text-xs font-semibold text-slate-400">
-        Add products or adjust your filters.
+        {t("inventoryTable.noProductsFoundDescription")}
       </p>
     </div>
   );

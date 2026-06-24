@@ -24,8 +24,10 @@ import {
   getStockMovements,
 } from "../api/stockMovementsApi";
 
-type MovementType = "in" | "out" | "adjustment" | "loss";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
+type MovementType = "in" | "out" | "adjustment" | "loss";
 
 type Product = {
   id: number;
@@ -41,27 +43,38 @@ const initialForm = {
   note: "",
 };
 
-const movementOptions = [
-  { value: "in", label: "Stock In" },
-  { value: "out", label: "Stock Out" },
-  { value: "adjustment", label: "Adjustment" },
-  { value: "loss", label: "Loss" },
+const movementOptions: {
+  value: MovementType;
+  translationKey: string;
+}[] = [
+  { value: "in", translationKey: "stockMovements.type.in" },
+  { value: "out", translationKey: "stockMovements.type.out" },
+  { value: "adjustment", translationKey: "stockMovements.type.adjustment" },
+  { value: "loss", translationKey: "stockMovements.type.loss" },
 ];
 
-function formatDate(value: string | undefined) {
+function formatDate(value: string | undefined, language: DiscoLanguage) {
   if (!value) return "";
 
-  return new Intl.DateTimeFormat("en", {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
 }
 
-function movementLabel(type: MovementType) {
-  return movementOptions.find((item) => item.value === type)?.label || type;
+function movementLabel(
+  type: MovementType,
+  t: (key: string, fallback?: string) => string
+) {
+  const option = movementOptions.find((item) => item.value === type);
+  return option ? t(option.translationKey) : type;
 }
 
 export default function DiscoStockMovementsPage() {
+  const { language, t } = useDiscoTranslation();
+
   const {
     products,
     loading: productsLoading,
@@ -89,10 +102,11 @@ export default function DiscoStockMovementsPage() {
       const results = Array.isArray(data)
         ? data
         : (data as { results?: StockMovement[] })?.results;
+
       setMovements(results || []);
     } catch (err) {
       console.error("Failed to load stock movements:", err);
-      setError("Could not load stock movements.");
+      setError(t("stockMovements.errorLoad"));
     } finally {
       setLoading(false);
     }
@@ -100,6 +114,7 @@ export default function DiscoStockMovementsPage() {
 
   useEffect(() => {
     refreshMovements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredMovements = useMemo(() => {
@@ -110,17 +125,17 @@ export default function DiscoStockMovementsPage() {
       [
         movement.product_name,
         movement.movement_type,
-        movementLabel(movement.movement_type),
+        movementLabel(movement.movement_type, t),
         movement.quantity,
         movement.note,
         movement.created_by_name,
-        formatDate(movement.created_at),
+        formatDate(movement.created_at, language),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [movements, search]);
+  }, [movements, search, language, t]);
 
   const stats = useMemo(() => {
     const stockIn = movements
@@ -166,7 +181,7 @@ export default function DiscoStockMovementsPage() {
       refreshAll();
     } catch (err) {
       console.error(err);
-      setLocalError("Could not create stock movement.");
+      setLocalError(t("stockMovements.errorCreate"));
     } finally {
       setSaving(false);
     }
@@ -175,18 +190,41 @@ export default function DiscoStockMovementsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Stock Movements"
-        subtitle="Track stock in, stock out, adjustments, losses, and inventory audit history."
+        title={t("stockMovements.title")}
+        subtitle={t("stockMovements.subtitle")}
         icon={PackageSearch}
-        actionLabel="New Movement"
+        actionLabel={t("stockMovements.newMovement")}
         onAction={() => setModalOpen(true)}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <DiscoStatCard title="Stock In" value={stats.stockIn} icon={ArrowDownCircle} helper="Units added" />
-        <DiscoStatCard title="Stock Out" value={stats.stockOut} icon={ArrowUpCircle} helper="Units removed" />
-        <DiscoStatCard title="Adjustments" value={stats.adjustments} icon={Shuffle} helper="Manual corrections" />
-        <DiscoStatCard title="Losses" value={stats.losses} icon={Trash2} helper="Damaged or missing" />
+        <DiscoStatCard
+          title={t("stockMovements.stockIn")}
+          value={stats.stockIn}
+          icon={ArrowDownCircle}
+          helper={t("stockMovements.unitsAdded")}
+        />
+
+        <DiscoStatCard
+          title={t("stockMovements.stockOut")}
+          value={stats.stockOut}
+          icon={ArrowUpCircle}
+          helper={t("stockMovements.unitsRemoved")}
+        />
+
+        <DiscoStatCard
+          title={t("stockMovements.adjustments")}
+          value={stats.adjustments}
+          icon={Shuffle}
+          helper={t("stockMovements.manualCorrections")}
+        />
+
+        <DiscoStatCard
+          title={t("stockMovements.losses")}
+          value={stats.losses}
+          icon={Trash2}
+          helper={t("stockMovements.damagedOrMissing")}
+        />
       </section>
 
       {(error || productsError || localError) && (
@@ -200,10 +238,11 @@ export default function DiscoStockMovementsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search stock movements..."
+              placeholder={t("stockMovements.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -215,7 +254,7 @@ export default function DiscoStockMovementsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <RefreshCcw className="h-4 w-4" />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -224,7 +263,7 @@ export default function DiscoStockMovementsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("product.add")}
             </button>
           </div>
         </div>
@@ -233,74 +272,82 @@ export default function DiscoStockMovementsPage() {
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="h-24 animate-pulse rounded-3xl bg-slate-100" />
+            <div
+              key={index}
+              className="h-24 animate-pulse rounded-3xl bg-slate-100"
+            />
           ))}
         </div>
       ) : filteredMovements.length === 0 ? (
         <DiscoEmptyState
           icon={PackageSearch}
-          title="No stock movements found"
-          description="Create stock movements when products are received, sold, lost, or adjusted."
+          title={t("stockMovements.noMovementsFound")}
+          description={t("stockMovements.noMovementsFoundDescription")}
         />
       ) : (
         <DiscoDataTable
           data={filteredMovements}
-          columns={([
-            {
-              header: "Product",
-              accessor: "product_name",
-              render: (movement: StockMovement) => (
-                <span className="text-sm font-black text-slate-950">
-                  {movement.product_name || `Product #${movement.product}`}
-                </span>
-              ),
-            },
-            {
-              header: "Type",
-              accessor: "movement_type",
-              render: (movement: StockMovement) => (
-                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
-                  {movementLabel(movement.movement_type)}
-                </span>
-              ),
-            },
-            {
-              header: "Quantity",
-              accessor: "quantity",
-              render: (movement: StockMovement) => (
-                <span className="text-sm font-black text-slate-950">
-                  {movement.quantity}
-                </span>
-              ),
-            },
-            {
-              header: "Note",
-              accessor: "note",
-              render: (movement: StockMovement) => (
-                <span className="text-sm font-semibold text-slate-600">
-                  {movement.note || "—"}
-                </span>
-              ),
-            },
-            {
-              header: "Created By",
-              accessor: "created_by_name",
-              render: (movement: StockMovement) => (
-                <span className="text-sm font-bold text-slate-600">
-                  {movement.created_by_name || "System"}
-                </span>
-              ),
-            },
-            {
-              header: "Date",
-              accessor: "created_at",
-              render: (movement: StockMovement) => (
-                <span className="text-sm font-bold text-slate-500">
-                  {formatDate(movement.created_at)}
-                </span>
-              ),
-            },
-          ] as any)}
+          columns={
+            [
+              {
+                header: t("stockMovements.product"),
+                accessor: "product_name",
+                render: (movement: StockMovement) => (
+                  <span className="text-sm font-black text-slate-950">
+                    {movement.product_name ||
+                      `${t("stockMovements.productFallback")} #${
+                        movement.product
+                      }`}
+                  </span>
+                ),
+              },
+              {
+                header: t("stockMovements.type"),
+                accessor: "movement_type",
+                render: (movement: StockMovement) => (
+                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
+                    {movementLabel(movement.movement_type, t)}
+                  </span>
+                ),
+              },
+              {
+                header: t("stockMovements.quantity"),
+                accessor: "quantity",
+                render: (movement: StockMovement) => (
+                  <span className="text-sm font-black text-slate-950">
+                    {movement.quantity}
+                  </span>
+                ),
+              },
+              {
+                header: t("stockMovements.note"),
+                accessor: "note",
+                render: (movement: StockMovement) => (
+                  <span className="text-sm font-semibold text-slate-600">
+                    {movement.note || "—"}
+                  </span>
+                ),
+              },
+              {
+                header: t("stockMovements.createdBy"),
+                accessor: "created_by_name",
+                render: (movement: StockMovement) => (
+                  <span className="text-sm font-bold text-slate-600">
+                    {movement.created_by_name || t("stockMovements.system")}
+                  </span>
+                ),
+              },
+              {
+                header: t("stockMovements.date"),
+                accessor: "created_at",
+                render: (movement: StockMovement) => (
+                  <span className="text-sm font-bold text-slate-500">
+                    {formatDate(movement.created_at, language)}
+                  </span>
+                ),
+              },
+            ] as any
+          }
         />
       )}
 
@@ -313,10 +360,11 @@ export default function DiscoStockMovementsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  New Stock Movement
+                  {t("stockMovements.modalTitle")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Select the product, movement type, quantity, and note.
+                  {t("stockMovements.modalSubtitle")}
                 </p>
               </div>
 
@@ -331,7 +379,10 @@ export default function DiscoStockMovementsPage() {
 
             <div className="mt-5 space-y-4">
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Product</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("stockMovements.product")}
+                </span>
+
                 <select
                   value={form.product}
                   onChange={(e) =>
@@ -341,17 +392,22 @@ export default function DiscoStockMovementsPage() {
                   required
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white disabled:opacity-60"
                 >
-                  <option value="">Select product</option>
+                  <option value="">{t("stockMovements.selectProduct")}</option>
+
                   {products.map((product: Product) => (
                     <option key={product.id} value={product.id}>
-                      {product.name} • Stock: {product.stock} {product.unit || ""}
+                      {product.name} • {t("stockMovements.stock")}:{" "}
+                      {product.stock} {product.unit || ""}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Movement Type</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("stockMovements.movementType")}
+                </span>
+
                 <select
                   value={form.movement_type}
                   onChange={(e) =>
@@ -364,14 +420,17 @@ export default function DiscoStockMovementsPage() {
                 >
                   {movementOptions.map((item) => (
                     <option key={item.value} value={item.value}>
-                      {item.label}
+                      {t(item.translationKey)}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Quantity</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("stockMovements.quantity")}
+                </span>
+
                 <input
                   type="number"
                   min="1"
@@ -380,20 +439,23 @@ export default function DiscoStockMovementsPage() {
                     setForm((prev) => ({ ...prev, quantity: e.target.value }))
                   }
                   required
-                  placeholder="Example: 10"
+                  placeholder={t("stockMovements.quantityPlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Note</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("stockMovements.note")}
+                </span>
+
                 <textarea
                   value={form.note}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, note: e.target.value }))
                   }
                   rows={4}
-                  placeholder="Example: Received from supplier, damaged bottle, manual stock count..."
+                  placeholder={t("stockMovements.notePlaceholder")}
                   className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
@@ -404,7 +466,9 @@ export default function DiscoStockMovementsPage() {
               disabled={saving}
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
-              {saving ? "Saving..." : "Create Movement"}
+              {saving
+                ? t("stockMovements.saving")
+                : t("stockMovements.createMovement")}
             </button>
           </form>
         </div>

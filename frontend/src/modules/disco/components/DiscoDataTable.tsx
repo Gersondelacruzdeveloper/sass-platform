@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
 type Column<T> = {
   key: keyof T | string;
   label: string;
@@ -28,9 +30,13 @@ export default function DiscoDataTable<T extends { id?: number | string }>({
   data,
   searchValue,
   onSearchChange,
-  emptyMessage = "No records found.",
+  emptyMessage,
   actions,
 }: DiscoDataTableProps<T>) {
+  const { t } = useDiscoTranslation();
+
+  const finalEmptyMessage = emptyMessage || t("dataTable.noRecordsFound");
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
       {(title || subtitle || onSearchChange || actions) && (
@@ -39,6 +45,7 @@ export default function DiscoDataTable<T extends { id?: number | string }>({
             {title && (
               <h2 className="text-lg font-black text-slate-900">{title}</h2>
             )}
+
             {subtitle && (
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 {subtitle}
@@ -57,7 +64,7 @@ export default function DiscoDataTable<T extends { id?: number | string }>({
                 <input
                   value={searchValue || ""}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="Search..."
+                  placeholder={t("dataTable.search")}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-400 focus:bg-white sm:w-72"
                 />
               </div>
@@ -72,7 +79,7 @@ export default function DiscoDataTable<T extends { id?: number | string }>({
       <div className="divide-y divide-slate-100 md:hidden">
         {data.length === 0 ? (
           <div className="p-6 text-center text-sm font-semibold text-slate-500">
-            {emptyMessage}
+            {finalEmptyMessage}
           </div>
         ) : (
           data.map((row, rowIndex) => (
@@ -123,7 +130,7 @@ export default function DiscoDataTable<T extends { id?: number | string }>({
                   colSpan={columns.length}
                   className="px-5 py-10 text-center text-sm font-semibold text-slate-500"
                 >
-                  {emptyMessage}
+                  {finalEmptyMessage}
                 </td>
               </tr>
             ) : (

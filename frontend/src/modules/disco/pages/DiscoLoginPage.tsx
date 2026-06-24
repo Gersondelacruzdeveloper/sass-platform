@@ -16,6 +16,9 @@ import api from "../../../api/axios";
 import { useAppDispatch } from "../../../store/hooks";
 import { loginUser } from "../../../features/auth/authSlice";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type Branding = {
   company_name?: string;
   platform_name?: string;
@@ -37,6 +40,7 @@ export default function DiscoLoginPage() {
   const navigate = useNavigate();
   const { organisationSlug } = useParams();
   const dispatch = useAppDispatch();
+  const { language, setLanguage, t } = useDiscoTranslation();
 
   const [branding, setBranding] = useState<Branding | null>(null);
   const [username, setUsername] = useState("");
@@ -104,7 +108,7 @@ export default function DiscoLoginPage() {
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
         err?.response?.data?.message ||
-        "Login failed. Please check your email and password.";
+        t("login.errorFailed");
 
       setError(message);
     } finally {
@@ -124,16 +128,20 @@ export default function DiscoLoginPage() {
     branding?.login_title ||
     branding?.platform_name ||
     branding?.company_name ||
-    "Disco Management";
+    t("login.defaultTitle");
 
   const companyName =
-    branding?.company_name || branding?.platform_name || "Disco Management";
+    branding?.company_name || branding?.platform_name || t("login.defaultTitle");
 
-  const subtitle =
-    branding?.login_subtitle ||
-    "Sign in to manage POS, inventory, tables, staff, reservations, and reports.";
+  const subtitle = branding?.login_subtitle || t("login.defaultSubtitle");
 
   const logo = branding?.logo_url || branding?.logo;
+
+  const workspaceCards = [
+    t("login.pos"),
+    t("login.inventory"),
+    t("login.reports"),
+  ];
 
   return (
     <main
@@ -153,6 +161,24 @@ export default function DiscoLoginPage() {
         <div className="grid w-full gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <section className="hidden lg:block">
             <div className="rounded-[2.25rem] border border-white/15 bg-white/10 p-8 shadow-2xl backdrop-blur-2xl">
+              <div className="mb-6 flex justify-end">
+                <label className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-black text-white/80">
+                  {t("login.language")}
+
+                  <select
+                    value={language}
+                    aria-label={t("login.language")}
+                    onChange={(event) =>
+                      setLanguage(event.target.value as DiscoLanguage)
+                    }
+                    className="rounded-full border border-white/10 bg-slate-950 px-2 py-1 text-xs font-black text-white outline-none"
+                  >
+                    <option value="en">EN</option>
+                    <option value="es">ES</option>
+                  </select>
+                </label>
+              </div>
+
               <div className="flex items-center gap-4">
                 <div
                   className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl text-white shadow-xl"
@@ -171,8 +197,9 @@ export default function DiscoLoginPage() {
 
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.25em] text-white/50">
-                    Welcome to
+                    {t("login.welcomeTo")}
                   </p>
+
                   <h2 className="text-2xl font-black text-white">
                     {companyName}
                   </h2>
@@ -180,7 +207,7 @@ export default function DiscoLoginPage() {
               </div>
 
               <h1 className="mt-10 max-w-xl text-5xl font-black leading-tight xl:text-6xl">
-                {loadingBranding ? "Loading your workspace..." : title}
+                {loadingBranding ? t("login.loadingWorkspace") : title}
               </h1>
 
               <p className="mt-5 max-w-lg text-lg font-medium leading-8 text-white/75">
@@ -188,14 +215,15 @@ export default function DiscoLoginPage() {
               </p>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                {["POS", "Inventory", "Reports"].map((item) => (
+                {workspaceCards.map((item) => (
                   <div
                     key={item}
                     className="rounded-3xl border border-white/15 bg-white/10 p-4 backdrop-blur"
                   >
                     <p className="text-sm font-black">{item}</p>
+
                     <p className="mt-1 text-xs font-semibold text-white/50">
-                      Live control
+                      {t("login.liveControl")}
                     </p>
                   </div>
                 ))}
@@ -203,8 +231,9 @@ export default function DiscoLoginPage() {
 
               <div className="mt-8 flex items-center gap-3 rounded-3xl border border-white/15 bg-white/10 p-4">
                 <Sparkles className="h-5 w-5 text-white/80" />
+
                 <p className="text-sm font-semibold text-white/70">
-                  Branded workspace for {companyName}.
+                  {t("login.brandedWorkspaceFor")} {companyName}.
                 </p>
               </div>
             </div>
@@ -212,6 +241,24 @@ export default function DiscoLoginPage() {
 
           <section className="mx-auto w-full max-w-md">
             <div className="rounded-[2.25rem] border border-white/20 bg-white/95 p-5 text-slate-950 shadow-2xl backdrop-blur sm:p-6">
+              <div className="mb-4 flex justify-end lg:hidden">
+                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+                  {t("login.language")}
+
+                  <select
+                    value={language}
+                    aria-label={t("login.language")}
+                    onChange={(event) =>
+                      setLanguage(event.target.value as DiscoLanguage)
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-700 outline-none"
+                  >
+                    <option value="en">EN</option>
+                    <option value="es">ES</option>
+                  </select>
+                </label>
+              </div>
+
               <div className="flex items-center gap-3">
                 <div
                   className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl text-white shadow-lg"
@@ -233,20 +280,22 @@ export default function DiscoLoginPage() {
                     className="text-xs font-black uppercase tracking-wide"
                     style={{ color: colors.accent }}
                   >
-                    Disco Login
+                    {t("login.discoLogin")}
                   </p>
+
                   <h1 className="truncate text-2xl font-black text-slate-950">
-                    {loadingBranding ? "Loading..." : companyName}
+                    {loadingBranding ? t("login.loading") : companyName}
                   </h1>
                 </div>
               </div>
 
               <div className="mt-6">
                 <h2 className="text-3xl font-black tracking-tight text-slate-950">
-                  Sign in
+                  {t("login.signInTitle")}
                 </h2>
+
                 <p className="mt-2 text-sm font-medium leading-6 text-slate-500">
-                  Access your branded dashboard for {companyName}.
+                  {t("login.accessDashboardFor")} {companyName}.
                 </p>
               </div>
 
@@ -260,7 +309,7 @@ export default function DiscoLoginPage() {
               <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Email Address
+                    {t("login.emailAddress")}
                   </span>
 
                   <div className="relative mt-2">
@@ -271,7 +320,7 @@ export default function DiscoLoginPage() {
                       onChange={(e) => setUsername(e.target.value)}
                       required
                       autoComplete="username"
-                      placeholder="you@company.com"
+                      placeholder={t("login.emailPlaceholder")}
                       className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-sm font-semibold outline-none transition focus:bg-white"
                       style={{
                         borderColor: undefined,
@@ -288,7 +337,7 @@ export default function DiscoLoginPage() {
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Password
+                    {t("login.password")}
                   </span>
 
                   <div className="relative mt-2">
@@ -300,7 +349,7 @@ export default function DiscoLoginPage() {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       autoComplete="current-password"
-                      placeholder="••••••••"
+                      placeholder={t("login.passwordPlaceholder")}
                       className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-12 text-sm font-semibold outline-none transition focus:bg-white"
                       onFocus={(e) => {
                         e.currentTarget.style.borderColor = colors.accent;
@@ -335,11 +384,11 @@ export default function DiscoLoginPage() {
                   {loggingIn ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Signing in...
+                      {t("login.signingIn")}
                     </>
                   ) : (
                     <>
-                      Sign In
+                      {t("login.signIn")}
                       <ArrowRight className="h-5 w-5" />
                     </>
                   )}
@@ -354,14 +403,14 @@ export default function DiscoLoginPage() {
                 }}
               >
                 <p className="text-xs font-bold leading-5 text-slate-500">
-                  Organisation:
+                  {t("login.organisation")}:
                   <span className="ml-1 text-slate-800">
                     {organisationSlug || "almond-brownie"}
                   </span>
                 </p>
 
                 <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                  Platform:
+                  {t("login.platform")}:
                   <span className="ml-1 text-slate-800">{companyName}</span>
                 </p>
               </div>

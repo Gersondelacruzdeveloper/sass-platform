@@ -21,6 +21,9 @@ import {
   updateExpense,
 } from "../api/expensesApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type Expense = {
   id: number;
   title: string;
@@ -41,39 +44,48 @@ const initialForm = {
 };
 
 const categoryOptions = [
-  { value: "general", label: "General" },
-  { value: "inventory", label: "Inventory" },
-  { value: "maintenance", label: "Maintenance" },
-  { value: "staff", label: "Staff" },
-  { value: "marketing", label: "Marketing" },
-  { value: "utilities", label: "Utilities" },
-  { value: "rent", label: "Rent" },
-  { value: "other", label: "Other" },
+  { value: "general", translationKey: "expenses.category.general" },
+  { value: "inventory", translationKey: "expenses.category.inventory" },
+  { value: "maintenance", translationKey: "expenses.category.maintenance" },
+  { value: "staff", translationKey: "expenses.category.staff" },
+  { value: "marketing", translationKey: "expenses.category.marketing" },
+  { value: "utilities", translationKey: "expenses.category.utilities" },
+  { value: "rent", translationKey: "expenses.category.rent" },
+  { value: "other", translationKey: "expenses.category.other" },
 ];
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
-function formatDate(value?: string) {
+function formatDate(value: string | undefined, language: DiscoLanguage) {
   if (!value) return "—";
 
-  return new Intl.DateTimeFormat("en", {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
 }
 
-function categoryLabel(value: string) {
-  return (
-    categoryOptions.find((category) => category.value === value)?.label || value
-  );
+function categoryLabel(
+  value: string,
+  t: (key: string, fallback?: string) => string
+) {
+  const option = categoryOptions.find((category) => category.value === value);
+
+  return option ? t(option.translationKey) : value;
 }
 
 export default function DiscoExpensesPage() {
+  const { language, t } = useDiscoTranslation();
+
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,10 +106,11 @@ export default function DiscoExpensesPage() {
       const expensesData = Array.isArray(data)
         ? data
         : (data as { results?: Expense[] }).results || [];
+
       setExpenses(expensesData);
     } catch (err) {
       console.error(err);
-      setError("Could not load expenses.");
+      setError(t("expenses.errorLoad"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -106,6 +119,7 @@ export default function DiscoExpensesPage() {
 
   useEffect(() => {
     loadExpenses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredExpenses = useMemo(() => {
@@ -117,7 +131,7 @@ export default function DiscoExpensesPage() {
       [
         expense.title,
         expense.category,
-        categoryLabel(expense.category),
+        categoryLabel(expense.category, t),
         expense.amount,
         expense.note,
         expense.created_by_name,
@@ -126,7 +140,7 @@ export default function DiscoExpensesPage() {
         .toLowerCase()
         .includes(term)
     );
-  }, [expenses, search]);
+  }, [expenses, search, t]);
 
   const stats = useMemo(() => {
     const total = expenses.reduce(
@@ -139,6 +153,7 @@ export default function DiscoExpensesPage() {
     ).size;
 
     const today = new Date().toDateString();
+
     const todayTotal = expenses
       .filter((expense) =>
         expense.created_at
@@ -163,12 +178,14 @@ export default function DiscoExpensesPage() {
 
   function openEditModal(expense: Expense) {
     setEditingExpense(expense);
+
     setForm({
       title: expense.title || "",
       category: expense.category || "general",
       amount: String(expense.amount || ""),
       note: expense.note || "",
     });
+
     setModalOpen(true);
   }
 
@@ -198,7 +215,7 @@ export default function DiscoExpensesPage() {
       await loadExpenses(true);
     } catch (err) {
       console.error(err);
-      setError("Could not save expense.");
+      setError(t("expenses.errorSave"));
     } finally {
       setSaving(false);
     }
@@ -207,40 +224,40 @@ export default function DiscoExpensesPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Expenses"
-        subtitle="Track operational costs, purchases, maintenance, utilities, and daily spending."
+        title={t("expenses.title")}
+        subtitle={t("expenses.subtitle")}
         icon={ReceiptText}
-        actionLabel="New Expense"
+        actionLabel={t("expenses.newExpense")}
         onAction={openCreateModal}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Total Expenses"
-          value={money(stats.total)}
+          title={t("expenses.totalExpenses")}
+          value={money(stats.total, language)}
           icon={DollarSign}
-          helper="All recorded expenses"
+          helper={t("expenses.allRecordedExpenses")}
         />
 
         <DiscoStatCard
-          title="Today"
-          value={money(stats.todayTotal)}
+          title={t("expenses.today")}
+          value={money(stats.todayTotal, language)}
           icon={ReceiptText}
-          helper="Expenses added today"
+          helper={t("expenses.expensesAddedToday")}
         />
 
         <DiscoStatCard
-          title="Records"
+          title={t("expenses.records")}
           value={stats.count}
           icon={ReceiptText}
-          helper="Expense entries"
+          helper={t("expenses.expenseEntries")}
         />
 
         <DiscoStatCard
-          title="Categories"
+          title={t("expenses.categories")}
           value={stats.categories}
           icon={Tags}
-          helper="Active categories"
+          helper={t("expenses.activeCategories")}
         />
       </section>
 
@@ -255,10 +272,11 @@ export default function DiscoExpensesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search expenses..."
+              placeholder={t("expenses.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -273,7 +291,7 @@ export default function DiscoExpensesPage() {
               <RefreshCcw
                 className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
               />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -282,7 +300,7 @@ export default function DiscoExpensesPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("expenses.add")}
             </button>
           </div>
         </div>
@@ -300,21 +318,22 @@ export default function DiscoExpensesPage() {
       ) : filteredExpenses.length === 0 ? (
         <DiscoEmptyState
           icon={ReceiptText}
-          title="No expenses found"
-          description="Add your first expense to track costs for inventory, maintenance, staff, utilities, and operations."
+          title={t("expenses.noExpensesFound")}
+          description={t("expenses.noExpensesFoundDescription")}
         />
       ) : (
         <DiscoDataTable
           data={filteredExpenses}
           columns={[
             {
-              label: "Expense",
+              label: t("expenses.expense"),
               key: "title",
               render: (expense: Expense) => (
                 <div>
                   <p className="text-sm font-black text-slate-950">
                     {expense.title}
                   </p>
+
                   {expense.note && (
                     <p className="mt-1 max-w-md text-xs font-medium text-slate-500">
                       {expense.note}
@@ -324,43 +343,43 @@ export default function DiscoExpensesPage() {
               ),
             },
             {
-              label: "Category",
+              label: t("expenses.category"),
               key: "category",
               render: (expense: Expense) => (
                 <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-700">
-                  {categoryLabel(expense.category)}
+                  {categoryLabel(expense.category, t)}
                 </span>
               ),
             },
             {
-              label: "Amount",
+              label: t("expenses.amount"),
               key: "amount",
               render: (expense: Expense) => (
                 <span className="text-sm font-black text-slate-950">
-                  {money(expense.amount)}
+                  {money(expense.amount, language)}
                 </span>
               ),
             },
             {
-              label: "Created By",
+              label: t("expenses.createdBy"),
               key: "created_by_name",
               render: (expense: Expense) => (
                 <span className="text-sm font-bold text-slate-600">
-                  {expense.created_by_name || "System"}
+                  {expense.created_by_name || t("expenses.system")}
                 </span>
               ),
             },
             {
-              label: "Date",
+              label: t("expenses.date"),
               key: "created_at",
               render: (expense: Expense) => (
                 <span className="text-sm font-bold text-slate-500">
-                  {formatDate(expense.created_at)}
+                  {formatDate(expense.created_at, language)}
                 </span>
               ),
             },
             {
-              label: "Actions",
+              label: t("expenses.actions"),
               key: "id",
               render: (expense: Expense) => (
                 <button
@@ -368,7 +387,7 @@ export default function DiscoExpensesPage() {
                   onClick={() => openEditModal(expense)}
                   className="rounded-2xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  Edit
+                  {t("expenses.edit")}
                 </button>
               ),
             },
@@ -385,10 +404,13 @@ export default function DiscoExpensesPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  {editingExpense ? "Edit Expense" : "New Expense"}
+                  {editingExpense
+                    ? t("expenses.editExpense")
+                    : t("expenses.newExpense")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Record spending for this disco organisation.
+                  {t("expenses.modalSubtitle")}
                 </p>
               </div>
 
@@ -403,22 +425,26 @@ export default function DiscoExpensesPage() {
 
             <div className="mt-5 space-y-4">
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Title</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("expenses.titleField")}
+                </span>
+
                 <input
                   value={form.title}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, title: e.target.value }))
                   }
                   required
-                  placeholder="Example: Ice purchase"
+                  placeholder={t("expenses.titlePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Category
+                  {t("expenses.category")}
                 </span>
+
                 <select
                   value={form.category}
                   onChange={(e) =>
@@ -428,7 +454,7 @@ export default function DiscoExpensesPage() {
                 >
                   {categoryOptions.map((category) => (
                     <option key={category.value} value={category.value}>
-                      {category.label}
+                      {t(category.translationKey)}
                     </option>
                   ))}
                 </select>
@@ -436,8 +462,9 @@ export default function DiscoExpensesPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Amount
+                  {t("expenses.amount")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -453,14 +480,17 @@ export default function DiscoExpensesPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Note</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("expenses.note")}
+                </span>
+
                 <textarea
                   value={form.note}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, note: e.target.value }))
                   }
                   rows={4}
-                  placeholder="Optional note..."
+                  placeholder={t("expenses.notePlaceholder")}
                   className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
               </label>
@@ -472,10 +502,10 @@ export default function DiscoExpensesPage() {
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
               {saving
-                ? "Saving..."
+                ? t("expenses.saving")
                 : editingExpense
-                  ? "Save Changes"
-                  : "Create Expense"}
+                  ? t("expenses.saveChanges")
+                  : t("expenses.createExpense")}
             </button>
           </form>
         </div>

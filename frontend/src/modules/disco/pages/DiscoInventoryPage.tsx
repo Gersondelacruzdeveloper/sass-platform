@@ -15,6 +15,8 @@ import DiscoStatCard from "../components/DiscoStatCard";
 import InventoryTable from "../components/InventoryTable";
 
 import { useDiscoProducts } from "../hooks/useDiscoProducts";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type Product = {
   id: number;
@@ -34,14 +36,17 @@ type Product = {
   is_low_stock?: boolean;
 };
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
 export default function DiscoInventoryPage() {
+  const { language, t } = useDiscoTranslation();
   const { products, loading, error, refresh } = useDiscoProducts();
   const [search, setSearch] = useState("");
 
@@ -60,13 +65,17 @@ export default function DiscoInventoryPage() {
         product.supplier_name,
         product.unit,
         product.is_active ? "active" : "inactive",
+        product.is_active ? t("inventory.active") : t("inventory.inactive"),
         product.is_low_stock ? "low stock" : "in stock",
+        product.is_low_stock
+          ? t("inventory.lowStockSearch")
+          : t("inventory.inStock"),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [products, search]);
+  }, [products, search, t]);
 
   const stats = useMemo(() => {
     const active = products.filter((product: Product) => product.is_active);
@@ -104,40 +113,40 @@ export default function DiscoInventoryPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Inventory"
-        subtitle="Monitor stock levels, product value, low-stock alerts, suppliers, and inventory health."
+        title={t("inventory.title")}
+        subtitle={t("inventory.subtitle")}
         icon={Archive}
-        actionLabel="Refresh"
+        actionLabel={t("pos.refresh")}
         onAction={refresh}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Active Products"
+          title={t("inventory.activeProducts")}
           value={stats.active}
           icon={Package}
-          helper="Available in inventory"
+          helper={t("inventory.availableInInventory")}
         />
 
         <DiscoStatCard
-          title="Low Stock"
+          title={t("inventory.lowStock")}
           value={stats.lowStock}
           icon={TrendingDown}
-          helper="Need restocking"
+          helper={t("inventory.needRestocking")}
         />
 
         <DiscoStatCard
-          title="Inventory Cost"
-          value={money(stats.inventoryCost)}
+          title={t("inventory.inventoryCost")}
+          value={money(stats.inventoryCost, language)}
           icon={Archive}
-          helper="Estimated stock cost"
+          helper={t("inventory.estimatedStockCost")}
         />
 
         <DiscoStatCard
-          title="Alcohol Items"
+          title={t("inventory.alcoholItems")}
           value={stats.alcoholProducts}
           icon={Wine}
-          helper="Alcohol product count"
+          helper={t("inventory.alcoholProductCount")}
         />
       </section>
 
@@ -145,10 +154,11 @@ export default function DiscoInventoryPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search inventory..."
+              placeholder={t("inventory.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -159,7 +169,7 @@ export default function DiscoInventoryPage() {
             className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
           >
             <RefreshCcw className="h-4 w-4" />
-            Refresh
+            {t("pos.refresh")}
           </button>
         </div>
       </section>
@@ -183,8 +193,8 @@ export default function DiscoInventoryPage() {
       ) : filteredProducts.length === 0 ? (
         <DiscoEmptyState
           icon={Archive}
-          title="No inventory found"
-          description="Products will appear here once they are created in the products module."
+          title={t("inventory.noInventoryFound")}
+          description={t("inventory.noInventoryFoundDescription")}
         />
       ) : (
         <InventoryTable products={filteredProducts} />

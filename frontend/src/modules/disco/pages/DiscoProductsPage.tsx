@@ -20,6 +20,8 @@ import ProductCard from "../components/ProductCard";
 
 import { useDiscoProducts } from "../hooks/useDiscoProducts";
 import { createProduct, updateProduct } from "../api/productsApi";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type Product = {
   id: number;
@@ -80,17 +82,19 @@ const initialForm: ProductForm = {
 };
 
 const unitOptions = [
-  { value: "unit", label: "Unit" },
-  { value: "bottle", label: "Bottle" },
-  { value: "can", label: "Can" },
-  { value: "box", label: "Box" },
-  { value: "case", label: "Case" },
-  { value: "liter", label: "Liter" },
-  { value: "ml", label: "ML" },
+  { value: "unit", translationKey: "products.unit.unit" },
+  { value: "bottle", translationKey: "products.unit.bottle" },
+  { value: "can", translationKey: "products.unit.can" },
+  { value: "box", translationKey: "products.unit.box" },
+  { value: "case", translationKey: "products.unit.case" },
+  { value: "liter", translationKey: "products.unit.liter" },
+  { value: "ml", translationKey: "products.unit.ml" },
 ];
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
@@ -123,10 +127,13 @@ function getProductImage(product?: Product | null) {
   return resolveImageUrl(product.image_url || product.image || "");
 }
 
-function getErrorMessage(err: any) {
+function getErrorMessage(
+  err: any,
+  t: (key: string, fallback?: string) => string
+) {
   const data = err?.response?.data;
 
-  if (!data) return "Could not save product.";
+  if (!data) return t("products.errorSave");
   if (typeof data === "string") return data;
 
   return (
@@ -140,11 +147,12 @@ function getErrorMessage(err: any) {
     data.minimum_stock?.[0] ||
     data.barcode?.[0] ||
     data.sku?.[0] ||
-    "Could not save product."
+    t("products.errorSave")
   );
 }
 
 export default function DiscoProductsPage() {
+  const { language, t } = useDiscoTranslation();
   const { products, loading, error, refresh } = useDiscoProducts();
 
   const [search, setSearch] = useState("");
@@ -169,13 +177,15 @@ export default function DiscoProductsPage() {
         product.supplier_name,
         product.unit,
         product.is_alcohol ? "alcohol" : "non alcohol",
+        product.is_alcohol ? t("product.alcohol") : "",
         product.is_low_stock ? "low stock" : "in stock",
+        product.is_low_stock ? t("products.lowStock") : "",
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [products, search]);
+  }, [products, search, t]);
 
   const stats = useMemo(() => {
     const active = products.filter((product: Product) => product.is_active);
@@ -245,12 +255,12 @@ export default function DiscoProductsPage() {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setLocalError("Please upload a valid product image.");
+      setLocalError(t("products.errorInvalidImage"));
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setLocalError("The product image must be 5MB or smaller.");
+      setLocalError(t("products.errorImageTooLarge"));
       return;
     }
 
@@ -323,7 +333,7 @@ export default function DiscoProductsPage() {
       await refresh();
     } catch (err: any) {
       console.error("Product save error:", err?.response?.data || err);
-      setLocalError(getErrorMessage(err));
+      setLocalError(getErrorMessage(err, t));
     } finally {
       setSaving(false);
     }
@@ -340,40 +350,40 @@ export default function DiscoProductsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Products"
-        subtitle="Manage drinks, bottles, stock items, prices, suppliers, and product availability."
+        title={t("products.title")}
+        subtitle={t("products.subtitle")}
         icon={Package}
-        actionLabel="New Product"
+        actionLabel={t("products.newProduct")}
         onAction={openCreateModal}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Active Products"
+          title={t("products.activeProducts")}
           value={stats.active}
           icon={Package}
-          helper="Available products"
+          helper={t("products.availableProducts")}
         />
 
         <DiscoStatCard
-          title="Low Stock"
+          title={t("products.lowStock")}
           value={stats.lowStock}
           icon={TrendingDown}
-          helper="Need restocking"
+          helper={t("products.needRestocking")}
         />
 
         <DiscoStatCard
-          title="Alcohol Items"
+          title={t("products.alcoholItems")}
           value={stats.alcohol}
           icon={Wine}
-          helper="Alcohol products"
+          helper={t("products.alcoholProducts")}
         />
 
         <DiscoStatCard
-          title="Retail Value"
-          value={money(stats.retailValue)}
+          title={t("products.retailValue")}
+          value={money(stats.retailValue, language)}
           icon={Boxes}
-          helper="Estimated inventory value"
+          helper={t("products.estimatedInventoryValue")}
         />
       </section>
 
@@ -388,10 +398,11 @@ export default function DiscoProductsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products..."
+              placeholder={t("products.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -403,7 +414,7 @@ export default function DiscoProductsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <RefreshCcw className="h-4 w-4" />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -412,7 +423,7 @@ export default function DiscoProductsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("product.add")}
             </button>
           </div>
         </div>
@@ -430,8 +441,8 @@ export default function DiscoProductsPage() {
       ) : filteredProducts.length === 0 ? (
         <DiscoEmptyState
           icon={Package}
-          title="No products found"
-          description="Create products for your POS, inventory, stock movements, and sales reports."
+          title={t("products.noProductsFound")}
+          description={t("products.noProductsFoundDescription")}
         />
       ) : (
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -454,10 +465,13 @@ export default function DiscoProductsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  {editingProduct ? "Edit Product" : "New Product"}
+                  {editingProduct
+                    ? t("products.editProduct")
+                    : t("products.newProduct")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Add product details, image, POS pricing, and inventory control.
+                  {t("products.modalSubtitle")}
                 </p>
               </div>
 
@@ -475,10 +489,11 @@ export default function DiscoProductsPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-black text-slate-950">
-                      Product Image
+                      {t("products.productImage")}
                     </p>
+
                     <p className="mt-1 text-xs font-medium text-slate-500">
-                      Optional. Upload an image for POS, inventory, and product cards.
+                      {t("products.productImageDescription")}
                     </p>
                   </div>
 
@@ -490,7 +505,7 @@ export default function DiscoProductsPage() {
                     {form.imagePreview ? (
                       <img
                         src={form.imagePreview}
-                        alt={form.name || "Product preview"}
+                        alt={form.name || t("products.productPreview")}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -503,7 +518,8 @@ export default function DiscoProductsPage() {
                   <div className="flex-1 space-y-2">
                     <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
                       <Upload className="h-4 w-4" />
-                      Upload Image
+                      {t("products.uploadImage")}
+
                       <input
                         type="file"
                         accept="image/*"
@@ -518,34 +534,38 @@ export default function DiscoProductsPage() {
                         onClick={resetSelectedImage}
                         className="ml-2 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                       >
-                        Reset
+                        {t("products.reset")}
                       </button>
                     )}
 
                     <p className="text-xs font-medium text-slate-500">
-                      JPG, PNG, or WEBP. Maximum size: 5MB.
+                      {t("products.imageHelp")}
                     </p>
                   </div>
                 </div>
               </div>
 
               <label className="block sm:col-span-2">
-                <span className="text-sm font-bold text-slate-700">Name</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("products.name")}
+                </span>
+
                 <input
                   value={form.name}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, name: e.target.value }))
                   }
                   required
-                  placeholder="Example: Presidente Bottle"
+                  placeholder={t("products.namePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Sale Price
+                  {t("products.salePrice")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -564,8 +584,9 @@ export default function DiscoProductsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Cost Price
+                  {t("products.costPrice")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -583,7 +604,10 @@ export default function DiscoProductsPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Stock</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("products.stock")}
+                </span>
+
                 <input
                   type="number"
                   min="0"
@@ -598,8 +622,9 @@ export default function DiscoProductsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Minimum Stock
+                  {t("products.minimumStock")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -616,7 +641,10 @@ export default function DiscoProductsPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Unit</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("products.unit")}
+                </span>
+
                 <select
                   value={form.unit}
                   onChange={(e) =>
@@ -626,14 +654,17 @@ export default function DiscoProductsPage() {
                 >
                   {unitOptions.map((unit) => (
                     <option key={unit.value} value={unit.value}>
-                      {unit.label}
+                      {t(unit.translationKey)}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Brand</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("products.brand")}
+                </span>
+
                 <input
                   value={form.brand}
                   onChange={(e) =>
@@ -645,8 +676,9 @@ export default function DiscoProductsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Barcode
+                  {t("products.barcode")}
                 </span>
+
                 <input
                   value={form.barcode}
                   onChange={(e) =>
@@ -657,7 +689,10 @@ export default function DiscoProductsPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">SKU</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("products.sku")}
+                </span>
+
                 <input
                   value={form.sku}
                   onChange={(e) =>
@@ -669,8 +704,9 @@ export default function DiscoProductsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Size ML
+                  {t("products.sizeMl")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -684,8 +720,9 @@ export default function DiscoProductsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Supplier
+                  {t("products.supplier")}
                 </span>
+
                 <input
                   value={form.supplier_name}
                   onChange={(e) =>
@@ -700,8 +737,9 @@ export default function DiscoProductsPage() {
 
               <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <span className="text-sm font-black text-slate-950">
-                  Alcohol Product
+                  {t("products.alcoholProduct")}
                 </span>
+
                 <input
                   type="checkbox"
                   checked={form.is_alcohol}
@@ -717,8 +755,9 @@ export default function DiscoProductsPage() {
 
               <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <span className="text-sm font-black text-slate-950">
-                  Active
+                  {t("products.active")}
                 </span>
+
                 <input
                   type="checkbox"
                   checked={form.is_active}
@@ -739,10 +778,10 @@ export default function DiscoProductsPage() {
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
               {saving
-                ? "Saving..."
+                ? t("products.saving")
                 : editingProduct
-                  ? "Save Changes"
-                  : "Create Product"}
+                  ? t("products.saveChanges")
+                  : t("products.createProduct")}
             </button>
           </form>
         </div>

@@ -22,6 +22,8 @@ import DiscoStatCard from "../components/DiscoStatCard";
 import { getDiscoBranding, updateDiscoBranding } from "../api/brandingApi";
 import type { OrganisationBranding } from "../api/brandingApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
 type BrandingForm = OrganisationBranding & {
   app_short_name?: string;
   app_description?: string;
@@ -65,6 +67,7 @@ const initialForm: BrandingForm = {
 };
 
 export default function DiscoSettingsPage() {
+  const { t } = useDiscoTranslation();
   const { organisationSlug } = useParams();
 
   const [saving, setSaving] = useState(false);
@@ -133,14 +136,14 @@ export default function DiscoSettingsPage() {
         });
       } catch (error) {
         console.error("Could not load branding:", error);
-        setError("Could not load branding settings.");
+        setError(t("settings.errorLoadBranding"));
       } finally {
         setLoading(false);
       }
     }
 
     loadBranding();
-  }, [organisationSlug]);
+  }, [organisationSlug, t]);
 
   async function handleSave() {
     if (!organisationSlug) return;
@@ -215,10 +218,10 @@ export default function DiscoSettingsPage() {
       }));
 
       setLogo(null);
-      setSavedMessage("Branding saved. Favicon and app icons were generated from the logo.");
+      setSavedMessage(t("settings.savedMessage"));
     } catch (error) {
       console.error("Could not save branding:", error);
-      setError("Could not save branding settings.");
+      setError(t("settings.errorSaveBranding"));
     } finally {
       setSaving(false);
     }
@@ -227,7 +230,7 @@ export default function DiscoSettingsPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600">
-        Loading settings...
+        {t("settings.loading")}
       </div>
     );
   }
@@ -235,40 +238,40 @@ export default function DiscoSettingsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Settings"
-        subtitle="Manage branding, installable app icons, colors, security, and operational configuration."
+        title={t("settings.title")}
+        subtitle={t("settings.subtitle")}
         icon={Settings}
-        actionLabel={saving ? "Saving..." : "Save"}
+        actionLabel={saving ? t("settings.saving") : t("settings.save")}
         onAction={handleSave}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Organisation"
-          value="Active"
+          title={t("settings.organisation")}
+          value={t("settings.active")}
           icon={Building2}
-          helper="Tenant settings"
+          helper={t("settings.tenantSettings")}
         />
 
         <DiscoStatCard
-          title="Security"
-          value="Enabled"
+          title={t("settings.security")}
+          value={t("settings.enabled")}
           icon={ShieldCheck}
-          helper="Protected access"
+          helper={t("settings.protectedAccess")}
         />
 
         <DiscoStatCard
-          title="Mobile App"
-          value="Ready"
+          title={t("settings.mobileApp")}
+          value={t("settings.ready")}
           icon={Smartphone}
-          helper="Logo generates app icons"
+          helper={t("settings.logoGeneratesAppIcons")}
         />
 
         <DiscoStatCard
-          title="Status"
-          value="Live"
+          title={t("settings.status")}
+          value={t("settings.live")}
           icon={CheckCircle2}
-          helper="System online"
+          helper={t("settings.systemOnline")}
         />
       </section>
 
@@ -288,33 +291,34 @@ export default function DiscoSettingsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <Building2 className="h-5 w-5 text-slate-500" />
+
             <h2 className="text-lg font-black text-slate-950">
-              Organisation Branding
+              {t("settings.organisationBranding")}
             </h2>
           </div>
 
           <div className="mt-5 space-y-4">
             <Input
-              label="Company Name"
+              label={t("settings.companyName")}
               value={form.company_name || ""}
               onChange={(value) => updateField("company_name", value)}
             />
 
             <Input
-              label="Platform Name"
+              label={t("settings.platformName")}
               value={form.platform_name || ""}
               onChange={(value) => updateField("platform_name", value)}
             />
 
             <Input
-              label="App Short Name"
+              label={t("settings.appShortName")}
               value={form.app_short_name || ""}
               onChange={(value) => updateField("app_short_name", value)}
             />
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                App Description
+                {t("settings.appDescription")}
               </span>
 
               <textarea
@@ -322,20 +326,20 @@ export default function DiscoSettingsPage() {
                 onChange={(event) =>
                   updateField("app_description", event.target.value)
                 }
-                placeholder="Short description used for the installable app."
+                placeholder={t("settings.appDescriptionPlaceholder")}
                 className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
             </label>
 
             <Input
-              label="Login Title"
+              label={t("settings.loginTitle")}
               value={form.login_title || ""}
               onChange={(value) => updateField("login_title", value)}
             />
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Login Subtitle
+                {t("settings.loginSubtitle")}
               </span>
 
               <textarea
@@ -352,45 +356,46 @@ export default function DiscoSettingsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <Palette className="h-5 w-5 text-slate-500" />
+
             <h2 className="text-lg font-black text-slate-950">
-              Colors & Logo
+              {t("settings.colorsLogo")}
             </h2>
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <ColorInput
-              label="Primary Color"
+              label={t("settings.primaryColor")}
               value={form.primary_color || "#020617"}
               onChange={(value) => updateField("primary_color", value)}
             />
 
             <ColorInput
-              label="Secondary Color"
+              label={t("settings.secondaryColor")}
               value={form.secondary_color || "#0f172a"}
               onChange={(value) => updateField("secondary_color", value)}
             />
 
             <ColorInput
-              label="Accent Color"
+              label={t("settings.accentColor")}
               value={form.accent_color || "#06b6d4"}
               onChange={(value) => updateField("accent_color", value)}
             />
 
             <ColorInput
-              label="App Theme Color"
+              label={t("settings.appThemeColor")}
               value={form.theme_color || "#020617"}
               onChange={(value) => updateField("theme_color", value)}
             />
 
             <ColorInput
-              label="App Background Color"
+              label={t("settings.appBackgroundColor")}
               value={form.background_color || "#ffffff"}
               onChange={(value) => updateField("background_color", value)}
             />
 
             <FileInput
-              label="Logo"
-              description="Upload one logo. The system will generate favicon and mobile app icons automatically."
+              label={t("settings.logo")}
+              description={t("settings.logoDescription")}
               currentUrl={form.logo_url || form.logo}
               selectedFile={logo}
               onChange={setLogo}
@@ -401,44 +406,44 @@ export default function DiscoSettingsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
           <div className="flex items-center gap-3">
             <Image className="h-5 w-5 text-slate-500" />
+
             <h2 className="text-lg font-black text-slate-950">
-              Generated App Assets
+              {t("settings.generatedAppAssets")}
             </h2>
           </div>
 
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            These are generated automatically from the uploaded logo. You do not
-            need to upload them manually.
+            {t("settings.generatedAppAssetsDescription")}
           </p>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <AssetPreview
-              title="Logo"
-              helper="Used in sidebar and login"
+              title={t("settings.logo")}
+              helper={t("settings.sidebarLoginLogo")}
               url={form.logo_url || form.logo}
             />
 
             <AssetPreview
-              title="Favicon"
-              helper="Browser tab icon"
+              title={t("settings.favicon")}
+              helper={t("settings.browserTabIcon")}
               url={form.favicon_url || form.favicon}
             />
 
             <AssetPreview
-              title="App Icon 192"
-              helper="PWA small icon"
+              title={t("settings.appIcon192")}
+              helper={t("settings.pwaSmallIcon")}
               url={form.app_icon_192_url || form.app_icon_192}
             />
 
             <AssetPreview
-              title="App Icon 512"
-              helper="PWA install icon"
+              title={t("settings.appIcon512")}
+              helper={t("settings.pwaInstallIcon")}
               url={form.app_icon_512_url || form.app_icon_512}
             />
 
             <AssetPreview
-              title="Maskable Icon"
-              helper="Android adaptive icon"
+              title={t("settings.maskableIcon")}
+              helper={t("settings.androidAdaptiveIcon")}
               url={form.maskable_icon_url || form.maskable_icon}
             />
           </div>
@@ -447,17 +452,18 @@ export default function DiscoSettingsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <Bell className="h-5 w-5 text-slate-500" />
+
             <h2 className="text-lg font-black text-slate-950">
-              Notifications
+              {t("settings.notifications")}
             </h2>
           </div>
 
           <div className="mt-5 space-y-3">
             {[
-              "Low stock alerts",
-              "New reservation alerts",
-              "Cash shift reminders",
-              "Daily sales summary",
+              t("settings.lowStockAlerts"),
+              t("settings.newReservationAlerts"),
+              t("settings.cashShiftReminders"),
+              t("settings.dailySalesSummary"),
             ].map((item) => (
               <Toggle key={item} label={item} />
             ))}
@@ -467,15 +473,18 @@ export default function DiscoSettingsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <Lock className="h-5 w-5 text-slate-500" />
-            <h2 className="text-lg font-black text-slate-950">Security</h2>
+
+            <h2 className="text-lg font-black text-slate-950">
+              {t("settings.security")}
+            </h2>
           </div>
 
           <div className="mt-5 space-y-3">
             {[
-              "Require login for POS",
-              "Restrict reports to managers",
-              "Track staff activity logs",
-              "Require cash shift before sales",
+              t("settings.requireLoginForPOS"),
+              t("settings.restrictReportsToManagers"),
+              t("settings.trackStaffActivityLogs"),
+              t("settings.requireCashShiftBeforeSales"),
             ].map((item) => (
               <Toggle key={item} label={item} />
             ))}
@@ -490,7 +499,7 @@ export default function DiscoSettingsPage() {
         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60 sm:w-auto sm:px-6"
       >
         <Save className="h-4 w-4" />
-        {saving ? "Saving..." : "Save Settings"}
+        {saving ? t("settings.saving") : t("settings.saveSettings")}
       </button>
     </div>
   );
@@ -613,11 +622,7 @@ function AssetPreview({
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex h-20 items-center justify-center rounded-2xl bg-white">
         {url ? (
-          <img
-            src={url}
-            alt={title}
-            className="h-14 w-14 object-contain"
-          />
+          <img src={url} alt={title} className="h-14 w-14 object-contain" />
         ) : (
           <Image className="h-6 w-6 text-slate-300" />
         )}

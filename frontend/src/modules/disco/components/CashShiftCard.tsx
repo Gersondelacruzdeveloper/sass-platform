@@ -2,6 +2,9 @@
 
 import { Banknote, Clock, Lock, Unlock, User } from "lucide-react";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type CashShift = {
   id: number;
   opened_by_name?: string;
@@ -16,24 +19,43 @@ type CashShift = {
 type CashShiftCardProps = {
   shift: CashShift;
   onClose?: (shift: CashShift) => void;
+  onCloseShift?: (shift: CashShift) => void;
   onView?: (shift: CashShift) => void;
 };
+
+function money(value: number | string | null | undefined, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
+function formatDateTime(
+  value: string | null | undefined,
+  language: DiscoLanguage,
+  notClosedYetLabel: string
+) {
+  if (!value) return notClosedYetLabel;
+
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
 
 export default function CashShiftCard({
   shift,
   onClose,
+  onCloseShift,
   onView,
 }: CashShiftCardProps) {
-  const money = (value?: number | string | null) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value || 0));
+  const { language, t } = useDiscoTranslation();
 
-  const dateTime = (value?: string | null) => {
-    if (!value) return "Not closed yet";
-    return new Date(value).toLocaleString();
-  };
+  const closeHandler = onClose || onCloseShift;
 
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5">
@@ -51,10 +73,14 @@ export default function CashShiftCard({
 
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Cash Shift
+              {t("cashShifts.cardTitle")}
             </p>
+
             <h3 className="text-lg font-black text-slate-900">
-              #{shift.id} · {shift.is_open ? "Open" : "Closed"}
+              #{shift.id} ·{" "}
+              {shift.is_open
+                ? t("cashShifts.statusOpen")
+                : t("cashShifts.statusClosed")}
             </h3>
           </div>
         </div>
@@ -66,7 +92,9 @@ export default function CashShiftCard({
               : "bg-slate-100 text-slate-600"
           }`}
         >
-          {shift.is_open ? "OPEN" : "CLOSED"}
+          {shift.is_open
+            ? t("cashShifts.statusOpenUpper")
+            : t("cashShifts.statusClosedUpper")}
         </span>
       </div>
 
@@ -74,20 +102,22 @@ export default function CashShiftCard({
         <div className="rounded-2xl bg-slate-50 p-4">
           <div className="flex items-center gap-2 text-xs font-bold uppercase text-slate-400">
             <Banknote size={15} />
-            Opening Cash
+            {t("cashShifts.openingCash")}
           </div>
+
           <p className="mt-2 text-xl font-black text-slate-900">
-            {money(shift.opening_cash)}
+            {money(shift.opening_cash, language)}
           </p>
         </div>
 
         <div className="rounded-2xl bg-slate-50 p-4">
           <div className="flex items-center gap-2 text-xs font-bold uppercase text-slate-400">
             <Banknote size={15} />
-            Closing Cash
+            {t("cashShifts.closingCash")}
           </div>
+
           <p className="mt-2 text-xl font-black text-slate-900">
-            {shift.closing_cash ? money(shift.closing_cash) : "—"}
+            {shift.closing_cash ? money(shift.closing_cash, language) : "—"}
           </p>
         </div>
       </div>
@@ -95,12 +125,14 @@ export default function CashShiftCard({
       <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
         <div className="flex items-start gap-3">
           <User size={17} className="mt-0.5 text-slate-400" />
+
           <div>
             <p className="text-xs font-bold uppercase text-slate-400">
-              Opened By
+              {t("cashShifts.openedBy")}
             </p>
+
             <p className="text-sm font-bold text-slate-800">
-              {shift.opened_by_name || "Unknown"}
+              {shift.opened_by_name || t("cashShifts.unknown")}
             </p>
           </div>
         </div>
@@ -108,12 +140,14 @@ export default function CashShiftCard({
         {!shift.is_open && (
           <div className="flex items-start gap-3">
             <User size={17} className="mt-0.5 text-slate-400" />
+
             <div>
               <p className="text-xs font-bold uppercase text-slate-400">
-                Closed By
+                {t("cashShifts.closedBy")}
               </p>
+
               <p className="text-sm font-bold text-slate-800">
-                {shift.closed_by_name || "Unknown"}
+                {shift.closed_by_name || t("cashShifts.unknown")}
               </p>
             </div>
           </div>
@@ -121,12 +155,18 @@ export default function CashShiftCard({
 
         <div className="flex items-start gap-3">
           <Clock size={17} className="mt-0.5 text-slate-400" />
+
           <div>
             <p className="text-xs font-bold uppercase text-slate-400">
-              Opened At
+              {t("cashShifts.openedAt")}
             </p>
+
             <p className="text-sm font-bold text-slate-800">
-              {dateTime(shift.opened_at)}
+              {formatDateTime(
+                shift.opened_at,
+                language,
+                t("cashShifts.notClosedYet")
+              )}
             </p>
           </div>
         </div>
@@ -134,12 +174,18 @@ export default function CashShiftCard({
         {!shift.is_open && (
           <div className="flex items-start gap-3">
             <Clock size={17} className="mt-0.5 text-slate-400" />
+
             <div>
               <p className="text-xs font-bold uppercase text-slate-400">
-                Closed At
+                {t("cashShifts.closedAt")}
               </p>
+
               <p className="text-sm font-bold text-slate-800">
-                {dateTime(shift.closed_at)}
+                {formatDateTime(
+                  shift.closed_at,
+                  language,
+                  t("cashShifts.notClosedYet")
+                )}
               </p>
             </div>
           </div>
@@ -149,19 +195,21 @@ export default function CashShiftCard({
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {onView && (
           <button
+            type="button"
             onClick={() => onView(shift)}
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
           >
-            View Details
+            {t("cashShifts.viewDetails")}
           </button>
         )}
 
-        {shift.is_open && onClose && (
+        {shift.is_open && closeHandler && (
           <button
-            onClick={() => onClose(shift)}
+            type="button"
+            onClick={() => closeHandler(shift)}
             className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-black"
           >
-            Close Shift
+            {t("cashShifts.closeShift")}
           </button>
         )}
       </div>

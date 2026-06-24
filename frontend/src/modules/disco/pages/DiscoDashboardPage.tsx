@@ -23,15 +23,21 @@ import ProductCard from "../components/ProductCard";
 import ReservationCard from "../components/ReservationCard";
 
 import useDiscoDashboard from "../hooks/useDiscoDashboard";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
 export default function DiscoDashboardPage() {
+  const { language, t } = useDiscoTranslation();
+
   const {
     dashboard,
     stats,
@@ -60,8 +66,8 @@ export default function DiscoDashboardPage() {
     return (
       <div className="space-y-5 pb-24">
         <DiscoPageHeader
-          title="Dashboard"
-          subtitle="Loading your live disco overview..."
+          title={t("dashboard.title")}
+          subtitle={t("dashboard.loadingSubtitle")}
           icon={TrendingUp}
         />
 
@@ -82,10 +88,10 @@ export default function DiscoDashboardPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Dashboard"
-        subtitle="Live overview of sales, inventory, cash shifts, tables, reservations, and staff activity."
+        title={t("dashboard.title")}
+        subtitle={t("dashboard.subtitle")}
         icon={TrendingUp}
-        actionLabel="Refresh"
+        actionLabel={t("dashboard.refresh")}
         onAction={refreshDashboard}
       />
 
@@ -98,61 +104,61 @@ export default function DiscoDashboardPage() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KPIStatCard
-          title="Sales Today"
-          value={money(dashboardStats.salesToday)}
+          title={t("dashboard.salesToday")}
+          value={money(dashboardStats.salesToday, language)}
           icon={DollarSign}
-          change="Today's total"
+          change={t("dashboard.salesTodayChange")}
         />
 
         <KPIStatCard
-          title="Sales This Month"
-          value={money(dashboardStats.salesMonth)}
+          title={t("dashboard.salesThisMonth")}
+          value={money(dashboardStats.salesMonth, language)}
           icon={ShoppingCart}
-          change="This month"
+          change={t("dashboard.salesThisMonthChange")}
         />
 
         <KPIStatCard
-          title="Net Profit"
-          value={money(dashboardStats.netProfit)}
+          title={t("dashboard.netProfit")}
+          value={money(dashboardStats.netProfit, language)}
           icon={TrendingUp}
-          change="Month to date"
+          change={t("dashboard.netProfitChange")}
         />
 
         <KPIStatCard
-          title="Open Cash Shifts"
+          title={t("dashboard.openCashShifts")}
           value={String(dashboardStats.openCashShifts)}
           icon={Banknote}
-          change="Active shifts"
+          change={t("dashboard.openCashShiftsChange")}
         />
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Low Stock"
+          title={t("dashboard.lowStock")}
           value={dashboardStats.lowStock}
           icon={Package}
-          helper="Products below minimum"
+          helper={t("dashboard.lowStockHelper")}
         />
 
         <DiscoStatCard
-          title="Open Tables"
+          title={t("dashboard.openTables")}
           value={dashboardStats.openTables}
           icon={Utensils}
-          helper="Tables currently active"
+          helper={t("dashboard.openTablesHelper")}
         />
 
         <DiscoStatCard
-          title="Reserved Tables"
+          title={t("dashboard.reservedTables")}
           value={dashboardStats.reservedTables}
           icon={CalendarDays}
-          helper="Upcoming reservations"
+          helper={t("dashboard.reservedTablesHelper")}
         />
 
         <DiscoStatCard
-          title="Employees"
+          title={t("dashboard.employees")}
           value={dashboardStats.employees}
           icon={Users}
-          helper="Active team members"
+          helper={t("dashboard.employeesHelper")}
         />
       </section>
 
@@ -161,10 +167,11 @@ export default function DiscoDashboardPage() {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Sales Performance
+                {t("dashboard.salesPerformance")}
               </h2>
+
               <p className="text-sm font-medium text-slate-500">
-                Recent sales trend and revenue movement.
+                {t("dashboard.salesPerformanceDescription")}
               </p>
             </div>
 
@@ -179,8 +186,8 @@ export default function DiscoDashboardPage() {
           ) : (
             <DiscoEmptyState
               icon={Wine}
-              title="No sales chart data"
-              description="Sales analytics will appear here once POS transactions are recorded."
+              title={t("dashboard.noSalesChartData")}
+              description={t("dashboard.noSalesChartDataDescription")}
             />
           )}
         </div>
@@ -192,9 +199,12 @@ export default function DiscoDashboardPage() {
             </div>
 
             <div>
-              <h2 className="text-lg font-black">Today’s Operations</h2>
+              <h2 className="text-lg font-black">
+                {t("dashboard.todaysOperations")}
+              </h2>
+
               <p className="text-sm font-medium text-white/60">
-                Fast executive snapshot
+                {t("dashboard.fastExecutiveSnapshot")}
               </p>
             </div>
           </div>
@@ -202,8 +212,9 @@ export default function DiscoDashboardPage() {
           <div className="mt-5 space-y-3">
             <div className="rounded-2xl bg-white/10 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                Pending Reservations
+                {t("dashboard.pendingReservations")}
               </p>
+
               <p className="mt-2 text-3xl font-black">
                 {dashboardStats.pendingReservations}
               </p>
@@ -211,8 +222,9 @@ export default function DiscoDashboardPage() {
 
             <div className="rounded-2xl bg-white/10 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                Open Tables
+                {t("dashboard.openTables")}
               </p>
+
               <p className="mt-2 text-3xl font-black">
                 {dashboardStats.openTables}
               </p>
@@ -220,8 +232,9 @@ export default function DiscoDashboardPage() {
 
             <div className="rounded-2xl bg-white/10 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                Low Stock Alerts
+                {t("dashboard.lowStockAlerts")}
               </p>
+
               <p className="mt-2 text-3xl font-black">
                 {dashboardStats.lowStock}
               </p>
@@ -233,10 +246,11 @@ export default function DiscoDashboardPage() {
       <section className="grid gap-5 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">
-            Low Stock Products
+            {t("dashboard.lowStockProducts")}
           </h2>
+
           <p className="mt-1 text-sm font-medium text-slate-500">
-            Products that need inventory attention.
+            {t("dashboard.lowStockProductsDescription")}
           </p>
 
           <div className="mt-4 space-y-3">
@@ -255,8 +269,8 @@ export default function DiscoDashboardPage() {
             ) : (
               <DiscoEmptyState
                 icon={Package}
-                title="Stock looks good"
-                description="No products are currently below minimum stock."
+                title={t("dashboard.stockLooksGood")}
+                description={t("dashboard.stockLooksGoodDescription")}
               />
             )}
           </div>
@@ -264,10 +278,11 @@ export default function DiscoDashboardPage() {
 
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">
-            Pending Reservations
+            {t("dashboard.pendingReservations")}
           </h2>
+
           <p className="mt-1 text-sm font-medium text-slate-500">
-            Reservations waiting for confirmation.
+            {t("dashboard.pendingReservationsDescription")}
           </p>
 
           <div className="mt-4 space-y-3">
@@ -289,8 +304,8 @@ export default function DiscoDashboardPage() {
             ) : (
               <DiscoEmptyState
                 icon={CalendarDays}
-                title="No pending reservations"
-                description="New reservations will appear here."
+                title={t("dashboard.noPendingReservations")}
+                description={t("dashboard.noPendingReservationsDescription")}
               />
             )}
           </div>

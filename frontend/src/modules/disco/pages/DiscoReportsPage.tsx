@@ -25,14 +25,21 @@ import useDiscoProducts from "../hooks/useDiscoProducts";
 import useDiscoReservations from "../hooks/useDiscoReservations";
 import useDiscoTables from "../hooks/useDiscoTables";
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
 export default function DiscoReportsPage() {
+  const { language, t } = useDiscoTranslation();
+
   const {
     dashboard,
     stats,
@@ -137,10 +144,10 @@ export default function DiscoReportsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Reports"
-        subtitle="Executive overview of sales, profit, stock, tables, reservations, cash shifts, and operations."
+        title={t("reports.title")}
+        subtitle={t("reports.subtitle")}
         icon={BarChart3}
-        actionLabel="Refresh"
+        actionLabel={t("reports.refresh")}
         onAction={refreshAll}
       />
 
@@ -168,61 +175,61 @@ export default function DiscoReportsPage() {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KPIStatCard
-              title="Sales Today"
-              value={money(report.salesToday)}
-              change="N/A"
+              title={t("reports.salesToday")}
+              value={money(report.salesToday, language)}
+              change={t("reports.notAvailable")}
               icon={DollarSign}
             />
 
             <KPIStatCard
-              title="Sales This Month"
-              value={money(report.salesMonth)}
-              change="N/A"
+              title={t("reports.salesThisMonth")}
+              value={money(report.salesMonth, language)}
+              change={t("reports.notAvailable")}
               icon={ShoppingCart}
             />
 
             <KPIStatCard
-              title="Net Profit"
-              value={money(report.netProfit)}
-              change="N/A"
+              title={t("reports.netProfit")}
+              value={money(report.netProfit, language)}
+              change={t("reports.notAvailable")}
               icon={TrendingUp}
             />
 
             <KPIStatCard
-              title="Open Cash Shifts"
+              title={t("reports.openCashShifts")}
               value={String(report.openCashShifts)}
-              change="N/A"
+              change={t("reports.notAvailable")}
               icon={Banknote}
             />
           </section>
 
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <DiscoStatCard
-              title="Inventory Cost"
-              value={money(report.inventoryCost)}
+              title={t("reports.inventoryCost")}
+              value={money(report.inventoryCost, language)}
               icon={Package}
-              helper="Total stock cost"
+              helper={t("reports.totalStockCost")}
             />
 
             <DiscoStatCard
-              title="Retail Value"
-              value={money(report.inventoryRetail)}
+              title={t("reports.retailValue")}
+              value={money(report.inventoryRetail, language)}
               icon={TrendingUp}
-              helper="Potential sales value"
+              helper={t("reports.potentialSalesValue")}
             />
 
             <DiscoStatCard
-              title="Low Stock"
+              title={t("reports.lowStock")}
               value={report.lowStockProducts}
               icon={TrendingDown}
-              helper="Products to restock"
+              helper={t("reports.productsToRestock")}
             />
 
             <DiscoStatCard
-              title="Employees"
+              title={t("reports.employees")}
               value={report.employees}
               icon={Users}
-              helper="Active team members"
+              helper={t("reports.activeTeamMembers")}
             />
           </section>
 
@@ -231,10 +238,11 @@ export default function DiscoReportsPage() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-black text-slate-950">
-                    Sales Analytics
+                    {t("reports.salesAnalytics")}
                   </h2>
+
                   <p className="text-sm font-medium text-slate-500">
-                    Visual performance based on recent sales activity.
+                    {t("reports.salesAnalyticsDescription")}
                   </p>
                 </div>
 
@@ -252,23 +260,27 @@ export default function DiscoReportsPage() {
               ) : (
                 <DiscoEmptyState
                   icon={BarChart3}
-                  title="No chart data"
-                  description="Sales chart data will appear after POS transactions are recorded."
+                  title={t("reports.noChartData")}
+                  description={t("reports.noChartDataDescription")}
                 />
               )}
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
-              <h2 className="text-lg font-black">Executive Snapshot</h2>
+              <h2 className="text-lg font-black">
+                {t("reports.executiveSnapshot")}
+              </h2>
+
               <p className="mt-1 text-sm font-medium text-white/60">
-                Fast operational report for management.
+                {t("reports.executiveSnapshotDescription")}
               </p>
 
               <div className="mt-5 space-y-3">
                 <div className="rounded-2xl bg-white/10 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    Active Products
+                    {t("reports.activeProducts")}
                   </p>
+
                   <p className="mt-2 text-3xl font-black">
                     {report.activeProducts}
                   </p>
@@ -276,8 +288,9 @@ export default function DiscoReportsPage() {
 
                 <div className="rounded-2xl bg-white/10 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    Reservations
+                    {t("reports.reservations")}
                   </p>
+
                   <p className="mt-2 text-3xl font-black">
                     {report.reservations}
                   </p>
@@ -285,8 +298,9 @@ export default function DiscoReportsPage() {
 
                 <div className="rounded-2xl bg-white/10 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    Tables
+                    {t("reports.tables")}
                   </p>
+
                   <p className="mt-2 text-3xl font-black">{report.tables}</p>
                 </div>
               </div>
@@ -297,16 +311,18 @@ export default function DiscoReportsPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
                 <CalendarDays className="h-5 w-5 text-slate-500" />
+
                 <h2 className="text-lg font-black text-slate-950">
-                  Reservations
+                  {t("reports.reservations")}
                 </h2>
               </div>
 
               <div className="mt-5 space-y-3">
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Pending
+                    {t("reports.pending")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.pendingReservations}
                   </span>
@@ -314,8 +330,9 @@ export default function DiscoReportsPage() {
 
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Confirmed
+                    {t("reports.confirmed")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.confirmedReservations}
                   </span>
@@ -326,14 +343,18 @@ export default function DiscoReportsPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
                 <Utensils className="h-5 w-5 text-slate-500" />
-                <h2 className="text-lg font-black text-slate-950">Tables</h2>
+
+                <h2 className="text-lg font-black text-slate-950">
+                  {t("reports.tables")}
+                </h2>
               </div>
 
               <div className="mt-5 space-y-3">
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Open/Available
+                    {t("reports.openAvailable")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.openTables}
                   </span>
@@ -341,15 +362,19 @@ export default function DiscoReportsPage() {
 
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Reserved
+                    {t("reports.reserved")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.reservedTables}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">VIP</span>
+                  <span className="text-sm font-bold text-slate-600">
+                    {t("reports.vip")}
+                  </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.vipTables}
                   </span>
@@ -360,16 +385,18 @@ export default function DiscoReportsPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
                 <Package className="h-5 w-5 text-slate-500" />
+
                 <h2 className="text-lg font-black text-slate-950">
-                  Inventory Health
+                  {t("reports.inventoryHealth")}
                 </h2>
               </div>
 
               <div className="mt-5 space-y-3">
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Products
+                    {t("reports.products")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.activeProducts}
                   </span>
@@ -377,8 +404,9 @@ export default function DiscoReportsPage() {
 
                 <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
                   <span className="text-sm font-bold text-slate-600">
-                    Low Stock
+                    {t("reports.lowStock")}
                   </span>
+
                   <span className="text-xl font-black text-slate-950">
                     {report.lowStockProducts}
                   </span>

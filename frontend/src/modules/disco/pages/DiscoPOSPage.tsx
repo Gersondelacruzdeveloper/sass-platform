@@ -1,5 +1,3 @@
-// src/modules/disco/pages/DiscoPOSPage.tsx
-
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -41,6 +39,9 @@ import {
   type SaleItem,
 } from "../api/salesApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type PaymentMethod = "cash" | "card";
 
 type Product = {
@@ -69,24 +70,43 @@ type Table = {
   is_vip?: boolean;
 };
 
-function money(value?: string | number | null) {
-  return new Intl.NumberFormat("en-US", {
+type ReceiptLabels = {
+  receipt: string;
+  table: string;
+  productFallback: string;
+  subtotal: string;
+  tax: string;
+  discount: string;
+  total: string;
+  payment: string;
+  thankYou: string;
+};
+
+function money(value?: string | number | null, language: DiscoLanguage = "en") {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
 }
 
-function printReceipt(sale: any) {
+function printReceipt(
+  sale: any,
+  labels: ReceiptLabels,
+  language: DiscoLanguage
+) {
   const printWindow = window.open("", "_blank");
 
   if (!printWindow) return;
 
   const items = sale.sale_items || sale.items || [];
+  const locale = language === "es" ? "es-DO" : "en-US";
 
   printWindow.document.write(`
     <html>
       <head>
-        <title>Receipt ${sale.receipt_number || ""}</title>
+        <title>${labels.receipt} ${sale.receipt_number || ""}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -126,11 +146,11 @@ function printReceipt(sale: any) {
       </head>
       <body>
         <h2>ALMOND BROWNIE</h2>
-        <p>Receipt #${sale.receipt_number || sale.id}</p>
-        <p>${new Date().toLocaleString()}</p>
+        <p>${labels.receipt} #${sale.receipt_number || sale.id}</p>
+        <p>${new Date().toLocaleString(locale)}</p>
         ${
           sale.table_number || sale.table_name
-            ? `<p>Table: ${sale.table_number || sale.table_name}</p>`
+            ? `<p>${labels.table}: ${sale.table_number || sale.table_name}</p>`
             : ""
         }
 
@@ -141,7 +161,9 @@ function printReceipt(sale: any) {
             (item: any) => `
               <div class="row">
                 <span class="item-name">${item.quantity} x ${
-                  item.product_name || item.product?.name || "Product"
+                  item.product_name ||
+                  item.product?.name ||
+                  labels.productFallback
                 }</span>
                 <span>$${Number(item.total || 0).toFixed(2)}</span>
               </div>
@@ -152,30 +174,30 @@ function printReceipt(sale: any) {
         <hr />
 
         <div class="row">
-          <strong>Subtotal</strong>
+          <strong>${labels.subtotal}</strong>
           <strong>$${Number(sale.subtotal || 0).toFixed(2)}</strong>
         </div>
 
         <div class="row">
-          <strong>Tax</strong>
+          <strong>${labels.tax}</strong>
           <strong>$${Number(sale.tax || 0).toFixed(2)}</strong>
         </div>
 
         <div class="row">
-          <strong>Discount</strong>
+          <strong>${labels.discount}</strong>
           <strong>$${Number(sale.discount || 0).toFixed(2)}</strong>
         </div>
 
         <div class="row">
-          <strong>Total</strong>
+          <strong>${labels.total}</strong>
           <strong>$${Number(sale.total || 0).toFixed(2)}</strong>
         </div>
 
-        <p>Payment: ${sale.payment_method || ""}</p>
+        <p>${labels.payment}: ${sale.payment_method || ""}</p>
 
         <hr />
 
-        <p>Thank you!</p>
+        <p>${labels.thankYou}</p>
       </body>
     </html>
   `);
@@ -190,6 +212,8 @@ function printReceipt(sale: any) {
 }
 
 export default function DiscoPOSPage() {
+  const { language, t } = useDiscoTranslation();
+
   const { products, loading, error, refresh } = useDiscoProducts();
 
   const {
@@ -224,6 +248,21 @@ export default function DiscoPOSPage() {
   const [tableLoading, setTableLoading] = useState(false);
   const [billActionLoading, setBillActionLoading] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  const receiptLabels = useMemo<ReceiptLabels>(
+    () => ({
+      receipt: t("pos.receipt"),
+      table: t("pos.table"),
+      productFallback: t("pos.productFallback"),
+      subtotal: t("pos.subtotal"),
+      tax: t("pos.tax"),
+      discount: t("pos.discount"),
+      total: t("pos.total"),
+      payment: t("pos.payment"),
+      thankYou: t("pos.thankYou"),
+    }),
+    [t]
+  );
 
   const availableProducts = useMemo(() => {
     return products.filter(
@@ -271,7 +310,7 @@ export default function DiscoPOSPage() {
     );
   }, [selectedBill]);
 
-  const currentMode = selectedTable ? "Table Bill" : "Direct POS";
+  const currentMode = selectedTable ? t("pos.tableBill") : t("pos.directPOS");
   const currentTotal = selectedTable ? selectedBill?.total || "0.00" : total;
   const currentQuantity = selectedTable ? selectedBillQuantity : cartQuantity;
 
@@ -282,6 +321,10 @@ export default function DiscoPOSPage() {
         bill.sale_type === "table" &&
         bill.status === "pending"
     );
+  }
+
+  function getTableStatusLabel(status: Table["status"]) {
+    return t(`pos.tableStatus.${status}`, status.toUpperCase());
   }
 
   function updateBillState(updatedBill: Sale) {
@@ -329,18 +372,18 @@ export default function DiscoPOSPage() {
   useEffect(() => {
     loadOpenBills().catch((err) => {
       console.error(err);
-      setLocalError("Could not load open table bills.");
+      setLocalError(t("pos.errorLoadOpenBills"));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function getOrCreateBillForTable(table: Table) {
     if (table.status === "inactive") {
-      throw new Error("This table is inactive and cannot be used.");
+      throw new Error(t("pos.errorInactiveTable"));
     }
 
     if (table.status === "cleaning") {
-      throw new Error("This table is currently marked as cleaning.");
+      throw new Error(t("pos.errorCleaningTable"));
     }
 
     const latestBills = await getOpenTableBills();
@@ -379,7 +422,7 @@ export default function DiscoPOSPage() {
           err?.response?.data?.table_id ||
           err?.response?.data?.detail ||
           err?.message ||
-          "Could not open or load this table bill."
+          t("pos.errorOpenTableBill")
       );
     } finally {
       setTableLoading(false);
@@ -409,7 +452,7 @@ export default function DiscoPOSPage() {
     const createdSale = await createSale(payload as any);
 
     if (createdSale) {
-      printReceipt(createdSale);
+      printReceipt(createdSale, receiptLabels, language);
     }
   }
 
@@ -439,7 +482,7 @@ export default function DiscoPOSPage() {
         err?.response?.data?.quantity?.[0] ||
           err?.response?.data?.product_id?.[0] ||
           err?.response?.data?.detail ||
-          "Could not add product to this table bill."
+          t("pos.errorAddProductToBill")
       );
     } finally {
       setBillActionLoading(false);
@@ -465,7 +508,7 @@ export default function DiscoPOSPage() {
       setLocalError(
         err?.response?.data?.quantity?.[0] ||
           err?.response?.data?.detail ||
-          "Could not increase item quantity."
+          t("pos.errorIncreaseQuantity")
       );
     } finally {
       setBillActionLoading(false);
@@ -500,7 +543,7 @@ export default function DiscoPOSPage() {
       setLocalError(
         err?.response?.data?.quantity?.[0] ||
           err?.response?.data?.detail ||
-          "Could not decrease item quantity."
+          t("pos.errorDecreaseQuantity")
       );
     } finally {
       setBillActionLoading(false);
@@ -525,7 +568,7 @@ export default function DiscoPOSPage() {
       setLocalError(
         err?.response?.data?.item_id?.[0] ||
           err?.response?.data?.detail ||
-          "Could not remove item from bill."
+          t("pos.errorRemoveItem")
       );
     } finally {
       setBillActionLoading(false);
@@ -550,7 +593,7 @@ export default function DiscoPOSPage() {
         err?.response?.data?.quantity?.[0] ||
           err?.response?.data?.product_id?.[0] ||
           err?.response?.data?.detail ||
-          "Could not complete checkout."
+          t("pos.errorCompleteCheckout")
       );
     } finally {
       setCheckoutLoading(false);
@@ -561,7 +604,7 @@ export default function DiscoPOSPage() {
     if (!selectedBill) return;
 
     if (!selectedBill.sale_items || selectedBill.sale_items.length === 0) {
-      setLocalError("Cannot checkout an empty table bill.");
+      setLocalError(t("pos.errorEmptyTableBill"));
       return;
     }
 
@@ -575,7 +618,7 @@ export default function DiscoPOSPage() {
         tax: "0.00",
       });
 
-      printReceipt(checkedOutSale);
+      printReceipt(checkedOutSale, receiptLabels, language);
       leaveTableMode();
       setCustomerName("");
       await refreshAll();
@@ -585,7 +628,7 @@ export default function DiscoPOSPage() {
         err?.response?.data?.items?.[0] ||
           err?.response?.data?.sale?.[0] ||
           err?.response?.data?.detail ||
-          "Could not checkout this table bill."
+          t("pos.errorCheckoutTableBill")
       );
     } finally {
       setCheckoutLoading(false);
@@ -595,9 +638,7 @@ export default function DiscoPOSPage() {
   async function handleCancelTableBill() {
     if (!selectedBill) return;
 
-    const confirmed = window.confirm(
-      "Cancel this table bill? Products will be returned to stock and the table will become available."
-    );
+    const confirmed = window.confirm(t("pos.confirmCancelTableBill"));
 
     if (!confirmed) return;
 
@@ -610,9 +651,7 @@ export default function DiscoPOSPage() {
       await refreshAll();
     } catch (err: any) {
       console.error(err);
-      setLocalError(
-        err?.response?.data?.detail || "Could not cancel this table bill."
-      );
+      setLocalError(err?.response?.data?.detail || t("pos.errorCancelTableBill"));
     } finally {
       setCheckoutLoading(false);
     }
@@ -621,40 +660,40 @@ export default function DiscoPOSPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="POS"
-        subtitle="Fast direct sales and running table bills that save each item immediately."
+        title={t("pos.title")}
+        subtitle={t("pos.subtitle")}
         icon={ShoppingCart}
-        actionLabel="Refresh"
+        actionLabel={t("pos.refresh")}
         onAction={refreshAll}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Mode"
+          title={t("pos.mode")}
           value={currentMode}
           icon={ShoppingCart}
-          helper={selectedTable ? selectedTable.name : "No table selected"}
+          helper={selectedTable ? selectedTable.name : t("pos.noTableSelected")}
         />
 
         <DiscoStatCard
-          title="Products Available"
+          title={t("pos.productsAvailable")}
           value={availableProducts.length}
           icon={Package}
-          helper="Ready for sale"
+          helper={t("pos.readyForSale")}
         />
 
         <DiscoStatCard
-          title="Items"
+          title={t("pos.items")}
           value={currentQuantity}
           icon={ShoppingCart}
-          helper={selectedTable ? "Saved to table" : "Current cart"}
+          helper={selectedTable ? t("pos.savedToTable") : t("pos.currentCart")}
         />
 
         <DiscoStatCard
-          title="Total"
-          value={money(currentTotal)}
+          title={t("pos.total")}
+          value={money(currentTotal, language)}
           icon={Utensils}
-          helper={`${occupiedTables.length} occupied tables`}
+          helper={`${occupiedTables.length} ${t("pos.occupiedTables")}`}
         />
       </section>
 
@@ -675,7 +714,7 @@ export default function DiscoPOSPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search product, brand, category..."
+                  placeholder={t("pos.searchProductPlaceholder")}
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
               </div>
@@ -685,8 +724,8 @@ export default function DiscoPOSPage() {
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder={
                   selectedTable
-                    ? `Guest name for ${selectedTable.name}`
-                    : "Customer name optional"
+                    ? `${t("pos.guestNameFor")} ${selectedTable.name}`
+                    : t("pos.customerNameOptional")
                 }
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white lg:max-w-xs"
               />
@@ -697,7 +736,7 @@ export default function DiscoPOSPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
               >
                 <RefreshCcw className="h-4 w-4" />
-                Refresh
+                {t("pos.refresh")}
               </button>
             </div>
           </section>
@@ -705,10 +744,12 @@ export default function DiscoPOSPage() {
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-lg font-black text-slate-950">Tables</h2>
+                <h2 className="text-lg font-black text-slate-950">
+                  {t("pos.tables")}
+                </h2>
+
                 <p className="text-sm font-medium text-slate-500">
-                  Select a table to open or continue a running bill. Every
-                  product click will save immediately to that table.
+                  {t("pos.tablesDescription")}
                 </p>
               </div>
 
@@ -719,7 +760,7 @@ export default function DiscoPOSPage() {
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
                 >
                   <X className="h-4 w-4" />
-                  Leave Table
+                  {t("pos.leaveTable")}
                 </button>
               )}
             </div>
@@ -736,8 +777,8 @@ export default function DiscoPOSPage() {
             ) : serviceTables.length === 0 ? (
               <DiscoEmptyState
                 icon={Utensils}
-                title="No tables available"
-                description="You can still process orders as normal POS sales."
+                title={t("pos.noTablesAvailable")}
+                description={t("pos.noTablesAvailableDescription")}
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -773,12 +814,13 @@ export default function DiscoPOSPage() {
                             <p className="truncate text-base font-black">
                               {table.name}
                             </p>
+
                             <p
                               className={`truncate text-sm font-semibold ${
                                 isSelected ? "text-white/70" : "text-slate-500"
                               }`}
                             >
-                              {table.floor || "Main floor"}
+                              {table.floor || t("pos.mainFloor")}
                             </p>
                           </div>
                         </div>
@@ -800,16 +842,18 @@ export default function DiscoPOSPage() {
                             isSelected ? "bg-white/10" : "bg-slate-100"
                           }`}
                         >
-                          {table.status.toUpperCase()}
+                          {getTableStatusLabel(table.status)}
                         </span>
 
                         {openBill && (
                           <span
                             className={`rounded-full px-3 py-1 ${
-                              isSelected ? "bg-white/10" : "bg-slate-950 text-white"
+                              isSelected
+                                ? "bg-white/10"
+                                : "bg-slate-950 text-white"
                             }`}
                           >
-                            Bill #{openBill.id}
+                            {t("pos.billLabelShort")} #{openBill.id}
                           </span>
                         )}
 
@@ -818,7 +862,7 @@ export default function DiscoPOSPage() {
                             isSelected ? "bg-white/10" : "bg-slate-100"
                           }`}
                         >
-                          Cap: {table.capacity || 0}
+                          {t("pos.capacityShort")}: {table.capacity || 0}
                         </span>
                       </div>
                     </button>
@@ -841,8 +885,8 @@ export default function DiscoPOSPage() {
             ) : filteredProducts.length === 0 ? (
               <DiscoEmptyState
                 icon={Package}
-                title="No products found"
-                description="Create active products with stock before using the POS."
+                title={t("pos.noProductsFound")}
+                description={t("pos.noProductsFoundDescription")}
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -872,7 +916,7 @@ export default function DiscoPOSPage() {
                 <div>
                   <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
                     <ReceiptText className="h-4 w-4" />
-                    Running Table Bill
+                    {t("pos.runningTableBill")}
                   </div>
 
                   <h2 className="text-lg font-black text-slate-950">
@@ -881,8 +925,10 @@ export default function DiscoPOSPage() {
 
                   <p className="text-sm font-semibold text-slate-500">
                     {selectedBill
-                      ? `Bill #${selectedBill.id} · saved automatically`
-                      : "Opening bill..."}
+                      ? `${t("pos.billLabelShort")} #${selectedBill.id} · ${t(
+                          "pos.savedAutomatically"
+                        )}`
+                      : t("pos.openingBill")}
                   </p>
                 </div>
 
@@ -896,19 +942,20 @@ export default function DiscoPOSPage() {
               </div>
 
               <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
-                Product clicks are saved immediately to this table. You can
-                switch tables and come back later.
+                {t("pos.tableBillHelper")}
               </div>
 
               <div className="mt-4 space-y-3">
                 {!selectedBill || !selectedBill.sale_items?.length ? (
                   <div className="rounded-3xl border border-dashed border-slate-200 p-5 text-center">
                     <ShoppingCart className="mx-auto h-8 w-8 text-slate-300" />
+
                     <p className="mt-2 text-sm font-black text-slate-700">
-                      No items yet
+                      {t("pos.noItemsYet")}
                     </p>
+
                     <p className="mt-1 text-xs font-semibold text-slate-500">
-                      Click a product to save it to this table.
+                      {t("pos.noItemsYetDescription")}
                     </p>
                   </div>
                 ) : (
@@ -920,15 +967,17 @@ export default function DiscoPOSPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-black text-slate-950">
-                            {item.product_name || `Product #${item.product}`}
+                            {item.product_name ||
+                              `${t("pos.productFallback")} #${item.product}`}
                           </p>
+
                           <p className="text-xs font-semibold text-slate-500">
-                            {item.quantity} x {money(item.unit_price)}
+                            {item.quantity} x {money(item.unit_price, language)}
                           </p>
                         </div>
 
                         <p className="text-sm font-black text-slate-950">
-                          {money(item.total)}
+                          {money(item.total, language)}
                         </p>
                       </div>
 
@@ -967,23 +1016,23 @@ export default function DiscoPOSPage() {
 
               <div className="mt-4 rounded-2xl bg-slate-50 p-4">
                 <div className="flex items-center justify-between text-sm font-bold text-slate-600">
-                  <span>Subtotal</span>
-                  <span>{money(selectedBill?.subtotal)}</span>
+                  <span>{t("pos.subtotal")}</span>
+                  <span>{money(selectedBill?.subtotal, language)}</span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between text-sm font-bold text-slate-600">
-                  <span>Tax</span>
-                  <span>{money(selectedBill?.tax)}</span>
+                  <span>{t("pos.tax")}</span>
+                  <span>{money(selectedBill?.tax, language)}</span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between text-sm font-bold text-slate-600">
-                  <span>Discount</span>
-                  <span>-{money(selectedBill?.discount)}</span>
+                  <span>{t("pos.discount")}</span>
+                  <span>-{money(selectedBill?.discount, language)}</span>
                 </div>
 
                 <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-base font-black text-slate-950">
-                  <span>Total</span>
-                  <span>{money(selectedBill?.total)}</span>
+                  <span>{t("pos.total")}</span>
+                  <span>{money(selectedBill?.total, language)}</span>
                 </div>
               </div>
 
@@ -994,7 +1043,7 @@ export default function DiscoPOSPage() {
                   onClick={() => handleTableCheckout("cash")}
                   className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-60"
                 >
-                  Cash
+                  {t("pos.cash")}
                 </button>
 
                 <button
@@ -1003,7 +1052,7 @@ export default function DiscoPOSPage() {
                   onClick={() => handleTableCheckout("card")}
                   className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-60"
                 >
-                  Card
+                  {t("pos.card")}
                 </button>
               </div>
 
@@ -1013,7 +1062,7 @@ export default function DiscoPOSPage() {
                 onClick={handleCancelTableBill}
                 className="mt-2 h-12 w-full rounded-2xl border border-red-200 bg-red-50 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-60"
               >
-                Cancel Bill
+                {t("pos.cancelBill")}
               </button>
             </div>
           ) : (

@@ -32,6 +32,8 @@ import {
   type Sale,
 } from "../api/salesApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
 const initialForm = {
   name: "",
   floor: "",
@@ -41,15 +43,16 @@ const initialForm = {
   is_vip: false,
 };
 
-const statusOptions: { value: TableStatus; label: string }[] = [
-  { value: "available", label: "Available" },
-  { value: "occupied", label: "Occupied" },
-  { value: "reserved", label: "Reserved" },
-  { value: "cleaning", label: "Cleaning" },
-  { value: "inactive", label: "Inactive" },
+const statusOptions: { value: TableStatus; translationKey: string }[] = [
+  { value: "available", translationKey: "tables.status.available" },
+  { value: "occupied", translationKey: "tables.status.occupied" },
+  { value: "reserved", translationKey: "tables.status.reserved" },
+  { value: "cleaning", translationKey: "tables.status.cleaning" },
+  { value: "inactive", translationKey: "tables.status.inactive" },
 ];
 
 export default function DiscoTablesPage() {
+  const { t } = useDiscoTranslation();
   const { tables, loading, error, refresh } = useDiscoTables();
 
   const [search, setSearch] = useState("");
@@ -64,13 +67,22 @@ export default function DiscoTablesPage() {
   const [editingTable, setEditingTable] = useState<DiscoTable | null>(null);
   const [form, setForm] = useState(initialForm);
 
+  function getTableStatusLabel(status: TableStatus | string) {
+    return t(`tables.status.${status}`, String(status));
+  }
+
+  function getBillStatusLabel(status?: string | null) {
+    if (!status) return "";
+    return t(`tables.billStatus.${status}`, status);
+  }
+
   async function loadOpenBills() {
     try {
       const bills = await getOpenTableBills();
       setOpenBills(bills);
     } catch (err) {
       console.error(err);
-      setLocalError("Could not load open table bills.");
+      setLocalError(t("tables.errorLoadOpenBills"));
     }
   }
 
@@ -80,6 +92,7 @@ export default function DiscoTablesPage() {
 
   useEffect(() => {
     loadOpenBills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredTables = useMemo<DiscoTable[]>(() => {
@@ -95,13 +108,15 @@ export default function DiscoTablesPage() {
         table.capacity,
         table.minimum_spend,
         table.status,
+        getTableStatusLabel(table.status),
         table.is_vip ? "vip" : "regular",
+        table.is_vip ? t("tables.vip") : t("tables.regular"),
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [tables, search]);
+  }, [tables, search, t]);
 
   const stats = useMemo(() => {
     const safeTables = tables as DiscoTable[];
@@ -142,12 +157,12 @@ export default function DiscoTablesPage() {
       setLocalError("");
 
       if (table.status === "inactive") {
-        setLocalError("This table is inactive and cannot be used.");
+        setLocalError(t("tables.errorInactive"));
         return;
       }
 
       if (table.status === "cleaning") {
-        setLocalError("This table is currently marked as cleaning.");
+        setLocalError(t("tables.errorCleaning"));
         return;
       }
 
@@ -155,9 +170,7 @@ export default function DiscoTablesPage() {
         const existingBill = findOpenBillForTable(table.id);
 
         if (!existingBill) {
-          setLocalError(
-            "This table is occupied, but no open bill was found. Refresh or check the backend data."
-          );
+          setLocalError(t("tables.errorOccupiedNoBill"));
           return;
         }
 
@@ -180,7 +193,7 @@ export default function DiscoTablesPage() {
         err?.response?.data?.table_id?.[0] ||
           err?.response?.data?.table_id ||
           err?.response?.data?.detail ||
-          "Could not open table bill."
+          t("tables.errorOpenBill")
       );
     } finally {
       setOpeningBill(false);
@@ -195,6 +208,7 @@ export default function DiscoTablesPage() {
 
   function openEditModal(table: DiscoTable) {
     setEditingTable(table);
+
     setForm({
       name: table.name || "",
       floor: table.floor || "",
@@ -203,6 +217,7 @@ export default function DiscoTablesPage() {
       status: table.status || "available",
       is_vip: Boolean(table.is_vip),
     });
+
     setModalOpen(true);
   }
 
@@ -241,7 +256,7 @@ export default function DiscoTablesPage() {
       setLocalError(
         err?.response?.data?.detail ||
           err?.response?.data?.name?.[0] ||
-          "Could not save table."
+          t("tables.errorSave")
       );
     } finally {
       setSaving(false);
@@ -251,40 +266,40 @@ export default function DiscoTablesPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Tables"
-        subtitle="Open table bills, continue occupied tables, manage VIP sections, and control live table status."
+        title={t("tables.title")}
+        subtitle={t("tables.subtitle")}
         icon={Table2}
-        actionLabel="New Table"
+        actionLabel={t("tables.newTable")}
         onAction={openCreateModal}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Available"
+          title={t("tables.available")}
           value={stats.available}
           icon={Table2}
-          helper="Ready for guests"
+          helper={t("tables.readyForGuests")}
         />
 
         <DiscoStatCard
-          title="Occupied"
+          title={t("tables.occupied")}
           value={stats.occupied}
           icon={Users}
-          helper="Open bills"
+          helper={t("tables.openBills")}
         />
 
         <DiscoStatCard
-          title="Reserved"
+          title={t("tables.reserved")}
           value={stats.reserved}
           icon={RefreshCcw}
-          helper="Reserved tables"
+          helper={t("tables.reservedTables")}
         />
 
         <DiscoStatCard
-          title="VIP Tables"
+          title={t("tables.vipTables")}
           value={stats.vip}
           icon={Crown}
-          helper={`Capacity: ${stats.totalCapacity}`}
+          helper={`${t("tables.capacity")}: ${stats.totalCapacity}`}
         />
       </section>
 
@@ -303,7 +318,7 @@ export default function DiscoTablesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tables..."
+              placeholder={t("tables.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -315,7 +330,7 @@ export default function DiscoTablesPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <RefreshCcw className="h-4 w-4" />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -324,14 +339,13 @@ export default function DiscoTablesPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("tables.add")}
             </button>
           </div>
         </div>
 
         <p className="mt-3 text-xs font-semibold text-slate-500">
-          Click an available table to open a bill. Click an occupied table to
-          continue the open bill.
+          {t("tables.helper")}
         </p>
       </section>
 
@@ -347,8 +361,8 @@ export default function DiscoTablesPage() {
       ) : filteredTables.length === 0 ? (
         <DiscoEmptyState
           icon={Table2}
-          title="No tables found"
-          description="Create tables for VIP areas, reservations, table service, and POS orders."
+          title={t("tables.noTablesFound")}
+          description={t("tables.noTablesFoundDescription")}
         />
       ) : (
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -366,7 +380,7 @@ export default function DiscoTablesPage() {
 
                 {openBill && (
                   <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white shadow-sm">
-                    Bill #{openBill.id}
+                    {t("tables.bill")} #{openBill.id}
                   </div>
                 )}
               </div>
@@ -377,7 +391,7 @@ export default function DiscoTablesPage() {
 
       {openingBill && (
         <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-2xl">
-          Opening table bill...
+          {t("tables.openingTableBill")}
         </div>
       )}
 
@@ -388,18 +402,19 @@ export default function DiscoTablesPage() {
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
                   <ReceiptText className="h-4 w-4" />
-                  Open Bill
+                  {t("tables.openBill")}
                 </div>
 
                 <h2 className="text-xl font-black text-slate-950">
                   {selectedBill.table_name ||
                     selectedBill.table_number ||
                     selectedBill.customer_name ||
-                    `Bill #${selectedBill.id}`}
+                    `${t("tables.bill")} #${selectedBill.id}`}
                 </h2>
 
                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Bill #{selectedBill.id} · Status: {selectedBill.status}
+                  {t("tables.bill")} #{selectedBill.id} · {t("tables.status")}:{" "}
+                  {getBillStatusLabel(selectedBill.status)}
                 </p>
               </div>
 
@@ -422,10 +437,13 @@ export default function DiscoTablesPage() {
                     >
                       <div>
                         <p className="text-sm font-black text-slate-950">
-                          {item.product_name || `Product #${item.product}`}
+                          {item.product_name ||
+                            `${t("product.product")} #${item.product}`}
                         </p>
+
                         <p className="text-xs font-semibold text-slate-500">
-                          Qty: {item.quantity} · Unit: {item.unit_price}
+                          {t("tables.qty")}: {item.quantity} ·{" "}
+                          {t("tables.unit")}: {item.unit_price}
                         </p>
                       </div>
 
@@ -437,36 +455,32 @@ export default function DiscoTablesPage() {
                 </div>
               ) : (
                 <p className="text-sm font-semibold text-slate-500">
-No products added yet. Go to the POS page, select this table, and add products there.
+                  {t("tables.noProductsAdded")}
                 </p>
               )}
             </div>
 
-<div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-  <button
-    type="button"
-    onClick={() => setSelectedBill(null)}
-    className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
-  >
-    Close
-  </button>
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setSelectedBill(null)}
+                className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
+              >
+                {t("tables.close")}
+              </button>
 
-  <button
-    type="button"
-    onClick={refreshAll}
-    className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800"
-  >
-    Refresh Bill
-  </button>
-</div>
+              <button
+                type="button"
+                onClick={refreshAll}
+                className="h-12 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800"
+              >
+                {t("tables.refreshBill")}
+              </button>
+            </div>
 
-<p className="mt-3 text-center text-xs font-semibold text-slate-500">
-  To add products or checkout this table, go to the POS page and select this table.
-</p>
-
-
-
-
+            <p className="mt-3 text-center text-xs font-semibold text-slate-500">
+              {t("tables.posInstruction")}
+            </p>
           </div>
         </div>
       )}
@@ -480,11 +494,11 @@ No products added yet. Go to the POS page, select this table, and add products t
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-black text-slate-950">
-                  {editingTable ? "Edit Table" : "New Table"}
+                  {editingTable ? t("tables.editTable") : t("tables.newTable")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Configure table name, floor, capacity, minimum spend, and VIP
-                  status.
+                  {t("tables.modalSubtitle")}
                 </p>
               </div>
 
@@ -500,35 +514,40 @@ No products added yet. Go to the POS page, select this table, and add products t
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="block sm:col-span-2">
                 <span className="text-sm font-bold text-slate-700">
-                  Table Name
+                  {t("tables.tableName")}
                 </span>
+
                 <input
                   value={form.name}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, name: e.target.value }))
                   }
                   required
-                  placeholder="Example: VIP 01"
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-bold text-slate-700">Floor</span>
-                <input
-                  value={form.floor}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, floor: e.target.value }))
-                  }
-                  placeholder="Example: Main Floor"
+                  placeholder={t("tables.tableNamePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Capacity
+                  {t("tables.floor")}
                 </span>
+
+                <input
+                  value={form.floor}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, floor: e.target.value }))
+                  }
+                  placeholder={t("tables.floorPlaceholder")}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-bold text-slate-700">
+                  {t("tables.capacity")}
+                </span>
+
                 <input
                   type="number"
                   min="1"
@@ -546,8 +565,9 @@ No products added yet. Go to the POS page, select this table, and add products t
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Minimum Spend
+                  {t("tables.minimumSpend")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -566,8 +586,9 @@ No products added yet. Go to the POS page, select this table, and add products t
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Status
+                  {t("tables.status")}
                 </span>
+
                 <select
                   value={form.status}
                   onChange={(e) =>
@@ -580,7 +601,7 @@ No products added yet. Go to the POS page, select this table, and add products t
                 >
                   {statusOptions.map((status) => (
                     <option key={status.value} value={status.value}>
-                      {status.label}
+                      {t(status.translationKey)}
                     </option>
                   ))}
                 </select>
@@ -589,11 +610,11 @@ No products added yet. Go to the POS page, select this table, and add products t
               <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
                 <div>
                   <p className="text-sm font-black text-slate-950">
-                    VIP Table
+                    {t("tables.vipTable")}
                   </p>
+
                   <p className="text-xs font-medium text-slate-500">
-                    Mark this table for VIP sections, bottle service, or premium
-                    reservations.
+                    {t("tables.vipTableDescription")}
                   </p>
                 </div>
 
@@ -617,10 +638,10 @@ No products added yet. Go to the POS page, select this table, and add products t
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
               {saving
-                ? "Saving..."
+                ? t("tables.saving")
                 : editingTable
-                  ? "Save Changes"
-                  : "Create Table"}
+                  ? t("tables.saveChanges")
+                  : t("tables.createTable")}
             </button>
           </form>
         </div>

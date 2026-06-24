@@ -1,5 +1,6 @@
 // src/modules/disco/components/EmployeeCard.tsx
 
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   User,
@@ -9,6 +10,8 @@ import {
   XCircle,
   ChevronRight,
 } from "lucide-react";
+
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 
 type Employee = {
   id: number;
@@ -51,12 +54,24 @@ type EmployeeCardProps = {
   onToggleStatus?: (employee: Employee) => void;
 };
 
+function getEmployeeRoleLabel(
+  role: Employee["role"],
+  t: (key: string, fallback?: string) => string
+) {
+  const fallback = role
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+  return t(`employees.role.${role}`, fallback);
+}
+
 export default function EmployeeCard({
   employee,
   onClick,
   onEdit,
   onToggleStatus,
 }: EmployeeCardProps) {
+  const { t } = useDiscoTranslation();
   const [imageError, setImageError] = useState(false);
 
   const roleColors: Record<Employee["role"], string> = {
@@ -70,11 +85,6 @@ export default function EmployeeCard({
     promoter: "bg-indigo-100 text-indigo-700",
     inventory_manager: "bg-orange-100 text-orange-700",
   };
-
-  const formatRole = (role: string) =>
-    role
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
   const apiOrigin =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
@@ -128,6 +138,7 @@ export default function EmployeeCard({
   }, [imageUrl]);
 
   const showImage = Boolean(imageUrl) && !imageError;
+  const roleLabel = getEmployeeRoleLabel(employee.role, t);
 
   return (
     <div
@@ -161,7 +172,7 @@ export default function EmployeeCard({
                 roleColors[employee.role]
               }`}
             >
-              {formatRole(employee.role)}
+              {roleLabel}
             </span>
           </div>
         </div>
@@ -181,7 +192,7 @@ export default function EmployeeCard({
 
       <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
         <Shield size={16} />
-        <span>{formatRole(employee.role)}</span>
+        <span>{roleLabel}</span>
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3">
@@ -200,12 +211,12 @@ export default function EmployeeCard({
           {employee.is_active ? (
             <>
               <CheckCircle2 size={14} />
-              Active
+              {t("employeeCard.active")}
             </>
           ) : (
             <>
               <XCircle size={14} />
-              Inactive
+              {t("employeeCard.inactive")}
             </>
           )}
         </button>
@@ -219,10 +230,33 @@ export default function EmployeeCard({
             }}
             className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
           >
-            Edit
+            {t("employeeCard.edit")}
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function Info({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-400">
+        {icon}
+        {label}
+      </div>
+
+      <p className="mt-1 truncate text-sm font-black text-slate-900">
+        {value}
+      </p>
     </div>
   );
 }

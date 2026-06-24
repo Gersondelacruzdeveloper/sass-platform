@@ -23,6 +23,8 @@ import {
   updateReservation,
 } from "../api/reservationsApi";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
 type ReservationStatus =
   | "pending"
   | "confirmed"
@@ -63,15 +65,17 @@ const initialForm = {
   note: "",
 };
 
-const statusOptions: { value: ReservationStatus; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "confirmed", label: "Confirmed" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "no_show", label: "No Show" },
+const statusOptions: { value: ReservationStatus; translationKey: string }[] = [
+  { value: "pending", translationKey: "reservations.status.pending" },
+  { value: "confirmed", translationKey: "reservations.status.confirmed" },
+  { value: "completed", translationKey: "reservations.status.completed" },
+  { value: "cancelled", translationKey: "reservations.status.cancelled" },
+  { value: "no_show", translationKey: "reservations.status.no_show" },
 ];
 
 export default function DiscoReservationsPage() {
+  const { t } = useDiscoTranslation();
+
   const {
     reservations,
     loading,
@@ -97,7 +101,12 @@ export default function DiscoReservationsPage() {
 
   useEffect(() => {
     refreshTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function getReservationStatusLabel(status: ReservationStatus | string) {
+    return t(`reservations.status.${status}`, String(status));
+  }
 
   const filteredReservations = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -110,13 +119,14 @@ export default function DiscoReservationsPage() {
         reservation.customer_phone,
         reservation.table_name,
         reservation.status,
+        getReservationStatusLabel(reservation.status),
         reservation.note,
       ]
         .join(" ")
         .toLowerCase()
         .includes(term)
     );
-  }, [reservations, search]);
+  }, [reservations, search, t]);
 
   const stats = useMemo(() => {
     const pending = reservations.filter(
@@ -160,6 +170,7 @@ export default function DiscoReservationsPage() {
 
   function openEditModal(reservation: Reservation) {
     setEditingReservation(reservation);
+
     setForm({
       table: reservation.table ? String(reservation.table) : "",
       customer_name: reservation.customer_name || "",
@@ -172,6 +183,7 @@ export default function DiscoReservationsPage() {
       status: reservation.status || "pending",
       note: reservation.note || "",
     });
+
     setModalOpen(true);
   }
 
@@ -205,7 +217,7 @@ export default function DiscoReservationsPage() {
       refreshAll();
     } catch (err) {
       console.error(err);
-      setLocalError("Could not save reservation.");
+      setLocalError(t("reservations.errorSave"));
     } finally {
       setSaving(false);
     }
@@ -214,40 +226,40 @@ export default function DiscoReservationsPage() {
   return (
     <div className="space-y-5 pb-24">
       <DiscoPageHeader
-        title="Reservations"
-        subtitle="Manage VIP bookings, table reservations, deposits, guests, and reservation status."
+        title={t("reservations.title")}
+        subtitle={t("reservations.subtitle")}
         icon={CalendarDays}
-        actionLabel="New Reservation"
+        actionLabel={t("reservations.newReservation")}
         onAction={openCreateModal}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
-          title="Today"
+          title={t("reservations.today")}
           value={stats.todayReservations}
           icon={Clock}
-          helper="Reservations today"
+          helper={t("reservations.reservationsToday")}
         />
 
         <DiscoStatCard
-          title="Pending"
+          title={t("reservations.pending")}
           value={stats.pending}
           icon={CalendarDays}
-          helper="Waiting confirmation"
+          helper={t("reservations.waitingConfirmation")}
         />
 
         <DiscoStatCard
-          title="Confirmed"
+          title={t("reservations.confirmed")}
           value={stats.confirmed}
           icon={CheckCircle2}
-          helper="Ready for service"
+          helper={t("reservations.readyForService")}
         />
 
         <DiscoStatCard
-          title="Completed"
+          title={t("reservations.completed")}
           value={stats.completed}
           icon={Users}
-          helper="Finished bookings"
+          helper={t("reservations.finishedBookings")}
         />
       </section>
 
@@ -262,10 +274,11 @@ export default function DiscoReservationsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search reservations..."
+              placeholder={t("reservations.searchPlaceholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
             />
           </div>
@@ -277,7 +290,7 @@ export default function DiscoReservationsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <RefreshCcw className="h-4 w-4" />
-              Refresh
+              {t("pos.refresh")}
             </button>
 
             <button
@@ -286,7 +299,7 @@ export default function DiscoReservationsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" />
-              Add
+              {t("reservations.add")}
             </button>
           </div>
         </div>
@@ -304,8 +317,8 @@ export default function DiscoReservationsPage() {
       ) : filteredReservations.length === 0 ? (
         <DiscoEmptyState
           icon={CalendarDays}
-          title="No reservations found"
-          description="Create reservations for VIP guests, tables, deposits, and upcoming events."
+          title={t("reservations.noReservationsFound")}
+          description={t("reservations.noReservationsFoundDescription")}
         />
       ) : (
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -322,6 +335,7 @@ export default function DiscoReservationsPage() {
               status: reservation.status as ReservationStatus,
               note: reservation.note,
             };
+
             return (
               <ReservationCard
                 key={typedReservation.id}
@@ -343,11 +357,12 @@ export default function DiscoReservationsPage() {
               <div>
                 <h2 className="text-lg font-black text-slate-950">
                   {editingReservation
-                    ? "Edit Reservation"
-                    : "New Reservation"}
+                    ? t("reservations.editReservation")
+                    : t("reservations.newReservation")}
                 </h2>
+
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Add customer, table, date, deposit, and status details.
+                  {t("reservations.modalSubtitle")}
                 </p>
               </div>
 
@@ -363,8 +378,9 @@ export default function DiscoReservationsPage() {
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="block sm:col-span-2">
                 <span className="text-sm font-bold text-slate-700">
-                  Customer Name
+                  {t("reservations.customerName")}
                 </span>
+
                 <input
                   value={form.customer_name}
                   onChange={(e) =>
@@ -374,15 +390,16 @@ export default function DiscoReservationsPage() {
                     }))
                   }
                   required
-                  placeholder="Example: Maria Rodriguez"
+                  placeholder={t("reservations.customerNamePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Customer Phone
+                  {t("reservations.customerPhone")}
                 </span>
+
                 <input
                   value={form.customer_phone}
                   onChange={(e) =>
@@ -398,8 +415,9 @@ export default function DiscoReservationsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  People Count
+                  {t("reservations.peopleCount")}
                 </span>
+
                 <input
                   type="number"
                   min="1"
@@ -416,7 +434,10 @@ export default function DiscoReservationsPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-bold text-slate-700">Table</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("reservations.table")}
+                </span>
+
                 <select
                   value={form.table}
                   onChange={(e) =>
@@ -425,12 +446,17 @@ export default function DiscoReservationsPage() {
                   disabled={tablesLoading}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white disabled:opacity-60"
                 >
-                  <option value="">No table selected</option>
+                  <option value="">
+                    {t("reservations.noTableSelected")}
+                  </option>
+
                   {tables.map((table: Table) => (
                     <option key={table.id} value={table.id}>
                       {table.name}
                       {table.is_vip ? " • VIP" : ""}
-                      {table.capacity ? ` • ${table.capacity} pax` : ""}
+                      {table.capacity
+                        ? ` • ${table.capacity} ${t("reservations.pax")}`
+                        : ""}
                     </option>
                   ))}
                 </select>
@@ -438,8 +464,9 @@ export default function DiscoReservationsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Reservation Date & Time
+                  {t("reservations.reservationDateTime")}
                 </span>
+
                 <input
                   type="datetime-local"
                   value={form.reservation_datetime}
@@ -456,8 +483,9 @@ export default function DiscoReservationsPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Deposit Amount
+                  {t("reservations.depositAmount")}
                 </span>
+
                 <input
                   type="number"
                   min="0"
@@ -476,8 +504,9 @@ export default function DiscoReservationsPage() {
 
               <label className="block sm:col-span-2">
                 <span className="text-sm font-bold text-slate-700">
-                  Status
+                  {t("reservations.status")}
                 </span>
+
                 <select
                   value={form.status}
                   onChange={(e) =>
@@ -490,21 +519,24 @@ export default function DiscoReservationsPage() {
                 >
                   {statusOptions.map((status) => (
                     <option key={status.value} value={status.value}>
-                      {status.label}
+                      {t(status.translationKey)}
                     </option>
                   ))}
                 </select>
               </label>
 
               <label className="block sm:col-span-2">
-                <span className="text-sm font-bold text-slate-700">Note</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {t("reservations.note")}
+                </span>
+
                 <textarea
                   value={form.note}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, note: e.target.value }))
                   }
                   rows={4}
-                  placeholder="VIP requests, bottle service, birthday note, preferred area..."
+                  placeholder={t("reservations.notePlaceholder")}
                   className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
                 />
               </label>
@@ -516,10 +548,10 @@ export default function DiscoReservationsPage() {
               className="mt-5 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
             >
               {saving
-                ? "Saving..."
+                ? t("reservations.saving")
                 : editingReservation
-                  ? "Save Changes"
-                  : "Create Reservation"}
+                  ? t("reservations.saveChanges")
+                  : t("reservations.createReservation")}
             </button>
           </form>
         </div>

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, CreditCard, Loader2, Music, Sparkles } from "lucide-react";
 import api from "../../../api/axios";
+
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type Plan = {
   id: number;
@@ -15,14 +18,32 @@ type Plan = {
 };
 
 const businessTypes = [
-  { value: "disco", label: "Disco / Nightclub" },
-  { value: "restaurant", label: "Restaurant" },
-  { value: "hotel", label: "Hotel" },
-  { value: "store", label: "Store" },
-  { value: "excursions", label: "Excursions" },
+  { value: "disco", translationKey: "signup.businessType.disco" },
+  { value: "restaurant", translationKey: "signup.businessType.restaurant" },
+  { value: "hotel", translationKey: "signup.businessType.hotel" },
+  { value: "store", translationKey: "signup.businessType.store" },
+  { value: "excursions", translationKey: "signup.businessType.excursions" },
 ];
 
+const featureKeys = [
+  "signup.feature.posReceipts",
+  "signup.feature.employeeLogins",
+  "signup.feature.inventory",
+  "signup.feature.tablesReservations",
+  "signup.feature.cashShiftReports",
+  "signup.feature.subscriptionAccess",
+];
+
+function translateInterval(
+  interval: string,
+  t: (key: string, fallback?: string) => string
+) {
+  return t(`signup.interval.${interval}`, interval);
+}
+
 export default function DiscoSignupPage() {
+  const { language, setLanguage, t } = useDiscoTranslation();
+
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState("pro");
   const [loadingPlans, setLoadingPlans] = useState(true);
@@ -37,24 +58,30 @@ export default function DiscoSignupPage() {
     business_type: "disco",
   });
 
+  const translatedFeatures = useMemo(
+    () => featureKeys.map((key) => t(key)),
+    [t]
+  );
+
   useEffect(() => {
     async function loadPlans() {
       try {
         const res = await api.get("/subscriptions/plans/");
         setPlans(res.data);
+
         if (res.data?.length) {
           setSelectedPlan(res.data[0].slug);
         }
       } catch (err) {
         console.error(err);
-        setError("Could not load subscription plans.");
+        setError(t("signup.errorLoadPlans"));
       } finally {
         setLoadingPlans(false);
       }
     }
 
     loadPlans();
-  }, []);
+  }, [t]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,10 +98,7 @@ export default function DiscoSignupPage() {
       window.location.href = res.data.checkout_url;
     } catch (err: any) {
       console.error(err);
-      setError(
-        err?.response?.data?.detail ||
-          "Could not start checkout. Please try again."
-      );
+      setError(err?.response?.data?.detail || t("signup.errorCheckout"));
     } finally {
       setSubmitting(false);
     }
@@ -84,9 +108,26 @@ export default function DiscoSignupPage() {
     <main className="min-h-screen bg-slate-950 text-white">
       <section className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:grid lg:grid-cols-[1fr_520px] lg:items-center lg:py-10">
         <div className="space-y-8">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white/80">
-            <Sparkles className="h-4 w-4" />
-            Disco SaaS POS Platform
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white/80">
+              <Sparkles className="h-4 w-4" />
+              {t("signup.badge")}
+            </div>
+
+            <label className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-black text-white/80">
+              {t("signup.language")}
+              <select
+                value={language}
+                aria-label={t("signup.language")}
+                onChange={(event) =>
+                  setLanguage(event.target.value as DiscoLanguage)
+                }
+                className="rounded-full border border-white/10 bg-slate-950 px-2 py-1 text-xs font-black text-white outline-none"
+              >
+                <option value="en">EN</option>
+                <option value="es">ES</option>
+              </select>
+            </label>
           </div>
 
           <div>
@@ -95,25 +136,16 @@ export default function DiscoSignupPage() {
             </div>
 
             <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-5xl lg:text-7xl">
-              Run your disco, bar, lounge, or nightclub from one platform.
+              {t("signup.heroTitle")}
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-white/65">
-              Manage POS sales, employees, tables, reservations, inventory,
-              cash shifts, receipts, and reports with a modern multi-tenant
-              SaaS system.
+              {t("signup.heroDescription")}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              "POS and receipt printing",
-              "Employee logins and roles",
-              "Inventory and stock movements",
-              "Tables and reservations",
-              "Cash shift reports",
-              "Subscription-based access",
-            ].map((item) => (
+            {translatedFeatures.map((item) => (
               <div
                 key={item}
                 className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
@@ -121,7 +153,10 @@ export default function DiscoSignupPage() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
                   <Check className="h-4 w-4" />
                 </div>
-                <span className="text-sm font-bold text-white/80">{item}</span>
+
+                <span className="text-sm font-bold text-white/80">
+                  {item}
+                </span>
               </div>
             ))}
           </div>
@@ -132,10 +167,12 @@ export default function DiscoSignupPage() {
           className="rounded-[2rem] border border-white/10 bg-white p-5 text-slate-950 shadow-2xl sm:p-6"
         >
           <div>
-            <h2 className="text-2xl font-black">Create your account</h2>
+            <h2 className="text-2xl font-black">
+              {t("signup.createAccount")}
+            </h2>
+
             <p className="mt-2 text-sm font-medium text-slate-500">
-              Choose a plan, create your organisation, and continue to Stripe
-              checkout.
+              {t("signup.createAccountDescription")}
             </p>
           </div>
 
@@ -148,8 +185,9 @@ export default function DiscoSignupPage() {
           <div className="mt-5 space-y-4">
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Company Name
+                {t("signup.companyName")}
               </span>
+
               <input
                 required
                 value={form.company_name}
@@ -159,15 +197,16 @@ export default function DiscoSignupPage() {
                     company_name: e.target.value,
                   }))
                 }
-                placeholder="Example: Almond Brownie"
+                placeholder={t("signup.companyNamePlaceholder")}
                 className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
             </label>
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Business Type
+                {t("signup.businessType")}
               </span>
+
               <select
                 value={form.business_type}
                 onChange={(e) =>
@@ -180,7 +219,7 @@ export default function DiscoSignupPage() {
               >
                 {businessTypes.map((type) => (
                   <option key={type.value} value={type.value}>
-                    {type.label}
+                    {t(type.translationKey)}
                   </option>
                 ))}
               </select>
@@ -188,8 +227,9 @@ export default function DiscoSignupPage() {
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Owner Name
+                {t("signup.ownerName")}
               </span>
+
               <input
                 required
                 value={form.owner_name}
@@ -199,15 +239,16 @@ export default function DiscoSignupPage() {
                     owner_name: e.target.value,
                   }))
                 }
-                placeholder="Example: Gerson De la Cruz"
+                placeholder={t("signup.ownerNamePlaceholder")}
                 className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
             </label>
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Owner Email
+                {t("signup.ownerEmail")}
               </span>
+
               <input
                 required
                 type="email"
@@ -218,15 +259,16 @@ export default function DiscoSignupPage() {
                     email: e.target.value,
                   }))
                 }
-                placeholder="owner@company.com"
+                placeholder={t("signup.ownerEmailPlaceholder")}
                 className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
             </label>
 
             <label className="block">
               <span className="text-sm font-bold text-slate-700">
-                Password
+                {t("signup.password")}
               </span>
+
               <input
                 required
                 minLength={8}
@@ -238,18 +280,20 @@ export default function DiscoSignupPage() {
                     password: e.target.value,
                   }))
                 }
-                placeholder="Create a secure password"
+                placeholder={t("signup.passwordPlaceholder")}
                 className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
             </label>
           </div>
 
           <div className="mt-6">
-            <p className="text-sm font-black text-slate-900">Choose Plan</p>
+            <p className="text-sm font-black text-slate-900">
+              {t("signup.choosePlan")}
+            </p>
 
             {loadingPlans ? (
               <div className="mt-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500">
-                Loading plans...
+                {t("signup.loadingPlans")}
               </div>
             ) : (
               <div className="mt-3 grid gap-3">
@@ -267,9 +311,10 @@ export default function DiscoSignupPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-lg font-black">{plan.name}</p>
+
                         <p className="mt-1 text-xs font-bold opacity-70">
-                          {plan.max_users} user logins · {plan.max_employees}{" "}
-                          employees
+                          {plan.max_users} {t("signup.userLogins")} ·{" "}
+                          {plan.max_employees} {t("signup.employees")}
                         </p>
                       </div>
 
@@ -277,8 +322,9 @@ export default function DiscoSignupPage() {
                         <p className="text-2xl font-black">
                           ${Number(plan.price).toFixed(0)}
                         </p>
+
                         <p className="text-xs font-bold opacity-70">
-                          /{plan.interval}
+                          /{translateInterval(plan.interval, t)}
                         </p>
                       </div>
                     </div>
@@ -296,19 +342,18 @@ export default function DiscoSignupPage() {
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Redirecting...
+                {t("signup.redirecting")}
               </>
             ) : (
               <>
                 <CreditCard className="h-4 w-4" />
-                Continue to Payment
+                {t("signup.continueToPayment")}
               </>
             )}
           </button>
 
           <p className="mt-4 text-center text-xs font-medium text-slate-500">
-            Secure checkout powered by Stripe. Your organisation activates after
-            payment succeeds.
+            {t("signup.stripeNote")}
           </p>
         </form>
       </section>

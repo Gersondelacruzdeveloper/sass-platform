@@ -1,6 +1,10 @@
 // src/modules/disco/components/TableCard.tsx
 
+import type { ReactNode } from "react";
 import { Armchair, DollarSign, Users, Edit } from "lucide-react";
+
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type DiscoTable = {
   id: number;
@@ -18,12 +22,17 @@ type TableCardProps = {
   onEdit?: (table: DiscoTable) => void;
 };
 
+function money(value: number | string | undefined, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
 export default function TableCard({ table, onClick, onEdit }: TableCardProps) {
-  const money = (value?: number | string) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value || 0));
+  const { language, t } = useDiscoTranslation();
 
   const statusStyles: Record<DiscoTable["status"], string> = {
     available: "bg-emerald-100 text-emerald-700",
@@ -48,8 +57,9 @@ export default function TableCard({ table, onClick, onEdit }: TableCardProps) {
             <h3 className="text-lg font-black text-slate-900">
               {table.name}
             </h3>
+
             <p className="text-sm font-semibold text-slate-500">
-              {table.floor || "Main floor"}
+              {table.floor || t("tables.mainFloor")}
             </p>
           </div>
         </div>
@@ -57,27 +67,27 @@ export default function TableCard({ table, onClick, onEdit }: TableCardProps) {
         <span
           className={`rounded-full px-3 py-1 text-xs font-black ${statusStyles[table.status]}`}
         >
-          {table.status.toUpperCase()}
+          {t(`tables.status.${table.status}`, table.status)}
         </span>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <Info
           icon={<Users size={16} />}
-          label="Capacity"
+          label={t("tables.capacity")}
           value={String(table.capacity)}
         />
 
         <Info
           icon={<DollarSign size={16} />}
-          label="Min Spend"
-          value={money(table.minimum_spend)}
+          label={t("tables.minSpend")}
+          value={money(table.minimum_spend, language)}
         />
       </div>
 
       {table.is_vip && (
         <div className="mt-4 rounded-2xl bg-purple-50 px-4 py-3 text-sm font-black text-purple-700">
-          VIP Table
+          {t("tables.vipTable")}
         </div>
       )}
 
@@ -90,7 +100,7 @@ export default function TableCard({ table, onClick, onEdit }: TableCardProps) {
           className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
         >
           <Edit size={16} />
-          Edit Table
+          {t("tables.editTable")}
         </button>
       )}
     </article>
@@ -102,7 +112,7 @@ function Info({
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
 }) {
@@ -112,7 +122,10 @@ function Info({
         {icon}
         {label}
       </div>
-      <p className="mt-1 truncate text-sm font-black text-slate-900">{value}</p>
+
+      <p className="mt-1 truncate text-sm font-black text-slate-900">
+        {value}
+      </p>
     </div>
   );
 }

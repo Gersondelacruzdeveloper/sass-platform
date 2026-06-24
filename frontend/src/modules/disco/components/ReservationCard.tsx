@@ -1,6 +1,10 @@
 // src/modules/disco/components/ReservationCard.tsx
 
+import type { ReactNode } from "react";
 import { CalendarDays, Clock, Phone, Table2, User, Users } from "lucide-react";
+
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type Reservation = {
   id: number;
@@ -21,19 +25,40 @@ type ReservationCardProps = {
   onCancel?: (reservation: Reservation) => void;
 };
 
+function money(value: number | string | undefined, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
+function formatReservationDate(date: Date, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+  }).format(date);
+}
+
+function formatReservationTime(date: Date, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function ReservationCard({
   reservation,
   onClick,
   onEdit,
   onCancel,
 }: ReservationCardProps) {
+  const { language, t } = useDiscoTranslation();
   const date = new Date(reservation.reservation_datetime);
-
-  const money = (value?: number | string) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value || 0));
 
   const statusStyles: Record<Reservation["status"], string> = {
     pending: "bg-amber-100 text-amber-700",
@@ -43,7 +68,10 @@ export default function ReservationCard({
     no_show: "bg-slate-100 text-slate-600",
   };
 
-  const statusLabel = reservation.status.replace("_", " ").toUpperCase();
+  const statusLabel = t(
+    `reservations.status.${reservation.status}`,
+    reservation.status.replace("_", " ")
+  );
 
   return (
     <article
@@ -63,11 +91,8 @@ export default function ReservationCard({
 
             <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-500">
               <Clock size={15} />
-              {date.toLocaleDateString()} ·{" "}
-              {date.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatReservationDate(date, language)} ·{" "}
+              {formatReservationTime(date, language)}
             </p>
           </div>
         </div>
@@ -82,26 +107,26 @@ export default function ReservationCard({
       <div className="mt-5 grid grid-cols-2 gap-3">
         <Info
           icon={<Users size={16} />}
-          label="Guests"
+          label={t("reservationCard.guests")}
           value={String(reservation.people_count)}
         />
 
         <Info
           icon={<Table2 size={16} />}
-          label="Table"
-          value={reservation.table_name || "Not assigned"}
+          label={t("reservationCard.table")}
+          value={reservation.table_name || t("reservationCard.notAssigned")}
         />
 
         <Info
           icon={<Phone size={16} />}
-          label="Phone"
+          label={t("reservationCard.phone")}
           value={reservation.customer_phone || "—"}
         />
 
         <Info
           icon={<User size={16} />}
-          label="Deposit"
-          value={money(reservation.deposit_amount)}
+          label={t("reservationCard.deposit")}
+          value={money(reservation.deposit_amount, language)}
         />
       </div>
 
@@ -121,7 +146,7 @@ export default function ReservationCard({
               }}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
             >
-              Edit
+              {t("reservationCard.edit")}
             </button>
           )}
 
@@ -133,7 +158,7 @@ export default function ReservationCard({
               }}
               className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600 hover:bg-red-100"
             >
-              Cancel
+              {t("reservationCard.cancel")}
             </button>
           )}
         </div>
@@ -147,7 +172,7 @@ function Info({
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
 }) {
@@ -157,7 +182,10 @@ function Info({
         {icon}
         {label}
       </div>
-      <p className="mt-1 truncate text-sm font-black text-slate-900">{value}</p>
+
+      <p className="mt-1 truncate text-sm font-black text-slate-900">
+        {value}
+      </p>
     </div>
   );
 }

@@ -1,25 +1,41 @@
 import {
-  CreditCard,
-  Plus,
-  Search,
-  Crown,
+  AlertTriangle,
   Building2,
-  Users,
+  CheckCircle2,
+  CreditCard,
+  Crown,
   DollarSign,
   MoreVertical,
-  CheckCircle2,
-  AlertTriangle,
+  Plus,
+  Search,
+  Users,
 } from "lucide-react";
 
-const subscriptions = [
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
+type SubscriptionStatus = "active" | "pending";
+
+type Subscription = {
+  id: string;
+  organisation: string;
+  plan: string;
+  employees: number;
+  amount: number;
+  status: SubscriptionStatus;
+  nextBilling?: string;
+  awaitingPayment?: boolean;
+};
+
+const subscriptions: Subscription[] = [
   {
     id: "SUB-1001",
     organisation: "Coco Bongo Punta Cana",
     plan: "Enterprise",
     employees: 42,
     amount: 129,
-    status: "Active",
-    nextBilling: "June 25, 2026",
+    status: "active",
+    nextBilling: "2026-06-25",
   },
   {
     id: "SUB-1002",
@@ -27,8 +43,8 @@ const subscriptions = [
     plan: "Pro",
     employees: 9,
     amount: 59,
-    status: "Active",
-    nextBilling: "June 28, 2026",
+    status: "active",
+    nextBilling: "2026-06-28",
   },
   {
     id: "SUB-1003",
@@ -36,124 +52,197 @@ const subscriptions = [
     plan: "Enterprise",
     employees: 50,
     amount: 129,
-    status: "Pending",
-    nextBilling: "Awaiting payment",
+    status: "pending",
+    awaitingPayment: true,
   },
 ];
 
-export default function SubscriptionsPage() {
+const planCards = [
+  {
+    key: "basic",
+    price: 29,
+    employees: 3,
+    wrapperClass: "border-cyan-300 bg-cyan-50 text-gray-900",
+    iconClass: "text-cyan-700",
+    priceClass: "text-gray-900",
+    mutedClass: "text-gray-600",
+    intervalClass: "text-gray-500",
+    helperClass: "text-gray-700",
+  },
+  {
+    key: "pro",
+    price: 59,
+    employees: 15,
+    wrapperClass: "border-gray-200 bg-white text-gray-900",
+    iconClass: "text-purple-600",
+    priceClass: "text-gray-900",
+    mutedClass: "text-gray-600",
+    intervalClass: "text-gray-500",
+    helperClass: "text-gray-700",
+  },
+  {
+    key: "enterprise",
+    price: 129,
+    employees: 50,
+    wrapperClass: "border-gray-200 bg-slate-950 text-white",
+    iconClass: "text-cyan-300",
+    priceClass: "text-white",
+    mutedClass: "text-slate-300",
+    intervalClass: "text-slate-400",
+    helperClass: "text-slate-300",
+  },
+];
+
+function money(value: number, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatDate(value: string | undefined, language: DiscoLanguage) {
+  if (!value) return "";
+
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "long",
+  }).format(new Date(value));
+}
+
+function interpolate(template: string, values: Record<string, string | number>) {
+  return Object.entries(values).reduce(
+    (text, [key, value]) => text.replace(`{{${key}}}`, String(value)),
+    template
+  );
+}
+
+export default function DiscoSubscriptionsPage() {
+  const { language, t } = useDiscoTranslation();
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-cyan-600">
-            SaaS billing
+            {t("subscriptions.saasBilling")}
           </p>
 
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">
-            Subscriptions
+            {t("subscriptions.title")}
           </h1>
 
           <p className="mt-2 text-gray-500">
-            Manage customer plans, monthly billing, employee limits, and subscription status.
+            {t("subscriptions.subtitle")}
           </p>
         </div>
 
         <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-black px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800">
           <Plus size={18} />
-          New Subscription
+          {t("subscriptions.newSubscription")}
         </button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-4">
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <CreditCard className="text-cyan-600" />
-          <p className="mt-4 text-sm text-gray-500">Active subscriptions</p>
+
+          <p className="mt-4 text-sm text-gray-500">
+            {t("subscriptions.activeSubscriptions")}
+          </p>
+
           <h2 className="mt-2 text-3xl font-bold text-gray-900">44</h2>
         </div>
 
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <DollarSign className="text-emerald-600" />
-          <p className="mt-4 text-sm text-gray-500">Monthly recurring revenue</p>
-          <h2 className="mt-2 text-3xl font-bold text-gray-900">$8,920</h2>
+
+          <p className="mt-4 text-sm text-gray-500">
+            {t("subscriptions.monthlyRecurringRevenue")}
+          </p>
+
+          <h2 className="mt-2 text-3xl font-bold text-gray-900">
+            {money(8920, language)}
+          </h2>
         </div>
 
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <Building2 className="text-purple-600" />
-          <p className="mt-4 text-sm text-gray-500">Paying organisations</p>
+
+          <p className="mt-4 text-sm text-gray-500">
+            {t("subscriptions.payingOrganisations")}
+          </p>
+
           <h2 className="mt-2 text-3xl font-bold text-gray-900">48</h2>
         </div>
 
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <Users className="text-orange-600" />
-          <p className="mt-4 text-sm text-gray-500">Employee seats sold</p>
+
+          <p className="mt-4 text-sm text-gray-500">
+            {t("subscriptions.employeeSeatsSold")}
+          </p>
+
           <h2 className="mt-2 text-3xl font-bold text-gray-900">624</h2>
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-3xl border border-cyan-300 bg-cyan-50 p-6 shadow-sm">
-          <Crown className="text-cyan-700" />
-          <h2 className="mt-4 text-xl font-bold text-gray-900">Basic</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Small businesses starting with sales and inventory.
-          </p>
-          <div className="mt-5 flex items-end gap-1">
-            <span className="text-4xl font-black text-gray-900">$29</span>
-            <span className="pb-1 text-sm text-gray-500">/month</span>
-          </div>
-          <p className="mt-3 text-sm font-medium text-gray-700">
-            Includes 3 employees
-          </p>
-        </div>
+        {planCards.map((plan) => (
+          <div
+            key={plan.key}
+            className={`rounded-3xl border p-6 shadow-sm ${plan.wrapperClass}`}
+          >
+            <Crown className={plan.iconClass} />
 
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <Crown className="text-purple-600" />
-          <h2 className="mt-4 text-xl font-bold text-gray-900">Pro</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            POS, inventory, expenses, employees, and reports.
-          </p>
-          <div className="mt-5 flex items-end gap-1">
-            <span className="text-4xl font-black text-gray-900">$59</span>
-            <span className="pb-1 text-sm text-gray-500">/month</span>
-          </div>
-          <p className="mt-3 text-sm font-medium text-gray-700">
-            Includes 15 employees
-          </p>
-        </div>
+            <h2 className="mt-4 text-xl font-bold">
+              {t(`subscriptions.plan.${plan.key}`)}
+            </h2>
 
-        <div className="rounded-3xl border border-gray-200 bg-slate-950 p-6 text-white shadow-sm">
-          <Crown className="text-cyan-300" />
-          <h2 className="mt-4 text-xl font-bold">Enterprise</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Multiple locations, advanced analytics, and premium support.
-          </p>
-          <div className="mt-5 flex items-end gap-1">
-            <span className="text-4xl font-black">$129</span>
-            <span className="pb-1 text-sm text-slate-400">/month</span>
+            <p className={`mt-2 text-sm ${plan.mutedClass}`}>
+              {t(`subscriptions.plan.${plan.key}Description`)}
+            </p>
+
+            <div className="mt-5 flex items-end gap-1">
+              <span className={`text-4xl font-black ${plan.priceClass}`}>
+                {money(plan.price, language)}
+              </span>
+
+              <span className={`pb-1 text-sm ${plan.intervalClass}`}>
+                /{t("subscriptions.month")}
+              </span>
+            </div>
+
+            <p className={`mt-3 text-sm font-medium ${plan.helperClass}`}>
+              {interpolate(t("subscriptions.includesEmployees"), {
+                count: plan.employees,
+              })}
+            </p>
           </div>
-          <p className="mt-3 text-sm font-medium text-slate-300">
-            Includes 50 employees
-          </p>
-        </div>
+        ))}
       </div>
 
       <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900">
-              Customer Subscriptions
+              {t("subscriptions.customerSubscriptions")}
             </h2>
+
             <p className="text-sm text-gray-500">
-              Track all paying customers and billing status.
+              {t("subscriptions.customerSubscriptionsDescription")}
             </p>
           </div>
 
           <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 md:w-80">
             <Search size={18} className="text-gray-400" />
+
             <input
               type="text"
-              placeholder="Search subscription..."
+              placeholder={t("subscriptions.searchPlaceholder")}
               className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
             />
           </div>
@@ -163,20 +252,32 @@ export default function SubscriptionsPage() {
           <table className="w-full min-w-[1100px] text-left">
             <thead>
               <tr className="border-b text-xs uppercase tracking-wide text-gray-400">
-                <th className="pb-3">Subscription</th>
-                <th className="pb-3">Organisation</th>
-                <th className="pb-3">Plan</th>
-                <th className="pb-3">Employees</th>
-                <th className="pb-3">Next Billing</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right">Amount</th>
-                <th className="pb-3 text-right">Actions</th>
+                <th className="pb-3">
+                  {t("subscriptions.table.subscription")}
+                </th>
+                <th className="pb-3">
+                  {t("subscriptions.table.organisation")}
+                </th>
+                <th className="pb-3">{t("subscriptions.table.plan")}</th>
+                <th className="pb-3">
+                  {t("subscriptions.table.employees")}
+                </th>
+                <th className="pb-3">
+                  {t("subscriptions.table.nextBilling")}
+                </th>
+                <th className="pb-3">{t("subscriptions.table.status")}</th>
+                <th className="pb-3 text-right">
+                  {t("subscriptions.table.amount")}
+                </th>
+                <th className="pb-3 text-right">
+                  {t("subscriptions.table.actions")}
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-100">
               {subscriptions.map((sub) => {
-                const isActive = sub.status === "Active";
+                const isActive = sub.status === "active";
 
                 return (
                   <tr key={sub.id}>
@@ -194,8 +295,9 @@ export default function SubscriptionsPage() {
                           <p className="font-semibold text-gray-900">
                             {sub.organisation}
                           </p>
+
                           <p className="text-sm text-gray-500">
-                            SaaS customer
+                            {t("subscriptions.saasCustomer")}
                           </p>
                         </div>
                       </div>
@@ -207,12 +309,12 @@ export default function SubscriptionsPage() {
                       </span>
                     </td>
 
-                    <td className="py-5 text-gray-700">
-                      {sub.employees}
-                    </td>
+                    <td className="py-5 text-gray-700">{sub.employees}</td>
 
                     <td className="py-5 text-gray-500">
-                      {sub.nextBilling}
+                      {sub.awaitingPayment
+                        ? t("subscriptions.awaitingPayment")
+                        : formatDate(sub.nextBilling, language)}
                     </td>
 
                     <td className="py-5">
@@ -228,12 +330,14 @@ export default function SubscriptionsPage() {
                         ) : (
                           <AlertTriangle size={14} />
                         )}
-                        {sub.status}
+
+                        {t(`subscriptions.status.${sub.status}`)}
                       </span>
                     </td>
 
                     <td className="py-5 text-right text-lg font-bold text-emerald-600">
-                      ${sub.amount}/mo
+                      {money(sub.amount, language)}/
+                      {t("subscriptions.perMonthShort")}
                     </td>
 
                     <td className="py-5 text-right">

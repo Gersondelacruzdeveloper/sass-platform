@@ -1,95 +1,97 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { CreditCard, LogIn, MessageCircle, XCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-import api from "../../../api/axios";
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
-export default function DiscoSubscriptionSuccessPage() {
+export default function DiscoSubscriptionCancelPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { language, setLanguage, t } = useDiscoTranslation();
 
-  const sessionId = searchParams.get("session_id");
+  function openWhatsAppSupport() {
+    const message = encodeURIComponent(
+      "Hello Punta Cana Discovery Support, I need assistance with my subscription checkout."
+    );
 
-  const [loading, setLoading] = useState(true);
-  const [organisationName, setOrganisationName] = useState("");
-  const [loginUrl, setLoginUrl] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    async function verifyCheckout() {
-      if (!sessionId) {
-        setError("Missing checkout session.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await api.get(
-          `/subscriptions/checkout-session-status/?session_id=${sessionId}`
-        );
-
-        setOrganisationName(response.data.organisation_name);
-        setLoginUrl(response.data.login_url);
-
-        setTimeout(() => {
-          navigate(response.data.login_url);
-        }, 4000);
-      } catch (err) {
-        console.error(err);
-        setError("Could not verify your subscription.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    verifyCheckout();
-  }, [sessionId, navigate]);
+    window.open(`https://wa.me/18292380483?text=${message}`, "_blank");
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
+        <div className="mb-6 flex justify-end">
+          <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+            {t("subscription.language")}
+
+            <select
+              value={language}
+              aria-label={t("subscription.language")}
+              onChange={(event) =>
+                setLanguage(event.target.value as DiscoLanguage)
+              }
+              className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-700 outline-none"
+            >
+              <option value="en">EN</option>
+              <option value="es">ES</option>
+            </select>
+          </label>
+        </div>
+
         <div className="flex flex-col items-center text-center">
-          <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-green-100">
-            <CheckCircle2 className="h-14 w-14 text-green-600" />
+          <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-amber-100">
+            <XCircle className="h-14 w-14 text-amber-600" />
           </div>
 
           <h1 className="text-3xl font-black text-slate-900">
-            Disco Subscription Successful
+            {t("subscription.cancelTitle")}
           </h1>
 
-          {loading ? (
-            <div className="mt-8 flex items-center gap-3 text-slate-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="font-medium">Activating your organisation...</span>
-            </div>
-          ) : error ? (
-            <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>
-          ) : (
-            <>
-              <p className="mt-4 text-base text-slate-600">
-                Your payment was successful.
-              </p>
+          <p className="mt-4 text-base font-medium leading-7 text-slate-600">
+            {t("subscription.cancelDescription")}
+          </p>
 
-              <p className="mt-2 text-base text-slate-600">
-                <strong>{organisationName}</strong> is ready.
-              </p>
+          <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">
+            {t("subscription.noPaymentTaken")}
+          </div>
 
-              <div className="mt-8 flex items-center gap-3 text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="font-medium">
-                  Redirecting to your Disco login...
-                </span>
-              </div>
+          <div className="mt-8 grid w-full gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => navigate("/disco/signup")}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800"
+            >
+              <CreditCard className="h-4 w-4" />
+              {t("subscription.returnToSignup")}
+            </button>
 
-              <button
-                type="button"
-                onClick={() => navigate(loginUrl)}
-                className="mt-8 w-full rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800"
-              >
-                Continue to Login
-              </button>
-            </>
-          )}
+            <button
+              type="button"
+              onClick={() => navigate("/disco/signup")}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <LogIn className="h-4 w-4" />
+              {t("subscription.backToLogin")}
+            </button>
+          </div>
+
+          <div className="mt-6 w-full rounded-3xl bg-slate-50 p-4">
+            <h2 className="text-sm font-black text-slate-900">
+              {t("subscription.needHelp")}
+            </h2>
+
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {t("subscription.supportDescription")}
+            </p>
+
+            <button
+              type="button"
+              onClick={openWhatsAppSupport}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp Support
+            </button>
+          </div>
         </div>
       </div>
     </div>

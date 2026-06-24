@@ -2,6 +2,9 @@
 
 import { Edit, Package, Plus, AlertTriangle } from "lucide-react";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type Product = {
   id: number;
   name: string;
@@ -29,17 +32,22 @@ type ProductCardProps = {
   onView?: (product: Product) => void;
 };
 
+function formatMoney(value: number | string, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
 export default function ProductCard({
   product,
   onAddToCart,
   onEdit,
   onView,
 }: ProductCardProps) {
-  const money = (value: number | string) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value || 0));
+  const { language, t } = useDiscoTranslation();
 
   const apiOrigin =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
@@ -90,27 +98,27 @@ export default function ProductCard({
           <div className="absolute left-3 top-3 flex flex-wrap gap-2">
             {!product.is_active && (
               <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-black text-white">
-                Inactive
+                {t("product.inactive")}
               </span>
             )}
 
             {isOutOfStock && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
                 <AlertTriangle size={13} />
-                Out
+                {t("product.out")}
               </span>
             )}
 
             {!isOutOfStock && isLowStock && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700">
                 <AlertTriangle size={13} />
-                Low
+                {t("product.low")}
               </span>
             )}
 
             {product.is_alcohol && (
               <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
-                Alcohol
+                {t("product.alcohol")}
               </span>
             )}
           </div>
@@ -120,7 +128,7 @@ export default function ProductCard({
       <div className="space-y-4 p-4 sm:p-5">
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            {product.category_name || product.brand || "Product"}
+            {product.category_name || product.brand || t("product.product")}
           </p>
 
           <h3 className="mt-1 line-clamp-2 text-base font-black text-slate-900">
@@ -131,17 +139,19 @@ export default function ProductCard({
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-slate-50 p-3">
             <p className="text-xs font-black uppercase text-slate-400">
-              Price
+              {t("product.price")}
             </p>
+
             <p className="mt-1 text-sm font-black text-slate-900">
-              {money(product.sale_price)}
+              {formatMoney(product.sale_price, language)}
             </p>
           </div>
 
           <div className="rounded-2xl bg-slate-50 p-3">
             <p className="text-xs font-black uppercase text-slate-400">
-              Stock
+              {t("product.stock")}
             </p>
+
             <p
               className={`mt-1 text-sm font-black ${
                 isOutOfStock
@@ -167,7 +177,7 @@ export default function ProductCard({
               className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
             >
               <Edit size={16} />
-              Edit
+              {t("product.edit")}
             </button>
           )}
 
@@ -182,7 +192,7 @@ export default function ProductCard({
               className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus size={16} />
-              Add
+              {t("product.add")}
             </button>
           )}
         </div>

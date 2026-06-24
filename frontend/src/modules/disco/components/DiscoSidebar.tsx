@@ -26,6 +26,10 @@ import api from "../../../api/axios";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 import { logoutUser } from "../../../features/auth/authSlice";
 import { getPublicDiscoBranding } from "../api/brandingApi";
+import {
+  translateDiscoRole,
+  useDiscoTranslation,
+} from "../i18n/useDiscoTranslation";
 
 type DiscoSidebarProps = {
   mobileOpen: boolean;
@@ -72,6 +76,7 @@ export default function DiscoSidebar({
   const dispatch = useAppDispatch();
   const { organisationSlug } = useParams();
   const { user } = useAppSelector((state) => state.auth);
+  const { t } = useDiscoTranslation();
 
   const authUser = user as any;
 
@@ -103,9 +108,10 @@ export default function DiscoSidebar({
     authUser?.name ||
     authUser?.username ||
     authUser?.email ||
-    "Logged in user";
+    t("common.loggedInUser");
 
-  const role = authUser?.disco_employee?.role || authUser?.role || "User";
+  const role = authUser?.disco_employee?.role || authUser?.role || "user";
+  const displayRole = translateDiscoRole(role, t);
 
   const organisationName =
     branding?.platform_name ||
@@ -146,73 +152,76 @@ export default function DiscoSidebar({
     return resolveImageUrl(rawProfileImageUrl);
   }, [rawProfileImageUrl, imageError]);
 
-  const links = [
-    {
-      name: "Dashboard",
-      icon: LayoutDashboard,
-      path: `/disco/${slug}/dashboard`,
-    },
-    {
-      name: "POS",
-      icon: ShoppingCart,
-      path: `/disco/${slug}/pos`,
-    },
-    {
-      name: "Products",
-      icon: Package,
-      path: `/disco/${slug}/products`,
-    },
-    {
-      name: "Inventory",
-      icon: Boxes,
-      path: `/disco/${slug}/inventory`,
-    },
-    {
-      name: "Stock Movements",
-      icon: ArrowLeftRight,
-      path: `/disco/${slug}/stock-movements`,
-    },
-    {
-      name: "Tables",
-      icon: Table2,
-      path: `/disco/${slug}/tables`,
-    },
-    {
-      name: "Reservations",
-      icon: CalendarDays,
-      path: `/disco/${slug}/reservations`,
-    },
-    {
-      name: "Employees",
-      icon: Users,
-      path: `/disco/${slug}/employees`,
-    },
-    {
-      name: "Cash Shifts",
-      icon: Wallet,
-      path: `/disco/${slug}/cash-shifts`,
-    },
-    {
-      name: "Expenses",
-      icon: Receipt,
-      path: `/disco/${slug}/expenses`,
-    },
-    {
-      name: "Reports",
-      icon: BarChart3,
-      path: `/disco/${slug}/reports`,
-    },
-    {
-      name: "Activity Logs",
-      icon: Activity,
-      path: `/disco/${slug}/activity-logs`,
-    },
-    {
-      name: "Settings",
-      icon: Settings,
-      path: `/disco/${slug}/settings`,
-    },
-  ];
+  const links = useMemo(
+    () => [
+      {
+        name: t("sidebar.dashboard"),
+        icon: LayoutDashboard,
+        path: `/disco/${slug}/dashboard`,
+      },
+      {
+        name: t("sidebar.pos"),
+        icon: ShoppingCart,
+        path: `/disco/${slug}/pos`,
+      },
+      {
+        name: t("sidebar.products"),
+        icon: Package,
+        path: `/disco/${slug}/products`,
+      },
+      {
+        name: t("sidebar.inventory"),
+        icon: Boxes,
+        path: `/disco/${slug}/inventory`,
+      },
+      {
+        name: t("sidebar.stockMovements"),
+        icon: ArrowLeftRight,
+        path: `/disco/${slug}/stock-movements`,
+      },
+      {
+        name: t("sidebar.tables"),
+        icon: Table2,
+        path: `/disco/${slug}/tables`,
+      },
+      {
+        name: t("sidebar.reservations"),
+        icon: CalendarDays,
+        path: `/disco/${slug}/reservations`,
+      },
+      {
+        name: t("sidebar.employees"),
+        icon: Users,
+        path: `/disco/${slug}/employees`,
+      },
+      {
+        name: t("sidebar.cashShifts"),
+        icon: Wallet,
+        path: `/disco/${slug}/cash-shifts`,
+      },
+      {
+        name: t("sidebar.expenses"),
+        icon: Receipt,
+        path: `/disco/${slug}/expenses`,
+      },
+      {
+        name: t("sidebar.reports"),
+        icon: BarChart3,
+        path: `/disco/${slug}/reports`,
+      },
+      {
+        name: t("sidebar.activityLogs"),
+        icon: Activity,
+        path: `/disco/${slug}/activity-logs`,
+      },
+      {
+        name: t("sidebar.settings"),
+        icon: Settings,
+        path: `/disco/${slug}/settings`,
+      },
+    ],
+    [slug, t]
+  );
 
   async function handleLogout() {
     try {
@@ -302,14 +311,14 @@ export default function DiscoSidebar({
                   </p>
 
                   <p className="truncate text-xs font-semibold capitalize text-slate-400">
-                    {String(role).replace("_", " ")}
+                    {displayRole}
                   </p>
                 </div>
               </div>
 
               <div className="mt-4 rounded-2xl bg-slate-950/60 p-3">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Organisation
+                  {t("sidebar.organisation")}
                 </p>
 
                 <p className="mt-1 truncate text-sm font-black text-white">
@@ -356,7 +365,7 @@ export default function DiscoSidebar({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500/10 px-4 py-3 text-sm font-black text-red-300 transition hover:bg-red-500 hover:text-white"
             >
               <LogOut size={18} />
-              Logout
+              {t("common.logout")}
             </button>
           </div>
         </div>

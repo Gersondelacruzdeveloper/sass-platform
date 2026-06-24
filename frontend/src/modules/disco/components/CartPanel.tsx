@@ -9,6 +9,9 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
+
 type CartItem = {
   product: {
     id: number;
@@ -31,6 +34,15 @@ type CartPanelProps = {
   loading?: boolean;
 };
 
+function formatMoney(value: number, language: DiscoLanguage) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+  }).format(value);
+}
+
 export default function CartPanel({
   items,
   subtotal,
@@ -43,22 +55,19 @@ export default function CartPanel({
   onCheckout,
   loading = false,
 }: CartPanelProps) {
-  const formatMoney = (value: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
+  const { language, t } = useDiscoTranslation();
 
   return (
     <aside className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-slate-100 p-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-            Current Order
+            {t("cart.currentOrder")}
           </p>
+
           <h2 className="flex items-center gap-2 text-lg font-black text-slate-900">
             <ShoppingCart size={20} />
-            Cart
+            {t("cart.cart")}
           </h2>
         </div>
 
@@ -68,7 +77,7 @@ export default function CartPanel({
             onClick={onClear}
             className="rounded-full bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100"
           >
-            Clear
+            {t("cart.clear")}
           </button>
         )}
       </div>
@@ -77,11 +86,13 @@ export default function CartPanel({
         {items.length === 0 ? (
           <div className="flex min-h-[220px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
             <ShoppingCart className="mb-3 text-slate-300" size={42} />
+
             <p className="text-sm font-bold text-slate-700">
-              No products added yet
+              {t("cart.noProductsAdded")}
             </p>
+
             <p className="mt-1 text-xs text-slate-400">
-              Select products from the POS to start an order.
+              {t("cart.noProductsAddedDescription")}
             </p>
           </div>
         ) : (
@@ -99,8 +110,9 @@ export default function CartPanel({
                     <h3 className="truncate text-sm font-black text-slate-900">
                       {item.product.name}
                     </h3>
+
                     <p className="text-xs font-semibold text-slate-500">
-                      {formatMoney(price)} each
+                      {formatMoney(price, language)} {t("cart.each")}
                     </p>
                   </div>
 
@@ -137,7 +149,7 @@ export default function CartPanel({
                   </div>
 
                   <p className="text-sm font-black text-slate-900">
-                    {formatMoney(price * item.quantity)}
+                    {formatMoney(price * item.quantity, language)}
                   </p>
                 </div>
               </div>
@@ -149,19 +161,19 @@ export default function CartPanel({
       <div className="border-t border-slate-100 p-4">
         <div className="space-y-2 rounded-2xl bg-slate-50 p-4">
           <div className="flex justify-between text-sm font-semibold text-slate-500">
-            <span>Subtotal</span>
-            <span>{formatMoney(subtotal)}</span>
+            <span>{t("pos.subtotal")}</span>
+            <span>{formatMoney(subtotal, language)}</span>
           </div>
 
           <div className="flex justify-between text-sm font-semibold text-slate-500">
-            <span>Tax 18%</span>
-            <span>{formatMoney(tax)}</span>
+            <span>{t("cart.tax18")}</span>
+            <span>{formatMoney(tax, language)}</span>
           </div>
 
           <div className="border-t border-slate-200 pt-2">
             <div className="flex justify-between text-lg font-black text-slate-900">
-              <span>Total</span>
-              <span>{formatMoney(total)}</span>
+              <span>{t("pos.total")}</span>
+              <span>{formatMoney(total, language)}</span>
             </div>
           </div>
         </div>
@@ -174,7 +186,7 @@ export default function CartPanel({
             className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Banknote size={18} />
-            Cash
+            {t("pos.cash")}
           </button>
 
           <button
@@ -184,7 +196,7 @@ export default function CartPanel({
             className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white shadow-sm hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
           >
             <CreditCard size={18} />
-            Card
+            {t("pos.card")}
           </button>
         </div>
       </div>
