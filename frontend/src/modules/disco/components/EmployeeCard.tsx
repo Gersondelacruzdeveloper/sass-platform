@@ -1,6 +1,6 @@
 // src/modules/disco/components/EmployeeCard.tsx
 
-import type { ReactNode } from "react";
+// import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   User,
@@ -238,25 +238,25 @@ export default function EmployeeCard({
   );
 }
 
-function Info({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-slate-50 p-3">
-      <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-400">
-        {icon}
-        {label}
-      </div>
+// function Info({
+//   icon,
+//   label,
+//   value,
+// }: {
+//   icon: ReactNode;
+//   label: string;
+//   value: string;
+// }) {
+//   return (
+//     <div className="rounded-2xl bg-slate-50 p-3">
+//       <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-400">
+//         {icon}
+//         {label}
+//       </div>
 
-      <p className="mt-1 truncate text-sm font-black text-slate-900">
-        {value}
-      </p>
-    </div>
-  );
-}
+//       <p className="mt-1 truncate text-sm font-black text-slate-900">
+//         {value}
+//       </p>
+//     </div>
+//   );
+// }
