@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
@@ -141,6 +141,135 @@ def get_sales_chart(self, organisation, days=14):
         })
 
     return chart
+
+def get_current_disco_employee(user, organisation):
+    if not user or not user.is_authenticated or not organisation:
+        return None
+
+    return (
+        DiscoEmployee.objects
+        .filter(
+            organisation=organisation,
+            user=user,
+            is_active=True,
+        )
+        .first()
+    )
+
+
+def user_has_disco_permission(user, organisation, required_permissions):
+    if not required_permissions:
+        return True
+
+    if isinstance(required_permissions, str):
+        required_permissions = [required_permissions]
+
+    if not user or not user.is_authenticated:
+        return False
+
+    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+        return True
+
+    employee = get_current_disco_employee(user, organisation)
+
+    if employee:
+        if employee.role == "owner":
+            return True
+
+        for permission_name in required_permissions:
+            if hasattr(employee, "has_permission"):
+                if employee.has_permission(permission_name):
+                    return True
+            elif bool(getattr(employee, permission_name, False)):
+                return True
+
+        return False
+
+    membership = (
+        user.memberships
+        .filter(is_active=True, organisation=organisation)
+        .first()
+        if hasattr(user, "memberships")
+        else None
+    )
+
+    if membership:
+        membership_role = str(getattr(membership, "role", "") or "").lower()
+
+        owner_roles = {
+            "owner",
+            "admin",
+            "administrator",
+            "business_owner",
+            "organisation_owner",
+            "organization_owner",
+            "superadmin",
+            "super_admin",
+        }
+
+        if membership_role in owner_roles:
+            return True
+
+    # Safety fallback for the original business owner/admin account.
+    # Employee login accounts should have a DiscoEmployee linked to the user.
+    if getattr(user, "organisation_id", None) == getattr(organisation, "id", None):
+        has_employee_profile = DiscoEmployee.objects.filter(
+            organisation=organisation,
+            user=user,
+        ).exists()
+
+        if not has_employee_profile:
+            return True
+
+    return False
+
+
+class DiscoPermissionMixin:
+    """
+    Backend permission layer for the Disco module.
+
+    This protects the API directly. The frontend can hide buttons and pages,
+    but this mixin makes sure a user cannot bypass permissions by calling
+    endpoints manually.
+    """
+
+    permission_required = None
+    action_permissions = {}
+
+    def get_required_disco_permission(self):
+        action = getattr(self, "action", None)
+
+        if action in self.action_permissions:
+            return self.action_permissions[action]
+
+        return self.permission_required
+
+    def check_disco_permission(self, required_permissions):
+        if not required_permissions:
+            return
+
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        if not user_has_disco_permission(
+            self.request.user,
+            organisation,
+            required_permissions,
+        ):
+            raise PermissionDenied(
+                "You do not have permission to perform this action."
+            )
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+
+        required_permissions = self.get_required_disco_permission()
+        self.check_disco_permission(required_permissions)
+
 class OrganisationQuerysetMixin:
     permission_classes = [permissions.IsAuthenticated]
 
@@ -183,7 +312,11 @@ class OrganisationQuerysetMixin:
         serializer.save(organisation=organisation)
 
 
-class DiscoSettingsViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
+class DiscoSettingsViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ViewSet):
+    action_permissions = {
+        "list": ["can_access_pos", "can_access_dashboard", "can_view_reports", "can_manage_settings"],
+        "current": ["can_access_pos", "can_access_dashboard", "can_view_reports", "can_manage_settings"],
+    }
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
@@ -215,6 +348,8 @@ class DiscoSettingsViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
         settings = get_or_create_disco_settings(organisation)
 
         if request.method.lower() == "patch":
+            self.check_disco_permission("can_manage_settings")
+
             serializer = DiscoSettingsSerializer(
                 settings,
                 data=request.data,
@@ -244,13 +379,30 @@ class DiscoSettingsViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
 
         return Response(serializer.data)
     
-class CategoryViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class CategoryViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_access_pos", "can_manage_products", "can_manage_inventory"],
+        "retrieve": ["can_access_pos", "can_manage_products", "can_manage_inventory"],
+        "create": "can_manage_products",
+        "update": "can_manage_products",
+        "partial_update": "can_manage_products",
+        "destroy": "can_manage_products",
+    }
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
 
 
-class ProductViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class ProductViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_access_pos", "can_manage_products", "can_manage_inventory"],
+        "retrieve": ["can_access_pos", "can_manage_products", "can_manage_inventory"],
+        "low_stock": ["can_access_pos", "can_manage_products", "can_manage_inventory"],
+        "create": "can_manage_products",
+        "update": "can_manage_products",
+        "partial_update": "can_manage_products",
+        "destroy": "can_manage_products",
+    }
     queryset = Product.objects.select_related("category", "organisation").all()
     serializer_class = ProductSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
@@ -316,7 +468,8 @@ class ProductViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class StockMovementViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class StockMovementViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    permission_required = "can_manage_inventory"
     queryset = StockMovement.objects.select_related(
         "product",
         "created_by",
@@ -359,7 +512,8 @@ class StockMovementViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         )
 
 
-class ExpenseViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class ExpenseViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    permission_required = "can_manage_expenses"
     queryset = Expense.objects.select_related("created_by").all()
     serializer_class = ExpenseSerializer
 
@@ -401,7 +555,16 @@ class ExpenseViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
 
 
-class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class DiscoEmployeeViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "me": None,
+        "list": "can_manage_employees",
+        "retrieve": "can_manage_employees",
+        "create": "can_manage_employees",
+        "update": "can_manage_employees",
+        "partial_update": "can_manage_employees",
+        "destroy": "can_manage_employees",
+    }
     queryset = DiscoEmployee.objects.select_related("user", "organisation").all()
     serializer_class = DiscoEmployeeSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
@@ -485,7 +648,55 @@ class DiscoEmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         serializer.save()
 
 
-class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        employee = get_current_disco_employee(request.user, organisation)
+
+        if employee:
+            serializer = self.get_serializer(
+                employee,
+                context={"request": request},
+            )
+            return Response(serializer.data)
+
+        permission_fields = getattr(DiscoEmployee, "PERMISSION_FIELDS", [])
+        permissions_payload = {
+            field: True
+            for field in permission_fields
+        }
+
+        return Response({
+            "id": None,
+            "user": request.user.id,
+            "username": getattr(request.user, "username", ""),
+            "email": getattr(request.user, "email", ""),
+            "full_name": (
+                getattr(request.user, "get_full_name", lambda: "")()
+                or getattr(request.user, "username", "")
+            ),
+            "role": "owner",
+            "is_active": True,
+            "permissions": permissions_payload,
+            **permissions_payload,
+        })
+
+
+class DiscoTableViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_access_pos", "can_manage_tables", "can_manage_reservations"],
+        "retrieve": ["can_access_pos", "can_manage_tables", "can_manage_reservations"],
+        "create": "can_manage_tables",
+        "update": "can_manage_tables",
+        "partial_update": "can_manage_tables",
+        "destroy": "can_manage_tables",
+    }
     queryset = DiscoTable.objects.all()
     serializer_class = DiscoTableSerializer
 
@@ -509,7 +720,16 @@ class DiscoTableViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
         serializer.save(organisation=organisation)
 
-class CashShiftViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class CashShiftViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_open_cash_shift", "can_close_cash_shift", "can_view_reports"],
+        "retrieve": ["can_open_cash_shift", "can_close_cash_shift", "can_view_reports"],
+        "create": "can_open_cash_shift",
+        "close": "can_close_cash_shift",
+        "update": "can_close_cash_shift",
+        "partial_update": "can_close_cash_shift",
+        "destroy": "can_close_cash_shift",
+    }
     queryset = CashShift.objects.select_related(
         "opened_by",
         "closed_by",
@@ -537,7 +757,22 @@ class CashShiftViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class SaleViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_access_pos", "can_view_reports"],
+        "retrieve": ["can_access_pos", "can_view_reports"],
+        "create": "can_access_pos",
+        "open_bills": "can_access_pos",
+        "open_table": "can_access_pos",
+        "add_item": "can_access_pos",
+        "update_item": "can_access_pos",
+        "remove_item": "can_access_pos",
+        "checkout": "can_access_pos",
+        "cancel_bill": "can_cancel_sales",
+        "update": "can_cancel_sales",
+        "partial_update": "can_cancel_sales",
+        "destroy": "can_cancel_sales",
+    }
     queryset = Sale.objects.select_related(
         "table",
         "cash_shift",
@@ -553,6 +788,11 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         return SaleSerializer
 
     def perform_create(self, serializer):
+        discount = serializer.validated_data.get("discount", Decimal("0.00"))
+
+        if money(discount) > Decimal("0.00"):
+            self.check_disco_permission("can_apply_discounts")
+
         serializer.save()
 
     def _get_open_cash_shift(self, organisation):
@@ -872,6 +1112,9 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         payment_method = serializer.validated_data.get("payment_method", "cash")
         discount = serializer.validated_data.get("discount", Decimal("0.00"))
 
+        if money(discount) > Decimal("0.00"):
+            self.check_disco_permission("can_apply_discounts")
+
         self._recalculate_sale(sale, discount=discount)
 
         with transaction.atomic():
@@ -945,7 +1188,15 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data)
 
 
-class DiscoReservationViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+class DiscoReservationViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    action_permissions = {
+        "list": ["can_manage_reservations", "can_manage_tables"],
+        "retrieve": ["can_manage_reservations", "can_manage_tables"],
+        "create": "can_manage_reservations",
+        "update": "can_manage_reservations",
+        "partial_update": "can_manage_reservations",
+        "destroy": "can_manage_reservations",
+    }
     queryset = DiscoReservation.objects.select_related(
         "table",
         "created_by",
@@ -959,13 +1210,15 @@ class DiscoReservationViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
         )
 
 
-class DiscoActivityLogViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
+class DiscoActivityLogViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
+    permission_required = "can_view_activity_logs"
     queryset = DiscoActivityLog.objects.select_related("user").all()
     serializer_class = DiscoActivityLogSerializer
 
 
 
-class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
+class DiscoDashboardViewSet(DiscoPermissionMixin, OrganisationQuerysetMixin, viewsets.ViewSet):
+    permission_required = "can_access_dashboard"
     permission_classes = [permissions.IsAuthenticated]
 
     def get_sales_chart(self, organisation, days=14):

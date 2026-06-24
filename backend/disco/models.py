@@ -18,6 +18,180 @@ class DiscoEmployee(models.Model):
         ("inventory_manager", "Inventory Manager"),
     )
 
+    PERMISSION_FIELDS = (
+        "can_access_dashboard",
+        "can_access_pos",
+        "can_manage_products",
+        "can_manage_inventory",
+        "can_manage_employees",
+        "can_manage_tables",
+        "can_manage_reservations",
+        "can_manage_expenses",
+        "can_view_reports",
+        "can_manage_settings",
+        "can_view_activity_logs",
+        "can_open_cash_shift",
+        "can_close_cash_shift",
+        "can_apply_discounts",
+        "can_cancel_sales",
+    )
+
+    ROLE_DEFAULT_PERMISSIONS = {
+        "owner": {
+            "can_access_dashboard": True,
+            "can_access_pos": True,
+            "can_manage_products": True,
+            "can_manage_inventory": True,
+            "can_manage_employees": True,
+            "can_manage_tables": True,
+            "can_manage_reservations": True,
+            "can_manage_expenses": True,
+            "can_view_reports": True,
+            "can_manage_settings": True,
+            "can_view_activity_logs": True,
+            "can_open_cash_shift": True,
+            "can_close_cash_shift": True,
+            "can_apply_discounts": True,
+            "can_cancel_sales": True,
+        },
+        "manager": {
+            "can_access_dashboard": True,
+            "can_access_pos": True,
+            "can_manage_products": True,
+            "can_manage_inventory": True,
+            "can_manage_employees": True,
+            "can_manage_tables": True,
+            "can_manage_reservations": True,
+            "can_manage_expenses": True,
+            "can_view_reports": True,
+            "can_manage_settings": False,
+            "can_view_activity_logs": True,
+            "can_open_cash_shift": True,
+            "can_close_cash_shift": True,
+            "can_apply_discounts": True,
+            "can_cancel_sales": True,
+        },
+        "cashier": {
+            "can_access_dashboard": True,
+            "can_access_pos": True,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": True,
+            "can_manage_reservations": False,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": True,
+            "can_close_cash_shift": True,
+            "can_apply_discounts": True,
+            "can_cancel_sales": False,
+        },
+        "bartender": {
+            "can_access_dashboard": False,
+            "can_access_pos": True,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": True,
+            "can_manage_reservations": False,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+        "waiter": {
+            "can_access_dashboard": False,
+            "can_access_pos": True,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": True,
+            "can_manage_reservations": False,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+        "security": {
+            "can_access_dashboard": False,
+            "can_access_pos": False,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": False,
+            "can_manage_reservations": False,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+        "host": {
+            "can_access_dashboard": False,
+            "can_access_pos": False,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": True,
+            "can_manage_reservations": True,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+        "promoter": {
+            "can_access_dashboard": False,
+            "can_access_pos": False,
+            "can_manage_products": False,
+            "can_manage_inventory": False,
+            "can_manage_employees": False,
+            "can_manage_tables": False,
+            "can_manage_reservations": True,
+            "can_manage_expenses": False,
+            "can_view_reports": False,
+            "can_manage_settings": False,
+            "can_view_activity_logs": False,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+        "inventory_manager": {
+            "can_access_dashboard": True,
+            "can_access_pos": False,
+            "can_manage_products": True,
+            "can_manage_inventory": True,
+            "can_manage_employees": False,
+            "can_manage_tables": False,
+            "can_manage_reservations": False,
+            "can_manage_expenses": False,
+            "can_view_reports": True,
+            "can_manage_settings": False,
+            "can_view_activity_logs": True,
+            "can_open_cash_shift": False,
+            "can_close_cash_shift": False,
+            "can_apply_discounts": False,
+            "can_cancel_sales": False,
+        },
+    }
+
     organisation = models.ForeignKey(
         Organisation,
         on_delete=models.CASCADE,
@@ -31,6 +205,7 @@ class DiscoEmployee(models.Model):
         blank=True,
         related_name="disco_employee_profiles"
     )
+
     photo = models.ImageField(
         upload_to="disco/employees/",
         blank=True,
@@ -40,27 +215,75 @@ class DiscoEmployee(models.Model):
     full_name = models.CharField(max_length=150)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
     phone = models.CharField(max_length=30, blank=True, null=True)
+
     daily_pay = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0,
         help_text="Daily employee payment used for payroll reports."
     )
+
     start_date = models.DateField(
-    default=timezone.localdate,
-    db_index=True,
-    help_text="Date when the employee started working."
+        default=timezone.localdate,
+        db_index=True,
+        help_text="Date when the employee started working."
     )
+
     end_date = models.DateField(
-    null=True,
-    blank=True,
-    db_index=True,
-    help_text="Date when the employee stopped working. Empty means currently active."
-)
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Date when the employee stopped working. Empty means currently active."
+    )
+
+    # Access permissions
+    can_access_dashboard = models.BooleanField(default=False)
+    can_access_pos = models.BooleanField(default=False)
+
+    # Management permissions
+    can_manage_products = models.BooleanField(default=False)
+    can_manage_inventory = models.BooleanField(default=False)
+    can_manage_employees = models.BooleanField(default=False)
+    can_manage_tables = models.BooleanField(default=False)
+    can_manage_reservations = models.BooleanField(default=False)
+    can_manage_expenses = models.BooleanField(default=False)
+    can_manage_settings = models.BooleanField(default=False)
+
+    # Reporting and audit permissions
+    can_view_reports = models.BooleanField(default=False)
+    can_view_activity_logs = models.BooleanField(default=False)
+
+    # Cash/POS action permissions
+    can_open_cash_shift = models.BooleanField(default=False)
+    can_close_cash_shift = models.BooleanField(default=False)
+    can_apply_discounts = models.BooleanField(default=False)
+    can_cancel_sales = models.BooleanField(default=False)
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def apply_role_default_permissions(self):
+        permissions = self.ROLE_DEFAULT_PERMISSIONS.get(self.role, {})
+
+        for field in self.PERMISSION_FIELDS:
+            setattr(self, field, permissions.get(field, False))
+
+    def get_permissions_dict(self):
+        return {
+            field: getattr(self, field)
+            for field in self.PERMISSION_FIELDS
+        }
+
+    def has_permission(self, permission_name):
+        if self.role == "owner":
+            return True
+
+        if permission_name not in self.PERMISSION_FIELDS:
+            return False
+
+        return bool(getattr(self, permission_name, False))
 
     def __str__(self):
         return self.full_name

@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Banknote,
+  CalendarDays,
   Image as ImageIcon,
   Plus,
   RefreshCcw,
   Search,
+  ShieldCheck,
   UserCheck,
   UserCog,
   Upload,
@@ -45,6 +47,25 @@ type EmployeeRole =
   | "promoter"
   | "inventory_manager";
 
+type EmployeePermissionKey =
+  | "can_access_dashboard"
+  | "can_access_pos"
+  | "can_manage_products"
+  | "can_manage_inventory"
+  | "can_manage_employees"
+  | "can_manage_tables"
+  | "can_manage_reservations"
+  | "can_manage_expenses"
+  | "can_view_reports"
+  | "can_manage_settings"
+  | "can_view_activity_logs"
+  | "can_open_cash_shift"
+  | "can_close_cash_shift"
+  | "can_apply_discounts"
+  | "can_cancel_sales";
+
+type EmployeePermissions = Record<EmployeePermissionKey, boolean>;
+
 type DiscoEmployee = {
   id: number;
   user?: number | null;
@@ -56,6 +77,26 @@ type DiscoEmployee = {
   phone?: string;
 
   daily_pay?: string | number;
+  start_date?: string | null;
+  end_date?: string | null;
+
+  permissions?: Partial<EmployeePermissions>;
+
+  can_access_dashboard?: boolean;
+  can_access_pos?: boolean;
+  can_manage_products?: boolean;
+  can_manage_inventory?: boolean;
+  can_manage_employees?: boolean;
+  can_manage_tables?: boolean;
+  can_manage_reservations?: boolean;
+  can_manage_expenses?: boolean;
+  can_view_reports?: boolean;
+  can_manage_settings?: boolean;
+  can_view_activity_logs?: boolean;
+  can_open_cash_shift?: boolean;
+  can_close_cash_shift?: boolean;
+  can_apply_discounts?: boolean;
+  can_cancel_sales?: boolean;
 
   // Backend display fields from your serializer
   profile_image_url?: string | null;
@@ -80,9 +121,281 @@ type EmployeeForm = {
   role: EmployeeRole;
   phone: string;
   daily_pay: string;
+  start_date: string;
+  end_date: string;
   photo: File | null;
   photoPreview: string;
   is_active: boolean;
+  permissions: EmployeePermissions;
+};
+
+const permissionKeys: EmployeePermissionKey[] = [
+  "can_access_dashboard",
+  "can_access_pos",
+  "can_manage_products",
+  "can_manage_inventory",
+  "can_manage_employees",
+  "can_manage_tables",
+  "can_manage_reservations",
+  "can_manage_expenses",
+  "can_view_reports",
+  "can_manage_settings",
+  "can_view_activity_logs",
+  "can_open_cash_shift",
+  "can_close_cash_shift",
+  "can_apply_discounts",
+  "can_cancel_sales",
+];
+
+const permissionLabels: Record<
+  EmployeePermissionKey,
+  {
+    label: string;
+    description: string;
+    group: "access" | "management" | "cash" | "reports";
+  }
+> = {
+  can_access_dashboard: {
+    label: "Acceder al dashboard",
+    description: "Puede ver el resumen principal del negocio.",
+    group: "access",
+  },
+  can_access_pos: {
+    label: "Acceder al POS",
+    description: "Puede vender, agregar productos y trabajar cuentas.",
+    group: "access",
+  },
+  can_manage_products: {
+    label: "Manejar productos",
+    description: "Puede crear, editar y eliminar productos.",
+    group: "management",
+  },
+  can_manage_inventory: {
+    label: "Manejar inventario",
+    description: "Puede registrar entradas, salidas, pérdidas y ajustes.",
+    group: "management",
+  },
+  can_manage_employees: {
+    label: "Manejar empleados",
+    description: "Puede crear empleados, logins y modificar permisos.",
+    group: "management",
+  },
+  can_manage_tables: {
+    label: "Manejar mesas",
+    description: "Puede crear, editar y administrar mesas.",
+    group: "management",
+  },
+  can_manage_reservations: {
+    label: "Manejar reservaciones",
+    description: "Puede crear, confirmar o cancelar reservaciones.",
+    group: "management",
+  },
+  can_manage_expenses: {
+    label: "Manejar gastos",
+    description: "Puede registrar y editar gastos del negocio.",
+    group: "management",
+  },
+  can_view_reports: {
+    label: "Ver reportes",
+    description: "Puede ver ventas, costos, nómina y ganancias.",
+    group: "reports",
+  },
+  can_manage_settings: {
+    label: "Manejar configuración",
+    description: "Puede cambiar impuesto, moneda y configuración general.",
+    group: "management",
+  },
+  can_view_activity_logs: {
+    label: "Ver actividad",
+    description: "Puede ver el historial de acciones del sistema.",
+    group: "reports",
+  },
+  can_open_cash_shift: {
+    label: "Abrir caja",
+    description: "Puede iniciar un turno de caja.",
+    group: "cash",
+  },
+  can_close_cash_shift: {
+    label: "Cerrar caja",
+    description: "Puede cerrar un turno de caja.",
+    group: "cash",
+  },
+  can_apply_discounts: {
+    label: "Aplicar descuentos",
+    description: "Puede aplicar descuentos en ventas y cuentas.",
+    group: "cash",
+  },
+  can_cancel_sales: {
+    label: "Cancelar ventas/cuentas",
+    description: "Puede cancelar cuentas abiertas o ventas cuando aplique.",
+    group: "cash",
+  },
+};
+
+const roleDefaultPermissions: Record<EmployeeRole, EmployeePermissions> = {
+  owner: {
+    can_access_dashboard: true,
+    can_access_pos: true,
+    can_manage_products: true,
+    can_manage_inventory: true,
+    can_manage_employees: true,
+    can_manage_tables: true,
+    can_manage_reservations: true,
+    can_manage_expenses: true,
+    can_view_reports: true,
+    can_manage_settings: true,
+    can_view_activity_logs: true,
+    can_open_cash_shift: true,
+    can_close_cash_shift: true,
+    can_apply_discounts: true,
+    can_cancel_sales: true,
+  },
+  manager: {
+    can_access_dashboard: true,
+    can_access_pos: true,
+    can_manage_products: true,
+    can_manage_inventory: true,
+    can_manage_employees: true,
+    can_manage_tables: true,
+    can_manage_reservations: true,
+    can_manage_expenses: true,
+    can_view_reports: true,
+    can_manage_settings: false,
+    can_view_activity_logs: true,
+    can_open_cash_shift: true,
+    can_close_cash_shift: true,
+    can_apply_discounts: true,
+    can_cancel_sales: true,
+  },
+  cashier: {
+    can_access_dashboard: true,
+    can_access_pos: true,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: true,
+    can_manage_reservations: false,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: true,
+    can_close_cash_shift: true,
+    can_apply_discounts: true,
+    can_cancel_sales: false,
+  },
+  bartender: {
+    can_access_dashboard: false,
+    can_access_pos: true,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: true,
+    can_manage_reservations: false,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+  waiter: {
+    can_access_dashboard: false,
+    can_access_pos: true,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: true,
+    can_manage_reservations: false,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+  security: {
+    can_access_dashboard: false,
+    can_access_pos: false,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: false,
+    can_manage_reservations: false,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+  host: {
+    can_access_dashboard: false,
+    can_access_pos: false,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: true,
+    can_manage_reservations: true,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+  promoter: {
+    can_access_dashboard: false,
+    can_access_pos: false,
+    can_manage_products: false,
+    can_manage_inventory: false,
+    can_manage_employees: false,
+    can_manage_tables: false,
+    can_manage_reservations: true,
+    can_manage_expenses: false,
+    can_view_reports: false,
+    can_manage_settings: false,
+    can_view_activity_logs: false,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+  inventory_manager: {
+    can_access_dashboard: true,
+    can_access_pos: false,
+    can_manage_products: true,
+    can_manage_inventory: true,
+    can_manage_employees: false,
+    can_manage_tables: false,
+    can_manage_reservations: false,
+    can_manage_expenses: false,
+    can_view_reports: true,
+    can_manage_settings: false,
+    can_view_activity_logs: true,
+    can_open_cash_shift: false,
+    can_close_cash_shift: false,
+    can_apply_discounts: false,
+    can_cancel_sales: false,
+  },
+};
+
+const permissionGroupLabels: Record<
+  "access" | "management" | "cash" | "reports",
+  string
+> = {
+  access: "Acceso",
+  management: "Administración",
+  cash: "Caja y ventas",
+  reports: "Reportes y auditoría",
 };
 
 const roleOptions: { value: EmployeeRole; translationKey: string }[] = [
@@ -100,19 +413,51 @@ const roleOptions: { value: EmployeeRole; translationKey: string }[] = [
   },
 ];
 
-const initialForm: EmployeeForm = {
-  full_name: "",
-  username: "",
-  email: "",
-  password: "",
-  create_login: false,
-  role: "waiter",
-  phone: "",
-  daily_pay: "0.00",
-  photo: null,
-  photoPreview: "",
-  is_active: true,
-};
+function todayISODate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getDefaultPermissions(role: EmployeeRole): EmployeePermissions {
+  return { ...roleDefaultPermissions[role] };
+}
+
+function getEmployeePermissions(employee: DiscoEmployee): EmployeePermissions {
+  const defaults = getDefaultPermissions(employee.role || "waiter");
+  const apiPermissions = employee.permissions || {};
+
+  const permissions = { ...defaults };
+
+  permissionKeys.forEach((key) => {
+    if (typeof apiPermissions[key] === "boolean") {
+      permissions[key] = Boolean(apiPermissions[key]);
+    } else if (typeof employee[key] === "boolean") {
+      permissions[key] = Boolean(employee[key]);
+    }
+  });
+
+  return permissions;
+}
+
+function createInitialForm(): EmployeeForm {
+  return {
+    full_name: "",
+    username: "",
+    email: "",
+    password: "",
+    create_login: false,
+    role: "waiter",
+    phone: "",
+    daily_pay: "0.00",
+    start_date: todayISODate(),
+    end_date: "",
+    photo: null,
+    photoPreview: "",
+    is_active: true,
+    permissions: getDefaultPermissions("waiter"),
+  };
+}
+
+const initialForm = createInitialForm();
 
 function getApiOrigin() {
   return (
@@ -190,6 +535,8 @@ function getErrorMessage(
     data.role?.[0] ||
     data.phone?.[0] ||
     data.daily_pay?.[0] ||
+    data.start_date?.[0] ||
+    data.end_date?.[0] ||
     data.photo?.[0] ||
     data.login_email?.[0] ||
     data.login_username?.[0] ||
@@ -265,6 +612,8 @@ export default function DiscoEmployeesPage() {
         getEmployeeRoleLabel(employee.role, t),
         employee.phone,
         employee.daily_pay,
+        employee.start_date,
+        employee.end_date,
         employee.user ? "login account" : "no login",
         employee.user
           ? t("employees.search.loginAccount")
@@ -298,7 +647,7 @@ export default function DiscoEmployeesPage() {
 
   function openCreateModal() {
     setEditingEmployee(null);
-    setForm(initialForm);
+    setForm(createInitialForm());
     setModalOpen(true);
   }
 
@@ -314,9 +663,12 @@ export default function DiscoEmployeesPage() {
       role: employee.role || "waiter",
       phone: employee.phone || "",
       daily_pay: String(employee.daily_pay ?? "0.00"),
+      start_date: employee.start_date || todayISODate(),
+      end_date: employee.end_date || "",
       photo: null,
       photoPreview: getEmployeeDisplayImage(employee),
       is_active: employee.is_active,
+      permissions: getEmployeePermissions(employee),
     });
 
     setModalOpen(true);
@@ -329,7 +681,52 @@ export default function DiscoEmployeesPage() {
 
     setModalOpen(false);
     setEditingEmployee(null);
-    setForm(initialForm);
+    setForm(createInitialForm());
+  }
+
+  function handleRoleChange(role: EmployeeRole) {
+    setForm((prev) => ({
+      ...prev,
+      role,
+      permissions: getDefaultPermissions(role),
+    }));
+  }
+
+  function togglePermission(permission: EmployeePermissionKey) {
+    setForm((prev) => ({
+      ...prev,
+      permissions: {
+        ...prev.permissions,
+        [permission]: !prev.permissions[permission],
+      },
+    }));
+  }
+
+  function selectAllPermissions() {
+    setForm((prev) => ({
+      ...prev,
+      permissions: permissionKeys.reduce((acc, key) => {
+        acc[key] = true;
+        return acc;
+      }, {} as EmployeePermissions),
+    }));
+  }
+
+  function resetPermissionsForRole() {
+    setForm((prev) => ({
+      ...prev,
+      permissions: getDefaultPermissions(prev.role),
+    }));
+  }
+
+  function clearAllPermissions() {
+    setForm((prev) => ({
+      ...prev,
+      permissions: permissionKeys.reduce((acc, key) => {
+        acc[key] = false;
+        return acc;
+      }, {} as EmployeePermissions),
+    }));
   }
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -388,8 +785,14 @@ export default function DiscoEmployeesPage() {
       payload.append("role", form.role);
       payload.append("phone", form.phone.trim());
       payload.append("daily_pay", form.daily_pay || "0.00");
+      payload.append("start_date", form.start_date || todayISODate());
+      payload.append("end_date", form.end_date || "");
       payload.append("is_active", String(form.is_active));
       payload.append("create_login", String(form.create_login));
+
+      permissionKeys.forEach((key) => {
+        payload.append(key, String(form.permissions[key]));
+      });
 
       if (form.create_login) {
         payload.append("login_username", form.username.trim());
@@ -436,6 +839,22 @@ export default function DiscoEmployeesPage() {
       setError(t("employees.errorUpdateStatus"));
     }
   }
+
+  const groupedPermissionKeys = useMemo(() => {
+    return permissionKeys.reduce(
+      (acc, key) => {
+        const group = permissionLabels[key].group;
+
+        if (!acc[group]) {
+          acc[group] = [];
+        }
+
+        acc[group].push(key);
+        return acc;
+      },
+      {} as Record<"access" | "management" | "cash" | "reports", EmployeePermissionKey[]>
+    );
+  }, []);
 
   return (
     <div className="space-y-5 pb-24">
@@ -554,7 +973,7 @@ export default function DiscoEmployeesPage() {
         <div className="fixed inset-0 z-50 flex items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center">
           <form
             onSubmit={handleSubmit}
-            className="max-h-[92vh] w-full overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:max-w-lg"
+            className="max-h-[92vh] w-full overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:max-w-3xl"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -578,278 +997,425 @@ export default function DiscoEmployeesPage() {
               </button>
             </div>
 
-            <div className="mt-5 space-y-4">
-              <label className="block">
-                <span className="text-sm font-bold text-slate-700">
-                  {t("employees.fullName")}
-                </span>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    {t("employees.fullName")}
+                  </span>
 
-                <input
-                  value={form.full_name}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      full_name: e.target.value,
-                    }))
-                  }
-                  required
-                  placeholder={t("employees.fullNamePlaceholder")}
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
-                />
-              </label>
+                  <input
+                    value={form.full_name}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        full_name: e.target.value,
+                      }))
+                    }
+                    required
+                    placeholder={t("employees.fullNamePlaceholder")}
+                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                  />
+                </label>
 
-              <label className="block">
-                <span className="text-sm font-bold text-slate-700">
-                  {t("employees.role")}
-                </span>
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    {t("employees.role")}
+                  </span>
 
-                <select
-                  value={form.role}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      role: e.target.value as EmployeeRole,
-                    }))
-                  }
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
-                >
-                  {roleOptions.map((role) => (
-                    <option key={role.value} value={role.value}>
-                      {t(role.translationKey)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <select
+                    value={form.role}
+                    onChange={(e) =>
+                      handleRoleChange(e.target.value as EmployeeRole)
+                    }
+                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                  >
+                    {roleOptions.map((role) => (
+                      <option key={role.value} value={role.value}>
+                        {t(role.translationKey)}
+                      </option>
+                    ))}
+                  </select>
 
-              <label className="block">
-                <span className="text-sm font-bold text-slate-700">
-                  {t("employees.phone")}
-                </span>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Al cambiar el rol, se aplican los permisos recomendados para
+                    ese puesto.
+                  </p>
+                </label>
 
-                <input
-                  value={form.phone}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      phone: e.target.value,
-                    }))
-                  }
-                  placeholder={t("employees.phonePlaceholder")}
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
-                />
-              </label>
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    {t("employees.phone")}
+                  </span>
 
-              <label className="block">
-                <span className="text-sm font-bold text-slate-700">
-                  Pago diario
-                </span>
+                  <input
+                    value={form.phone}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        phone: e.target.value,
+                      }))
+                    }
+                    placeholder={t("employees.phonePlaceholder")}
+                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                  />
+                </label>
 
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.daily_pay}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      daily_pay: e.target.value,
-                    }))
-                  }
-                  placeholder="0.00"
-                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
-                />
+                <label className="block">
+                  <span className="text-sm font-bold text-slate-700">
+                    Pago diario
+                  </span>
 
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Este monto se usará en reportes y cierre para calcular la
-                  nómina diaria.
-                </p>
-              </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.daily_pay}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        daily_pay: e.target.value,
+                      }))
+                    }
+                    placeholder="0.00"
+                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                  />
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-black text-slate-950">
-                      {t("employees.employeePhoto")}
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Este monto se usará en reportes y cierre para calcular la
+                    nómina diaria.
+                  </p>
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-bold text-slate-700">
+                      Fecha de inicio
+                    </span>
+
+                    <input
+                      type="date"
+                      value={form.start_date}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          start_date: e.target.value,
+                        }))
+                      }
+                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-sm font-bold text-slate-700">
+                      Fecha de salida
+                    </span>
+
+                    <input
+                      type="date"
+                      value={form.end_date}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          end_date: e.target.value,
+                        }))
+                      }
+                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                    />
+
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
+                      Déjalo vacío si todavía está activo.
                     </p>
-
-                    <p className="mt-1 text-xs font-medium text-slate-500">
-                      {t("employees.employeePhotoDescription")}
-                    </p>
-                  </div>
-
-                  <ImageIcon className="h-5 w-5 text-slate-400" />
+                  </label>
                 </div>
 
-                <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <div className="h-24 w-24 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                    {form.photoPreview ? (
-                      <img
-                        src={form.photoPreview}
-                        alt={form.full_name || t("employees.employeePreview")}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-slate-300">
-                        <Users className="h-8 w-8" />
-                      </div>
-                    )}
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-black text-slate-950">
+                        {t("employees.employeePhoto")}
+                      </p>
+
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {t("employees.employeePhotoDescription")}
+                      </p>
+                    </div>
+
+                    <ImageIcon className="h-5 w-5 text-slate-400" />
                   </div>
 
-                  <div className="flex-1 space-y-2">
-                    <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
-                      <Upload className="h-4 w-4" />
-                      {t("employees.uploadPhoto")}
+                  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+                    <div className="h-24 w-24 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      {form.photoPreview ? (
+                        <img
+                          src={form.photoPreview}
+                          alt={form.full_name || t("employees.employeePreview")}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-300">
+                          <Users className="h-8 w-8" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 space-y-2">
+                      <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
+                        <Upload className="h-4 w-4" />
+                        {t("employees.uploadPhoto")}
+
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoChange}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {form.photoPreview && (
+                        <button
+                          type="button"
+                          onClick={removeSelectedPhoto}
+                          className="ml-2 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+                        >
+                          {t("employees.reset")}
+                        </button>
+                      )}
+
+                      <p className="text-xs font-medium text-slate-500">
+                        {t("employees.imageHelp")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div>
+                    <p className="text-sm font-black text-slate-950">
+                      {t("employees.createLoginAccount")}
+                    </p>
+
+                    <p className="text-xs font-medium text-slate-500">
+                      {t("employees.createLoginDescription")}
+                    </p>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={form.create_login}
+                    disabled={Boolean(editingEmployee?.user)}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        create_login: e.target.checked,
+                      }))
+                    }
+                    className="h-5 w-5 rounded border-slate-300"
+                  />
+                </label>
+
+                {form.create_login && (
+                  <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-950">
+                        {t("employees.loginDetails")}
+                      </h3>
+
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {t("employees.loginDetailsDescription")}
+                      </p>
+                    </div>
+
+                    <label className="block">
+                      <span className="text-sm font-bold text-slate-700">
+                        {t("employees.username")}
+                      </span>
 
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handlePhotoChange}
-                        className="hidden"
+                        value={form.username}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            username: e.target.value,
+                          }))
+                        }
+                        required={form.create_login && !editingEmployee?.user}
+                        placeholder={t("employees.usernamePlaceholder")}
+                        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
                       />
                     </label>
 
-                    {form.photoPreview && (
-                      <button
-                        type="button"
-                        onClick={removeSelectedPhoto}
-                        className="ml-2 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
-                      >
-                        {t("employees.reset")}
-                      </button>
-                    )}
+                    <label className="block">
+                      <span className="text-sm font-bold text-slate-700">
+                        {t("employees.email")}
+                      </span>
+
+                      <input
+                        type="email"
+                        value={form.email}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            email: e.target.value,
+                          }))
+                        }
+                        required={form.create_login && !editingEmployee?.user}
+                        placeholder={t("employees.emailPlaceholder")}
+                        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-sm font-bold text-slate-700">
+                        {t("employees.password")}
+                      </span>
+
+                      <input
+                        type="password"
+                        value={form.password}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            password: e.target.value,
+                          }))
+                        }
+                        required={form.create_login && !editingEmployee?.user}
+                        placeholder={
+                          editingEmployee?.user
+                            ? t("employees.passwordPlaceholderExisting")
+                            : t("employees.passwordPlaceholderNew")
+                        }
+                        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div>
+                    <p className="text-sm font-black text-slate-950">
+                      {t("employees.activeEmployee")}
+                    </p>
 
                     <p className="text-xs font-medium text-slate-500">
-                      {t("employees.imageHelp")}
+                      {t("employees.activeEmployeeDescription")}
                     </p>
                   </div>
-                </div>
+
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        is_active: e.target.checked,
+                      }))
+                    }
+                    className="h-5 w-5 rounded border-slate-300"
+                  />
+                </label>
               </div>
 
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div>
-                  <p className="text-sm font-black text-slate-950">
-                    {t("employees.createLoginAccount")}
-                  </p>
+              <div className="space-y-4">
+                <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-5 w-5 text-slate-700" />
 
-                  <p className="text-xs font-medium text-slate-500">
-                    {t("employees.createLoginDescription")}
-                  </p>
-                </div>
+                        <h3 className="text-sm font-black text-slate-950">
+                          Permisos del usuario
+                        </h3>
+                      </div>
 
-                <input
-                  type="checkbox"
-                  checked={form.create_login}
-                  disabled={Boolean(editingEmployee?.user)}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      create_login: e.target.checked,
-                    }))
-                  }
-                  className="h-5 w-5 rounded border-slate-300"
-                />
-              </label>
-
-              {form.create_login && (
-                <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                  <div>
-                    <h3 className="text-sm font-black text-slate-950">
-                      {t("employees.loginDetails")}
-                    </h3>
-
-                    <p className="mt-1 text-xs font-medium text-slate-500">
-                      {t("employees.loginDetailsDescription")}
-                    </p>
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        Define qué puede hacer este empleado dentro del sistema.
+                        Los permisos se guardan en backend.
+                      </p>
+                    </div>
                   </div>
 
-                  <label className="block">
-                    <span className="text-sm font-bold text-slate-700">
-                      {t("employees.username")}
-                    </span>
+                  {!form.create_login && (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+                      Este empleado no tiene cuenta de login. Los permisos se
+                      guardarán, pero solo se aplicarán cuando tenga acceso al
+                      sistema.
+                    </div>
+                  )}
 
-                    <input
-                      value={form.username}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          username: e.target.value,
-                        }))
-                      }
-                      required={form.create_login && !editingEmployee?.user}
-                      placeholder={t("employees.usernamePlaceholder")}
-                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
-                    />
-                  </label>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={resetPermissionsForRole}
+                      className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Rol recomendado
+                    </button>
 
-                  <label className="block">
-                    <span className="text-sm font-bold text-slate-700">
-                      {t("employees.email")}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={selectAllPermissions}
+                      className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Marcar todo
+                    </button>
 
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          email: e.target.value,
-                        }))
-                      }
-                      required={form.create_login && !editingEmployee?.user}
-                      placeholder={t("employees.emailPlaceholder")}
-                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
-                    />
-                  </label>
+                    <button
+                      type="button"
+                      onClick={clearAllPermissions}
+                      className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Quitar todo
+                    </button>
+                  </div>
 
-                  <label className="block">
-                    <span className="text-sm font-bold text-slate-700">
-                      {t("employees.password")}
-                    </span>
+                  <div className="mt-5 space-y-5">
+                    {(["access", "cash", "management", "reports"] as const).map(
+                      (group) => (
+                        <div key={group}>
+                          <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                            {permissionGroupLabels[group]}
+                          </p>
 
-                    <input
-                      type="password"
-                      value={form.password}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          password: e.target.value,
-                        }))
-                      }
-                      required={form.create_login && !editingEmployee?.user}
-                      placeholder={
-                        editingEmployee?.user
-                          ? t("employees.passwordPlaceholderExisting")
-                          : t("employees.passwordPlaceholderNew")
-                      }
-                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none transition focus:border-slate-400"
-                    />
-                  </label>
-                </div>
-              )}
+                          <div className="space-y-2">
+                            {(groupedPermissionKeys[group] || []).map((key) => {
+                              const permission = permissionLabels[key];
 
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div>
-                  <p className="text-sm font-black text-slate-950">
-                    {t("employees.activeEmployee")}
-                  </p>
+                              return (
+                                <label
+                                  key={key}
+                                  className={`flex cursor-pointer items-start justify-between gap-3 rounded-2xl border p-3 transition ${
+                                    form.permissions[key]
+                                      ? "border-slate-300 bg-white"
+                                      : "border-slate-200 bg-white/60"
+                                  }`}
+                                >
+                                  <div>
+                                    <p className="text-sm font-black text-slate-900">
+                                      {permission.label}
+                                    </p>
 
-                  <p className="text-xs font-medium text-slate-500">
-                    {t("employees.activeEmployeeDescription")}
-                  </p>
-                </div>
+                                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                                      {permission.description}
+                                    </p>
+                                  </div>
 
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      is_active: e.target.checked,
-                    }))
-                  }
-                  className="h-5 w-5 rounded border-slate-300"
-                />
-              </label>
+                                  <input
+                                    type="checkbox"
+                                    checked={form.permissions[key]}
+                                    onChange={() => togglePermission(key)}
+                                    className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
 
             <button

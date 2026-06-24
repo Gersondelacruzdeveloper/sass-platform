@@ -42,10 +42,31 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
     user_avatar_url = serializers.SerializerMethodField()
     employee_photo_url = serializers.SerializerMethodField()
 
+    # Permissions summary for frontend
+    permissions = serializers.SerializerMethodField()
+
     create_login = serializers.BooleanField(write_only=True, required=False, default=False)
     login_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
     login_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
     login_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    PERMISSION_FIELDS = [
+        "can_access_dashboard",
+        "can_access_pos",
+        "can_manage_products",
+        "can_manage_inventory",
+        "can_manage_employees",
+        "can_manage_tables",
+        "can_manage_reservations",
+        "can_manage_expenses",
+        "can_view_reports",
+        "can_manage_settings",
+        "can_view_activity_logs",
+        "can_open_cash_shift",
+        "can_close_cash_shift",
+        "can_apply_discounts",
+        "can_cancel_sales",
+    ]
 
     class Meta:
         model = DiscoEmployee
@@ -66,6 +87,27 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
             "phone",
             "is_active",
             "daily_pay",
+            "start_date",
+            "end_date",
+
+            "permissions",
+
+            "can_access_dashboard",
+            "can_access_pos",
+            "can_manage_products",
+            "can_manage_inventory",
+            "can_manage_employees",
+            "can_manage_tables",
+            "can_manage_reservations",
+            "can_manage_expenses",
+            "can_view_reports",
+            "can_manage_settings",
+            "can_view_activity_logs",
+            "can_open_cash_shift",
+            "can_close_cash_shift",
+            "can_apply_discounts",
+            "can_cancel_sales",
+
             "create_login",
             "login_username",
             "login_email",
@@ -84,6 +126,7 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
             "profile_image_url",
             "user_avatar_url",
             "employee_photo_url",
+            "permissions",
             "created_at",
             "updated_at",
         )
@@ -99,6 +142,15 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(url)
 
         return url
+
+    def get_permissions(self, obj):
+        if hasattr(obj, "get_permissions_dict"):
+            return obj.get_permissions_dict()
+
+        return {
+            field: getattr(obj, field, False)
+            for field in self.PERMISSION_FIELDS
+        }
 
     def get_user_avatar_url(self, obj):
         if obj.user and obj.user.avatar:
@@ -135,6 +187,24 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
             return self._build_url(obj.photo)
 
         return None
+
+    def _extract_permission_values(self, validated_data):
+        permission_values = {}
+
+        for field in self.PERMISSION_FIELDS:
+            if field in validated_data:
+                permission_values[field] = validated_data.pop(field)
+
+        return permission_values
+
+    def _apply_permissions(self, employee, permission_values=None, apply_role_defaults=False):
+        permission_values = permission_values or {}
+
+        if apply_role_defaults and hasattr(employee, "apply_role_default_permissions"):
+            employee.apply_role_default_permissions()
+
+        for field, value in permission_values.items():
+            setattr(employee, field, value)
 
     def validate(self, attrs):
         create_login = attrs.get("create_login", False)
@@ -206,7 +276,18 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
         login_email = validated_data.pop("login_email", "")
         login_password = validated_data.pop("login_password", "")
 
+        permission_values = self._extract_permission_values(validated_data)
+
         employee = DiscoEmployee.objects.create(**validated_data)
+
+        # First apply automatic permissions by role.
+        # Then override with any permissions manually sent by the owner.
+        self._apply_permissions(
+            employee,
+            permission_values=permission_values,
+            apply_role_defaults=True,
+        )
+        employee.save()
 
         if create_login:
             username = login_username or login_email
@@ -252,11 +333,28 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
         login_email = validated_data.pop("login_email", "")
         login_password = validated_data.pop("login_password", "")
 
+        permission_values = self._extract_permission_values(validated_data)
+
+        old_role = instance.role
+        new_role = validated_data.get("role", instance.role)
+        role_changed = old_role != new_role
+
         instance.full_name = validated_data.get("full_name", instance.full_name)
-        instance.role = validated_data.get("role", instance.role)
+        instance.role = new_role
         instance.phone = validated_data.get("phone", instance.phone)
         instance.daily_pay = validated_data.get("daily_pay", instance.daily_pay)
+        instance.start_date = validated_data.get("start_date", instance.start_date)
+        instance.end_date = validated_data.get("end_date", instance.end_date)
         instance.is_active = validated_data.get("is_active", instance.is_active)
+
+        # If the role changes, reset default permissions for the new role first.
+        # Then override with any permissions manually sent by the owner.
+        self._apply_permissions(
+            instance,
+            permission_values=permission_values,
+            apply_role_defaults=role_changed,
+        )
+
         instance.save()
 
         # Case 1: Employee already has login
@@ -331,7 +429,8 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
                 instance.save(update_fields=["photo"])
 
         return instance
-    
+
+
 class DiscoTableSerializer(serializers.ModelSerializer):
     class Meta:
         model = DiscoTable

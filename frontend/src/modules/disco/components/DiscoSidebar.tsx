@@ -21,11 +21,17 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import api from "../../../api/axios";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 import { logoutUser } from "../../../features/auth/authSlice";
 import { getPublicDiscoBranding } from "../api/brandingApi";
+import {
+  getCurrentDiscoEmployee,
+  type DiscoEmployee,
+  type EmployeePermissionKey,
+} from "../api/employeesApi";
 import {
   translateDiscoRole,
   useDiscoTranslation,
@@ -44,6 +50,13 @@ type SidebarBranding = {
   primary_color?: string | null;
   secondary_color?: string | null;
   accent_color?: string | null;
+};
+
+type SidebarLink = {
+  name: string;
+  icon: LucideIcon;
+  path: string;
+  permissions?: EmployeePermissionKey[];
 };
 
 function getApiOrigin() {
@@ -68,6 +81,38 @@ function resolveImageUrl(url?: string | null) {
   return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+function getPermissionValue(
+  employee: DiscoEmployee | null,
+  permission: EmployeePermissionKey
+) {
+  if (!employee) return false;
+
+  if (employee.role === "owner") return true;
+
+  if (typeof employee.permissions?.[permission] === "boolean") {
+    return Boolean(employee.permissions[permission]);
+  }
+
+  if (typeof employee[permission] === "boolean") {
+    return Boolean(employee[permission]);
+  }
+
+  return false;
+}
+
+function hasAnyPermission(
+  employee: DiscoEmployee | null,
+  permissions?: EmployeePermissionKey[]
+) {
+  if (!permissions || permissions.length === 0) return true;
+  if (!employee) return false;
+  if (employee.role === "owner") return true;
+
+  return permissions.some((permission) =>
+    getPermissionValue(employee, permission)
+  );
+}
+
 export default function DiscoSidebar({
   mobileOpen,
   onClose,
@@ -83,6 +128,8 @@ export default function DiscoSidebar({
   const [imageError, setImageError] = useState(false);
   const [brandingLogoError, setBrandingLogoError] = useState(false);
   const [branding, setBranding] = useState<SidebarBranding | null>(null);
+  const [currentEmployee, setCurrentEmployee] =
+    useState<DiscoEmployee | null>(null);
 
   const slug =
     organisationSlug || authUser?.organisation?.slug || "almond-brownie";
@@ -102,7 +149,62 @@ export default function DiscoSidebar({
     loadBranding();
   }, [slug]);
 
+  useEffect(() => {
+    async function loadCurrentEmployee() {
+      try {
+        const data = await getCurrentDiscoEmployee();
+        setCurrentEmployee(data);
+      } catch (err) {
+        console.error("Could not load current disco employee permissions:", err);
+
+        // Fallback for older login payloads where disco_employee is already
+        // inside the authenticated user object.
+        if (authUser?.disco_employee) {
+          setCurrentEmployee(authUser.disco_employee as DiscoEmployee);
+          return;
+        }
+
+        // Safe owner fallback for the original business account.
+        // Backend still protects all endpoints.
+        const fallbackRole = String(authUser?.role || "").toLowerCase();
+
+        if (
+          [
+            "owner",
+            "admin",
+            "administrator",
+            "business_owner",
+            "organisation_owner",
+            "organization_owner",
+            "superadmin",
+            "super_admin",
+          ].includes(fallbackRole)
+        ) {
+          setCurrentEmployee({
+            id: 0,
+            organisation: authUser?.organisation?.id || 0,
+            full_name:
+              authUser?.full_name ||
+              authUser?.name ||
+              authUser?.username ||
+              authUser?.email ||
+              "Owner",
+            role: "owner",
+            is_active: true,
+            user: authUser?.id,
+            username: authUser?.username,
+            email: authUser?.email,
+            permissions: {},
+          });
+        }
+      }
+    }
+
+    loadCurrentEmployee();
+  }, [authUser]);
+
   const displayName =
+    currentEmployee?.full_name ||
     authUser?.disco_employee?.full_name ||
     authUser?.full_name ||
     authUser?.name ||
@@ -110,7 +212,12 @@ export default function DiscoSidebar({
     authUser?.email ||
     t("common.loggedInUser");
 
-  const role = authUser?.disco_employee?.role || authUser?.role || "user";
+  const role =
+    currentEmployee?.role ||
+    authUser?.disco_employee?.role ||
+    authUser?.role ||
+    "user";
+
   const displayRole = translateDiscoRole(role, t);
 
   const organisationName =
@@ -132,6 +239,9 @@ export default function DiscoSidebar({
   }, [rawBrandingLogoUrl, brandingLogoError]);
 
   const rawProfileImageUrl =
+    currentEmployee?.profile_image_url ||
+    currentEmployee?.employee_photo_url ||
+    currentEmployee?.user_avatar_url ||
     authUser?.disco_employee?.profile_image_url ||
     authUser?.disco_employee?.photo_url ||
     authUser?.disco_employee?.employee_photo_url ||
@@ -152,76 +262,99 @@ export default function DiscoSidebar({
     return resolveImageUrl(rawProfileImageUrl);
   }, [rawProfileImageUrl, imageError]);
 
-  const links = useMemo(
+  const allLinks = useMemo<SidebarLink[]>(
     () => [
       {
         name: t("sidebar.dashboard"),
         icon: LayoutDashboard,
         path: `/disco/${slug}/dashboard`,
+        permissions: ["can_access_dashboard"],
       },
       {
         name: t("sidebar.pos"),
         icon: ShoppingCart,
         path: `/disco/${slug}/pos`,
+        permissions: ["can_access_pos"],
       },
       {
         name: t("sidebar.products"),
         icon: Package,
         path: `/disco/${slug}/products`,
+        permissions: ["can_manage_products"],
       },
       {
         name: t("sidebar.inventory"),
         icon: Boxes,
         path: `/disco/${slug}/inventory`,
+        permissions: ["can_manage_inventory"],
       },
       {
         name: t("sidebar.stockMovements"),
         icon: ArrowLeftRight,
         path: `/disco/${slug}/stock-movements`,
+        permissions: ["can_manage_inventory"],
       },
       {
         name: t("sidebar.tables"),
         icon: Table2,
         path: `/disco/${slug}/tables`,
+        permissions: ["can_manage_tables", "can_access_pos"],
       },
       {
         name: t("sidebar.reservations"),
         icon: CalendarDays,
         path: `/disco/${slug}/reservations`,
+        permissions: ["can_manage_reservations"],
       },
       {
         name: t("sidebar.employees"),
         icon: Users,
         path: `/disco/${slug}/employees`,
+        permissions: ["can_manage_employees"],
       },
       {
         name: t("sidebar.cashShifts"),
         icon: Wallet,
         path: `/disco/${slug}/cash-shifts`,
+        permissions: [
+          "can_open_cash_shift",
+          "can_close_cash_shift",
+          "can_view_reports",
+        ],
       },
       {
         name: t("sidebar.expenses"),
         icon: Receipt,
         path: `/disco/${slug}/expenses`,
+        permissions: ["can_manage_expenses"],
       },
       {
         name: t("sidebar.reports"),
         icon: BarChart3,
         path: `/disco/${slug}/reports`,
+        permissions: ["can_view_reports"],
       },
       {
         name: t("sidebar.activityLogs"),
         icon: Activity,
         path: `/disco/${slug}/activity-logs`,
+        permissions: ["can_view_activity_logs"],
       },
       {
         name: t("sidebar.settings"),
         icon: Settings,
         path: `/disco/${slug}/settings`,
+        permissions: ["can_manage_settings"],
       },
     ],
     [slug, t]
   );
+
+  const links = useMemo(() => {
+    return allLinks.filter((link) =>
+      hasAnyPermission(currentEmployee, link.permissions)
+    );
+  }, [allLinks, currentEmployee]);
 
   async function handleLogout() {
     try {
@@ -330,31 +463,37 @@ export default function DiscoSidebar({
 
           <div className="flex-1 overflow-y-auto p-4">
             <nav className="space-y-2">
-              {links.map((link) => {
-                const Icon = link.icon;
+              {links.length ? (
+                links.map((link) => {
+                  const Icon = link.icon;
 
-                return (
-                  <NavLink
-                    key={link.path}
-                    to={link.path}
-                    onClick={onClose}
-                    className={({ isActive }) =>
-                      `
-                        flex items-center gap-3 rounded-2xl px-4 py-3
-                        text-sm font-bold transition-all
-                        ${
-                          isActive
-                            ? "bg-white text-slate-950 shadow-lg"
-                            : "text-slate-300 hover:bg-slate-900 hover:text-white"
-                        }
-                      `
-                    }
-                  >
-                    <Icon size={18} />
-                    {link.name}
-                  </NavLink>
-                );
-              })}
+                  return (
+                    <NavLink
+                      key={link.path}
+                      to={link.path}
+                      onClick={onClose}
+                      className={({ isActive }) =>
+                        `
+                          flex items-center gap-3 rounded-2xl px-4 py-3
+                          text-sm font-bold transition-all
+                          ${
+                            isActive
+                              ? "bg-white text-slate-950 shadow-lg"
+                              : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                          }
+                        `
+                      }
+                    >
+                      <Icon size={18} />
+                      {link.name}
+                    </NavLink>
+                  );
+                })
+              ) : (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900 p-4 text-sm font-semibold text-slate-400">
+                  No tienes permisos activos para ver módulos.
+                </div>
+              )}
             </nav>
           </div>
 

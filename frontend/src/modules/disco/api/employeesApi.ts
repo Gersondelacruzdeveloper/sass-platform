@@ -1,3 +1,5 @@
+// src/modules/disco/api/employeesApi.ts
+
 import api from "../../../api/axios";
 
 export type EmployeeRole =
@@ -11,65 +13,133 @@ export type EmployeeRole =
   | "promoter"
   | "inventory_manager";
 
+export type EmployeePermissionKey =
+  | "can_access_dashboard"
+  | "can_access_pos"
+  | "can_manage_products"
+  | "can_manage_inventory"
+  | "can_manage_employees"
+  | "can_manage_tables"
+  | "can_manage_reservations"
+  | "can_manage_expenses"
+  | "can_view_reports"
+  | "can_manage_settings"
+  | "can_view_activity_logs"
+  | "can_open_cash_shift"
+  | "can_close_cash_shift"
+  | "can_apply_discounts"
+  | "can_cancel_sales";
+
+export type EmployeePermissions = Partial<
+  Record<EmployeePermissionKey, boolean>
+>;
+
 export interface DiscoEmployee {
   id: number;
   organisation: number;
-  user: number | null;
+  user?: number | null;
 
   username?: string;
   email?: string;
 
-  avatar?: string | null;
-  avatar_url?: string | null;
-
   full_name: string;
   role: EmployeeRole;
-  phone: string;
+  phone?: string | null;
+
+  daily_pay?: string | number;
+  start_date?: string | null;
+  end_date?: string | null;
+
   is_active: boolean;
+
+  permissions?: EmployeePermissions;
+
+  can_access_dashboard?: boolean;
+  can_access_pos?: boolean;
+  can_manage_products?: boolean;
+  can_manage_inventory?: boolean;
+  can_manage_employees?: boolean;
+  can_manage_tables?: boolean;
+  can_manage_reservations?: boolean;
+  can_manage_expenses?: boolean;
+  can_view_reports?: boolean;
+  can_manage_settings?: boolean;
+  can_view_activity_logs?: boolean;
+  can_open_cash_shift?: boolean;
+  can_close_cash_shift?: boolean;
+  can_apply_discounts?: boolean;
+  can_cancel_sales?: boolean;
+
+  profile_image_url?: string | null;
+  user_avatar_url?: string | null;
+  employee_photo_url?: string | null;
+
+  photo?: string | null;
+  photo_url?: string | null;
+  avatar?: string | null;
+  avatar_url?: string | null;
 
   created_at?: string;
   updated_at?: string;
 }
 
-export interface CreateEmployeePayload {
-  user?: number | null;
-  full_name: string;
-  role: EmployeeRole;
-  phone?: string;
-  is_active?: boolean;
+export type CreateEmployeePayload = FormData | Partial<DiscoEmployee>;
+export type UpdateEmployeePayload = FormData | Partial<DiscoEmployee>;
 
-  create_login?: boolean;
-  login_username?: string;
-  login_email?: string;
-  login_password?: string;
+function isFormData(payload: unknown): payload is FormData {
+  return typeof FormData !== "undefined" && payload instanceof FormData;
 }
 
-export type UpdateEmployeePayload = Partial<CreateEmployeePayload>;
+function requestConfig(payload: unknown) {
+  if (!isFormData(payload)) {
+    return undefined;
+  }
 
-type EmployeePayload = CreateEmployeePayload | UpdateEmployeePayload | FormData;
+  // Do not manually set multipart boundary.
+  // The browser will set the correct Content-Type with boundary.
+  return {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  };
+}
 
 export async function getEmployees() {
-  const res = await api.get<DiscoEmployee[]>("/disco/employees/");
-  return res.data;
+  const response = await api.get<DiscoEmployee[]>("/disco/employees/");
+  return response.data;
 }
 
 export async function getEmployee(id: number) {
-  const res = await api.get<DiscoEmployee>(`/disco/employees/${id}/`);
-  return res.data;
+  const response = await api.get<DiscoEmployee>(`/disco/employees/${id}/`);
+  return response.data;
 }
 
-export async function createEmployee(payload: EmployeePayload) {
-  const res = await api.post<DiscoEmployee>("/disco/employees/", payload);
-  return res.data;
+export async function getCurrentDiscoEmployee() {
+  const response = await api.get<DiscoEmployee>("/disco/employees/me/");
+  return response.data;
 }
 
-export async function updateEmployee(id: number, payload: EmployeePayload) {
-  const res = await api.patch<DiscoEmployee>(
-    `/disco/employees/${id}/`,
-    payload
+export async function createEmployee(payload: CreateEmployeePayload) {
+  const response = await api.post<DiscoEmployee>(
+    "/disco/employees/",
+    payload,
+    requestConfig(payload)
   );
 
-  return res.data;
+  return response.data;
+}
+
+export async function updateEmployee(
+  id: number,
+  payload: UpdateEmployeePayload
+) {
+  const response = await api.patch<DiscoEmployee>(
+    `/disco/employees/${id}/`,
+    payload,
+    requestConfig(payload)
+  );
+
+  return response.data;
 }
 
 export async function deleteEmployee(id: number) {
@@ -77,17 +147,9 @@ export async function deleteEmployee(id: number) {
 }
 
 export async function activateEmployee(id: number) {
-  const res = await api.patch<DiscoEmployee>(`/disco/employees/${id}/`, {
-    is_active: true,
-  });
-
-  return res.data;
+  return updateEmployee(id, { is_active: true });
 }
 
 export async function deactivateEmployee(id: number) {
-  const res = await api.patch<DiscoEmployee>(`/disco/employees/${id}/`, {
-    is_active: false,
-  });
-
-  return res.data;
+  return updateEmployee(id, { is_active: false });
 }

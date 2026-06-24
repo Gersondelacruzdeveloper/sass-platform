@@ -1,35 +1,74 @@
 // src/modules/disco/components/EmployeeCard.tsx
 
-// import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  User,
+  CheckCircle2,
+  ChevronRight,
+  KeyRound,
   Phone,
   Shield,
-  CheckCircle2,
+  User,
   XCircle,
-  ChevronRight,
 } from "lucide-react";
 
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+
+type EmployeeRole =
+  | "owner"
+  | "manager"
+  | "cashier"
+  | "bartender"
+  | "waiter"
+  | "security"
+  | "host"
+  | "promoter"
+  | "inventory_manager";
+
+type EmployeePermissionKey =
+  | "can_access_dashboard"
+  | "can_access_pos"
+  | "can_manage_products"
+  | "can_manage_inventory"
+  | "can_manage_employees"
+  | "can_manage_tables"
+  | "can_manage_reservations"
+  | "can_manage_expenses"
+  | "can_view_reports"
+  | "can_manage_settings"
+  | "can_view_activity_logs"
+  | "can_open_cash_shift"
+  | "can_close_cash_shift"
+  | "can_apply_discounts"
+  | "can_cancel_sales";
+
+type EmployeePermissions = Partial<Record<EmployeePermissionKey, boolean>>;
 
 type Employee = {
   id: number;
   user?: number | null;
 
   full_name: string;
-  role:
-    | "owner"
-    | "manager"
-    | "cashier"
-    | "bartender"
-    | "waiter"
-    | "security"
-    | "host"
-    | "promoter"
-    | "inventory_manager";
+  role: EmployeeRole;
 
   phone?: string;
+
+  permissions?: EmployeePermissions;
+
+  can_access_dashboard?: boolean;
+  can_access_pos?: boolean;
+  can_manage_products?: boolean;
+  can_manage_inventory?: boolean;
+  can_manage_employees?: boolean;
+  can_manage_tables?: boolean;
+  can_manage_reservations?: boolean;
+  can_manage_expenses?: boolean;
+  can_view_reports?: boolean;
+  can_manage_settings?: boolean;
+  can_view_activity_logs?: boolean;
+  can_open_cash_shift?: boolean;
+  can_close_cash_shift?: boolean;
+  can_apply_discounts?: boolean;
+  can_cancel_sales?: boolean;
 
   // Clean backend display field
   profile_image_url?: string | null;
@@ -54,8 +93,40 @@ type EmployeeCardProps = {
   onToggleStatus?: (employee: Employee) => void;
 };
 
+const permissionKeys: EmployeePermissionKey[] = [
+  "can_access_dashboard",
+  "can_access_pos",
+  "can_manage_products",
+  "can_manage_inventory",
+  "can_manage_employees",
+  "can_manage_tables",
+  "can_manage_reservations",
+  "can_manage_expenses",
+  "can_view_reports",
+  "can_manage_settings",
+  "can_view_activity_logs",
+  "can_open_cash_shift",
+  "can_close_cash_shift",
+  "can_apply_discounts",
+  "can_cancel_sales",
+];
+
+const permissionPreview: {
+  key: EmployeePermissionKey;
+  label: string;
+}[] = [
+  { key: "can_access_pos", label: "POS" },
+  { key: "can_manage_tables", label: "Mesas" },
+  { key: "can_open_cash_shift", label: "Abrir caja" },
+  { key: "can_close_cash_shift", label: "Cerrar caja" },
+  { key: "can_apply_discounts", label: "Descuentos" },
+  { key: "can_view_reports", label: "Reportes" },
+  { key: "can_manage_employees", label: "Empleados" },
+  { key: "can_manage_settings", label: "Config." },
+];
+
 function getEmployeeRoleLabel(
-  role: Employee["role"],
+  role: EmployeeRole,
   t: (key: string, fallback?: string) => string
 ) {
   const fallback = role
@@ -63,6 +134,23 @@ function getEmployeeRoleLabel(
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
   return t(`employees.role.${role}`, fallback);
+}
+
+function getPermissionValue(employee: Employee, key: EmployeePermissionKey) {
+  if (typeof employee.permissions?.[key] === "boolean") {
+    return Boolean(employee.permissions[key]);
+  }
+
+  if (typeof employee[key] === "boolean") {
+    return Boolean(employee[key]);
+  }
+
+  return false;
+}
+
+function getActivePermissionCount(employee: Employee) {
+  return permissionKeys.filter((key) => getPermissionValue(employee, key))
+    .length;
 }
 
 export default function EmployeeCard({
@@ -74,7 +162,7 @@ export default function EmployeeCard({
   const { t } = useDiscoTranslation();
   const [imageError, setImageError] = useState(false);
 
-  const roleColors: Record<Employee["role"], string> = {
+  const roleColors: Record<EmployeeRole, string> = {
     owner: "bg-purple-100 text-purple-700",
     manager: "bg-blue-100 text-blue-700",
     cashier: "bg-emerald-100 text-emerald-700",
@@ -139,6 +227,11 @@ export default function EmployeeCard({
 
   const showImage = Boolean(imageUrl) && !imageError;
   const roleLabel = getEmployeeRoleLabel(employee.role, t);
+  const activePermissionCount = getActivePermissionCount(employee);
+
+  const enabledPreviewPermissions = permissionPreview.filter((permission) =>
+    getPermissionValue(employee, permission.key)
+  );
 
   return (
     <div
@@ -167,13 +260,26 @@ export default function EmployeeCard({
               {employee.full_name}
             </h3>
 
-            <span
-              className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black ${
-                roleColors[employee.role]
-              }`}
-            >
-              {roleLabel}
-            </span>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${
+                  roleColors[employee.role]
+                }`}
+              >
+                {roleLabel}
+              </span>
+
+              {employee.user ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+                  <KeyRound size={12} />
+                  Login
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-3 py-1 text-xs font-black text-slate-400">
+                  Sin login
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -192,7 +298,32 @@ export default function EmployeeCard({
 
       <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
         <Shield size={16} />
-        <span>{roleLabel}</span>
+        <span>
+          {activePermissionCount} permisos activos
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {enabledPreviewPermissions.length ? (
+          enabledPreviewPermissions.slice(0, 5).map((permission) => (
+            <span
+              key={permission.key}
+              className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-700"
+            >
+              {permission.label}
+            </span>
+          ))
+        ) : (
+          <span className="rounded-full bg-red-50 px-3 py-1 text-[11px] font-black text-red-700">
+            Sin permisos operativos
+          </span>
+        )}
+
+        {enabledPreviewPermissions.length > 5 && (
+          <span className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-black text-slate-500">
+            +{enabledPreviewPermissions.length - 5} más
+          </span>
+        )}
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3">
@@ -237,26 +368,3 @@ export default function EmployeeCard({
     </div>
   );
 }
-
-// function Info({
-//   icon,
-//   label,
-//   value,
-// }: {
-//   icon: ReactNode;
-//   label: string;
-//   value: string;
-// }) {
-//   return (
-//     <div className="rounded-2xl bg-slate-50 p-3">
-//       <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-400">
-//         {icon}
-//         {label}
-//       </div>
-
-//       <p className="mt-1 truncate text-sm font-black text-slate-900">
-//         {value}
-//       </p>
-//     </div>
-//   );
-// }
