@@ -1,3 +1,5 @@
+// src/modules/disco/pages/DiscoDashboardPage.tsx
+
 import { useMemo } from "react";
 import {
   AlertCircle,
@@ -26,13 +28,19 @@ import useDiscoDashboard from "../hooks/useDiscoDashboard";
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 import type { DiscoLanguage } from "../i18n/discoTranslations";
 
-function money(value?: string | number | null, language: DiscoLanguage = "en") {
+function money(
+  value?: string | number | null,
+  language: DiscoLanguage = "en",
+  currencySymbol = "RD$"
+) {
   const locale = language === "es" ? "es-DO" : "en-US";
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
 }
 
 export default function DiscoDashboardPage() {
@@ -49,18 +57,69 @@ export default function DiscoDashboardPage() {
   } = useDiscoDashboard();
 
   const dashboardStats = useMemo(() => {
+    const dashboardData = (dashboard || {}) as any;
+    const statsData = (stats || {}) as any;
+
+    const currencySymbol =
+      dashboardData.currency_symbol ||
+      statsData.currency_symbol ||
+      "RD$";
+
     return {
-      salesToday: stats.sales_today,
-      salesMonth: stats.sales_month,
-      netProfit: stats.net_profit_month,
-      lowStock: stats.low_stock_products,
-      openTables: stats.open_tables,
-      reservedTables: stats.reserved_tables,
-      pendingReservations: stats.pending_reservations,
-      openCashShifts: stats.open_cash_shifts,
-      employees: stats.active_employees,
+      currencySymbol,
+
+      salesToday:
+        statsData.sales_today ??
+        dashboardData.sales_today ??
+        0,
+
+      salesMonth:
+        statsData.sales_this_month ??
+        statsData.sales_month ??
+        dashboardData.sales_this_month ??
+        dashboardData.sales_month ??
+        0,
+
+      netProfit:
+        statsData.net_profit_this_month ??
+        statsData.net_profit_month ??
+        dashboardData.net_profit_this_month ??
+        dashboardData.net_profit_month ??
+        0,
+
+      lowStock:
+        statsData.low_stock_count ??
+        statsData.low_stock_products ??
+        dashboardData.low_stock_count ??
+        dashboardData.low_stock_products ??
+        0,
+
+      openTables:
+        statsData.open_tables ??
+        dashboardData.open_tables ??
+        0,
+
+      reservedTables:
+        statsData.reserved_tables ??
+        dashboardData.reserved_tables ??
+        0,
+
+      pendingReservations:
+        statsData.pending_reservations ??
+        dashboardData.pending_reservations ??
+        0,
+
+      openCashShifts:
+        statsData.open_cash_shifts ??
+        dashboardData.open_cash_shifts ??
+        0,
+
+      employees:
+        statsData.active_employees ??
+        dashboardData.active_employees ??
+        0,
     };
-  }, [stats]);
+  }, [dashboard, stats]);
 
   if (loading) {
     return (
@@ -105,21 +164,33 @@ export default function DiscoDashboardPage() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KPIStatCard
           title={t("dashboard.salesToday")}
-          value={money(dashboardStats.salesToday, language)}
+          value={money(
+            dashboardStats.salesToday,
+            language,
+            dashboardStats.currencySymbol
+          )}
           icon={DollarSign}
           change={t("dashboard.salesTodayChange")}
         />
 
         <KPIStatCard
           title={t("dashboard.salesThisMonth")}
-          value={money(dashboardStats.salesMonth, language)}
+          value={money(
+            dashboardStats.salesMonth,
+            language,
+            dashboardStats.currencySymbol
+          )}
           icon={ShoppingCart}
           change={t("dashboard.salesThisMonthChange")}
         />
 
         <KPIStatCard
           title={t("dashboard.netProfit")}
-          value={money(dashboardStats.netProfit, language)}
+          value={money(
+            dashboardStats.netProfit,
+            language,
+            dashboardStats.currencySymbol
+          )}
           icon={TrendingUp}
           change={t("dashboard.netProfitChange")}
         />

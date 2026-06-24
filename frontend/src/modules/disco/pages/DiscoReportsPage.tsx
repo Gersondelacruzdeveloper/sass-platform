@@ -1,3 +1,5 @@
+// src/modules/disco/pages/DiscoReportsPage.tsx
+
 import { useMemo } from "react";
 import {
   AlertCircle,
@@ -6,6 +8,7 @@ import {
   CalendarDays,
   DollarSign,
   Package,
+  ReceiptText,
   RefreshCcw,
   ShoppingCart,
   TrendingDown,
@@ -28,13 +31,31 @@ import useDiscoTables from "../hooks/useDiscoTables";
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 import type { DiscoLanguage } from "../i18n/discoTranslations";
 
-function money(value?: string | number | null, language: DiscoLanguage = "en") {
+function money(
+  value?: string | number | null,
+  language: DiscoLanguage = "en",
+  currencySymbol = "RD$"
+) {
   const locale = language === "es" ? "es-DO" : "en-US";
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
+}
+
+function numberValue(value?: string | number | null) {
+  return Number(value || 0);
+}
+
+function label(
+  language: DiscoLanguage,
+  spanish: string,
+  english: string
+) {
+  return language === "es" ? spanish : english;
 }
 
 export default function DiscoReportsPage() {
@@ -121,12 +142,133 @@ export default function DiscoReportsPage() {
 
     const vipTables = tables.filter((table: any) => table.is_vip).length;
 
+    const dashboardData = (dashboard || {}) as any;
+    const statsData = (stats || {}) as any;
+
+    const currencySymbol =
+      dashboardData.currency_symbol ||
+      statsData.currency_symbol ||
+      "RD$";
+
+    const taxPercentage =
+      dashboardData.tax_percentage ||
+      statsData.tax_percentage ||
+      "0.00";
+
+    const salesToday =
+      statsData.sales_today ??
+      dashboardData.sales_today ??
+      0;
+
+    const salesMonth =
+      statsData.sales_this_month ??
+      statsData.sales_month ??
+      dashboardData.sales_this_month ??
+      dashboardData.sales_month ??
+      0;
+
+    const subtotalToday =
+      statsData.subtotal_today ??
+      dashboardData.subtotal_today ??
+      0;
+
+    const subtotalMonth =
+      statsData.subtotal_this_month ??
+      dashboardData.subtotal_this_month ??
+      0;
+
+    const taxToday =
+      statsData.tax_today ??
+      dashboardData.tax_today ??
+      0;
+
+    const taxMonth =
+      statsData.tax_this_month ??
+      dashboardData.tax_this_month ??
+      0;
+
+    const productCostToday =
+      statsData.product_cost_today ??
+      dashboardData.product_cost_today ??
+      0;
+
+    const productCostMonth =
+      statsData.product_cost_this_month ??
+      dashboardData.product_cost_this_month ??
+      0;
+
+    const grossProfitToday =
+      statsData.gross_profit_today ??
+      dashboardData.gross_profit_today ??
+      0;
+
+    const grossProfitMonth =
+      statsData.gross_profit_this_month ??
+      dashboardData.gross_profit_this_month ??
+      0;
+
+    const expensesToday =
+      statsData.expenses_today ??
+      dashboardData.expenses_today ??
+      0;
+
+    const expensesMonth =
+      statsData.expenses_this_month ??
+      dashboardData.expenses_this_month ??
+      0;
+
+    const payrollToday =
+      statsData.payroll_today ??
+      dashboardData.payroll_today ??
+      0;
+
+    const payrollMonth =
+      statsData.payroll_this_month ??
+      dashboardData.payroll_this_month ??
+      0;
+
+    const netProfitToday =
+      statsData.net_profit_today ??
+      dashboardData.net_profit_today ??
+      0;
+
+    const netProfitMonth =
+      statsData.net_profit_this_month ??
+      statsData.net_profit_month ??
+      dashboardData.net_profit_this_month ??
+      dashboardData.net_profit_month ??
+      0;
+
     return {
-      salesToday: stats.sales_today ?? 0,
-      salesMonth: stats.sales_month ?? 0,
-      netProfit: stats.net_profit_month ?? 0,
-      openCashShifts: stats.open_cash_shifts ?? 0,
-      employees: stats.active_employees ?? 0,
+      currencySymbol,
+      taxPercentage,
+
+      salesToday,
+      salesMonth,
+      subtotalToday,
+      subtotalMonth,
+      taxToday,
+      taxMonth,
+
+      productCostToday,
+      productCostMonth,
+      grossProfitToday,
+      grossProfitMonth,
+
+      expensesToday,
+      expensesMonth,
+      payrollToday,
+      payrollMonth,
+
+      netProfitToday,
+      netProfitMonth,
+
+      ordersToday: statsData.orders_today ?? dashboardData.orders_today ?? 0,
+      openCashShifts:
+        statsData.open_cash_shifts ?? dashboardData.open_cash_shifts ?? 0,
+      employees:
+        statsData.active_employees ?? dashboardData.active_employees ?? 0,
+
       activeProducts: activeProducts.length,
       lowStockProducts: lowStockProducts.length,
       inventoryCost,
@@ -139,7 +281,10 @@ export default function DiscoReportsPage() {
       reservedTables,
       vipTables,
     };
-  }, [stats, products, reservations, tables]);
+  }, [dashboard, stats, products, reservations, tables]);
+
+  const monthProfitIsPositive = numberValue(report.netProfitMonth) >= 0;
+  const todayProfitIsPositive = numberValue(report.netProfitToday) >= 0;
 
   return (
     <div className="space-y-5 pb-24">
@@ -175,62 +320,203 @@ export default function DiscoReportsPage() {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KPIStatCard
-              title={t("reports.salesToday")}
-              value={money(report.salesToday, language)}
-              change={t("reports.notAvailable")}
+              title={label(language, "Ventas de hoy", "Sales today")}
+              value={money(report.salesToday, language, report.currencySymbol)}
+              change={`${report.ordersToday} ${label(
+                language,
+                "órdenes hoy",
+                "orders today"
+              )}`}
               icon={DollarSign}
             />
 
             <KPIStatCard
-              title={t("reports.salesThisMonth")}
-              value={money(report.salesMonth, language)}
-              change={t("reports.notAvailable")}
+              title={label(language, "Ventas del mes", "Sales this month")}
+              value={money(report.salesMonth, language, report.currencySymbol)}
+              change={label(language, "Mes actual", "Current month")}
               icon={ShoppingCart}
             />
 
             <KPIStatCard
-              title={t("reports.netProfit")}
-              value={money(report.netProfit, language)}
-              change={t("reports.notAvailable")}
-              icon={TrendingUp}
+              title={label(language, "Ganancia neta hoy", "Net profit today")}
+              value={money(
+                report.netProfitToday,
+                language,
+                report.currencySymbol
+              )}
+              change={
+                todayProfitIsPositive
+                  ? label(language, "Resultado positivo", "Positive result")
+                  : label(language, "Resultado negativo", "Negative result")
+              }
+              icon={todayProfitIsPositive ? TrendingUp : TrendingDown}
             />
 
             <KPIStatCard
-              title={t("reports.openCashShifts")}
-              value={String(report.openCashShifts)}
-              change={t("reports.notAvailable")}
-              icon={Banknote}
+              title={label(language, "Ganancia neta mes", "Net profit month")}
+              value={money(
+                report.netProfitMonth,
+                language,
+                report.currencySymbol
+              )}
+              change={
+                monthProfitIsPositive
+                  ? label(language, "Resultado positivo", "Positive result")
+                  : label(language, "Resultado negativo", "Negative result")
+              }
+              icon={monthProfitIsPositive ? TrendingUp : TrendingDown}
             />
           </section>
 
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <DiscoStatCard
-              title={t("reports.inventoryCost")}
-              value={money(report.inventoryCost, language)}
-              icon={Package}
-              helper={t("reports.totalStockCost")}
-            />
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-black text-slate-950">
+                  {label(
+                    language,
+                    "Resumen financiero real",
+                    "Real financial summary"
+                  )}
+                </h2>
 
-            <DiscoStatCard
-              title={t("reports.retailValue")}
-              value={money(report.inventoryRetail, language)}
-              icon={TrendingUp}
-              helper={t("reports.potentialSalesValue")}
-            />
+                <p className="text-sm font-semibold text-slate-500">
+                  {label(
+                    language,
+                    "Ventas menos costo de productos, gastos y nómina.",
+                    "Sales minus product cost, expenses, and payroll."
+                  )}
+                </p>
+              </div>
 
-            <DiscoStatCard
-              title={t("reports.lowStock")}
-              value={report.lowStockProducts}
-              icon={TrendingDown}
-              helper={t("reports.productsToRestock")}
-            />
+              <button
+                type="button"
+                onClick={refreshAll}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                {t("reports.refresh")}
+              </button>
+            </div>
 
-            <DiscoStatCard
-              title={t("reports.employees")}
-              value={report.employees}
-              icon={Users}
-              helper={t("reports.activeTeamMembers")}
-            />
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DiscoStatCard
+                title={label(language, "Subtotal vendido hoy", "Subtotal today")}
+                value={money(
+                  report.subtotalToday,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={ReceiptText}
+                helper={label(
+                  language,
+                  "Antes de impuesto",
+                  "Before tax"
+                )}
+              />
+
+              <DiscoStatCard
+                title={label(language, "Impuesto hoy", "Tax today")}
+                value={money(report.taxToday, language, report.currencySymbol)}
+                icon={Banknote}
+                helper={`${Number(report.taxPercentage || 0)}%`}
+              />
+
+              <DiscoStatCard
+                title={label(
+                  language,
+                  "Costo vendido hoy",
+                  "Product cost today"
+                )}
+                value={money(
+                  report.productCostToday,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={Package}
+                helper={label(
+                  language,
+                  "Costo real de productos vendidos",
+                  "Real cost of sold products"
+                )}
+              />
+
+              <DiscoStatCard
+                title={label(language, "Ganancia bruta hoy", "Gross profit today")}
+                value={money(
+                  report.grossProfitToday,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={TrendingUp}
+                helper={label(
+                  language,
+                  "Subtotal menos costo vendido",
+                  "Subtotal minus sold cost"
+                )}
+              />
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DiscoStatCard
+                title={label(language, "Gastos hoy", "Expenses today")}
+                value={money(
+                  report.expensesToday,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={TrendingDown}
+                helper={label(
+                  language,
+                  "Según fecha contable",
+                  "By accounting date"
+                )}
+              />
+
+              <DiscoStatCard
+                title={label(language, "Nómina hoy", "Payroll today")}
+                value={money(
+                  report.payrollToday,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={Users}
+                helper={label(
+                  language,
+                  "Pago diario según empleados activos",
+                  "Daily pay by active employees"
+                )}
+              />
+
+              <DiscoStatCard
+                title={label(language, "Gastos del mes", "Monthly expenses")}
+                value={money(
+                  report.expensesMonth,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={CalendarDays}
+                helper={label(
+                  language,
+                  "Gastos del mes actual",
+                  "Current month expenses"
+                )}
+              />
+
+              <DiscoStatCard
+                title={label(language, "Nómina del mes", "Monthly payroll")}
+                value={money(
+                  report.payrollMonth,
+                  language,
+                  report.currencySymbol
+                )}
+                icon={Users}
+                helper={label(
+                  language,
+                  "Calculada por fecha de inicio/salida",
+                  "Calculated by start/end date"
+                )}
+              />
+            </div>
           </section>
 
           <section className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
@@ -268,43 +554,116 @@ export default function DiscoReportsPage() {
 
             <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
               <h2 className="text-lg font-black">
-                {t("reports.executiveSnapshot")}
+                {label(language, "Fórmula de ganancia", "Profit formula")}
               </h2>
 
               <p className="mt-1 text-sm font-medium text-white/60">
-                {t("reports.executiveSnapshotDescription")}
+                {label(
+                  language,
+                  "Así se calcula la ganancia real del mes.",
+                  "This is how real monthly profit is calculated."
+                )}
               </p>
 
               <div className="mt-5 space-y-3">
-                <div className="rounded-2xl bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    {t("reports.activeProducts")}
-                  </p>
+                <FormulaRow
+                  label={label(language, "Ventas del mes", "Monthly sales")}
+                  value={money(
+                    report.subtotalMonth,
+                    language,
+                    report.currencySymbol
+                  )}
+                />
 
-                  <p className="mt-2 text-3xl font-black">
-                    {report.activeProducts}
-                  </p>
-                </div>
+                <FormulaRow
+                  label={label(language, "Costo de productos", "Product cost")}
+                  value={`-${money(
+                    report.productCostMonth,
+                    language,
+                    report.currencySymbol
+                  )}`}
+                />
 
-                <div className="rounded-2xl bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    {t("reports.reservations")}
-                  </p>
+                <FormulaRow
+                  label={label(language, "Ganancia bruta", "Gross profit")}
+                  value={money(
+                    report.grossProfitMonth,
+                    language,
+                    report.currencySymbol
+                  )}
+                  strong
+                />
 
-                  <p className="mt-2 text-3xl font-black">
-                    {report.reservations}
-                  </p>
-                </div>
+                <FormulaRow
+                  label={label(language, "Gastos", "Expenses")}
+                  value={`-${money(
+                    report.expensesMonth,
+                    language,
+                    report.currencySymbol
+                  )}`}
+                />
 
-                <div className="rounded-2xl bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-white/50">
-                    {t("reports.tables")}
-                  </p>
+                <FormulaRow
+                  label={label(language, "Nómina", "Payroll")}
+                  value={`-${money(
+                    report.payrollMonth,
+                    language,
+                    report.currencySymbol
+                  )}`}
+                />
 
-                  <p className="mt-2 text-3xl font-black">{report.tables}</p>
+                <div className="border-t border-white/10 pt-3">
+                  <FormulaRow
+                    label={label(
+                      language,
+                      "Ganancia neta real",
+                      "Real net profit"
+                    )}
+                    value={money(
+                      report.netProfitMonth,
+                      language,
+                      report.currencySymbol
+                    )}
+                    strong
+                    large
+                  />
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <DiscoStatCard
+              title={t("reports.inventoryCost")}
+              value={money(report.inventoryCost, language, report.currencySymbol)}
+              icon={Package}
+              helper={t("reports.totalStockCost")}
+            />
+
+            <DiscoStatCard
+              title={t("reports.retailValue")}
+              value={money(
+                report.inventoryRetail,
+                language,
+                report.currencySymbol
+              )}
+              icon={TrendingUp}
+              helper={t("reports.potentialSalesValue")}
+            />
+
+            <DiscoStatCard
+              title={t("reports.lowStock")}
+              value={report.lowStockProducts}
+              icon={TrendingDown}
+              helper={t("reports.productsToRestock")}
+            />
+
+            <DiscoStatCard
+              title={t("reports.employees")}
+              value={report.employees}
+              icon={Users}
+              helper={t("reports.activeTeamMembers")}
+            />
           </section>
 
           <section className="grid gap-5 lg:grid-cols-3">
@@ -318,25 +677,15 @@ export default function DiscoReportsPage() {
               </div>
 
               <div className="mt-5 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.pending")}
-                  </span>
+                <ReportLine
+                  label={t("reports.pending")}
+                  value={report.pendingReservations}
+                />
 
-                  <span className="text-xl font-black text-slate-950">
-                    {report.pendingReservations}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.confirmed")}
-                  </span>
-
-                  <span className="text-xl font-black text-slate-950">
-                    {report.confirmedReservations}
-                  </span>
-                </div>
+                <ReportLine
+                  label={t("reports.confirmed")}
+                  value={report.confirmedReservations}
+                />
               </div>
             </div>
 
@@ -350,35 +699,17 @@ export default function DiscoReportsPage() {
               </div>
 
               <div className="mt-5 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.openAvailable")}
-                  </span>
+                <ReportLine
+                  label={t("reports.openAvailable")}
+                  value={report.openTables}
+                />
 
-                  <span className="text-xl font-black text-slate-950">
-                    {report.openTables}
-                  </span>
-                </div>
+                <ReportLine
+                  label={t("reports.reserved")}
+                  value={report.reservedTables}
+                />
 
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.reserved")}
-                  </span>
-
-                  <span className="text-xl font-black text-slate-950">
-                    {report.reservedTables}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.vip")}
-                  </span>
-
-                  <span className="text-xl font-black text-slate-950">
-                    {report.vipTables}
-                  </span>
-                </div>
+                <ReportLine label={t("reports.vip")} value={report.vipTables} />
               </div>
             </div>
 
@@ -392,30 +723,58 @@ export default function DiscoReportsPage() {
               </div>
 
               <div className="mt-5 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.products")}
-                  </span>
+                <ReportLine
+                  label={t("reports.products")}
+                  value={report.activeProducts}
+                />
 
-                  <span className="text-xl font-black text-slate-950">
-                    {report.activeProducts}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <span className="text-sm font-bold text-slate-600">
-                    {t("reports.lowStock")}
-                  </span>
-
-                  <span className="text-xl font-black text-slate-950">
-                    {report.lowStockProducts}
-                  </span>
-                </div>
+                <ReportLine
+                  label={t("reports.lowStock")}
+                  value={report.lowStockProducts}
+                />
               </div>
             </div>
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+function FormulaRow({
+  label,
+  value,
+  strong = false,
+  large = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  large?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-2xl bg-white/10 p-4 ${
+        large ? "text-lg" : "text-sm"
+      }`}
+    >
+      <span className={strong ? "font-black text-white" : "font-bold text-white/70"}>
+        {label}
+      </span>
+
+      <span className={strong ? "font-black text-white" : "font-bold text-white"}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ReportLine({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
+      <span className="text-sm font-bold text-slate-600">{label}</span>
+
+      <span className="text-xl font-black text-slate-950">{value}</span>
     </div>
   );
 }
