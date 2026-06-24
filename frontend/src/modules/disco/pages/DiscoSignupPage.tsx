@@ -17,14 +17,6 @@ type Plan = {
   max_modules: number;
 };
 
-const businessTypes = [
-  { value: "disco", translationKey: "signup.businessType.disco" },
-  { value: "restaurant", translationKey: "signup.businessType.restaurant" },
-  { value: "hotel", translationKey: "signup.businessType.hotel" },
-  { value: "store", translationKey: "signup.businessType.store" },
-  { value: "excursions", translationKey: "signup.businessType.excursions" },
-];
-
 const featureKeys = [
   "signup.feature.posReceipts",
   "signup.feature.employeeLogins",
@@ -36,7 +28,7 @@ const featureKeys = [
 
 function translateInterval(
   interval: string,
-  t: (key: string, fallback?: string) => string
+  t: (key: string, fallback?: string) => string,
 ) {
   return t(`signup.interval.${interval}`, interval);
 }
@@ -55,12 +47,11 @@ export default function DiscoSignupPage() {
     owner_name: "",
     email: "",
     password: "",
-    business_type: "disco",
   });
 
   const translatedFeatures = useMemo(
     () => featureKeys.map((key) => t(key)),
-    [t]
+    [t],
   );
 
   useEffect(() => {
@@ -92,6 +83,7 @@ export default function DiscoSignupPage() {
 
       const res = await api.post("/subscriptions/create-checkout-session/", {
         ...form,
+        business_type: "disco",
         plan: selectedPlan,
       });
 
@@ -116,6 +108,7 @@ export default function DiscoSignupPage() {
 
             <label className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-black text-white/80">
               {t("signup.language")}
+
               <select
                 value={language}
                 aria-label={t("signup.language")}
@@ -131,8 +124,19 @@ export default function DiscoSignupPage() {
           </div>
 
           <div>
-            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-white text-slate-950">
-              <Music className="h-8 w-8" />
+            <div className="mb-6 flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white text-slate-950">
+                <Music className="h-8 w-8" />
+              </div>
+
+              <div>
+                <p className="text-2xl font-black tracking-tight text-white">
+                  {t("signup.brandName")}
+                </p>
+                <p className="mt-1 text-sm font-bold text-white/45">
+                  {t("signup.brandSubtitle")}
+                </p>
+              </div>
             </div>
 
             <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-5xl lg:text-7xl">
@@ -154,9 +158,7 @@ export default function DiscoSignupPage() {
                   <Check className="h-4 w-4" />
                 </div>
 
-                <span className="text-sm font-bold text-white/80">
-                  {item}
-                </span>
+                <span className="text-sm font-bold text-white/80">{item}</span>
               </div>
             ))}
           </div>
@@ -167,9 +169,7 @@ export default function DiscoSignupPage() {
           className="rounded-[2rem] border border-white/10 bg-white p-5 text-slate-950 shadow-2xl sm:p-6"
         >
           <div>
-            <h2 className="text-2xl font-black">
-              {t("signup.createAccount")}
-            </h2>
+            <h2 className="text-2xl font-black">{t("signup.createAccount")}</h2>
 
             <p className="mt-2 text-sm font-medium text-slate-500">
               {t("signup.createAccountDescription")}
@@ -200,29 +200,6 @@ export default function DiscoSignupPage() {
                 placeholder={t("signup.companyNamePlaceholder")}
                 className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
               />
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-bold text-slate-700">
-                {t("signup.businessType")}
-              </span>
-
-              <select
-                value={form.business_type}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    business_type: e.target.value,
-                  }))
-                }
-                className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
-              >
-                {businessTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {t(type.translationKey)}
-                  </option>
-                ))}
-              </select>
             </label>
 
             <label className="block">
@@ -337,7 +314,7 @@ export default function DiscoSignupPage() {
           <button
             type="submit"
             disabled={submitting || loadingPlans}
-            className="mt-6 inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+            className="mt-6 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
           >
             {submitting ? (
               <>

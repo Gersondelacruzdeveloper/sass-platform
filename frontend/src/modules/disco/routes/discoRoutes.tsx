@@ -4,6 +4,7 @@ import ProtectedRoute from "../../../components/ProtectedRoute";
 
 import DiscoDashboardLayout from "../layouts/DiscoDashboardLayout";
 
+import DiscoLandingPage from "../pages/DiscoLandingPage";
 import DiscoLoginPage from "../pages/DiscoLoginPage";
 import DiscoDashboardPage from "../pages/DiscoDashboardPage";
 import DiscoPOSPage from "../pages/DiscoPOSPage";
@@ -30,21 +31,25 @@ import DiscoBillingLockedPage from "../pages/DiscoBillingLockedPage";
 
 export const discoRoutes = (
   <>
+    {/* Public Landing Page */}
+    <Route path="/disco" element={<DiscoLandingPage />} />
+
     {/* Public Login */}
     <Route
       path="/disco/:organisationSlug/login"
       element={<DiscoLoginPage />}
     />
 
-    <Route
-      path="/disco/signup"
-      element={<DiscoSignupPage />}
-    />
-    <Route
-    path="/disco/:organisationSlug/billing-locked"
-    element={<DiscoBillingLockedPage />}
-  />
+    {/* Public Signup */}
+    <Route path="/disco/signup" element={<DiscoSignupPage />} />
 
+    {/* Public Billing Locked */}
+    <Route
+      path="/disco/:organisationSlug/billing-locked"
+      element={<DiscoBillingLockedPage />}
+    />
+
+    {/* Public Subscription Status */}
     <Route
       path="/disco/subscription/success"
       element={<SubscriptionSuccessPage />}
@@ -81,35 +86,23 @@ export const discoRoutes = (
           element={<DiscoReservationsPage />}
         />
 
-        <Route
-          path="employees"
-          element={<DiscoEmployeesPage />}
-        />
+        <Route path="employees" element={<DiscoEmployeesPage />} />
 
         <Route
           path="cash-shifts"
           element={<DiscoCashShiftsPage />}
         />
 
-        <Route
-          path="expenses"
-          element={<DiscoExpensesPage />}
-        />
+        <Route path="expenses" element={<DiscoExpensesPage />} />
 
-        <Route
-          path="reports"
-          element={<DiscoReportsPage />}
-        />
+        <Route path="reports" element={<DiscoReportsPage />} />
 
         <Route
           path="activity-logs"
           element={<DiscoActivityLogsPage />}
         />
 
-        <Route
-          path="settings"
-          element={<DiscoSettingsPage />}
-        />
+        <Route path="settings" element={<DiscoSettingsPage />} />
       </Route>
     </Route>
   </>
