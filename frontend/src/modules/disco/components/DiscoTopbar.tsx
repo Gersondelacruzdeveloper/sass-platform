@@ -1,8 +1,10 @@
 // src/modules/disco/components/DiscoTopbar.tsx
 
-import { Bell, LogOut, Menu, Search, User } from "lucide-react";
+import { Bell, LogOut, Menu, Music4, Search, User } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+
+import { getPublicDiscoBranding } from "../api/brandingApi";
 
 type DiscoUserLike = {
   full_name?: string | null;
@@ -18,6 +20,18 @@ type DiscoUserLike = {
   photo_url?: string | null;
   avatar?: string | null;
   avatar_url?: string | null;
+};
+
+type TopbarBranding = {
+  company_name?: string | null;
+  platform_name?: string | null;
+  logo?: string | null;
+  logo_url?: string | null;
+  favicon?: string | null;
+  favicon_url?: string | null;
+  primary_color?: string | null;
+  secondary_color?: string | null;
+  accent_color?: string | null;
 };
 
 type DiscoTopbarProps = {
@@ -93,7 +107,27 @@ export default function DiscoTopbar({
   onLogout,
 }: DiscoTopbarProps) {
   const { organisationSlug } = useParams();
+
   const [imageError, setImageError] = useState(false);
+  const [brandingLogoError, setBrandingLogoError] = useState(false);
+  const [branding, setBranding] = useState<TopbarBranding | null>(null);
+
+  const slug = organisationSlug || "";
+
+  useEffect(() => {
+    async function loadBranding() {
+      if (!slug) return;
+
+      try {
+        const data = await getPublicDiscoBranding(slug);
+        setBranding(data);
+      } catch (err) {
+        console.error("Could not load topbar branding:", err);
+      }
+    }
+
+    loadBranding();
+  }, [slug]);
 
   const displayName =
     userName ||
@@ -103,6 +137,24 @@ export default function DiscoTopbar({
     "Staff Member";
 
   const displayEmail = userEmail || user?.email || "Staff Account";
+
+  const displayOrganisationName =
+    branding?.platform_name ||
+    branding?.company_name ||
+    organisationName ||
+    organisationSlug ||
+    "Disco Platform";
+
+  const rawBrandingLogoUrl = branding?.logo_url || branding?.logo || "";
+
+  useEffect(() => {
+    setBrandingLogoError(false);
+  }, [rawBrandingLogoUrl]);
+
+  const brandingLogoUrl = useMemo(() => {
+    if (!rawBrandingLogoUrl || brandingLogoError) return "";
+    return resolveImageUrl(rawBrandingLogoUrl);
+  }, [rawBrandingLogoUrl, brandingLogoError]);
 
   const rawImageUrl = useMemo(() => {
     return (
@@ -169,6 +221,23 @@ export default function DiscoTopbar({
     );
   }
 
+  function BrandLogo() {
+    return (
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {brandingLogoUrl ? (
+          <img
+            src={brandingLogoUrl}
+            alt={displayOrganisationName}
+            onError={() => setBrandingLogoError(true)}
+            className="h-full w-full object-contain p-1.5"
+          />
+        ) : (
+          <Music4 size={20} className="text-slate-700" />
+        )}
+      </div>
+    );
+  }
+
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="flex h-16 items-center justify-between gap-3 px-4 sm:h-20 sm:px-6">
@@ -181,13 +250,15 @@ export default function DiscoTopbar({
             <Menu size={20} />
           </button>
 
+          <BrandLogo />
+
           <div className="hidden sm:block">
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">
               Disco Platform
             </p>
 
-            <h1 className="text-lg font-black text-slate-900">
-              {organisationName || organisationSlug}
+            <h1 className="max-w-[220px] truncate text-lg font-black text-slate-900 xl:max-w-md">
+              {displayOrganisationName}
             </h1>
           </div>
         </div>

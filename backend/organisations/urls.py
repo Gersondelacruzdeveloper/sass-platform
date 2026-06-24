@@ -6,6 +6,7 @@ from .views import (
     MembershipViewSet,
     OrganisationBrandingView,
     PublicOrganisationBrandingView,
+    PublicOrganisationManifestView,
 )
 
 router = DefaultRouter()
@@ -14,16 +15,21 @@ router.register("organisations", OrganisationViewSet, basename="organisations")
 router.register("memberships", MembershipViewSet, basename="memberships")
 
 urlpatterns = [
-path(
+    path(
         "public-branding/<str:business_type>/<slug:slug>/",
         PublicOrganisationBrandingView.as_view(),
         name="public-organisation-branding",
     ),
-path(
-    "branding/<str:business_type>/<slug:slug>/",
-    OrganisationBrandingView.as_view(),
-    name="organisation-branding-detail",
-),
+    path(
+        "branding/<str:business_type>/<slug:slug>/",
+        OrganisationBrandingView.as_view(),
+        name="organisation-branding-detail",
+    ),
+    path(
+        "public-manifest/<str:business_type>/<slug:slug>/manifest.json",
+        PublicOrganisationManifestView.as_view(),
+        name="public-organisation-manifest",
+    ),
 ]
 
 urlpatterns += router.urls

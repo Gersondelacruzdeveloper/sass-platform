@@ -3,7 +3,10 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from django.http import JsonResponse
+from django.conf import settings
+
 
 from .models import Organisation, Membership, OrganisationBranding
 from .serializers import (
@@ -99,7 +102,6 @@ class MembershipViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(organisation=organisation)
 
-
 class PublicOrganisationBrandingView(APIView):
     permission_classes = [AllowAny]
 
@@ -117,9 +119,13 @@ class PublicOrganisationBrandingView(APIView):
             defaults={
                 "company_name": organisation.name,
                 "platform_name": f"{organisation.name} Platform",
+                "app_short_name": organisation.name[:50],
+                "app_description": f"{organisation.name} app",
                 "primary_color": "#111827",
                 "secondary_color": "#6B7280",
                 "accent_color": "#2563EB",
+                "theme_color": "#111827",
+                "background_color": "#ffffff",
             },
         )
 
@@ -131,9 +137,130 @@ class PublicOrganisationBrandingView(APIView):
         return Response(serializer.data)
 
 
+class PublicOrganisationManifestView(APIView):
+    permission_classes = [AllowAny]
+
+    def get_file_url(self, request, file_field):
+        if not file_field:
+            return None
+
+        url = file_field.url
+
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+
+        return request.build_absolute_uri(url)
+
+    def get(self, request, business_type, slug):
+        try:
+            organisation = Organisation.objects.get(
+                business_type=business_type,
+                slug=slug,
+            )
+        except Organisation.DoesNotExist:
+            raise NotFound("Organisation manifest not found.")
+
+        branding, created = OrganisationBranding.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "company_name": organisation.name,
+                "platform_name": f"{organisation.name} Platform",
+                "app_short_name": organisation.name[:50],
+                "app_description": f"{organisation.name} app",
+                "primary_color": "#111827",
+                "secondary_color": "#6B7280",
+                "accent_color": "#2563EB",
+                "theme_color": "#111827",
+                "background_color": "#ffffff",
+            },
+        )
+
+        frontend_url = getattr(
+            settings,
+            "FRONTEND_URL",
+            "http://127.0.0.1:5173",
+        ).rstrip("/")
+
+        app_name = (
+            branding.platform_name
+            or branding.company_name
+            or organisation.name
+            or "Disco Platform"
+        )
+
+        short_name = (
+            branding.app_short_name
+            or branding.platform_name
+            or branding.company_name
+            or organisation.name
+            or "Disco"
+        )[:50]
+
+        description = branding.app_description or f"{app_name} app"
+
+        icon_192 = self.get_file_url(
+            request,
+            branding.app_icon_192 or branding.logo,
+        )
+
+        icon_512 = self.get_file_url(
+            request,
+            branding.app_icon_512 or branding.logo,
+        )
+
+        maskable_icon = self.get_file_url(
+            request,
+            branding.maskable_icon or branding.app_icon_512 or branding.logo,
+        )
+
+        icons = []
+
+        if icon_192:
+            icons.append({
+                "src": icon_192,
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any",
+            })
+
+        if icon_512:
+            icons.append({
+                "src": icon_512,
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any",
+            })
+
+        if maskable_icon:
+            icons.append({
+                "src": maskable_icon,
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "maskable",
+            })
+
+        manifest = {
+            "name": app_name,
+            "short_name": short_name,
+            "description": description,
+            "start_url": f"{frontend_url}/{business_type}/{organisation.slug}/login",
+            "scope": f"{frontend_url}/{business_type}/{organisation.slug}/",
+            "display": "standalone",
+            "orientation": "portrait-primary",
+            "theme_color": branding.theme_color or branding.primary_color or "#020617",
+            "background_color": branding.background_color or "#ffffff",
+            "icons": icons,
+        }
+
+        response = JsonResponse(manifest)
+        response["Content-Type"] = "application/manifest+json"
+        response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+
+        return response
+    
 class OrganisationBrandingView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_organisation(self, request, business_type=None, slug=None):
         if request.user.is_superuser and business_type and slug:
@@ -164,9 +291,13 @@ class OrganisationBrandingView(APIView):
             defaults={
                 "company_name": organisation.name,
                 "platform_name": f"{organisation.name} Platform",
+                "app_short_name": organisation.name[:50],
+                "app_description": f"{organisation.name} app",
                 "primary_color": "#111827",
                 "secondary_color": "#6B7280",
                 "accent_color": "#2563EB",
+                "theme_color": "#111827",
+                "background_color": "#ffffff",
             },
         )
 
@@ -194,8 +325,7 @@ class OrganisationBrandingView(APIView):
             context={"request": request},
         )
 
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.data)

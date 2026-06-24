@@ -2,16 +2,34 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/icons/default/favicon.ico" />
+
+    <!-- Default favicon. The Disco layout will replace this dynamically. -->
+    <link id="app-favicon" rel="icon" href="/icons/default/favicon.ico" />
+    <link id="app-shortcut-icon" rel="shortcut icon" href="/icons/default/favicon.ico" />
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="manifest" href="/manifest-default.webmanifest" />
-    <meta name="theme-color" content="#020617" />
+
+    <!-- Default manifest. Later we will replace this with the dynamic organisation manifest. -->
+    <link id="app-manifest" rel="manifest" href="/manifest-default.webmanifest" />
+
+    <meta id="app-theme-color" name="theme-color" content="#020617" />
+
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="PCD Platform" />
-    <link rel="apple-touch-icon" href="/icons/default/apple-touch-icon.png" />
-    <title>frontend</title>
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta id="apple-mobile-web-app-title" name="apple-mobile-web-app-title" content="PCD Platform" />
+
+    <link
+      id="apple-touch-icon"
+      rel="apple-touch-icon"
+      href="/icons/default/apple-touch-icon.png"
+    />
+
+    <title>PCD Platform</title>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

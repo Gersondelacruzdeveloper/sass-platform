@@ -12,13 +12,13 @@ djangorestframework-simplejwt = "*"
 django-cors-headers = "*"
 psycopg2-binary = "*"
 python-decouple = "*"
-pillow = "*"
 gunicorn = "*"
 celery = "*"
 redis = "*"
 stripe = "*"
 django-storages = "*"
 boto3 = "*"
+pillow = "*"
 
 [dev-packages]
 

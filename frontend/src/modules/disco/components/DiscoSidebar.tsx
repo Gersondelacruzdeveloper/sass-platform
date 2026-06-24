@@ -25,11 +25,44 @@ import {
 import api from "../../../api/axios";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 import { logoutUser } from "../../../features/auth/authSlice";
+import { getPublicDiscoBranding } from "../api/brandingApi";
 
 type DiscoSidebarProps = {
   mobileOpen: boolean;
   onClose: () => void;
 };
+
+type SidebarBranding = {
+  company_name?: string | null;
+  platform_name?: string | null;
+  logo?: string | null;
+  logo_url?: string | null;
+  primary_color?: string | null;
+  secondary_color?: string | null;
+  accent_color?: string | null;
+};
+
+function getApiOrigin() {
+  return (
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
+    "http://127.0.0.1:8000"
+  );
+}
+
+function resolveImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  const apiOrigin = getApiOrigin();
+  return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
 export default function DiscoSidebar({
   mobileOpen,
@@ -43,13 +76,26 @@ export default function DiscoSidebar({
   const authUser = user as any;
 
   const [imageError, setImageError] = useState(false);
-
-  const apiOrigin =
-    import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, "") ||
-    "http://127.0.0.1:8000";
+  const [brandingLogoError, setBrandingLogoError] = useState(false);
+  const [branding, setBranding] = useState<SidebarBranding | null>(null);
 
   const slug =
     organisationSlug || authUser?.organisation?.slug || "almond-brownie";
+
+  useEffect(() => {
+    async function loadBranding() {
+      if (!slug) return;
+
+      try {
+        const data = await getPublicDiscoBranding(slug);
+        setBranding(data);
+      } catch (err) {
+        console.error("Could not load sidebar branding:", err);
+      }
+    }
+
+    loadBranding();
+  }, [slug]);
 
   const displayName =
     authUser?.disco_employee?.full_name ||
@@ -59,15 +105,25 @@ export default function DiscoSidebar({
     authUser?.email ||
     "Logged in user";
 
-  const role =
-    authUser?.disco_employee?.role ||
-    authUser?.role ||
-    "User";
+  const role = authUser?.disco_employee?.role || authUser?.role || "User";
 
   const organisationName =
+    branding?.platform_name ||
+    branding?.company_name ||
     authUser?.disco_employee?.organisation_name ||
     authUser?.organisation?.name ||
     slug;
+
+  const rawBrandingLogoUrl = branding?.logo_url || branding?.logo || "";
+
+  useEffect(() => {
+    setBrandingLogoError(false);
+  }, [rawBrandingLogoUrl]);
+
+  const brandingLogoUrl = useMemo(() => {
+    if (!rawBrandingLogoUrl || brandingLogoError) return "";
+    return resolveImageUrl(rawBrandingLogoUrl);
+  }, [rawBrandingLogoUrl, brandingLogoError]);
 
   const rawProfileImageUrl =
     authUser?.disco_employee?.profile_image_url ||
@@ -87,17 +143,8 @@ export default function DiscoSidebar({
 
   const profileImageUrl = useMemo(() => {
     if (!rawProfileImageUrl || imageError) return "";
-
-    if (
-      rawProfileImageUrl.startsWith("http://") ||
-      rawProfileImageUrl.startsWith("https://") ||
-      rawProfileImageUrl.startsWith("blob:")
-    ) {
-      return rawProfileImageUrl;
-    }
-
-    return `${apiOrigin}${rawProfileImageUrl.startsWith("/") ? "" : "/"}${rawProfileImageUrl}`;
-  }, [rawProfileImageUrl, imageError, apiOrigin]);
+    return resolveImageUrl(rawProfileImageUrl);
+  }, [rawProfileImageUrl, imageError]);
 
   const links = [
     {
@@ -198,15 +245,29 @@ export default function DiscoSidebar({
         `}
       >
         <div className="flex h-20 items-center justify-between border-b border-slate-800 px-5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
-              Disco
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-slate-950">
+              {brandingLogoUrl ? (
+                <img
+                  src={brandingLogoUrl}
+                  alt={organisationName}
+                  onError={() => setBrandingLogoError(true)}
+                  className="h-full w-full object-contain p-1.5"
+                />
+              ) : (
+                <Music4 size={24} />
+              )}
+            </div>
 
-            <h2 className="flex items-center gap-2 text-xl font-black">
-              <Music4 size={22} />
-              Nightclub POS
-            </h2>
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                Disco
+              </p>
+
+              <h2 className="truncate text-lg font-black">
+                {organisationName}
+              </h2>
+            </div>
           </div>
 
           <button

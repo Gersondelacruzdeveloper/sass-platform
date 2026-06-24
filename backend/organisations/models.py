@@ -166,34 +166,91 @@ class Membership(models.Model):
 
 # organisations/models.py
 class OrganisationBranding(models.Model):
-
     organisation = models.OneToOneField(
         "organisations.Organisation",
         on_delete=models.CASCADE,
-        related_name="branding"
+        related_name="branding",
     )
 
     company_name = models.CharField(max_length=255)
     platform_name = models.CharField(max_length=255, blank=True)
 
-    logo = models.ImageField(upload_to="branding/logos/", blank=True, null=True)
-    favicon = models.ImageField(upload_to="branding/favicons/", blank=True, null=True)
+    # Main branding
+    logo = models.ImageField(
+        upload_to="branding/logos/",
+        blank=True,
+        null=True,
+    )
 
+    # Browser tab icon
+    # FileField is better than ImageField because favicon can be .ico
+    favicon = models.FileField(
+        upload_to="branding/favicons/",
+        blank=True,
+        null=True,
+    )
+
+    # PWA / installable app icons
+    app_icon_192 = models.ImageField(
+        upload_to="branding/app-icons/",
+        blank=True,
+        null=True,
+        help_text="Recommended size: 192x192 PNG",
+    )
+
+    app_icon_512 = models.ImageField(
+        upload_to="branding/app-icons/",
+        blank=True,
+        null=True,
+        help_text="Recommended size: 512x512 PNG",
+    )
+
+    maskable_icon = models.ImageField(
+        upload_to="branding/app-icons/",
+        blank=True,
+        null=True,
+        help_text="Recommended size: 512x512 PNG with safe padding",
+    )
+
+    # PWA app information
+    app_short_name = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Short name shown under installed app icon",
+    )
+
+    app_description = models.TextField(
+        blank=True,
+        help_text="Description used in the app manifest",
+    )
+
+    # UI colors
     primary_color = models.CharField(max_length=20, default="#111827")
     secondary_color = models.CharField(max_length=20, default="#6B7280")
     accent_color = models.CharField(max_length=20, default="#F59E0B")
 
+    # PWA colors
+    theme_color = models.CharField(max_length=20, default="#111827")
+    background_color = models.CharField(max_length=20, default="#ffffff")
+
+    # Login page branding
     login_title = models.CharField(max_length=255, blank=True)
     login_subtitle = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @property
+    def display_name(self):
+        return self.platform_name or self.company_name or self.organisation.name
+
+    @property
+    def short_name(self):
+        return self.app_short_name or self.platform_name or self.company_name
+
     def __str__(self):
         return f"{self.company_name} - {self.platform_name}"
     
-
-
 
 class OrganisationDomain(models.Model):
     organisation = models.ForeignKey(

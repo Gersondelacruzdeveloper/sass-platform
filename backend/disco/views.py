@@ -1,6 +1,7 @@
 
 from django.db import models,transaction
 from django.db.models import Sum, Count
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
@@ -8,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from decimal import Decimal
-
+from datetime import timedelta
 
 
 from .models import (
@@ -45,6 +46,49 @@ from .serializers import (
     CheckoutSaleSerializer,
 )
 
+
+def get_sales_chart(self, organisation, days=14):
+    today = timezone.localdate()
+    start_date = today - timedelta(days=days - 1)
+
+    queryset = (
+        Sale.objects
+        .filter(
+            organisation=organisation,
+            status="completed",
+            created_at__date__gte=start_date,
+        )
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(
+            total=Sum("total"),
+            orders=Count("id"),
+        )
+        .order_by("day")
+    )
+
+    totals_by_day = {
+        row["day"]: {
+            "total": float(row["total"] or 0),
+            "orders": row["orders"] or 0,
+        }
+        for row in queryset
+    }
+
+    chart = []
+
+    for index in range(days):
+        day = start_date + timedelta(days=index)
+        values = totals_by_day.get(day, {"total": 0, "orders": 0})
+
+        chart.append({
+            "date": day.isoformat(),
+            "label": day.strftime("%b %d"),
+            "total": values["total"],
+            "orders": values["orders"],
+        })
+
+    return chart
 class OrganisationQuerysetMixin:
     permission_classes = [permissions.IsAuthenticated]
 
@@ -800,9 +844,51 @@ class DiscoActivityLogViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelV
     queryset = DiscoActivityLog.objects.select_related("user").all()
     serializer_class = DiscoActivityLogSerializer
 
-
 class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_sales_chart(self, organisation, days=14):
+        today = timezone.localdate()
+        start_date = today - timedelta(days=days - 1)
+
+        queryset = (
+            Sale.objects
+            .filter(
+                organisation=organisation,
+                created_at__date__gte=start_date,
+                status="completed",
+            )
+            .annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(
+                total=Sum("total"),
+                orders=Count("id"),
+            )
+            .order_by("day")
+        )
+
+        totals_by_day = {
+            row["day"]: {
+                "total": float(row["total"] or 0),
+                "orders": row["orders"] or 0,
+            }
+            for row in queryset
+        }
+
+        chart = []
+
+        for index in range(days):
+            day = start_date + timedelta(days=index)
+            values = totals_by_day.get(day, {"total": 0, "orders": 0})
+
+            chart.append({
+                "date": day.isoformat(),
+                "label": day.strftime("%b %d"),
+                "total": values["total"],
+                "orders": values["orders"],
+            })
+
+        return chart
 
     def list(self, request):
         organisation = self.get_organisation()
@@ -827,41 +913,62 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
             created_at__month=today.month,
         )
 
+        sales_today = today_sales.aggregate(total=Sum("total"))["total"] or 0
+        sales_this_month = month_sales.aggregate(total=Sum("total"))["total"] or 0
+        expenses_this_month = (
+            expenses_month.aggregate(total=Sum("amount"))["total"] or 0
+        )
+
+        net_profit_this_month = sales_this_month - expenses_this_month
+
         data = {
-            "sales_today": today_sales.aggregate(total=Sum("total"))["total"] or 0,
-            "sales_this_month": month_sales.aggregate(total=Sum("total"))["total"] or 0,
-            "expenses_this_month": expenses_month.aggregate(total=Sum("amount"))["total"] or 0,
+            "sales_today": sales_today,
+            "sales_this_month": sales_this_month,
+            "sales_month": sales_this_month,
+
+            "expenses_this_month": expenses_this_month,
+
+            "net_profit_this_month": net_profit_this_month,
+            "net_profit_month": net_profit_this_month,
+
             "orders_today": today_sales.count(),
-            "products_count": Product.objects.filter(organisation=organisation).count(),
+
+            "products_count": Product.objects.filter(
+                organisation=organisation
+            ).count(),
+
             "low_stock_count": Product.objects.filter(
                 organisation=organisation,
                 stock__lte=models.F("minimum_stock"),
                 is_active=True,
             ).count(),
+
             "open_tables": DiscoTable.objects.filter(
                 organisation=organisation,
                 status="occupied",
             ).count(),
+
             "reserved_tables": DiscoTable.objects.filter(
                 organisation=organisation,
                 status="reserved",
             ).count(),
+
             "active_employees": DiscoEmployee.objects.filter(
                 organisation=organisation,
                 is_active=True,
             ).count(),
+
             "pending_reservations": DiscoReservation.objects.filter(
                 organisation=organisation,
                 status="pending",
             ).count(),
+
             "open_cash_shifts": CashShift.objects.filter(
                 organisation=organisation,
                 is_open=True,
             ).count(),
-        }
 
-        data["net_profit_this_month"] = (
-            data["sales_this_month"] - data["expenses_this_month"]
-        )
+            "sales_chart": self.get_sales_chart(organisation),
+        }
 
         return Response(data)
