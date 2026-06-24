@@ -1,3 +1,5 @@
+// src/modules/disco/pages/DiscoPOSPage.tsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -39,6 +41,11 @@ import {
   type SaleItem,
 } from "../api/salesApi";
 
+import {
+  getDiscoSettings,
+  type DiscoSettings,
+} from "../api/settingsApi";
+
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 import type { DiscoLanguage } from "../i18n/discoTranslations";
 
@@ -79,22 +86,30 @@ type ReceiptLabels = {
   discount: string;
   total: string;
   payment: string;
+  cashier: string;
   thankYou: string;
 };
 
-function money(value?: string | number | null, language: DiscoLanguage = "en") {
+function money(
+  value?: string | number | null,
+  language: DiscoLanguage = "en",
+  currencySymbol = "RD$"
+) {
   const locale = language === "es" ? "es-DO" : "en-US";
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
 }
 
 function printReceipt(
   sale: any,
   labels: ReceiptLabels,
-  language: DiscoLanguage
+  language: DiscoLanguage,
+  currencySymbol = "RD$"
 ) {
   const printWindow = window.open("", "_blank");
 
@@ -102,6 +117,20 @@ function printReceipt(
 
   const items = sale.sale_items || sale.items || [];
   const locale = language === "es" ? "es-DO" : "en-US";
+  const cashierName =
+    sale.cashier_name ||
+    sale.created_by_name ||
+    sale.created_by?.username ||
+    "";
+
+  const receiptMoney = (value?: string | number | null) => {
+    const formatted = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value || 0));
+
+    return `${currencySymbol} ${formatted}`;
+  };
 
   printWindow.document.write(`
     <html>
@@ -148,11 +177,14 @@ function printReceipt(
         <h2>ALMOND BROWNIE</h2>
         <p>${labels.receipt} #${sale.receipt_number || sale.id}</p>
         <p>${new Date().toLocaleString(locale)}</p>
+
         ${
           sale.table_number || sale.table_name
             ? `<p>${labels.table}: ${sale.table_number || sale.table_name}</p>`
             : ""
         }
+
+        ${cashierName ? `<p>${labels.cashier}: ${cashierName}</p>` : ""}
 
         <hr />
 
@@ -165,7 +197,7 @@ function printReceipt(
                   item.product?.name ||
                   labels.productFallback
                 }</span>
-                <span>$${Number(item.total || 0).toFixed(2)}</span>
+                <span>${receiptMoney(item.total)}</span>
               </div>
             `
           )
@@ -175,22 +207,22 @@ function printReceipt(
 
         <div class="row">
           <strong>${labels.subtotal}</strong>
-          <strong>$${Number(sale.subtotal || 0).toFixed(2)}</strong>
+          <strong>${receiptMoney(sale.subtotal)}</strong>
         </div>
 
         <div class="row">
           <strong>${labels.tax}</strong>
-          <strong>$${Number(sale.tax || 0).toFixed(2)}</strong>
+          <strong>${receiptMoney(sale.tax)}</strong>
         </div>
 
         <div class="row">
           <strong>${labels.discount}</strong>
-          <strong>$${Number(sale.discount || 0).toFixed(2)}</strong>
+          <strong>${receiptMoney(sale.discount)}</strong>
         </div>
 
         <div class="row">
           <strong>${labels.total}</strong>
-          <strong>$${Number(sale.total || 0).toFixed(2)}</strong>
+          <strong>${receiptMoney(sale.total)}</strong>
         </div>
 
         <p>${labels.payment}: ${sale.payment_method || ""}</p>
@@ -214,6 +246,13 @@ function printReceipt(
 export default function DiscoPOSPage() {
   const { language, t } = useDiscoTranslation();
 
+  const [discoSettings, setDiscoSettings] = useState<DiscoSettings | null>(
+    null
+  );
+
+  const taxPercentage = Number(discoSettings?.tax_percentage || 0);
+  const currencySymbol = discoSettings?.currency_symbol || "RD$";
+
   const { products, loading, error, refresh } = useDiscoProducts();
 
   const {
@@ -235,7 +274,9 @@ export default function DiscoPOSPage() {
     increaseQuantity,
     decreaseQuantity,
     clearCart,
-  } = useCart();
+  } = useCart({
+    taxPercentage,
+  });
 
   const [search, setSearch] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -259,9 +300,10 @@ export default function DiscoPOSPage() {
       discount: t("pos.discount"),
       total: t("pos.total"),
       payment: t("pos.payment"),
+      cashier: language === "es" ? "Cobrado por" : "Charged by",
       thankYou: t("pos.thankYou"),
     }),
-    [t]
+    [t, language]
   );
 
   const availableProducts = useMemo(() => {
@@ -370,6 +412,19 @@ export default function DiscoPOSPage() {
   }
 
   useEffect(() => {
+    async function loadDiscoSettings() {
+      try {
+        const data = await getDiscoSettings();
+        setDiscoSettings(data);
+      } catch (error) {
+        console.error("Could not load disco settings:", error);
+      }
+    }
+
+    loadDiscoSettings();
+  }, []);
+
+  useEffect(() => {
     loadOpenBills().catch((err) => {
       console.error(err);
       setLocalError(t("pos.errorLoadOpenBills"));
@@ -442,7 +497,6 @@ export default function DiscoPOSPage() {
       sale_type: "pos",
       customer_name: customerName || "",
       discount: "0.00",
-      tax: String(tax || 0),
       items: items.map((item) => ({
         product_id: item.product.id,
         quantity: item.quantity,
@@ -452,7 +506,7 @@ export default function DiscoPOSPage() {
     const createdSale = await createSale(payload as any);
 
     if (createdSale) {
-      printReceipt(createdSale, receiptLabels, language);
+      printReceipt(createdSale, receiptLabels, language, currencySymbol);
     }
   }
 
@@ -615,10 +669,9 @@ export default function DiscoPOSPage() {
       const checkedOutSale = await checkoutTableBill(selectedBill.id, {
         payment_method: paymentMethod,
         discount: "0.00",
-        tax: "0.00",
       });
 
-      printReceipt(checkedOutSale, receiptLabels, language);
+      printReceipt(checkedOutSale, receiptLabels, language, currencySymbol);
       leaveTableMode();
       setCustomerName("");
       await refreshAll();
@@ -691,7 +744,7 @@ export default function DiscoPOSPage() {
 
         <DiscoStatCard
           title={t("pos.total")}
-          value={money(currentTotal, language)}
+          value={money(currentTotal, language, currencySymbol)}
           icon={Utensils}
           helper={`${occupiedTables.length} ${t("pos.occupiedTables")}`}
         />
@@ -972,12 +1025,13 @@ export default function DiscoPOSPage() {
                           </p>
 
                           <p className="text-xs font-semibold text-slate-500">
-                            {item.quantity} x {money(item.unit_price, language)}
+                            {item.quantity} x{" "}
+                            {money(item.unit_price, language, currencySymbol)}
                           </p>
                         </div>
 
                         <p className="text-sm font-black text-slate-950">
-                          {money(item.total, language)}
+                          {money(item.total, language, currencySymbol)}
                         </p>
                       </div>
 
@@ -1017,22 +1071,30 @@ export default function DiscoPOSPage() {
               <div className="mt-4 rounded-2xl bg-slate-50 p-4">
                 <div className="flex items-center justify-between text-sm font-bold text-slate-600">
                   <span>{t("pos.subtotal")}</span>
-                  <span>{money(selectedBill?.subtotal, language)}</span>
+                  <span>
+                    {money(selectedBill?.subtotal, language, currencySymbol)}
+                  </span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between text-sm font-bold text-slate-600">
-                  <span>{t("pos.tax")}</span>
-                  <span>{money(selectedBill?.tax, language)}</span>
+                  <span>
+                    {t("pos.tax")} ({taxPercentage}%)
+                  </span>
+                  <span>{money(selectedBill?.tax, language, currencySymbol)}</span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between text-sm font-bold text-slate-600">
                   <span>{t("pos.discount")}</span>
-                  <span>-{money(selectedBill?.discount, language)}</span>
+                  <span>
+                    -{money(selectedBill?.discount, language, currencySymbol)}
+                  </span>
                 </div>
 
                 <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-base font-black text-slate-950">
                   <span>{t("pos.total")}</span>
-                  <span>{money(selectedBill?.total, language)}</span>
+                  <span>
+                    {money(selectedBill?.total, language, currencySymbol)}
+                  </span>
                 </div>
               </div>
 
@@ -1071,6 +1133,8 @@ export default function DiscoPOSPage() {
               subtotal={subtotal}
               tax={tax}
               total={total}
+              taxPercentage={taxPercentage}
+              currencySymbol={currencySymbol}
               onIncrease={increaseQuantity}
               onDecrease={decreaseQuantity}
               onRemove={removeItem}

@@ -26,6 +26,8 @@ type CartPanelProps = {
   subtotal: number;
   tax: number;
   total: number;
+  taxPercentage?: number;
+  currencySymbol?: string;
   onIncrease: (productId: number) => void;
   onDecrease: (productId: number) => void;
   onRemove: (productId: number) => void;
@@ -34,13 +36,19 @@ type CartPanelProps = {
   loading?: boolean;
 };
 
-function formatMoney(value: number, language: DiscoLanguage) {
+function formatMoney(
+  value: number | string,
+  language: DiscoLanguage,
+  currencySymbol = "RD$"
+) {
   const locale = language === "es" ? "es-DO" : "en-US";
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
 }
 
 export default function CartPanel({
@@ -48,6 +56,8 @@ export default function CartPanel({
   subtotal,
   tax,
   total,
+  taxPercentage = 0,
+  currencySymbol = "RD$",
   onIncrease,
   onDecrease,
   onRemove,
@@ -112,7 +122,8 @@ export default function CartPanel({
                     </h3>
 
                     <p className="text-xs font-semibold text-slate-500">
-                      {formatMoney(price, language)} {t("cart.each")}
+                      {formatMoney(price, language, currencySymbol)}{" "}
+                      {t("cart.each")}
                     </p>
                   </div>
 
@@ -149,7 +160,7 @@ export default function CartPanel({
                   </div>
 
                   <p className="text-sm font-black text-slate-900">
-                    {formatMoney(price * item.quantity, language)}
+                    {formatMoney(price * item.quantity, language, currencySymbol)}
                   </p>
                 </div>
               </div>
@@ -162,18 +173,20 @@ export default function CartPanel({
         <div className="space-y-2 rounded-2xl bg-slate-50 p-4">
           <div className="flex justify-between text-sm font-semibold text-slate-500">
             <span>{t("pos.subtotal")}</span>
-            <span>{formatMoney(subtotal, language)}</span>
+            <span>{formatMoney(subtotal, language, currencySymbol)}</span>
           </div>
 
           <div className="flex justify-between text-sm font-semibold text-slate-500">
-            <span>{t("cart.tax18")}</span>
-            <span>{formatMoney(tax, language)}</span>
+            <span>
+              {t("pos.tax")} ({Number(taxPercentage || 0)}%)
+            </span>
+            <span>{formatMoney(tax, language, currencySymbol)}</span>
           </div>
 
           <div className="border-t border-slate-200 pt-2">
             <div className="flex justify-between text-lg font-black text-slate-900">
               <span>{t("pos.total")}</span>
-              <span>{formatMoney(total, language)}</span>
+              <span>{formatMoney(total, language, currencySymbol)}</span>
             </div>
           </div>
         </div>

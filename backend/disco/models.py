@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from organisations.models import Organisation
@@ -38,6 +39,12 @@ class DiscoEmployee(models.Model):
     full_name = models.CharField(max_length=150)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
     phone = models.CharField(max_length=30, blank=True, null=True)
+    daily_pay = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Daily employee payment used for payroll reports."
+    )
     is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -123,6 +130,45 @@ class CashShift(models.Model):
 
     class Meta:
         ordering = ["-opened_at"]
+
+
+class DiscoSettings(models.Model):
+    organisation = models.OneToOneField(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="disco_settings"
+    )
+
+    tax_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Tax percentage applied to sales. Example: 18.00"
+    )
+
+    currency_symbol = models.CharField(
+        max_length=10,
+        default="RD$",
+        help_text="Display-only currency symbol. No currency conversion is applied."
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Disco Settings - {self.organisation}"
+
+    class Meta:
+        verbose_name = "Disco Settings"
+        verbose_name_plural = "Disco Settings"
+
+
+
+
+
+
+
+
 
 
 class Category(models.Model):
@@ -365,6 +411,31 @@ class Sale(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def product_cost_total(self):
+        total = Decimal("0.00")
+
+        for item in self.items.all():
+            total += item.unit_cost * item.quantity
+
+        return total
+
+    @property
+    def revenue_before_tax(self):
+        revenue = self.subtotal - self.discount
+
+        if revenue < 0:
+            return Decimal("0.00")
+
+        return revenue
+
+    @property
+    def gross_profit(self):
+        return self.revenue_before_tax - self.product_cost_total
+
+
+
 
     def __str__(self):
         return f"Sale #{self.id}"

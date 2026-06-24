@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
 
 
@@ -24,6 +24,7 @@ from .models import (
     DiscoReservation,
     DiscoActivityLog,
     SaleItem,
+    DiscoSettings,
 )
 
 from .serializers import (
@@ -44,8 +45,36 @@ from .serializers import (
     UpdateSaleItemQuantitySerializer,
     RemoveSaleItemSerializer,
     CheckoutSaleSerializer,
+    DiscoSettingsSerializer
 )
 
+def money(value):
+    return Decimal(str(value or 0)).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def calculate_tax(amount, tax_percentage):
+    amount = money(amount)
+    tax_percentage = Decimal(str(tax_percentage or 0))
+
+    if amount <= 0 or tax_percentage <= 0:
+        return Decimal("0.00")
+
+    return money(amount * tax_percentage / Decimal("100"))
+
+
+def get_or_create_disco_settings(organisation):
+    settings, _ = DiscoSettings.objects.get_or_create(
+        organisation=organisation,
+        defaults={
+            "tax_percentage": Decimal("0.00"),
+            "currency_symbol": "RD$",
+        },
+    )
+
+    return settings
 
 def get_sales_chart(self, organisation, days=14):
     today = timezone.localdate()
@@ -131,6 +160,67 @@ class OrganisationQuerysetMixin:
         serializer.save(organisation=organisation)
 
 
+class DiscoSettingsViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        settings = get_or_create_disco_settings(organisation)
+
+        serializer = DiscoSettingsSerializer(
+            settings,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get", "patch"], url_path="current")
+    def current(self, request):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValidationError({
+                "organisation": "No active organisation found for this user."
+            })
+
+        settings = get_or_create_disco_settings(organisation)
+
+        if request.method.lower() == "patch":
+            serializer = DiscoSettingsSerializer(
+                settings,
+                data=request.data,
+                partial=True,
+                context={"request": request},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            DiscoActivityLog.objects.create(
+                organisation=organisation,
+                user=request.user,
+                action="settings_updated",
+                description=(
+                    f"Updated disco settings. "
+                    f"Tax: {settings.tax_percentage}%. "
+                    f"Currency: {settings.currency_symbol}"
+                ),
+            )
+
+            return Response(serializer.data)
+
+        serializer = DiscoSettingsSerializer(
+            settings,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
+    
 class CategoryViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
@@ -454,23 +544,28 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
         return f"DSC-{sale.organisation_id}-{sale.id:06d}"
 
-    def _recalculate_sale(self, sale, discount=None, tax=None):
+    def _recalculate_sale(self, sale, discount=None):
+        settings = get_or_create_disco_settings(sale.organisation)
+
         subtotal = (
             sale.items.aggregate(total=models.Sum("total"))["total"]
             or Decimal("0.00")
         )
 
         if discount is not None:
-            sale.discount = Decimal(str(discount))
+            sale.discount = money(discount)
 
-        if tax is not None:
-            sale.tax = Decimal(str(tax))
+        taxable_amount = money(subtotal - sale.discount)
 
-        sale.subtotal = subtotal
-        sale.total = subtotal - sale.discount + sale.tax
+        if taxable_amount < 0:
+            taxable_amount = Decimal("0.00")
 
-        if sale.total < 0:
-            sale.total = Decimal("0.00")
+        sale.subtotal = money(subtotal)
+        sale.tax = calculate_tax(
+            taxable_amount,
+            settings.tax_percentage,
+        )
+        sale.total = money(taxable_amount + sale.tax)
 
         sale.save(update_fields=[
             "subtotal",
@@ -753,10 +848,11 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
         payment_method = serializer.validated_data.get("payment_method", "cash")
         discount = serializer.validated_data.get("discount", Decimal("0.00"))
-        tax = serializer.validated_data.get("tax", Decimal("0.00"))
+
+        self._recalculate_sale(sale, discount=discount)
 
         with transaction.atomic():
-            self._recalculate_sale(sale, discount=discount, tax=tax)
+            self._recalculate_sale(sale, discount=discount)
 
             sale.payment_method = payment_method
             sale.status = "completed"
@@ -890,9 +986,11 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
 
         return chart
 
+        
     def list(self, request):
         organisation = self.get_organisation()
-        today = timezone.now().date()
+        today = timezone.localdate()
+        settings = get_or_create_disco_settings(organisation)
 
         today_sales = Sale.objects.filter(
             organisation=organisation,
@@ -907,29 +1005,114 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
             status="completed",
         )
 
-        expenses_month = Expense.objects.filter(
+        today_expenses = Expense.objects.filter(
+            organisation=organisation,
+            created_at__date=today,
+        )
+
+        month_expenses = Expense.objects.filter(
             organisation=organisation,
             created_at__year=today.year,
             created_at__month=today.month,
         )
 
-        sales_today = today_sales.aggregate(total=Sum("total"))["total"] or 0
-        sales_this_month = month_sales.aggregate(total=Sum("total"))["total"] or 0
-        expenses_this_month = (
-            expenses_month.aggregate(total=Sum("amount"))["total"] or 0
+        cost_expression = models.ExpressionWrapper(
+            models.F("unit_cost") * models.F("quantity"),
+            output_field=models.DecimalField(max_digits=12, decimal_places=2),
         )
 
-        net_profit_this_month = sales_this_month - expenses_this_month
+        product_cost_today = (
+            SaleItem.objects
+            .filter(
+                sale__organisation=organisation,
+                sale__created_at__date=today,
+                sale__status="completed",
+            )
+            .aggregate(total=Sum(cost_expression))["total"]
+            or Decimal("0.00")
+        )
+
+        product_cost_this_month = (
+            SaleItem.objects
+            .filter(
+                sale__organisation=organisation,
+                sale__created_at__year=today.year,
+                sale__created_at__month=today.month,
+                sale__status="completed",
+            )
+            .aggregate(total=Sum(cost_expression))["total"]
+            or Decimal("0.00")
+        )
+
+        sales_today = today_sales.aggregate(total=Sum("total"))["total"] or Decimal("0.00")
+        sales_this_month = month_sales.aggregate(total=Sum("total"))["total"] or Decimal("0.00")
+
+        subtotal_today = today_sales.aggregate(total=Sum("subtotal"))["total"] or Decimal("0.00")
+        subtotal_this_month = month_sales.aggregate(total=Sum("subtotal"))["total"] or Decimal("0.00")
+
+        discount_today = today_sales.aggregate(total=Sum("discount"))["total"] or Decimal("0.00")
+        discount_this_month = month_sales.aggregate(total=Sum("discount"))["total"] or Decimal("0.00")
+
+        tax_today = today_sales.aggregate(total=Sum("tax"))["total"] or Decimal("0.00")
+        tax_this_month = month_sales.aggregate(total=Sum("tax"))["total"] or Decimal("0.00")
+
+        expenses_today = today_expenses.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        expenses_this_month = month_expenses.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
+        payroll_today = (
+            DiscoEmployee.objects
+            .filter(
+                organisation=organisation,
+                is_active=True,
+            )
+            .aggregate(total=Sum("daily_pay"))["total"]
+            or Decimal("0.00")
+        )
+
+        payroll_this_month = payroll_today * Decimal(today.day)
+
+        revenue_today = subtotal_today - discount_today
+        revenue_this_month = subtotal_this_month - discount_this_month
+
+        gross_profit_today = revenue_today - product_cost_today
+        gross_profit_this_month = revenue_this_month - product_cost_this_month
+
+        net_profit_today = gross_profit_today - expenses_today - payroll_today
+        net_profit_this_month = (
+            gross_profit_this_month
+            - expenses_this_month
+            - payroll_this_month
+        )
 
         data = {
-            "sales_today": sales_today,
-            "sales_this_month": sales_this_month,
-            "sales_month": sales_this_month,
+            "sales_today": money(sales_today),
+            "sales_this_month": money(sales_this_month),
+            "sales_month": money(sales_this_month),
 
-            "expenses_this_month": expenses_this_month,
+            "subtotal_today": money(subtotal_today),
+            "subtotal_this_month": money(subtotal_this_month),
 
-            "net_profit_this_month": net_profit_this_month,
-            "net_profit_month": net_profit_this_month,
+            "discount_today": money(discount_today),
+            "discount_this_month": money(discount_this_month),
+
+            "tax_today": money(tax_today),
+            "tax_this_month": money(tax_this_month),
+
+            "product_cost_today": money(product_cost_today),
+            "product_cost_this_month": money(product_cost_this_month),
+
+            "gross_profit_today": money(gross_profit_today),
+            "gross_profit_this_month": money(gross_profit_this_month),
+
+            "expenses_today": money(expenses_today),
+            "expenses_this_month": money(expenses_this_month),
+
+            "payroll_today": money(payroll_today),
+            "payroll_this_month": money(payroll_this_month),
+
+            "net_profit_today": money(net_profit_today),
+            "net_profit_this_month": money(net_profit_this_month),
+            "net_profit_month": money(net_profit_this_month),
 
             "orders_today": today_sales.count(),
 
@@ -967,6 +1150,9 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
                 organisation=organisation,
                 is_open=True,
             ).count(),
+
+            "tax_percentage": settings.tax_percentage,
+            "currency_symbol": settings.currency_symbol,
 
             "sales_chart": self.get_sales_chart(organisation),
         }

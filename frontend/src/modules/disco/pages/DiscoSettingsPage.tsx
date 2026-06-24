@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
+  Banknote,
   Bell,
   Building2,
   CheckCircle2,
   Image,
   Lock,
   Palette,
+  Percent,
   Save,
   Settings,
   ShieldCheck,
@@ -21,6 +23,12 @@ import DiscoStatCard from "../components/DiscoStatCard";
 
 import { getDiscoBranding, updateDiscoBranding } from "../api/brandingApi";
 import type { OrganisationBranding } from "../api/brandingApi";
+
+import {
+  getDiscoSettings,
+  updateDiscoSettings,
+  type DiscoSettings,
+} from "../api/settingsApi";
 
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 
@@ -36,6 +44,11 @@ type BrandingForm = OrganisationBranding & {
   app_icon_512_url?: string | null;
   maskable_icon?: string | null;
   maskable_icon_url?: string | null;
+};
+
+type FinancialSettingsForm = {
+  tax_percentage: string;
+  currency_symbol: string;
 };
 
 const initialForm: BrandingForm = {
@@ -66,6 +79,11 @@ const initialForm: BrandingForm = {
   maskable_icon_url: null,
 };
 
+const initialFinancialSettings: FinancialSettingsForm = {
+  tax_percentage: "0.00",
+  currency_symbol: "RD$",
+};
+
 export default function DiscoSettingsPage() {
   const { t } = useDiscoTranslation();
   const { organisationSlug } = useParams();
@@ -77,6 +95,8 @@ export default function DiscoSettingsPage() {
   const [error, setError] = useState("");
 
   const [form, setForm] = useState<BrandingForm>(initialForm);
+  const [financialSettings, setFinancialSettings] =
+    useState<FinancialSettingsForm>(initialFinancialSettings);
 
   function updateField<K extends keyof BrandingForm>(
     field: K,
@@ -85,143 +105,197 @@ export default function DiscoSettingsPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  useEffect(() => {
-    async function loadBranding() {
-      if (!organisationSlug) {
-        setLoading(false);
-        return;
-      }
+  function updateFinancialField<K extends keyof FinancialSettingsForm>(
+    field: K,
+    value: FinancialSettingsForm[K]
+  ) {
+    setFinancialSettings((prev) => ({ ...prev, [field]: value }));
+  }
 
+  useEffect(() => {
+    async function loadSettingsPage() {
       try {
         setError("");
-        const data = await getDiscoBranding(organisationSlug);
 
-        setForm({
-          company_name: data.company_name || "",
-          platform_name: data.platform_name || "",
-          app_short_name: (data as any).app_short_name || "",
-          app_description: (data as any).app_description || "",
-          login_title: data.login_title || "",
-          login_subtitle: data.login_subtitle || "",
+        const settingsPromise = getDiscoSettings();
 
-          primary_color: data.primary_color || "#020617",
-          secondary_color: data.secondary_color || "#0f172a",
-          accent_color: data.accent_color || "#06b6d4",
-          theme_color: (data as any).theme_color || "#020617",
-          background_color: (data as any).background_color || "#ffffff",
+        const brandingPromise = organisationSlug
+          ? getDiscoBranding(organisationSlug)
+          : Promise.resolve(null);
 
-          logo: data.logo || null,
-          logo_url: data.logo_url || data.logo || null,
+        const [brandingData, settingsData] = await Promise.all([
+          brandingPromise,
+          settingsPromise,
+        ]);
 
-          favicon: data.favicon || null,
-          favicon_url: data.favicon_url || data.favicon || null,
+        if (brandingData) {
+          setForm({
+            company_name: brandingData.company_name || "",
+            platform_name: brandingData.platform_name || "",
+            app_short_name: (brandingData as any).app_short_name || "",
+            app_description: (brandingData as any).app_description || "",
+            login_title: brandingData.login_title || "",
+            login_subtitle: brandingData.login_subtitle || "",
 
-          app_icon_192: (data as any).app_icon_192 || null,
-          app_icon_192_url:
-            (data as any).app_icon_192_url ||
-            (data as any).app_icon_192 ||
-            null,
+            primary_color: brandingData.primary_color || "#020617",
+            secondary_color: brandingData.secondary_color || "#0f172a",
+            accent_color: brandingData.accent_color || "#06b6d4",
+            theme_color: (brandingData as any).theme_color || "#020617",
+            background_color: (brandingData as any).background_color || "#ffffff",
 
-          app_icon_512: (data as any).app_icon_512 || null,
-          app_icon_512_url:
-            (data as any).app_icon_512_url ||
-            (data as any).app_icon_512 ||
-            null,
+            logo: brandingData.logo || null,
+            logo_url: brandingData.logo_url || brandingData.logo || null,
 
-          maskable_icon: (data as any).maskable_icon || null,
-          maskable_icon_url:
-            (data as any).maskable_icon_url ||
-            (data as any).maskable_icon ||
-            null,
-        });
+            favicon: brandingData.favicon || null,
+            favicon_url:
+              brandingData.favicon_url || brandingData.favicon || null,
+
+            app_icon_192: (brandingData as any).app_icon_192 || null,
+            app_icon_192_url:
+              (brandingData as any).app_icon_192_url ||
+              (brandingData as any).app_icon_192 ||
+              null,
+
+            app_icon_512: (brandingData as any).app_icon_512 || null,
+            app_icon_512_url:
+              (brandingData as any).app_icon_512_url ||
+              (brandingData as any).app_icon_512 ||
+              null,
+
+            maskable_icon: (brandingData as any).maskable_icon || null,
+            maskable_icon_url:
+              (brandingData as any).maskable_icon_url ||
+              (brandingData as any).maskable_icon ||
+              null,
+          });
+        }
+
+        if (settingsData) {
+          setFinancialSettings({
+            tax_percentage: settingsData.tax_percentage || "0.00",
+            currency_symbol: settingsData.currency_symbol || "RD$",
+          });
+        }
       } catch (error) {
-        console.error("Could not load branding:", error);
-        setError(t("settings.errorLoadBranding"));
+        console.error("Could not load settings:", error);
+        setError("No se pudo cargar la configuración.");
       } finally {
         setLoading(false);
       }
     }
 
-    loadBranding();
-  }, [organisationSlug, t]);
+    loadSettingsPage();
+  }, [organisationSlug]);
 
   async function handleSave() {
-    if (!organisationSlug) return;
-
     setSaving(true);
     setSavedMessage("");
     setError("");
 
     try {
-      const formData = new FormData();
+      const saveTasks: Promise<OrganisationBranding | DiscoSettings>[] = [];
 
-      formData.append("company_name", form.company_name || "");
-      formData.append("platform_name", form.platform_name || "");
-      formData.append("app_short_name", form.app_short_name || "");
-      formData.append("app_description", form.app_description || "");
-      formData.append("login_title", form.login_title || "");
-      formData.append("login_subtitle", form.login_subtitle || "");
+      if (organisationSlug) {
+        const formData = new FormData();
 
-      formData.append("primary_color", form.primary_color || "#020617");
-      formData.append("secondary_color", form.secondary_color || "#0f172a");
-      formData.append("accent_color", form.accent_color || "#06b6d4");
-      formData.append("theme_color", form.theme_color || "#020617");
-      formData.append("background_color", form.background_color || "#ffffff");
+        formData.append("company_name", form.company_name || "");
+        formData.append("platform_name", form.platform_name || "");
+        formData.append("app_short_name", form.app_short_name || "");
+        formData.append("app_description", form.app_description || "");
+        formData.append("login_title", form.login_title || "");
+        formData.append("login_subtitle", form.login_subtitle || "");
 
-      // Only upload the logo.
-      // Backend will generate favicon, 192 icon, 512 icon, and maskable icon.
-      if (logo) {
-        formData.append("logo", logo);
+        formData.append("primary_color", form.primary_color || "#020617");
+        formData.append("secondary_color", form.secondary_color || "#0f172a");
+        formData.append("accent_color", form.accent_color || "#06b6d4");
+        formData.append("theme_color", form.theme_color || "#020617");
+        formData.append("background_color", form.background_color || "#ffffff");
+
+        if (logo) {
+          formData.append("logo", logo);
+        }
+
+        saveTasks.push(updateDiscoBranding(organisationSlug, formData));
       }
 
-      const data = await updateDiscoBranding(organisationSlug, formData);
+      saveTasks.push(
+        updateDiscoSettings({
+          tax_percentage: financialSettings.tax_percentage || "0.00",
+          currency_symbol: financialSettings.currency_symbol || "RD$",
+        })
+      );
 
-      setForm((prev) => ({
-        ...prev,
+      const responses = await Promise.all(saveTasks);
+      const brandingData = responses.find(
+        (response) => "company_name" in response
+      ) as OrganisationBranding | undefined;
 
-        company_name: data.company_name || prev.company_name,
-        platform_name: data.platform_name || prev.platform_name,
-        app_short_name: (data as any).app_short_name || prev.app_short_name,
-        app_description: (data as any).app_description || prev.app_description,
-        login_title: data.login_title || prev.login_title,
-        login_subtitle: data.login_subtitle || prev.login_subtitle,
+      const settingsData = responses.find(
+        (response) => "tax_percentage" in response
+      ) as DiscoSettings | undefined;
 
-        primary_color: data.primary_color || prev.primary_color,
-        secondary_color: data.secondary_color || prev.secondary_color,
-        accent_color: data.accent_color || prev.accent_color,
-        theme_color: (data as any).theme_color || prev.theme_color,
-        background_color: (data as any).background_color || prev.background_color,
+      if (brandingData) {
+        setForm((prev) => ({
+          ...prev,
 
-        logo: data.logo || prev.logo,
-        logo_url: data.logo_url || data.logo || prev.logo_url,
+          company_name: brandingData.company_name || prev.company_name,
+          platform_name: brandingData.platform_name || prev.platform_name,
+          app_short_name:
+            (brandingData as any).app_short_name || prev.app_short_name,
+          app_description:
+            (brandingData as any).app_description || prev.app_description,
+          login_title: brandingData.login_title || prev.login_title,
+          login_subtitle: brandingData.login_subtitle || prev.login_subtitle,
 
-        favicon: data.favicon || prev.favicon,
-        favicon_url: data.favicon_url || data.favicon || prev.favicon_url,
+          primary_color: brandingData.primary_color || prev.primary_color,
+          secondary_color: brandingData.secondary_color || prev.secondary_color,
+          accent_color: brandingData.accent_color || prev.accent_color,
+          theme_color: (brandingData as any).theme_color || prev.theme_color,
+          background_color:
+            (brandingData as any).background_color || prev.background_color,
 
-        app_icon_192: (data as any).app_icon_192 || prev.app_icon_192,
-        app_icon_192_url:
-          (data as any).app_icon_192_url ||
-          (data as any).app_icon_192 ||
-          prev.app_icon_192_url,
+          logo: brandingData.logo || prev.logo,
+          logo_url: brandingData.logo_url || brandingData.logo || prev.logo_url,
 
-        app_icon_512: (data as any).app_icon_512 || prev.app_icon_512,
-        app_icon_512_url:
-          (data as any).app_icon_512_url ||
-          (data as any).app_icon_512 ||
-          prev.app_icon_512_url,
+          favicon: brandingData.favicon || prev.favicon,
+          favicon_url:
+            brandingData.favicon_url || brandingData.favicon || prev.favicon_url,
 
-        maskable_icon: (data as any).maskable_icon || prev.maskable_icon,
-        maskable_icon_url:
-          (data as any).maskable_icon_url ||
-          (data as any).maskable_icon ||
-          prev.maskable_icon_url,
-      }));
+          app_icon_192:
+            (brandingData as any).app_icon_192 || prev.app_icon_192,
+          app_icon_192_url:
+            (brandingData as any).app_icon_192_url ||
+            (brandingData as any).app_icon_192 ||
+            prev.app_icon_192_url,
+
+          app_icon_512:
+            (brandingData as any).app_icon_512 || prev.app_icon_512,
+          app_icon_512_url:
+            (brandingData as any).app_icon_512_url ||
+            (brandingData as any).app_icon_512 ||
+            prev.app_icon_512_url,
+
+          maskable_icon:
+            (brandingData as any).maskable_icon || prev.maskable_icon,
+          maskable_icon_url:
+            (brandingData as any).maskable_icon_url ||
+            (brandingData as any).maskable_icon ||
+            prev.maskable_icon_url,
+        }));
+      }
+
+      if (settingsData) {
+        setFinancialSettings({
+          tax_percentage: settingsData.tax_percentage || "0.00",
+          currency_symbol: settingsData.currency_symbol || "RD$",
+        });
+      }
 
       setLogo(null);
-      setSavedMessage(t("settings.savedMessage"));
+      setSavedMessage("Configuración guardada correctamente.");
     } catch (error) {
-      console.error("Could not save branding:", error);
-      setError(t("settings.errorSaveBranding"));
+      console.error("Could not save settings:", error);
+      setError("No se pudo guardar la configuración.");
     } finally {
       setSaving(false);
     }
@@ -254,17 +328,17 @@ export default function DiscoSettingsPage() {
         />
 
         <DiscoStatCard
-          title={t("settings.security")}
-          value={t("settings.enabled")}
-          icon={ShieldCheck}
-          helper={t("settings.protectedAccess")}
+          title="Impuesto"
+          value={`${Number(financialSettings.tax_percentage || 0)}%`}
+          icon={Percent}
+          helper="Aplicado automáticamente en ventas"
         />
 
         <DiscoStatCard
-          title={t("settings.mobileApp")}
-          value={t("settings.ready")}
-          icon={Smartphone}
-          helper={t("settings.logoGeneratesAppIcons")}
+          title="Moneda"
+          value={financialSettings.currency_symbol || "RD$"}
+          icon={Banknote}
+          helper="Solo símbolo visual, sin conversión"
         />
 
         <DiscoStatCard
@@ -288,6 +362,51 @@ export default function DiscoSettingsPage() {
       )}
 
       <section className="grid gap-5 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+          <div className="flex items-center gap-3">
+            <Banknote className="h-5 w-5 text-slate-500" />
+
+            <h2 className="text-lg font-black text-slate-950">
+              Configuración financiera
+            </h2>
+          </div>
+
+          <p className="mt-2 text-sm font-semibold text-slate-500">
+            Define el impuesto que se aplicará automáticamente a las ventas y el
+            símbolo de moneda que aparecerá en tickets, POS y reportes.
+          </p>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Impuesto configurable (%)"
+              value={financialSettings.tax_percentage}
+              onChange={(value) =>
+                updateFinancialField("tax_percentage", value)
+              }
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="18.00"
+            />
+
+            <Input
+              label="Símbolo de moneda"
+              value={financialSettings.currency_symbol}
+              onChange={(value) =>
+                updateFinancialField("currency_symbol", value)
+              }
+              placeholder="RD$"
+            />
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">
+            Ejemplo: si el subtotal es {financialSettings.currency_symbol || "RD$"}{" "}
+            1,000.00 y el impuesto es{" "}
+            {Number(financialSettings.tax_percentage || 0)}%, el sistema
+            calculará el impuesto automáticamente al cerrar la venta.
+          </div>
+        </div>
+
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <Building2 className="h-5 w-5 text-slate-500" />
@@ -509,17 +628,29 @@ function Input({
   label,
   value,
   onChange,
+  type = "text",
+  min,
+  step,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  type?: string;
+  min?: string;
+  step?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
       <span className="text-sm font-bold text-slate-700">{label}</span>
 
       <input
+        type={type}
+        min={min}
+        step={step}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
       />

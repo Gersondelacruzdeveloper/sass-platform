@@ -13,6 +13,7 @@ from .views import (
     DiscoReservationViewSet,
     DiscoActivityLogViewSet,
     DiscoDashboardViewSet,
+    DiscoSettingsViewSet,
 )
 from .dev_seed import seed_disco_demo
 
@@ -29,6 +30,7 @@ router.register(r"tables", DiscoTableViewSet, basename="disco-tables")
 router.register(r"cash-shifts", CashShiftViewSet, basename="disco-cash-shifts")
 router.register(r"reservations", DiscoReservationViewSet, basename="disco-reservations")
 router.register(r"activity-logs", DiscoActivityLogViewSet, basename="disco-activity-logs")
+router.register(r"settings", DiscoSettingsViewSet, basename="disco-settings")
 
 urlpatterns = [
     path("dev/seed-demo/", seed_disco_demo, name="seed-disco-demo"),

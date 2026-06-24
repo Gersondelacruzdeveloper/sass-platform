@@ -12,6 +12,7 @@ from .models import (
     CashShift,
     DiscoReservation,
     DiscoActivityLog,
+    DiscoSettings,
 )
 
 from .services.sales_service import create_sale
@@ -64,7 +65,7 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
             "role",
             "phone",
             "is_active",
-
+            "daily_pay",
             "create_login",
             "login_username",
             "login_email",
@@ -254,6 +255,7 @@ class DiscoEmployeeSerializer(serializers.ModelSerializer):
         instance.full_name = validated_data.get("full_name", instance.full_name)
         instance.role = validated_data.get("role", instance.role)
         instance.phone = validated_data.get("phone", instance.phone)
+        instance.daily_pay = validated_data.get("daily_pay", instance.daily_pay)
         instance.is_active = validated_data.get("is_active", instance.is_active)
         instance.save()
 
@@ -356,6 +358,25 @@ class CashShiftSerializer(serializers.ModelSerializer):
             "closed_by",
             "opened_at",
             "closed_at",
+        )
+
+
+class DiscoSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DiscoSettings
+        fields = [
+            "id",
+            "organisation",
+            "tax_percentage",
+            "currency_symbol",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = (
+            "id",
+            "organisation",
+            "created_at",
+            "updated_at",
         )
 
 
@@ -512,6 +533,7 @@ class SaleItemCreateSerializer(serializers.Serializer):
 class SaleItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     profit = serializers.SerializerMethodField()
+    line_cost_total = serializers.SerializerMethodField()
 
     class Meta:
         model = SaleItem
@@ -519,6 +541,9 @@ class SaleItemSerializer(serializers.ModelSerializer):
 
     def get_profit(self, obj):
         return obj.profit()
+    
+    def get_line_cost_total(self, obj):
+        return obj.unit_cost * obj.quantity
 
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -533,7 +558,12 @@ class SaleSerializer(serializers.ModelSerializer):
     table_name = serializers.CharField(source="table.name", read_only=True)
     waiter_name = serializers.CharField(source="waiter.full_name", read_only=True)
     bartender_name = serializers.CharField(source="bartender.full_name", read_only=True)
+
     created_by_name = serializers.CharField(source="created_by.username", read_only=True)
+    cashier_name = serializers.CharField(source="created_by.username", read_only=True)
+
+    product_cost_total = serializers.SerializerMethodField()
+    gross_profit = serializers.SerializerMethodField()
 
     class Meta:
         model = Sale
@@ -542,11 +572,19 @@ class SaleSerializer(serializers.ModelSerializer):
             "organisation",
             "receipt_number",
             "subtotal",
+            "tax",
             "total",
             "created_by",
             "created_at",
             "updated_at",
         )
+
+    def get_product_cost_total(self, obj):
+        return obj.product_cost_total
+
+    def get_gross_profit(self, obj):
+        return obj.gross_profit
+
     def create(self, validated_data):
         request = self.context["request"]
         items = validated_data.pop("items")
@@ -579,7 +617,6 @@ class SaleSerializer(serializers.ModelSerializer):
 
         return sale
 
-
 class SaleReadSerializer(serializers.ModelSerializer):
     sale_items = SaleItemSerializer(
         source="items",
@@ -590,11 +627,22 @@ class SaleReadSerializer(serializers.ModelSerializer):
     table_name = serializers.CharField(source="table.name", read_only=True)
     waiter_name = serializers.CharField(source="waiter.full_name", read_only=True)
     bartender_name = serializers.CharField(source="bartender.full_name", read_only=True)
+
     created_by_name = serializers.CharField(source="created_by.username", read_only=True)
+    cashier_name = serializers.CharField(source="created_by.username", read_only=True)
+
+    product_cost_total = serializers.SerializerMethodField()
+    gross_profit = serializers.SerializerMethodField()
 
     class Meta:
         model = Sale
         fields = "__all__"
+
+    def get_product_cost_total(self, obj):
+        return obj.product_cost_total
+
+    def get_gross_profit(self, obj):
+        return obj.gross_profit
 
 
 

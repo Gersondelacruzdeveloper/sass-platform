@@ -15,9 +15,23 @@ export interface CartItem {
   quantity: number;
 }
 
-export function useCart() {
+type UseCartOptions = {
+  taxPercentage?: number | string;
+};
+
+export function useCart(options: UseCartOptions = {}) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
+
+  const taxPercentage = useMemo(() => {
+    const value = Number(options.taxPercentage ?? 0);
+
+    if (!Number.isFinite(value) || value < 0) {
+      return 0;
+    }
+
+    return value;
+  }, [options.taxPercentage]);
 
   const addItem = (product: CartProduct) => {
     setItems((prev) => {
@@ -87,7 +101,9 @@ export function useCart() {
     );
   }, [items]);
 
-  const tax = useMemo(() => subtotal * 0.18, [subtotal]);
+  const tax = useMemo(() => {
+    return subtotal * (taxPercentage / 100);
+  }, [subtotal, taxPercentage]);
 
   const total = useMemo(
     () => subtotal + tax - Number(discount || 0),
@@ -96,6 +112,13 @@ export function useCart() {
 
   const totalItems = useMemo(() => {
     return items.reduce((sum, item) => sum + item.quantity, 0);
+  }, [items]);
+
+  const totalCost = useMemo(() => {
+    return items.reduce((sum, item) => {
+      const cost = Number(item.product.cost_price || 0);
+      return sum + cost * item.quantity;
+    }, 0);
   }, [items]);
 
   const totalProfit = useMemo(() => {
@@ -111,10 +134,12 @@ export function useCart() {
     items,
     subtotal,
     tax,
+    taxPercentage,
     total,
     discount,
     setDiscount,
     totalItems,
+    totalCost,
     totalProfit,
     addItem,
     removeItem,
