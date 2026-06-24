@@ -17,6 +17,22 @@ import {
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 import type { DiscoLanguage } from "../i18n/discoTranslations";
 
+type RawSalesChartData = {
+  label?: string;
+  date?: string;
+  day?: string;
+  created_at?: string;
+
+  sales?: number | string;
+  total?: number | string;
+  revenue?: number | string;
+  amount?: number | string;
+
+  profit?: number | string;
+  gross_profit?: number | string;
+  net_profit?: number | string;
+};
+
 type SalesChartData = {
   label: string;
   sales: number;
@@ -26,21 +42,89 @@ type SalesChartData = {
 type SalesChartProps = {
   title?: string;
   subtitle?: string;
-  data: SalesChartData[];
+  data: RawSalesChartData[];
+  currencySymbol?: string;
 };
 
-function money(value: ValueType | number | undefined, language: DiscoLanguage) {
+function money(
+  value: ValueType | number | undefined,
+  language: DiscoLanguage,
+  currencySymbol = "RD$"
+) {
   const locale = language === "es" ? "es-DO" : "en-US";
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
 }
 
-export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
+function formatChartLabel(value?: string, language: DiscoLanguage = "en") {
+  if (!value) return "";
+
+  const isISODate = /^\d{4}-\d{2}-\d{2}/.test(value);
+
+  if (!isISODate) return value;
+
+  const locale = language === "es" ? "es-DO" : "en-US";
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function normalizeChartData(
+  data: RawSalesChartData[],
+  language: DiscoLanguage
+): SalesChartData[] {
+  return (data || [])
+    .map((item) => {
+      const rawLabel =
+        item.label ||
+        item.date ||
+        item.day ||
+        item.created_at ||
+        "";
+
+      const sales = Number(
+        item.sales ??
+          item.total ??
+          item.revenue ??
+          item.amount ??
+          0
+      );
+
+      const rawProfit =
+        item.profit ??
+        item.gross_profit ??
+        item.net_profit;
+
+      const normalizedItem: SalesChartData = {
+        label: formatChartLabel(String(rawLabel), language),
+        sales,
+      };
+
+      if (rawProfit !== undefined && rawProfit !== null) {
+        normalizedItem.profit = Number(rawProfit || 0);
+      }
+
+      return normalizedItem;
+    })
+    .filter((item) => item.label);
+}
+
+export default function SalesChart({
+  title,
+  subtitle,
+  data,
+  currencySymbol = "RD$",
+}: SalesChartProps) {
   const { language, t } = useDiscoTranslation();
+
+  const chartData = normalizeChartData(data, language);
 
   const chartTitle = title || t("salesChart.defaultTitle");
   const chartSubtitle = subtitle || t("salesChart.defaultSubtitle");
@@ -49,7 +133,7 @@ export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
     value: ValueType | undefined,
     name: NameType | undefined
   ): [string, string] => {
-    return [money(value, language), String(name)];
+    return [money(value, language, currencySymbol), String(name)];
   };
 
   return (
@@ -62,7 +146,7 @@ export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
         </p>
       </div>
 
-      {data.length === 0 ? (
+      {chartData.length === 0 ? (
         <div className="flex min-h-[260px] items-center justify-center rounded-3xl bg-slate-50 text-center">
           <p className="text-sm font-bold text-slate-400">
             {t("salesChart.noSalesData")}
@@ -72,7 +156,7 @@ export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
         <div className="h-[280px] w-full sm:h-[360px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={data}
+              data={chartData}
               margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -88,7 +172,9 @@ export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
                 tick={{ fontSize: 12 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(value) => money(value, language)}
+                tickFormatter={(value) =>
+                  money(value, language, currencySymbol)
+                }
               />
 
               <Tooltip
@@ -108,7 +194,7 @@ export default function SalesChart({ title, subtitle, data }: SalesChartProps) {
                 barSize={32}
               />
 
-              {data.some((item) => item.profit !== undefined) && (
+              {chartData.some((item) => item.profit !== undefined) && (
                 <Bar
                   dataKey="profit"
                   name={t("salesChart.profit")}
