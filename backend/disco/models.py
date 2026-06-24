@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from organisations.models import Organisation
+from django.utils import timezone
 
 
 class DiscoEmployee(models.Model):
@@ -45,6 +46,17 @@ class DiscoEmployee(models.Model):
         default=0,
         help_text="Daily employee payment used for payroll reports."
     )
+    start_date = models.DateField(
+    default=timezone.localdate,
+    db_index=True,
+    help_text="Date when the employee started working."
+    )
+    end_date = models.DateField(
+    null=True,
+    blank=True,
+    db_index=True,
+    help_text="Date when the employee stopped working. Empty means currently active."
+)
     is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -488,6 +500,12 @@ class Expense(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     note = models.TextField(blank=True, null=True)
 
+    expense_date = models.DateField(
+        default=timezone.localdate,
+        db_index=True,
+        help_text="Accounting date used for daily reports, monthly reports, and closing."
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -503,7 +521,7 @@ class Expense(models.Model):
         return self.title
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-expense_date", "-created_at"]
 
 
 class DiscoReservation(models.Model):

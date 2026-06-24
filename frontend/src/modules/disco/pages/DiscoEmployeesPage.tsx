@@ -1,6 +1,9 @@
+// src/modules/disco/pages/DiscoEmployeesPage.tsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Banknote,
   Image as ImageIcon,
   Plus,
   RefreshCcw,
@@ -23,7 +26,13 @@ import {
   updateEmployee,
 } from "../api/employeesApi";
 
+import {
+  getDiscoSettings,
+  type DiscoSettings,
+} from "../api/settingsApi";
+
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
+import type { DiscoLanguage } from "../i18n/discoTranslations";
 
 type EmployeeRole =
   | "owner"
@@ -45,6 +54,8 @@ type DiscoEmployee = {
   full_name: string;
   role: EmployeeRole;
   phone?: string;
+
+  daily_pay?: string | number;
 
   // Backend display fields from your serializer
   profile_image_url?: string | null;
@@ -68,6 +79,7 @@ type EmployeeForm = {
   create_login: boolean;
   role: EmployeeRole;
   phone: string;
+  daily_pay: string;
   photo: File | null;
   photoPreview: string;
   is_active: boolean;
@@ -96,6 +108,7 @@ const initialForm: EmployeeForm = {
   create_login: false,
   role: "waiter",
   phone: "",
+  daily_pay: "0.00",
   photo: null,
   photoPreview: "",
   is_active: true,
@@ -145,6 +158,21 @@ function getEmployeeRoleLabel(
   return t(`employees.role.${role}`, role.replace(/_/g, " "));
 }
 
+function formatMoney(
+  value?: string | number | null,
+  language: DiscoLanguage = "en",
+  currencySymbol = "RD$"
+) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
+}
+
 function getErrorMessage(
   err: any,
   t: (key: string, fallback?: string) => string
@@ -161,6 +189,7 @@ function getErrorMessage(
     data.full_name?.[0] ||
     data.role?.[0] ||
     data.phone?.[0] ||
+    data.daily_pay?.[0] ||
     data.photo?.[0] ||
     data.login_email?.[0] ||
     data.login_username?.[0] ||
@@ -170,9 +199,13 @@ function getErrorMessage(
 }
 
 export default function DiscoEmployeesPage() {
-  const { t } = useDiscoTranslation();
+  const { language, t } = useDiscoTranslation();
 
   const [employees, setEmployees] = useState<DiscoEmployee[]>([]);
+  const [discoSettings, setDiscoSettings] = useState<DiscoSettings | null>(
+    null
+  );
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -185,15 +218,14 @@ export default function DiscoEmployeesPage() {
   );
   const [form, setForm] = useState<EmployeeForm>(initialForm);
 
+  const currencySymbol = discoSettings?.currency_symbol || "RD$";
+
   async function loadEmployees(isRefresh = false) {
     try {
       isRefresh ? setRefreshing(true) : setLoading(true);
       setError("");
 
       const data = await getEmployees();
-
-      // Temporary debug. Remove later when everything is confirmed.
-      console.log("Employees API response:", data);
 
       setEmployees(data);
     } catch (err) {
@@ -206,6 +238,16 @@ export default function DiscoEmployeesPage() {
   }
 
   useEffect(() => {
+    async function loadSettings() {
+      try {
+        const settings = await getDiscoSettings();
+        setDiscoSettings(settings);
+      } catch (err) {
+        console.error("Could not load disco settings:", err);
+      }
+    }
+
+    loadSettings();
     loadEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -222,6 +264,7 @@ export default function DiscoEmployeesPage() {
         employee.role,
         getEmployeeRoleLabel(employee.role, t),
         employee.phone,
+        employee.daily_pay,
         employee.user ? "login account" : "no login",
         employee.user
           ? t("employees.search.loginAccount")
@@ -238,14 +281,19 @@ export default function DiscoEmployeesPage() {
   }, [employees, search, t]);
 
   const stats = useMemo(() => {
-    const active = employees.filter((employee) => employee.is_active).length;
+    const activeEmployees = employees.filter((employee) => employee.is_active);
+    const active = activeEmployees.length;
     const inactive = employees.length - active;
     const managers = employees.filter((employee) =>
       ["owner", "manager"].includes(employee.role)
     ).length;
     const userLogins = employees.filter((employee) => employee.user).length;
 
-    return { active, inactive, managers, userLogins };
+    const dailyPayroll = activeEmployees.reduce((sum, employee) => {
+      return sum + Number(employee.daily_pay || 0);
+    }, 0);
+
+    return { active, inactive, managers, userLogins, dailyPayroll };
   }, [employees]);
 
   function openCreateModal() {
@@ -265,6 +313,7 @@ export default function DiscoEmployeesPage() {
       create_login: Boolean(employee.user),
       role: employee.role || "waiter",
       phone: employee.phone || "",
+      daily_pay: String(employee.daily_pay ?? "0.00"),
       photo: null,
       photoPreview: getEmployeeDisplayImage(employee),
       is_active: employee.is_active,
@@ -338,6 +387,7 @@ export default function DiscoEmployeesPage() {
       payload.append("full_name", form.full_name.trim());
       payload.append("role", form.role);
       payload.append("phone", form.phone.trim());
+      payload.append("daily_pay", form.daily_pay || "0.00");
       payload.append("is_active", String(form.is_active));
       payload.append("create_login", String(form.create_login));
 
@@ -413,17 +463,17 @@ export default function DiscoEmployeesPage() {
         />
 
         <DiscoStatCard
+          title="Nómina diaria"
+          value={formatMoney(stats.dailyPayroll, language, currencySymbol)}
+          icon={Banknote}
+          helper="Suma del pago diario de empleados activos"
+        />
+
+        <DiscoStatCard
           title={t("employees.userLogins")}
           value={stats.userLogins}
           icon={UserCog}
           helper={t("employees.canAccessSystem")}
-        />
-
-        <DiscoStatCard
-          title={t("employees.managers")}
-          value={stats.managers}
-          icon={UserCheck}
-          helper={t("employees.ownerAndManagerRoles")}
         />
       </section>
 
@@ -587,6 +637,32 @@ export default function DiscoEmployeesPage() {
                   placeholder={t("employees.phonePlaceholder")}
                   className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                 />
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-bold text-slate-700">
+                  Pago diario
+                </span>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.daily_pay}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      daily_pay: e.target.value,
+                    }))
+                  }
+                  placeholder="0.00"
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Este monto se usará en reportes y cierre para calcular la
+                  nómina diaria.
+                </p>
               </label>
 
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">

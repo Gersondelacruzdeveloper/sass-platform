@@ -76,6 +76,29 @@ def get_or_create_disco_settings(organisation):
 
     return settings
 
+def calculate_payroll_for_period(organisation, start_date, end_date):
+    employees = DiscoEmployee.objects.filter(
+        organisation=organisation,
+        daily_pay__gt=0,
+    )
+
+    total = Decimal("0.00")
+
+    for employee in employees:
+        employee_start = employee.start_date or start_date
+        employee_end = employee.end_date or end_date
+
+        period_start = max(start_date, employee_start)
+        period_end = min(end_date, employee_end)
+
+        if period_start > period_end:
+            continue
+
+        days_worked = (period_end - period_start).days + 1
+        total += employee.daily_pay * Decimal(days_worked)
+
+    return total
+
 def get_sales_chart(self, organisation, days=14):
     today = timezone.localdate()
     start_date = today - timedelta(days=days - 1)
@@ -940,6 +963,8 @@ class DiscoActivityLogViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelV
     queryset = DiscoActivityLog.objects.select_related("user").all()
     serializer_class = DiscoActivityLogSerializer
 
+
+
 class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -991,6 +1016,7 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
         organisation = self.get_organisation()
         today = timezone.localdate()
         settings = get_or_create_disco_settings(organisation)
+        month_start = today.replace(day=1)
 
         today_sales = Sale.objects.filter(
             organisation=organisation,
@@ -1058,18 +1084,17 @@ class DiscoDashboardViewSet(OrganisationQuerysetMixin, viewsets.ViewSet):
 
         expenses_today = today_expenses.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
         expenses_this_month = month_expenses.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-
-        payroll_today = (
-            DiscoEmployee.objects
-            .filter(
-                organisation=organisation,
-                is_active=True,
-            )
-            .aggregate(total=Sum("daily_pay"))["total"]
-            or Decimal("0.00")
+        payroll_today = calculate_payroll_for_period(
+            organisation=organisation,
+            start_date=today,
+            end_date=today,
         )
 
-        payroll_this_month = payroll_today * Decimal(today.day)
+        payroll_this_month = calculate_payroll_for_period(
+            organisation=organisation,
+            start_date=month_start,
+            end_date=today,
+        )
 
         revenue_today = subtotal_today - discount_today
         revenue_this_month = subtotal_this_month - discount_this_month

@@ -243,6 +243,40 @@ function printReceipt(
   }, 500);
 }
 
+function getSaleItems(bill?: Sale | null): SaleItem[] {
+  if (!bill) return [];
+
+  const saleItems = (bill as any).sale_items;
+  const items = (bill as any).items;
+
+  if (Array.isArray(saleItems)) return saleItems as SaleItem[];
+  if (Array.isArray(items)) return items as SaleItem[];
+
+  return [];
+}
+
+function getBillTableId(bill?: Sale | null) {
+  if (!bill) return null;
+
+  const tableValue = (bill as any).table || (bill as any).table_id;
+
+  if (typeof tableValue === "object" && tableValue !== null) {
+    return Number(tableValue.id || 0) || null;
+  }
+
+  return Number(tableValue || 0) || null;
+}
+
+function getItemProductId(item: SaleItem) {
+  const productValue = (item as any).product || (item as any).product_id;
+
+  if (typeof productValue === "object" && productValue !== null) {
+    return Number(productValue.id || 0);
+  }
+
+  return Number(productValue || 0);
+}
+
 export default function DiscoPOSPage() {
   const { language, t } = useDiscoTranslation();
 
@@ -345,24 +379,31 @@ export default function DiscoPOSPage() {
     return items.reduce((sum, item) => sum + item.quantity, 0);
   }, [items]);
 
+  const selectedBillItems = useMemo(() => {
+    return getSaleItems(selectedBill);
+  }, [selectedBill]);
+
   const selectedBillQuantity = useMemo(() => {
-    return (selectedBill?.sale_items || []).reduce(
+    return selectedBillItems.reduce(
       (sum, item) => sum + Number(item.quantity || 0),
       0
     );
-  }, [selectedBill]);
+  }, [selectedBillItems]);
 
   const currentMode = selectedTable ? t("pos.tableBill") : t("pos.directPOS");
   const currentTotal = selectedTable ? selectedBill?.total || "0.00" : total;
   const currentQuantity = selectedTable ? selectedBillQuantity : cartQuantity;
 
   function getBillForTableFromList(tableId: number, billList = openBills) {
-    return billList.find(
-      (bill) =>
-        bill.table === tableId &&
+    return billList.find((bill) => {
+      const billTableId = getBillTableId(bill);
+
+      return (
+        billTableId === tableId &&
         bill.sale_type === "table" &&
         bill.status === "pending"
-    );
+      );
+    });
   }
 
   function getTableStatusLabel(status: Table["status"]) {
@@ -405,6 +446,28 @@ export default function DiscoPOSPage() {
     }
 
     return bills;
+  }
+
+  async function syncSelectedBillFromServer(
+    tableId: number,
+    fallbackBill?: Sale | null
+  ) {
+    const bills = await getOpenTableBills();
+    setOpenBills(bills);
+
+    const freshBill = getBillForTableFromList(tableId, bills);
+
+    if (freshBill) {
+      setSelectedBill(freshBill);
+      return freshBill;
+    }
+
+    if (fallbackBill) {
+      updateBillState(fallbackBill);
+      return fallbackBill;
+    }
+
+    return null;
   }
 
   async function refreshAll() {
@@ -529,6 +592,7 @@ export default function DiscoPOSPage() {
       });
 
       updateBillState(updatedBill);
+      await syncSelectedBillFromServer(selectedTable.id, updatedBill);
       await refresh();
     } catch (err: any) {
       console.error(err);
@@ -551,11 +615,18 @@ export default function DiscoPOSPage() {
       setLocalError("");
 
       const updatedBill = await addItemToTableBill(selectedBill.id, {
-        product_id: item.product,
+        product_id: getItemProductId(item),
         quantity: 1,
       });
 
       updateBillState(updatedBill);
+
+      const tableId = selectedTable?.id || getBillTableId(selectedBill);
+
+      if (tableId) {
+        await syncSelectedBillFromServer(tableId, updatedBill);
+      }
+
       await refresh();
     } catch (err: any) {
       console.error(err);
@@ -576,19 +647,25 @@ export default function DiscoPOSPage() {
       setBillActionLoading(true);
       setLocalError("");
 
+      let updatedBill: Sale;
+
       if (item.quantity <= 1) {
-        const updatedBill = await removeItemFromTableBill(selectedBill.id, {
+        updatedBill = await removeItemFromTableBill(selectedBill.id, {
           item_id: item.id,
         });
-
-        updateBillState(updatedBill);
       } else {
-        const updatedBill = await updateTableBillItem(selectedBill.id, {
+        updatedBill = await updateTableBillItem(selectedBill.id, {
           item_id: item.id,
           quantity: item.quantity - 1,
         });
+      }
 
-        updateBillState(updatedBill);
+      updateBillState(updatedBill);
+
+      const tableId = selectedTable?.id || getBillTableId(selectedBill);
+
+      if (tableId) {
+        await syncSelectedBillFromServer(tableId, updatedBill);
       }
 
       await refresh();
@@ -616,6 +693,13 @@ export default function DiscoPOSPage() {
       });
 
       updateBillState(updatedBill);
+
+      const tableId = selectedTable?.id || getBillTableId(selectedBill);
+
+      if (tableId) {
+        await syncSelectedBillFromServer(tableId, updatedBill);
+      }
+
       await refresh();
     } catch (err: any) {
       console.error(err);
@@ -657,16 +741,22 @@ export default function DiscoPOSPage() {
   async function handleTableCheckout(paymentMethod: PaymentMethod) {
     if (!selectedBill) return;
 
-    if (!selectedBill.sale_items || selectedBill.sale_items.length === 0) {
-      setLocalError(t("pos.errorEmptyTableBill"));
-      return;
-    }
-
     try {
       setCheckoutLoading(true);
       setLocalError("");
 
-      const checkedOutSale = await checkoutTableBill(selectedBill.id, {
+      const tableId = selectedTable?.id || getBillTableId(selectedBill);
+      const billToCheckout =
+        tableId ? await syncSelectedBillFromServer(tableId, selectedBill) : selectedBill;
+
+      const billItems = getSaleItems(billToCheckout);
+
+      if (!billToCheckout || billItems.length === 0) {
+        setLocalError(t("pos.errorEmptyTableBill"));
+        return;
+      }
+
+      const checkedOutSale = await checkoutTableBill(billToCheckout.id, {
         payment_method: paymentMethod,
         discount: "0.00",
       });
@@ -999,7 +1089,7 @@ export default function DiscoPOSPage() {
               </div>
 
               <div className="mt-4 space-y-3">
-                {!selectedBill || !selectedBill.sale_items?.length ? (
+                {!selectedBill || selectedBillItems.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-slate-200 p-5 text-center">
                     <ShoppingCart className="mx-auto h-8 w-8 text-slate-300" />
 
@@ -1012,7 +1102,7 @@ export default function DiscoPOSPage() {
                     </p>
                   </div>
                 ) : (
-                  selectedBill.sale_items.map((item) => (
+                  selectedBillItems.map((item) => (
                     <div
                       key={item.id}
                       className="rounded-2xl border border-slate-100 bg-slate-50 p-3"

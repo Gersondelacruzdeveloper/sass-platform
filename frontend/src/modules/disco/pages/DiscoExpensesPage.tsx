@@ -1,6 +1,9 @@
+// src/modules/disco/pages/DiscoExpensesPage.tsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CalendarDays,
   DollarSign,
   Plus,
   ReceiptText,
@@ -21,6 +24,11 @@ import {
   updateExpense,
 } from "../api/expensesApi";
 
+import {
+  getDiscoSettings,
+  type DiscoSettings,
+} from "../api/settingsApi";
+
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 import type { DiscoLanguage } from "../i18n/discoTranslations";
 
@@ -30,17 +38,19 @@ type Expense = {
   category: string;
   amount: string | number;
   note?: string | null;
+  expense_date?: string | null;
   created_by?: number | null;
   created_by_name?: string | null;
   created_at?: string;
   updated_at?: string;
 };
 
-const initialForm = {
-  title: "",
-  category: "general",
-  amount: "",
-  note: "",
+type ExpenseForm = {
+  title: string;
+  category: string;
+  amount: string;
+  expense_date: string;
+  note: string;
 };
 
 const categoryOptions = [
@@ -54,24 +64,44 @@ const categoryOptions = [
   { value: "other", translationKey: "expenses.category.other" },
 ];
 
-function money(value?: string | number | null, language: DiscoLanguage = "en") {
-  const locale = language === "es" ? "es-DO" : "en-US";
-
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
-  }).format(Number(value || 0));
+function todayISODate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function formatDate(value: string | undefined, language: DiscoLanguage) {
+function getExpenseAccountingDate(expense: Expense) {
+  if (expense.expense_date) return expense.expense_date;
+
+  if (expense.created_at) {
+    return new Date(expense.created_at).toISOString().slice(0, 10);
+  }
+
+  return "";
+}
+
+function money(
+  value?: string | number | null,
+  language: DiscoLanguage = "en",
+  currencySymbol = "RD$"
+) {
+  const locale = language === "es" ? "es-DO" : "en-US";
+
+  const formatted = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
+  return `${currencySymbol} ${formatted}`;
+}
+
+function formatDate(value: string | undefined | null, language: DiscoLanguage) {
   if (!value) return "—";
 
   const locale = language === "es" ? "es-DO" : "en-US";
+  const date = new Date(`${value}T00:00:00`);
 
   return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function categoryLabel(
@@ -83,10 +113,22 @@ function categoryLabel(
   return option ? t(option.translationKey) : value;
 }
 
+const initialForm: ExpenseForm = {
+  title: "",
+  category: "general",
+  amount: "",
+  expense_date: todayISODate(),
+  note: "",
+};
+
 export default function DiscoExpensesPage() {
   const { language, t } = useDiscoTranslation();
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [discoSettings, setDiscoSettings] = useState<DiscoSettings | null>(
+    null
+  );
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,7 +137,9 @@ export default function DiscoExpensesPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState<ExpenseForm>(initialForm);
+
+  const currencySymbol = discoSettings?.currency_symbol || "RD$";
 
   async function loadExpenses(isRefresh = false) {
     try {
@@ -118,6 +162,16 @@ export default function DiscoExpensesPage() {
   }
 
   useEffect(() => {
+    async function loadSettings() {
+      try {
+        const settings = await getDiscoSettings();
+        setDiscoSettings(settings);
+      } catch (err) {
+        console.error("Could not load disco settings:", err);
+      }
+    }
+
+    loadSettings();
     loadExpenses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -133,6 +187,7 @@ export default function DiscoExpensesPage() {
         expense.category,
         categoryLabel(expense.category, t),
         expense.amount,
+        expense.expense_date,
         expense.note,
         expense.created_by_name,
       ]
@@ -152,13 +207,17 @@ export default function DiscoExpensesPage() {
       expenses.map((expense) => expense.category).filter(Boolean)
     ).size;
 
-    const today = new Date().toDateString();
+    const today = todayISODate();
 
     const todayTotal = expenses
+      .filter((expense) => getExpenseAccountingDate(expense) === today)
+      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+
+    const currentMonth = today.slice(0, 7);
+
+    const monthTotal = expenses
       .filter((expense) =>
-        expense.created_at
-          ? new Date(expense.created_at).toDateString() === today
-          : false
+        getExpenseAccountingDate(expense).startsWith(currentMonth)
       )
       .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
 
@@ -166,13 +225,17 @@ export default function DiscoExpensesPage() {
       total,
       categories,
       todayTotal,
+      monthTotal,
       count: expenses.length,
     };
   }, [expenses]);
 
   function openCreateModal() {
     setEditingExpense(null);
-    setForm(initialForm);
+    setForm({
+      ...initialForm,
+      expense_date: todayISODate(),
+    });
     setModalOpen(true);
   }
 
@@ -183,10 +246,20 @@ export default function DiscoExpensesPage() {
       title: expense.title || "",
       category: expense.category || "general",
       amount: String(expense.amount || ""),
+      expense_date: getExpenseAccountingDate(expense) || todayISODate(),
       note: expense.note || "",
     });
 
     setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingExpense(null);
+    setForm({
+      ...initialForm,
+      expense_date: todayISODate(),
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -197,10 +270,11 @@ export default function DiscoExpensesPage() {
       setError("");
 
       const payload = {
-        title: form.title,
+        title: form.title.trim(),
         category: form.category,
         amount: Number(form.amount || 0),
-        note: form.note,
+        expense_date: form.expense_date || todayISODate(),
+        note: form.note.trim(),
       };
 
       if (editingExpense) {
@@ -209,9 +283,7 @@ export default function DiscoExpensesPage() {
         await createExpense(payload);
       }
 
-      setModalOpen(false);
-      setEditingExpense(null);
-      setForm(initialForm);
+      closeModal();
       await loadExpenses(true);
     } catch (err) {
       console.error(err);
@@ -234,23 +306,23 @@ export default function DiscoExpensesPage() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DiscoStatCard
           title={t("expenses.totalExpenses")}
-          value={money(stats.total, language)}
+          value={money(stats.total, language, currencySymbol)}
           icon={DollarSign}
           helper={t("expenses.allRecordedExpenses")}
         />
 
         <DiscoStatCard
           title={t("expenses.today")}
-          value={money(stats.todayTotal, language)}
+          value={money(stats.todayTotal, language, currencySymbol)}
           icon={ReceiptText}
-          helper={t("expenses.expensesAddedToday")}
+          helper="Según fecha contable del gasto"
         />
 
         <DiscoStatCard
-          title={t("expenses.records")}
-          value={stats.count}
-          icon={ReceiptText}
-          helper={t("expenses.expenseEntries")}
+          title="Este mes"
+          value={money(stats.monthTotal, language, currencySymbol)}
+          icon={CalendarDays}
+          helper="Gastos del mes actual"
         />
 
         <DiscoStatCard
@@ -356,7 +428,16 @@ export default function DiscoExpensesPage() {
               key: "amount",
               render: (expense: Expense) => (
                 <span className="text-sm font-black text-slate-950">
-                  {money(expense.amount, language)}
+                  {money(expense.amount, language, currencySymbol)}
+                </span>
+              ),
+            },
+            {
+              label: "Fecha contable",
+              key: "expense_date",
+              render: (expense: Expense) => (
+                <span className="text-sm font-bold text-slate-500">
+                  {formatDate(getExpenseAccountingDate(expense), language)}
                 </span>
               ),
             },
@@ -366,15 +447,6 @@ export default function DiscoExpensesPage() {
               render: (expense: Expense) => (
                 <span className="text-sm font-bold text-slate-600">
                   {expense.created_by_name || t("expenses.system")}
-                </span>
-              ),
-            },
-            {
-              label: t("expenses.date"),
-              key: "created_at",
-              render: (expense: Expense) => (
-                <span className="text-sm font-bold text-slate-500">
-                  {formatDate(expense.created_at, language)}
                 </span>
               ),
             },
@@ -416,7 +488,7 @@ export default function DiscoExpensesPage() {
 
               <button
                 type="button"
-                onClick={() => setModalOpen(false)}
+                onClick={closeModal}
                 className="rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -458,6 +530,29 @@ export default function DiscoExpensesPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-bold text-slate-700">
+                  Fecha contable del gasto
+                </span>
+
+                <input
+                  type="date"
+                  value={form.expense_date}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      expense_date: e.target.value,
+                    }))
+                  }
+                  required
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Esta fecha se usará para reportes diarios, mensuales y cierre.
+                </p>
               </label>
 
               <label className="block">
