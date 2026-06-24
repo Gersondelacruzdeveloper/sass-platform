@@ -556,7 +556,6 @@ export default function DiscoPOSPage() {
   async function handleDirectPOSSale(paymentMethod: PaymentMethod) {
     const payload = {
       payment_method: paymentMethod,
-      status: "completed",
       sale_type: "pos",
       customer_name: customerName || "",
       discount: "0.00",
