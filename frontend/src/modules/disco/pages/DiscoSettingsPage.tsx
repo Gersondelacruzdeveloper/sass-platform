@@ -28,6 +28,8 @@ import {
   type DiscoSettings,
 } from "../api/settingsApi";
 
+import { compressBrandingImage } from "../utils/compressImage";
+
 import { useDiscoTranslation } from "../i18n/useDiscoTranslation";
 
 type BrandingForm = OrganisationBranding & {
@@ -87,6 +89,7 @@ export default function DiscoSettingsPage() {
   const { organisationSlug } = useParams();
 
   const [saving, setSaving] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [logo, setLogo] = useState<File | null>(null);
   const [savedMessage, setSavedMessage] = useState("");
@@ -210,7 +213,11 @@ export default function DiscoSettingsPage() {
         formData.append("background_color", form.background_color || "#ffffff");
 
         if (logo) {
-          formData.append("logo", logo);
+          setCompressing(true);
+
+          const compressedLogo = await compressBrandingImage(logo);
+
+          formData.append("logo", compressedLogo);
         }
 
         saveTasks.push(updateDiscoBranding(organisationSlug, formData));
@@ -296,6 +303,7 @@ export default function DiscoSettingsPage() {
       setError("No se pudo guardar la configuración.");
     } finally {
       setSaving(false);
+      setCompressing(false);
     }
   }
 
@@ -313,7 +321,13 @@ export default function DiscoSettingsPage() {
         title={t("settings.title")}
         subtitle={t("settings.subtitle")}
         icon={Settings}
-        actionLabel={saving ? t("settings.saving") : t("settings.save")}
+        actionLabel={
+          saving
+            ? compressing
+              ? "Comprimiendo imagen..."
+              : t("settings.saving")
+            : t("settings.save")
+        }
         onAction={handleSave}
       />
 
@@ -616,7 +630,11 @@ export default function DiscoSettingsPage() {
         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60 sm:w-auto sm:px-6"
       >
         <Save className="h-4 w-4" />
-        {saving ? t("settings.saving") : t("settings.saveSettings")}
+        {saving
+          ? compressing
+            ? "Comprimiendo imagen..."
+            : t("settings.saving")
+          : t("settings.saveSettings")}
       </button>
     </div>
   );
@@ -687,6 +705,16 @@ function ColorInput({
   );
 }
 
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith("image/");
+}
+
 function FileInput({
   label,
   description,
@@ -727,12 +755,31 @@ function FileInput({
           </div>
         )}
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(event) => onChange(event.target.files?.[0] || null)}
-          className="w-full text-sm font-semibold text-slate-600"
-        />
+        <div className="flex-1">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+
+              if (file && !isImageFile(file)) {
+                onChange(null);
+                return;
+              }
+
+              onChange(file);
+            }}
+            className="w-full text-sm font-semibold text-slate-600"
+          />
+
+          {selectedFile && (
+            <p className="mt-2 text-xs font-bold text-slate-500">
+              Seleccionado: {selectedFile.name} ·{" "}
+              {formatFileSize(selectedFile.size)} · Se comprimirá automáticamente
+              antes de subir.
+            </p>
+          )}
+        </div>
       </div>
     </label>
   );
