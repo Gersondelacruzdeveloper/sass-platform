@@ -29,12 +29,12 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
     app = serializers.CharField(
         required=False,
         allow_blank=True,
-        default="disco",
     )
 
     business_type = serializers.ChoiceField(
         choices=[
             ("disco", "Disco"),
+            ("ticketing", "Tours, Tickets & Transfers"),
             ("hotel", "Hotel"),
             ("restaurant", "Restaurant"),
             ("store", "Store"),

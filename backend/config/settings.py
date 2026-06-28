@@ -56,7 +56,8 @@ INSTALLED_APPS = [
     "auditlogs",
     "core",
     "disco",
-    'training'
+    'training',
+    "ticketing",
 ]
 
 MIDDLEWARE = [

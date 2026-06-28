@@ -9,7 +9,7 @@ import OrganisationsPage from "../pages/OrganisationsPage";
 // import SubscriptionsPage from "../pages/SubscriptionsPage";
 import AuditLogsPage from "../pages/AuditLogsPage";
 import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
-
+import { ticketingRoutes } from "../modules/ticketing/routes/ticketingRoutes";
 export default function AppRoutes() {
   return (
     <Routes>
@@ -23,6 +23,7 @@ export default function AppRoutes() {
    
       {trainingRoutes}
       {discoRoutes}
+      {ticketingRoutes}
     </Routes>
   );
 }

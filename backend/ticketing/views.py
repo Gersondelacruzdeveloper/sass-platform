@@ -1,0 +1,2242 @@
+from decimal import Decimal
+
+from django.db.models import Count, Q, Sum
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from organisations.models import Organisation
+
+from .models import (
+    TicketingSettings,
+    TicketingPublicSiteSettings,
+    ExperienceCategory,
+    ExperienceProduct,
+    ExperiencePackage,
+    ProductAvailability,
+    PickupZone,
+    PickupLocation,
+    ProductPickupSchedule,
+    Customer,
+    Seller,
+    Booking,
+    BookingItem,
+    BookingPickupInfo,
+    BookingPayment,
+    SellerCommission,
+    Receipt,
+    NotificationLog,
+    ExternalProviderConfig,
+    ExternalProviderProductSnapshot,
+    TransferRoute,
+    EventTicketType,
+    ProductReview,
+)
+
+from .serializers import (
+    TicketingSettingsSerializer,
+    TicketingPublicSiteSettingsSerializer,
+    ExperienceCategorySerializer,
+    ExperienceProductSerializer,
+    ExperiencePackageSerializer,
+    ProductAvailabilitySerializer,
+    PickupZoneSerializer,
+    PickupLocationSerializer,
+    ProductPickupScheduleSerializer,
+    CustomerSerializer,
+    SellerSerializer,
+    BookingSerializer,
+    BookingItemSerializer,
+    BookingPickupInfoSerializer,
+    BookingPaymentSerializer,
+    SellerCommissionSerializer,
+    ReceiptSerializer,
+    NotificationLogSerializer,
+    ExternalProviderConfigSerializer,
+    ExternalProviderProductSnapshotSerializer,
+    TransferRouteSerializer,
+    EventTicketTypeSerializer,
+    ProductReviewSerializer,
+)
+
+from .permissions import (
+    HasTicketingOrganisationAccess,
+    HasTicketingSellerPermission,
+    CanManageTicketingSettings,
+    CanManageTicketingIntegrations,
+    CanManageTicketingProducts,
+    CanManageTicketingSellers,
+    CanViewTicketingReports,
+    CanAccessSellerDashboard,
+    is_organisation_admin,
+    get_user_seller,
+)
+
+
+class TicketingOrganisationMixin:
+    """
+    Private API organisation resolver.
+
+    Priority:
+    1. URL kwarg: organisation_slug / slug
+    2. Query param: organisation_slug / slug
+    3. request.user.organisation
+    """
+
+    def get_organisation(self):
+        organisation_slug = (
+            self.kwargs.get("organisation_slug")
+            or self.kwargs.get("slug")
+            or self.request.query_params.get("organisation_slug")
+            or self.request.query_params.get("slug")
+        )
+
+        if organisation_slug:
+            return get_object_or_404(Organisation, slug=organisation_slug)
+
+        user = self.request.user
+
+        if user and user.is_authenticated and getattr(user, "organisation", None):
+            return user.organisation
+
+        return None
+
+    def require_organisation(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            raise ValueError("Organisation could not be resolved.")
+
+        return organisation
+
+    def is_admin_user(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return False
+
+        return is_organisation_admin(self.request.user, organisation)
+
+    def get_current_seller(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return None
+
+        return get_user_seller(self.request.user, organisation)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["organisation"] = self.get_organisation()
+        return context
+
+
+class TicketingPrivateViewSet(TicketingOrganisationMixin, viewsets.ModelViewSet):
+    permission_classes = [HasTicketingOrganisationAccess]
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(organisation=organisation)
+
+
+class TicketingReadOnlyPrivateViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    permission_classes = [HasTicketingOrganisationAccess]
+
+
+class TicketingProductManagementPermissionMixin:
+    """
+    Sellers can read available products/schedules.
+    Only admins/managers or sellers with can_manage_products can create/update/delete.
+    """
+
+    def get_permissions(self):
+        read_actions = [
+            "list",
+            "retrieve",
+            "excursions",
+            "transfers",
+            "events",
+            "tickets",
+            "resolve",
+        ]
+
+        if getattr(self, "action", None) in read_actions:
+            return [HasTicketingOrganisationAccess()]
+
+        return [CanManageTicketingProducts()]
+
+
+class TicketingSettingsViewSet(TicketingPrivateViewSet):
+    serializer_class = TicketingSettingsSerializer
+    permission_classes = [CanManageTicketingSettings]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TicketingSettings.objects.none()
+
+        return TicketingSettings.objects.filter(organisation=organisation)
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(organisation=organisation)
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+
+        settings_obj, created = TicketingSettings.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "module_name": "Tours, Tickets & Transfers",
+                "public_brand_name": "PCD Experiences",
+            },
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                settings_obj,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        serializer = self.get_serializer(settings_obj)
+        return Response(serializer.data)
+
+
+class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
+    serializer_class = TicketingPublicSiteSettingsSerializer
+    permission_classes = [CanManageTicketingSettings]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TicketingPublicSiteSettings.objects.none()
+
+        return TicketingPublicSiteSettings.objects.filter(organisation=organisation)
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+
+        site_settings, created = TicketingPublicSiteSettings.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "site_title": organisation.name,
+                "public_email": organisation.email,
+                "public_whatsapp": organisation.phone,
+            },
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                site_settings,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        serializer = self.get_serializer(site_settings)
+        return Response(serializer.data)
+
+
+class ExperienceCategoryViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ExperienceCategorySerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperienceCategory.objects.none()
+
+        queryset = ExperienceCategory.objects.filter(organisation=organisation)
+
+        is_active = self.request.query_params.get("is_active")
+
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset
+
+
+class ExperienceProductViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ExperienceProductSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperienceProduct.objects.none()
+
+        queryset = (
+            ExperienceProduct.objects
+            .filter(organisation=organisation)
+            .select_related("organisation", "category", "created_by")
+            .prefetch_related(
+                "packages",
+                "availability",
+                "pickup_schedules",
+                "pickup_schedules__pickup_location",
+                "transfer_routes",
+                "event_ticket_types",
+            )
+        )
+
+        product_type = self.request.query_params.get("product_type")
+        status_filter = self.request.query_params.get("status")
+        category = self.request.query_params.get("category")
+        search = self.request.query_params.get("search")
+        public_enabled = self.request.query_params.get("public_enabled")
+        seller_enabled = self.request.query_params.get("seller_enabled")
+
+        if product_type:
+            queryset = queryset.filter(product_type=product_type)
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if category:
+            queryset = queryset.filter(
+                Q(category_id=category) | Q(category__slug=category)
+            )
+
+        if public_enabled in ["true", "false"]:
+            queryset = queryset.filter(public_enabled=public_enabled == "true")
+
+        if seller_enabled in ["true", "false"]:
+            queryset = queryset.filter(seller_enabled=seller_enabled == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(long_description__icontains=search)
+                | Q(location__icontains=search)
+                | Q(keywords_tags__icontains=search)
+            )
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return ExperienceProduct.objects.none()
+
+            allowed_product_types = []
+
+            if seller.can_sell_excursions:
+                allowed_product_types.append("excursion")
+
+            if seller.can_sell_transfers:
+                allowed_product_types.append("transfer")
+
+            if seller.can_sell_events:
+                allowed_product_types.append("event")
+
+            if seller.can_sell_custom_tours:
+                allowed_product_types.append("custom")
+
+            if seller.can_sell_cocobongo:
+                allowed_product_types.extend(["ticket", "nightlife"])
+
+            if not allowed_product_types:
+                return ExperienceProduct.objects.none()
+
+            queryset = queryset.filter(
+                seller_enabled=True,
+                product_type__in=allowed_product_types,
+            )
+
+            if not seller.can_sell_cocobongo:
+                queryset = queryset.exclude(is_cocobongo_product=True)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(
+            organisation=organisation,
+            created_by=self.request.user,
+        )
+
+    @action(detail=False, methods=["get"], url_path="excursions")
+    def excursions(self, request):
+        queryset = self.get_queryset().filter(product_type="excursion")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="transfers")
+    def transfers(self, request):
+        queryset = self.get_queryset().filter(product_type="transfer")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="events")
+    def events(self, request):
+        queryset = self.get_queryset().filter(product_type="event")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="tickets")
+    def tickets(self, request):
+        queryset = self.get_queryset().filter(product_type="ticket")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class ExperiencePackageViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ExperiencePackageSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperiencePackage.objects.none()
+
+        queryset = ExperiencePackage.objects.filter(
+            product__organisation=organisation,
+        ).select_related("product")
+
+        product_id = self.request.query_params.get("product")
+
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = self.request.data.get("product") or self.request.data.get("product_id")
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=self.require_organisation(),
+            )
+
+        serializer.save(product=product)
+
+
+class ProductAvailabilityViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ProductAvailabilitySerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ProductAvailability.objects.none()
+
+        queryset = ProductAvailability.objects.filter(
+            product__organisation=organisation,
+        ).select_related("product", "package")
+
+        product_id = self.request.query_params.get("product")
+        date = self.request.query_params.get("date")
+
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        if date:
+            queryset = queryset.filter(date=date)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = self.request.data.get("product") or self.request.data.get("product_id")
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=self.require_organisation(),
+            )
+
+        serializer.save(product=product)
+
+
+class PickupZoneViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = PickupZoneSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return PickupZone.objects.none()
+
+        return PickupZone.objects.filter(organisation=organisation)
+
+
+class PickupLocationViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = PickupLocationSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return PickupLocation.objects.none()
+
+        queryset = PickupLocation.objects.filter(
+            organisation=organisation,
+        ).select_related("zone")
+
+        zone = self.request.query_params.get("zone")
+        location_type = self.request.query_params.get("location_type")
+        search = self.request.query_params.get("search")
+
+        if zone:
+            queryset = queryset.filter(Q(zone_id=zone) | Q(zone__name__icontains=zone))
+
+        if location_type:
+            queryset = queryset.filter(location_type=location_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(address__icontains=search)
+                | Q(default_pickup_point__icontains=search)
+            )
+
+        return queryset
+
+
+class ProductPickupScheduleViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ProductPickupScheduleSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ProductPickupSchedule.objects.none()
+
+        queryset = ProductPickupSchedule.objects.filter(
+            product__organisation=organisation,
+        ).select_related("product", "pickup_location", "pickup_location__zone")
+
+        product = self.request.query_params.get("product")
+        pickup_location = self.request.query_params.get("pickup_location")
+        service_date = self.request.query_params.get("service_date")
+        day_of_week = self.request.query_params.get("day_of_week")
+
+        if product:
+            queryset = queryset.filter(product_id=product)
+
+        if pickup_location:
+            queryset = queryset.filter(pickup_location_id=pickup_location)
+
+        if day_of_week not in [None, ""]:
+            queryset = queryset.filter(day_of_week=day_of_week)
+
+        if service_date:
+            parsed_date = service_date
+
+            queryset = queryset.filter(
+                Q(specific_date=parsed_date)
+                | Q(specific_date__isnull=True)
+            )
+
+        return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = self.request.data.get("product") or self.request.data.get("product_id")
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=self.require_organisation(),
+            )
+
+        pickup_location = serializer.validated_data.get("pickup_location")
+
+        if not pickup_location:
+            pickup_location_id = (
+                self.request.data.get("pickup_location")
+                or self.request.data.get("pickup_location_id")
+            )
+            pickup_location = get_object_or_404(
+                PickupLocation,
+                id=pickup_location_id,
+                organisation=self.require_organisation(),
+            )
+
+        serializer.save(product=product, pickup_location=pickup_location)
+
+    @action(detail=False, methods=["get"], url_path="resolve")
+    def resolve(self, request):
+        organisation = self.require_organisation()
+
+        product_id = request.query_params.get("product")
+        pickup_location_id = request.query_params.get("pickup_location")
+        service_date = request.query_params.get("service_date")
+
+        if not product_id or not pickup_location_id or not service_date:
+            return Response(
+                {
+                    "detail": "product, pickup_location and service_date are required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        product = get_object_or_404(
+            ExperienceProduct,
+            id=product_id,
+            organisation=organisation,
+        )
+
+        pickup_location = get_object_or_404(
+            PickupLocation,
+            id=pickup_location_id,
+            organisation=organisation,
+        )
+
+        try:
+            parsed_date = timezone.datetime.fromisoformat(service_date).date()
+        except ValueError:
+            return Response(
+                {"detail": "service_date must be YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        schedules = ProductPickupSchedule.objects.filter(
+            product=product,
+            pickup_location=pickup_location,
+            is_active=True,
+        ).filter(
+            Q(specific_date=parsed_date)
+            | Q(day_of_week=parsed_date.weekday(), specific_date__isnull=True)
+            | Q(day_of_week__isnull=True, specific_date__isnull=True)
+        )
+
+        schedule = schedules.filter(specific_date=parsed_date).first()
+
+        if not schedule:
+            schedule = schedules.filter(
+                day_of_week=parsed_date.weekday(),
+                specific_date__isnull=True,
+            ).first()
+
+        if not schedule:
+            schedule = schedules.filter(
+                day_of_week__isnull=True,
+                specific_date__isnull=True,
+            ).first()
+
+        if not schedule:
+            return Response(
+                {
+                    "found": False,
+                    "product": product.name,
+                    "pickup_location": pickup_location.name,
+                    "service_date": service_date,
+                    "message": "No pickup schedule found for this product, date and location.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(schedule)
+
+        return Response(
+            {
+                "found": True,
+                "schedule": serializer.data,
+            }
+        )
+
+
+class CustomerViewSet(TicketingPrivateViewSet):
+    serializer_class = CustomerSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Customer.objects.none()
+
+        queryset = Customer.objects.filter(organisation=organisation)
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return Customer.objects.none()
+
+            queryset = queryset.filter(bookings__seller=seller).distinct()
+
+        search = self.request.query_params.get("search")
+
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(whatsapp__icontains=search)
+                | Q(phone__icontains=search)
+                | Q(email__icontains=search)
+                | Q(hotel_name__icontains=search)
+            )
+
+        return queryset
+
+
+class SellerViewSet(TicketingPrivateViewSet):
+    serializer_class = SellerSerializer
+
+    def get_permissions(self):
+        if getattr(self, "action", None) == "me":
+            return [HasTicketingOrganisationAccess()]
+
+        return [CanManageTicketingSellers()]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Seller.objects.none()
+
+        queryset = Seller.objects.filter(
+            organisation=organisation,
+        ).select_related("user", "organisation")
+
+        role = self.request.query_params.get("role")
+        is_active = self.request.query_params.get("is_active")
+        search = self.request.query_params.get("search")
+
+        if role:
+            queryset = queryset.filter(role=role)
+
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(seller_slug__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+                | Q(whatsapp__icontains=search)
+            )
+
+        return queryset
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(organisation=organisation)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        organisation = self.require_organisation()
+
+        seller = Seller.objects.filter(
+            organisation=organisation,
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not seller:
+            return Response(
+                {"detail": "No active seller profile found for this user."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(seller)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="apply-role-defaults")
+    def apply_role_defaults(self, request, pk=None):
+        seller = self.get_object()
+        seller.apply_role_default_permissions()
+        seller.save()
+
+        serializer = self.get_serializer(seller)
+        return Response(serializer.data)
+
+
+class TransferRouteViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = TransferRouteSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TransferRoute.objects.none()
+
+        queryset = TransferRoute.objects.filter(
+            product__organisation=organisation,
+        ).select_related("product")
+
+        product = self.request.query_params.get("product")
+
+        if product:
+            queryset = queryset.filter(product_id=product)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = self.request.data.get("product") or self.request.data.get("product_id")
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=self.require_organisation(),
+            )
+
+        serializer.save(product=product)
+
+
+class EventTicketTypeViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = EventTicketTypeSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return EventTicketType.objects.none()
+
+        queryset = EventTicketType.objects.filter(
+            product__organisation=organisation,
+        ).select_related("product")
+
+        product = self.request.query_params.get("product")
+
+        if product:
+            queryset = queryset.filter(product_id=product)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = self.request.data.get("product") or self.request.data.get("product_id")
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=self.require_organisation(),
+            )
+
+        serializer.save(product=product)
+
+
+class BookingViewSet(TicketingPrivateViewSet):
+    serializer_class = BookingSerializer
+    permission_classes = [HasTicketingOrganisationAccess, HasTicketingSellerPermission]
+
+    ticketing_permission_by_action = {
+        "create": "can_create_bookings",
+        "confirm": "can_create_bookings",
+        "add_payment": "can_take_deposits",
+        "mark_ticket_generated": "can_generate_ticket_without_customer_online_payment",
+        "cancel": "can_cancel_bookings",
+        "override_pickup": "can_override_pickup_time",
+    }
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Booking.objects.none()
+
+        queryset = (
+            Booking.objects
+            .filter(organisation=organisation)
+            .select_related(
+                "organisation",
+                "customer",
+                "seller",
+                "primary_product",
+                "created_by",
+                "supervisor_approved_by",
+            )
+            .prefetch_related(
+                "items",
+                "payments",
+                "commissions",
+                "notification_logs",
+            )
+        )
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller or not seller.can_view_own_sales:
+                return Booking.objects.none()
+
+            queryset = queryset.filter(seller=seller)
+
+        status_filter = self.request.query_params.get("status")
+        payment_status = self.request.query_params.get("payment_status")
+        source = self.request.query_params.get("source")
+        seller = self.request.query_params.get("seller")
+        product = self.request.query_params.get("product")
+        service_date = self.request.query_params.get("service_date")
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+        search = self.request.query_params.get("search")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if payment_status:
+            queryset = queryset.filter(payment_status=payment_status)
+
+        if source:
+            queryset = queryset.filter(source=source)
+
+        if seller:
+            queryset = queryset.filter(seller_id=seller)
+
+        if product:
+            queryset = queryset.filter(
+                Q(primary_product_id=product)
+                | Q(items__product_id=product)
+            ).distinct()
+
+        if service_date:
+            queryset = queryset.filter(service_date=service_date)
+
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+
+        if search:
+            queryset = queryset.filter(
+                Q(booking_code__icontains=search)
+                | Q(customer_name__icontains=search)
+                | Q(customer_whatsapp__icontains=search)
+                | Q(customer_email__icontains=search)
+                | Q(customer_hotel__icontains=search)
+                | Q(seller__full_name__icontains=search)
+                | Q(primary_product__name__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        seller = self.get_current_seller()
+
+        if seller and not self.is_admin_user():
+            serializer.save(
+                organisation=organisation,
+                seller=seller,
+                source="seller_dashboard",
+            )
+            return
+
+        serializer.save(organisation=organisation)
+
+    def recalculate_booking_after_payment(self, booking):
+        confirmed_payments = booking.payments.filter(status="confirmed")
+
+        paid_amount = Decimal("0.00")
+        seller_collected_amount = Decimal("0.00")
+
+        for payment in confirmed_payments:
+            if payment.payment_type == "refund":
+                paid_amount -= payment.amount
+            else:
+                paid_amount += payment.amount
+
+            if payment.seller:
+                seller_collected_amount += payment.amount
+
+        booking.deposit_paid = max(paid_amount, Decimal("0.00"))
+        booking.seller_collected_amount = seller_collected_amount
+
+        booking.balance_due = max(
+            booking.total_amount - booking.deposit_paid,
+            Decimal("0.00"),
+        )
+
+        if booking.seller:
+            if booking.seller.fixed_commission_amount > Decimal("0.00"):
+                booking.seller_commission_amount = booking.seller.fixed_commission_amount
+            elif booking.seller.commission_rate > Decimal("0.00"):
+                booking.seller_commission_amount = (
+                    booking.subtotal_amount * booking.seller.commission_rate
+                ) / Decimal("100.00")
+
+        booking.seller_due_to_company = max(
+            booking.seller_collected_amount - booking.seller_commission_amount,
+            Decimal("0.00"),
+        )
+
+        if booking.deposit_paid >= booking.total_amount and booking.total_amount > Decimal("0.00"):
+            booking.payment_status = "paid"
+            booking.status = "confirmed"
+        elif booking.deposit_paid >= booking.deposit_required and booking.deposit_required > Decimal("0.00"):
+            booking.payment_status = "deposit_paid"
+            if booking.status == "pending_payment":
+                booking.status = "confirmed"
+        elif booking.deposit_paid > Decimal("0.00"):
+            booking.payment_status = "partially_paid"
+            if booking.status == "pending_payment":
+                booking.status = "confirmed"
+        else:
+            booking.payment_status = "unpaid"
+
+        booking.save()
+
+        return booking
+
+    @action(detail=True, methods=["post"], url_path="confirm")
+    def confirm(self, request, pk=None):
+        booking = self.get_object()
+        booking.status = "confirmed"
+        booking.confirmed_at = timezone.now()
+        booking.save(update_fields=["status", "confirmed_at", "updated_at"])
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        booking = self.get_object()
+
+        booking.requires_supervisor_approval = False
+        booking.supervisor_approved_by = request.user
+        booking.supervisor_approved_at = timezone.now()
+
+        if booking.status == "pending_approval":
+            booking.status = "confirmed"
+
+        booking.save(
+            update_fields=[
+                "requires_supervisor_approval",
+                "supervisor_approved_by",
+                "supervisor_approved_at",
+                "status",
+                "updated_at",
+            ]
+        )
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="mark-ticket-generated")
+    def mark_ticket_generated(self, request, pk=None):
+        booking = self.get_object()
+        booking.status = "ticket_generated"
+        booking.save(update_fields=["status", "updated_at"])
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="complete")
+    def complete(self, request, pk=None):
+        booking = self.get_object()
+        booking.status = "completed"
+        booking.completed_at = timezone.now()
+        booking.save(update_fields=["status", "completed_at", "updated_at"])
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        booking = self.get_object()
+        booking.status = "cancelled"
+        booking.cancelled_at = timezone.now()
+        booking.cancellation_reason = request.data.get("reason", "")
+        booking.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancellation_reason",
+                "updated_at",
+            ]
+        )
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="add-payment")
+    def add_payment(self, request, pk=None):
+        booking = self.get_object()
+        organisation = self.require_organisation()
+
+        amount = request.data.get("amount")
+        payment_type = request.data.get("payment_type", "partial")
+        payer_type = request.data.get("payer_type", "customer")
+        method = request.data.get("method", "cash")
+        payment_status_value = request.data.get("status", "confirmed")
+        seller_id = request.data.get("seller")
+        reference = request.data.get("reference", "")
+        note = request.data.get("note", "")
+
+        if amount in [None, ""]:
+            return Response(
+                {"amount": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        seller = None
+
+        if seller_id:
+            seller = get_object_or_404(
+                Seller,
+                id=seller_id,
+                organisation=organisation,
+            )
+
+        if not seller and not self.is_admin_user():
+            seller = self.get_current_seller()
+
+        payment = BookingPayment.objects.create(
+            booking=booking,
+            seller=seller,
+            collected_by=request.user,
+            amount=Decimal(str(amount)),
+            payment_type=payment_type,
+            payer_type=payer_type,
+            method=method,
+            status=payment_status_value,
+            reference=reference,
+            note=note,
+        )
+
+        booking = self.recalculate_booking_after_payment(booking)
+
+        payment_serializer = BookingPaymentSerializer(payment, context=self.get_serializer_context())
+        booking_serializer = self.get_serializer(booking)
+
+        return Response(
+            {
+                "payment": payment_serializer.data,
+                "booking": booking_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="override-pickup")
+    def override_pickup(self, request, pk=None):
+        booking = self.get_object()
+
+        pickup_time = request.data.get("pickup_time")
+        pickup_point = request.data.get("pickup_point", "")
+        instructions = request.data.get("instructions", "")
+        override_reason = request.data.get("override_reason", "")
+
+        pickup_info, created = BookingPickupInfo.objects.get_or_create(
+            booking=booking,
+            defaults={
+                "hotel_or_location_name": booking.customer_hotel or "Manual pickup",
+            },
+        )
+
+        if pickup_time:
+            pickup_info.pickup_time = pickup_time
+
+        if pickup_point:
+            pickup_info.pickup_point = pickup_point
+
+        if instructions:
+            pickup_info.instructions = instructions
+
+        pickup_info.was_overridden = True
+        pickup_info.override_reason = override_reason
+        pickup_info.overridden_by = request.user
+        pickup_info.save()
+
+        serializer = BookingPickupInfoSerializer(
+            pickup_info,
+            context=self.get_serializer_context(),
+        )
+
+        return Response(serializer.data)
+
+
+class BookingItemViewSet(TicketingPrivateViewSet):
+    serializer_class = BookingItemSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BookingItem.objects.none()
+
+        queryset = BookingItem.objects.filter(
+            booking__organisation=organisation,
+        ).select_related("booking", "product", "package", "event_ticket_type")
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return BookingItem.objects.none()
+
+            queryset = queryset.filter(booking__seller=seller)
+
+        booking = self.request.query_params.get("booking")
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        return queryset
+
+
+class BookingPickupInfoViewSet(TicketingPrivateViewSet):
+    serializer_class = BookingPickupInfoSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BookingPickupInfo.objects.none()
+
+        queryset = BookingPickupInfo.objects.filter(
+            booking__organisation=organisation,
+        ).select_related(
+            "booking",
+            "pickup_location",
+            "pickup_location__zone",
+            "pickup_schedule",
+            "overridden_by",
+        )
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return BookingPickupInfo.objects.none()
+
+            queryset = queryset.filter(booking__seller=seller)
+
+        return queryset
+
+
+class BookingPaymentViewSet(TicketingPrivateViewSet):
+    serializer_class = BookingPaymentSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BookingPayment.objects.none()
+
+        queryset = BookingPayment.objects.filter(
+            booking__organisation=organisation,
+        ).select_related("booking", "seller", "collected_by")
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return BookingPayment.objects.none()
+
+            queryset = queryset.filter(
+                Q(seller=seller) | Q(booking__seller=seller)
+            ).distinct()
+
+        booking = self.request.query_params.get("booking")
+        seller = self.request.query_params.get("seller")
+        payment_status = self.request.query_params.get("status")
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        if seller:
+            queryset = queryset.filter(seller_id=seller)
+
+        if payment_status:
+            queryset = queryset.filter(status=payment_status)
+
+        return queryset
+
+
+class SellerCommissionViewSet(TicketingPrivateViewSet):
+    serializer_class = SellerCommissionSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return SellerCommission.objects.none()
+
+        queryset = SellerCommission.objects.filter(
+            organisation=organisation,
+        ).select_related("seller", "booking", "paid_by")
+
+        if not self.is_admin_user():
+            seller_profile = self.get_current_seller()
+
+            if not seller_profile or not seller_profile.can_view_own_commissions:
+                return SellerCommission.objects.none()
+
+            queryset = queryset.filter(seller=seller_profile)
+
+        seller = self.request.query_params.get("seller")
+        commission_status = self.request.query_params.get("status")
+
+        if seller:
+            queryset = queryset.filter(seller_id=seller)
+
+        if commission_status:
+            queryset = queryset.filter(status=commission_status)
+
+        return queryset
+
+    @action(detail=True, methods=["post"], url_path="mark-paid")
+    def mark_paid(self, request, pk=None):
+        commission = self.get_object()
+        commission.status = "paid"
+        commission.paid_at = timezone.now()
+        commission.paid_by = request.user
+        commission.save(update_fields=["status", "paid_at", "paid_by"])
+
+        booking = commission.booking
+        booking.commission_paid_amount = commission.amount
+        booking.save(update_fields=["commission_paid_amount", "updated_at"])
+
+        serializer = self.get_serializer(commission)
+        return Response(serializer.data)
+
+
+class ReceiptViewSet(TicketingPrivateViewSet):
+    serializer_class = ReceiptSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Receipt.objects.none()
+
+        queryset = Receipt.objects.filter(
+            booking__organisation=organisation,
+        ).select_related("booking")
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return Receipt.objects.none()
+
+            queryset = queryset.filter(booking__seller=seller)
+
+        return queryset
+
+    @action(detail=True, methods=["post"], url_path="mark-email-sent")
+    def mark_email_sent(self, request, pk=None):
+        receipt = self.get_object()
+        receipt.sent_by_email = True
+        receipt.email_sent_at = timezone.now()
+        receipt.save(update_fields=["sent_by_email", "email_sent_at"])
+
+        serializer = self.get_serializer(receipt)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="mark-whatsapp-sent")
+    def mark_whatsapp_sent(self, request, pk=None):
+        receipt = self.get_object()
+        receipt.sent_by_whatsapp = True
+        receipt.whatsapp_sent_at = timezone.now()
+        receipt.save(update_fields=["sent_by_whatsapp", "whatsapp_sent_at"])
+
+        serializer = self.get_serializer(receipt)
+        return Response(serializer.data)
+
+
+class NotificationLogViewSet(TicketingPrivateViewSet):
+    serializer_class = NotificationLogSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return NotificationLog.objects.none()
+
+        queryset = NotificationLog.objects.filter(
+            organisation=organisation,
+        ).select_related("booking")
+
+        if not self.is_admin_user():
+            seller = self.get_current_seller()
+
+            if not seller:
+                return NotificationLog.objects.none()
+
+            queryset = queryset.filter(booking__seller=seller)
+
+        booking = self.request.query_params.get("booking")
+        channel = self.request.query_params.get("channel")
+        log_status = self.request.query_params.get("status")
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        if channel:
+            queryset = queryset.filter(channel=channel)
+
+        if log_status:
+            queryset = queryset.filter(status=log_status)
+
+        return queryset
+
+
+class ExternalProviderConfigViewSet(TicketingPrivateViewSet):
+    serializer_class = ExternalProviderConfigSerializer
+    permission_classes = [CanManageTicketingIntegrations]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExternalProviderConfig.objects.none()
+
+        return ExternalProviderConfig.objects.filter(organisation=organisation)
+
+    @action(detail=False, methods=["get", "patch"], url_path="wellet-settings")
+    def wellet_settings(self, request):
+        organisation = self.require_organisation()
+
+        settings_obj, created = TicketingSettings.objects.get_or_create(
+            organisation=organisation,
+        )
+
+        if not settings_obj.wellet_enabled:
+            return Response(
+                {
+                    "detail": "Wellet / Coco Bongo is not enabled for this organisation."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        config, created = ExternalProviderConfig.objects.get_or_create(
+            organisation=organisation,
+            provider="wellet",
+            defaults={
+                "currency": settings_obj.default_currency or "USD",
+                "lang": "en",
+            },
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                config,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        serializer = self.get_serializer(config)
+        return Response(serializer.data)
+
+
+class ExternalProviderProductSnapshotViewSet(TicketingPrivateViewSet):
+    serializer_class = ExternalProviderProductSnapshotSerializer
+    permission_classes = [CanManageTicketingIntegrations]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExternalProviderProductSnapshot.objects.none()
+
+        queryset = ExternalProviderProductSnapshot.objects.filter(
+            organisation=organisation,
+        ).select_related("product")
+
+        provider = self.request.query_params.get("provider")
+        service_date = self.request.query_params.get("service_date")
+
+        if provider:
+            queryset = queryset.filter(provider=provider)
+
+        if service_date:
+            queryset = queryset.filter(service_date=service_date)
+
+        return queryset
+
+
+class ProductReviewViewSet(TicketingPrivateViewSet):
+    serializer_class = ProductReviewSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ProductReview.objects.none()
+
+        queryset = ProductReview.objects.filter(
+            organisation=organisation,
+        ).select_related("product", "customer")
+
+        product = self.request.query_params.get("product")
+        is_approved = self.request.query_params.get("is_approved")
+
+        if product:
+            queryset = queryset.filter(product_id=product)
+
+        if is_approved in ["true", "false"]:
+            queryset = queryset.filter(is_approved=is_approved == "true")
+
+        return queryset
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(organisation=organisation)
+
+
+class TicketingDashboardAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [CanViewTicketingReports]
+
+    def get(self, request):
+        organisation = self.require_organisation()
+
+        today = timezone.localdate()
+
+        bookings = Booking.objects.filter(organisation=organisation)
+        today_bookings = bookings.filter(created_at__date=today)
+        upcoming_bookings = bookings.filter(
+            service_date__gte=today,
+        ).exclude(status__in=["cancelled", "refunded"])
+
+        total_sales = bookings.exclude(
+            status__in=["cancelled", "refunded"]
+        ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
+
+        deposit_paid = bookings.aggregate(
+            total=Sum("deposit_paid")
+        )["total"] or Decimal("0.00")
+
+        balance_due = bookings.aggregate(
+            total=Sum("balance_due")
+        )["total"] or Decimal("0.00")
+
+        seller_due_to_company = bookings.aggregate(
+            total=Sum("seller_due_to_company")
+        )["total"] or Decimal("0.00")
+
+        commission_generated = bookings.aggregate(
+            total=Sum("seller_commission_amount")
+        )["total"] or Decimal("0.00")
+
+        commission_paid = bookings.aggregate(
+            total=Sum("commission_paid_amount")
+        )["total"] or Decimal("0.00")
+
+        top_products = (
+            BookingItem.objects
+            .filter(booking__organisation=organisation)
+            .values("product_name", "product_type")
+            .annotate(
+                quantity_sold=Sum("quantity"),
+                revenue=Sum("total"),
+            )
+            .order_by("-quantity_sold")[:10]
+        )
+
+        top_sellers = (
+            Seller.objects
+            .filter(organisation=organisation)
+            .annotate(
+                bookings_count=Count("bookings"),
+                sales_total=Sum("bookings__total_amount"),
+                commission_total=Sum("bookings__seller_commission_amount"),
+            )
+            .order_by("-sales_total")[:10]
+        )
+
+        return Response(
+            {
+                "summary": {
+                    "total_bookings": bookings.count(),
+                    "today_bookings": today_bookings.count(),
+                    "upcoming_bookings": upcoming_bookings.count(),
+                    "pending_payments": bookings.filter(payment_status__in=["unpaid", "pending", "partially_paid"]).count(),
+                    "pending_approvals": bookings.filter(requires_supervisor_approval=True).count(),
+                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
+                    "cancelled_bookings": bookings.filter(status="cancelled").count(),
+                    "total_sales": total_sales,
+                    "deposit_paid": deposit_paid,
+                    "balance_due": balance_due,
+                    "seller_due_to_company": seller_due_to_company,
+                    "commission_generated": commission_generated,
+                    "commission_paid": commission_paid,
+                    "commission_pending": max(commission_generated - commission_paid, Decimal("0.00")),
+                },
+                "top_products": list(top_products),
+                "top_sellers": [
+                    {
+                        "id": seller.id,
+                        "full_name": seller.full_name,
+                        "seller_slug": seller.seller_slug,
+                        "bookings_count": seller.bookings_count or 0,
+                        "sales_total": seller.sales_total or Decimal("0.00"),
+                        "commission_total": seller.commission_total or Decimal("0.00"),
+                    }
+                    for seller in top_sellers
+                ],
+            }
+        )
+
+
+class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [CanViewTicketingReports]
+
+    def get(self, request):
+        organisation = self.require_organisation()
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        bookings = Booking.objects.filter(organisation=organisation)
+
+        if date_from:
+            bookings = bookings.filter(created_at__date__gte=date_from)
+
+        if date_to:
+            bookings = bookings.filter(created_at__date__lte=date_to)
+
+        sales_by_seller = (
+            bookings
+            .values("seller__id", "seller__full_name")
+            .annotate(
+                bookings_count=Count("id"),
+                total_sales=Sum("total_amount"),
+                collected=Sum("seller_collected_amount"),
+                due_to_company=Sum("seller_due_to_company"),
+                commission=Sum("seller_commission_amount"),
+                commission_paid=Sum("commission_paid_amount"),
+            )
+            .order_by("-total_sales")
+        )
+
+        sales_by_product = (
+            BookingItem.objects
+            .filter(booking__in=bookings)
+            .values("product__id", "product_name", "product_type")
+            .annotate(
+                quantity_sold=Sum("quantity"),
+                revenue=Sum("total"),
+            )
+            .order_by("-revenue")
+        )
+
+        payment_statuses = (
+            bookings
+            .values("payment_status")
+            .annotate(count=Count("id"), total=Sum("total_amount"))
+            .order_by("payment_status")
+        )
+
+        booking_statuses = (
+            bookings
+            .values("status")
+            .annotate(count=Count("id"), total=Sum("total_amount"))
+            .order_by("status")
+        )
+
+        return Response(
+            {
+                "sales_by_seller": list(sales_by_seller),
+                "sales_by_product": list(sales_by_product),
+                "payment_statuses": list(payment_statuses),
+                "booking_statuses": list(booking_statuses),
+            }
+        )
+
+
+class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [CanAccessSellerDashboard]
+
+    def get(self, request):
+        organisation = self.require_organisation()
+
+        seller = Seller.objects.filter(
+            organisation=organisation,
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not seller:
+            return Response(
+                {"detail": "No active seller profile found for this user."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        bookings = Booking.objects.filter(
+            organisation=organisation,
+            seller=seller,
+        )
+
+        products = ExperienceProduct.objects.filter(
+            organisation=organisation,
+            seller_enabled=True,
+            is_active=True,
+            status="active",
+        )
+
+        if not seller.can_sell_cocobongo:
+            products = products.exclude(is_cocobongo_product=True)
+
+        allowed_product_types = []
+
+        if seller.can_sell_excursions:
+            allowed_product_types.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed_product_types.append("transfer")
+
+        if seller.can_sell_events:
+            allowed_product_types.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed_product_types.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed_product_types.extend(["ticket", "nightlife"])
+
+        if allowed_product_types:
+            products = products.filter(product_type__in=allowed_product_types)
+        else:
+            products = products.none()
+
+        return Response(
+            {
+                "seller": SellerSerializer(seller, context={"request": request}).data,
+                "summary": {
+                    "my_bookings": bookings.count(),
+                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
+                    "pending_payments": bookings.filter(payment_status__in=["unpaid", "pending", "partially_paid"]).count(),
+                    "tickets_generated": bookings.filter(status="ticket_generated").count(),
+                    "money_collected": bookings.aggregate(total=Sum("seller_collected_amount"))["total"] or Decimal("0.00"),
+                    "money_owed_to_company": bookings.aggregate(total=Sum("seller_due_to_company"))["total"] or Decimal("0.00"),
+                    "commission_generated": bookings.aggregate(total=Sum("seller_commission_amount"))["total"] or Decimal("0.00"),
+                    "commission_paid": bookings.aggregate(total=Sum("commission_paid_amount"))["total"] or Decimal("0.00"),
+                },
+                "available_products": ExperienceProductSerializer(
+                    products[:50],
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+            }
+        )
+
+
+class PublicOrganisationMixin:
+    permission_classes = [permissions.AllowAny]
+
+    def get_public_organisation(self):
+        organisation_slug = (
+            self.kwargs.get("organisation_slug")
+            or self.kwargs.get("slug")
+            or self.request.query_params.get("organisation_slug")
+            or self.request.query_params.get("slug")
+        )
+
+        if not organisation_slug:
+            return None
+
+        return get_object_or_404(
+            Organisation,
+            slug=organisation_slug,
+            is_active=True,
+        )
+
+    def get_public_site_settings(self, organisation):
+        return TicketingPublicSiteSettings.objects.filter(
+            organisation=organisation,
+            is_published=True,
+        ).first()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["organisation"] = self.get_public_organisation()
+        return context
+
+
+class PublicBrandingAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        ticketing_settings, created = TicketingSettings.objects.get_or_create(
+            organisation=organisation,
+        )
+
+        return Response(
+            {
+                "organisation": {
+                    "id": organisation.id,
+                    "name": organisation.name,
+                    "slug": organisation.slug,
+                    "email": organisation.email,
+                    "phone": organisation.phone,
+                },
+                "ticketing_settings": TicketingSettingsSerializer(
+                    ticketing_settings,
+                    context={"request": request},
+                ).data,
+                "public_site": TicketingPublicSiteSettingsSerializer(
+                    site_settings,
+                    context={"request": request},
+                ).data,
+            }
+        )
+
+
+class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = ExperienceProductSerializer
+    lookup_field = "slug"
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return ExperienceProduct.objects.none()
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return ExperienceProduct.objects.none()
+
+        queryset = (
+            ExperienceProduct.objects
+            .filter(
+                organisation=organisation,
+                public_enabled=True,
+                is_active=True,
+                status="active",
+            )
+            .select_related("organisation", "category")
+            .prefetch_related(
+                "packages",
+                "availability",
+                "pickup_schedules",
+                "pickup_schedules__pickup_location",
+                "transfer_routes",
+                "event_ticket_types",
+            )
+        )
+
+        product_type = self.request.query_params.get("product_type")
+        category = self.request.query_params.get("category")
+        search = self.request.query_params.get("search")
+        featured = self.request.query_params.get("featured")
+        recommended = self.request.query_params.get("recommended")
+
+        if product_type:
+            queryset = queryset.filter(product_type=product_type)
+
+        if category:
+            queryset = queryset.filter(
+                Q(category_id=category) | Q(category__slug=category)
+            )
+
+        if featured in ["true", "false"]:
+            queryset = queryset.filter(is_featured=featured == "true")
+
+        if recommended in ["true", "false"]:
+            queryset = queryset.filter(is_recommended=recommended == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(long_description__icontains=search)
+                | Q(location__icontains=search)
+                | Q(keywords_tags__icontains=search)
+            )
+
+        return queryset
+
+
+class PublicCategoryViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = ExperienceCategorySerializer
+    lookup_field = "slug"
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return ExperienceCategory.objects.none()
+
+        return ExperienceCategory.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        )
+
+
+class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
+    serializer_class = BookingSerializer
+    permission_classes = [permissions.AllowAny]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Booking.objects.none()
+
+        booking_code = self.kwargs.get("booking_code")
+
+        queryset = Booking.objects.filter(organisation=organisation)
+
+        if booking_code:
+            queryset = queryset.filter(booking_code=booking_code)
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        settings_obj, created = TicketingSettings.objects.get_or_create(
+            organisation=organisation,
+        )
+
+        if not settings_obj.allow_public_bookings:
+            return Response(
+                {"detail": "Public bookings are disabled for this organisation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        mutable_data = request.data.copy()
+        mutable_data["source"] = mutable_data.get("source") or "public_site"
+
+        seller_slug = (
+            mutable_data.get("seller_slug")
+            or request.query_params.get("seller")
+            or self.kwargs.get("seller_slug")
+        )
+
+        if seller_slug:
+            seller = Seller.objects.filter(
+                organisation=organisation,
+                seller_slug=seller_slug,
+                is_active=True,
+            ).first()
+
+            if seller:
+                mutable_data["seller"] = seller.id
+                mutable_data["source"] = "seller_public_link"
+
+        serializer = self.get_serializer(
+            data=mutable_data,
+            context={
+                "request": request,
+                "organisation": organisation,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        booking = serializer.save(organisation=organisation)
+
+        response_serializer = self.get_serializer(
+            booking,
+            context={
+                "request": request,
+                "organisation": organisation,
+            },
+        )
+
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class PublicSEOAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        products = ExperienceProduct.objects.filter(
+            organisation=organisation,
+            public_enabled=True,
+            is_active=True,
+            status="active",
+        )
+
+        return Response(
+            {
+                "site": TicketingPublicSiteSettingsSerializer(
+                    site_settings,
+                    context={"request": request},
+                ).data,
+                "json_ld": {
+                    "local_business": site_settings.json_ld_local_business,
+                    "products": [
+                        {
+                            "@type": "Product",
+                            "name": product.name,
+                            "description": product.short_description or product.meta_description,
+                            "sku": product.sku,
+                            "offers": {
+                                "@type": "Offer",
+                                "price": str(product.base_price),
+                                "availability": "https://schema.org/InStock",
+                            },
+                        }
+                        for product in products[:50]
+                    ],
+                },
+            }
+        )
+
+
+class PublicSitemapAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return HttpResponse(
+                "Organisation slug is required.",
+                status=400,
+                content_type="text/plain",
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return HttpResponse(
+                "Public site is not published.",
+                status=404,
+                content_type="text/plain",
+            )
+
+        base_url = site_settings.canonical_url.rstrip("/") if site_settings.canonical_url else ""
+
+        products = ExperienceProduct.objects.filter(
+            organisation=organisation,
+            public_enabled=True,
+            is_active=True,
+            status="active",
+        )
+
+        categories = ExperienceCategory.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        )
+
+        urls = []
+
+        if base_url:
+            urls.append(base_url)
+            urls.append(f"{base_url}/events")
+            urls.append(f"{base_url}/transfers")
+
+            for category in categories:
+                urls.append(f"{base_url}/category/{category.slug}")
+
+            for product in products:
+                urls.append(f"{base_url}/product/{product.slug}")
+
+        xml_urls = "\n".join(
+            [
+                f"""
+  <url>
+    <loc>{url}</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>"""
+                for url in urls
+            ]
+        )
+
+        sitemap = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">
+{xml_urls}
+</urlset>
+"""
+
+        return HttpResponse(sitemap, content_type="application/xml")
+
+
+class PublicRobotsAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return HttpResponse(
+                "User-agent: *\nDisallow: /",
+                status=400,
+                content_type="text/plain",
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings or not site_settings.robots_allow_indexing:
+            return HttpResponse(
+                "User-agent: *\nDisallow: /",
+                content_type="text/plain",
+            )
+
+        lines = [
+            "User-agent: *",
+            "Allow: /",
+        ]
+
+        if site_settings.robots_allow_ai_crawlers:
+            if site_settings.allow_gptbot:
+                lines.extend(["", "User-agent: GPTBot", "Allow: /"])
+
+            if site_settings.allow_oai_searchbot:
+                lines.extend(["", "User-agent: OAI-SearchBot", "Allow: /"])
+        else:
+            lines.extend(
+                [
+                    "",
+                    "User-agent: GPTBot",
+                    "Disallow: /",
+                    "",
+                    "User-agent: OAI-SearchBot",
+                    "Disallow: /",
+                ]
+            )
+
+        if site_settings.canonical_url:
+            sitemap_url = site_settings.canonical_url.rstrip("/") + "/sitemap.xml"
+            lines.extend(["", f"Sitemap: {sitemap_url}"])
+
+        return HttpResponse("\n".join(lines), content_type="text/plain")
+
+
+class WelletProductsAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [HasTicketingOrganisationAccess, HasTicketingSellerPermission]
+    ticketing_permission_required = "can_sell_cocobongo"
+
+    def get(self, request):
+        organisation = self.require_organisation()
+
+        settings_obj, created = TicketingSettings.objects.get_or_create(
+            organisation=organisation,
+        )
+
+        if not settings_obj.wellet_enabled:
+            return Response(
+                {
+                    "detail": "Wellet / Coco Bongo is not enabled for this organisation."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        config = ExternalProviderConfig.objects.filter(
+            organisation=organisation,
+            provider="wellet",
+            is_enabled=True,
+        ).first()
+
+        if not config:
+            return Response(
+                {
+                    "detail": "Wellet config is missing or disabled for this organisation."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service_date = request.query_params.get("service_date")
+
+        snapshots = ExternalProviderProductSnapshot.objects.filter(
+            organisation=organisation,
+            provider="wellet",
+        )
+
+        if service_date:
+            snapshots = snapshots.filter(service_date=service_date)
+
+        return Response(
+            {
+                "provider": "wellet",
+                "enabled": True,
+                "message": "Backend Wellet endpoint is ready. Add the real Wellet API client in services.py when credentials are confirmed.",
+                "config": {
+                    "show_id": config.show_id,
+                    "category_id": config.category_id,
+                    "currency": config.currency,
+                    "lang": config.lang,
+                    "include_table": config.include_table,
+                },
+                "snapshots": ExternalProviderProductSnapshotSerializer(
+                    snapshots[:50],
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+            }
+        )

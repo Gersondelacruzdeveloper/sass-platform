@@ -51,21 +51,34 @@ def create_checkout_session(request):
     owner_name = data.get("owner_name", "")
     email = data["email"]
     password = data["password"]
-    business_type = data.get("business_type", "disco")
+    business_type = data.get("business_type") or request.data.get("business_type") or "disco"
     plan_slug = data["plan"]
-    app_slug = data.get("app") or business_type or "disco"
+
+    app_slug = data.get("app") or request.data.get("app") or business_type or "disco"
+
+    if business_type == "ticketing":
+        app_slug = "ticketing"
+        default_platform_name = "PCD Experiences"
+        default_login_subtitle = (
+            "Sign in to manage tours, tickets, transfers, sellers, bookings, "
+            "payments, commissions, pickup schedules, and public website settings."
+        )
+        default_accent_color = "#f59e0b"
+    else:
+        default_platform_name = "Disco Management"
+        default_login_subtitle = (
+            "Sign in to manage POS, inventory, tables, staff, reservations, and reports."
+        )
+        default_accent_color = "#06b6d4"
 
     branding_data = {
         "company_name": request.data.get("branding_company_name") or company_name,
-        "platform_name": request.data.get("platform_name") or "Disco Management",
+        "platform_name": request.data.get("platform_name") or default_platform_name,
         "login_title": request.data.get("login_title") or company_name,
-        "login_subtitle": (
-            request.data.get("login_subtitle")
-            or "Sign in to manage POS, inventory, tables, staff, reservations, and reports."
-        ),
+        "login_subtitle": request.data.get("login_subtitle") or default_login_subtitle,
         "primary_color": request.data.get("primary_color") or "#020617",
         "secondary_color": request.data.get("secondary_color") or "#0f172a",
-        "accent_color": request.data.get("accent_color") or "#06b6d4",
+        "accent_color": request.data.get("accent_color") or default_accent_color,
     }
 
     plan = SubscriptionPlan.objects.filter(slug=plan_slug, is_active=True).first()
