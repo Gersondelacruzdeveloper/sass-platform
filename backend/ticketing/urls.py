@@ -6,6 +6,7 @@ from .views import (
     TicketingPublicSiteSettingsViewSet,
     ExperienceCategoryViewSet,
     ExperienceProductViewSet,
+    ProductGalleryImageViewSet,
     ExperiencePackageViewSet,
     ProductAvailabilityViewSet,
     PickupZoneViewSet,
@@ -32,10 +33,13 @@ from .views import (
     PublicProductViewSet,
     PublicCategoryViewSet,
     PublicBookingViewSet,
+    PublicProductAvailabilityAPIView,
+    TicketingLiveAvailabilityAPIView,
     PublicSEOAPIView,
     PublicSitemapAPIView,
     PublicRobotsAPIView,
     WelletProductsAPIView,
+
 )
 
 
@@ -46,6 +50,7 @@ router.register("settings", TicketingSettingsViewSet, basename="ticketing-settin
 router.register("public-site-settings", TicketingPublicSiteSettingsViewSet, basename="ticketing-public-site-settings")
 router.register("categories", ExperienceCategoryViewSet, basename="ticketing-categories")
 router.register("products", ExperienceProductViewSet, basename="ticketing-products")
+router.register("product-gallery-images", ProductGalleryImageViewSet, basename="ticketing-product-gallery-images")
 router.register("packages", ExperiencePackageViewSet, basename="ticketing-packages")
 router.register("availability", ProductAvailabilityViewSet, basename="ticketing-availability")
 router.register("pickup-zones", PickupZoneViewSet, basename="ticketing-pickup-zones")
@@ -124,6 +129,22 @@ urlpatterns = [
             }
         ),
         name="ticketing-wellet-settings",
+    ),
+
+        # Private/seller live availability:
+    # /api/ticketing/live-availability/?product=1&service_date=2026-07-01
+    path(
+        "live-availability/",
+        TicketingLiveAvailabilityAPIView.as_view(),
+        name="ticketing-live-availability",
+    ),
+
+    # Public product live availability:
+    # /api/ticketing/public/hard-rock/products/coco-bongo/availability/?date=2026-07-01
+    path(
+        "public/<slug:organisation_slug>/products/<slug:product_slug>/availability/",
+        PublicProductAvailabilityAPIView.as_view(),
+        name="ticketing-public-product-availability",
     ),
 
     path("", include(router.urls)),

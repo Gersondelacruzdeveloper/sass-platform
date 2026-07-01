@@ -836,11 +836,30 @@ def build_product_seo_payload(product):
 
 class WelletClient:
     """
-    Backend-only Wellet / Coco Bongo client placeholder.
+    Backend-only Wellet / Coco Bongo client.
 
-    The React frontend must never call Wellet directly.
-    This client is intentionally conservative and only makes a request
-    when api_base_url is configured.
+    Important:
+    - The frontend must never call Wellet directly.
+    - Endpoint paths are configurable through ExternalProviderConfig.extra_settings
+      because the final Wellet API paths can differ by account/environment.
+
+    For the current Wellet products endpoint, use this config:
+    api_base_url = "https://api2.wellet.fun/products/get"
+    show_id = "4"
+    category_id = "1"
+    currency = "USD"
+    lang = "en"
+    include_table = True
+
+    Recommended extra_settings for this endpoint:
+    {
+        "products_path": "",
+        "availability_path": "",
+        "booking_path": "",
+        "product_param": "",
+        "api_key_header": "Authorization",
+        "api_key_prefix": "Bearer"
+    }
     """
 
     def __init__(self, config):
@@ -849,31 +868,83 @@ class WelletClient:
     def is_ready(self):
         return bool(self.config and self.config.is_enabled and self.config.api_base_url)
 
-    def build_products_url(self, service_date=None):
-        base_url = self.config.api_base_url.rstrip("/")
+    def get_extra(self, key, default=None):
+        extra_settings = self.config.extra_settings or {}
+        return extra_settings.get(key, default)
 
-        query_params = {
-            "show_id": self.config.show_id,
-            "category_id": self.config.category_id,
-            "currency": self.config.currency,
-            "lang": self.config.lang,
-            "include_table": "true" if self.config.include_table else "false",
+    def build_url(self, path="", query_params=None):
+        base_url = self.config.api_base_url.rstrip("/")
+        path = (path or "").strip("/")
+
+        if path:
+            url = f"{base_url}/{path}"
+        else:
+            url = base_url
+
+        query_params = query_params or {}
+        clean_params = {
+            key: value
+            for key, value in query_params.items()
+            if value not in [None, ""]
         }
 
-        if service_date:
-            query_params["date"] = str(service_date)
+        if clean_params:
+            return f"{url}?{urlencode(clean_params)}"
 
-        query_string = urlencode(
-            {
-                key: value
-                for key, value in query_params.items()
-                if value not in [None, ""]
-            }
-        )
+        return url
 
-        return f"{base_url}?{query_string}"
+    def build_default_query_params(self, service_date=None, external_product_id=""):
+        """
+        Wellet expects camelCase query parameters.
 
-    def list_products(self, service_date=None, timeout=20):
+        Final URL example:
+        https://api2.wellet.fun/products/get?showId=4&date=2026-07-01&currency=USD&lang=en&includeTable=true&categoryId=1
+        """
+        query_params = {
+            "showId": self.config.show_id,
+            "date": str(service_date) if service_date else None,
+            "currency": self.config.currency or "USD",
+            "lang": self.config.lang or "en",
+            "includeTable": "true" if self.config.include_table else "false",
+            "categoryId": self.config.category_id,
+        }
+
+        # Keep this optional. For the Wellet URL you gave me, no product param is needed.
+        # If Wellet later gives a product-specific endpoint, set extra_settings.product_param.
+        product_param = self.get_extra("product_param", "")
+
+        if external_product_id and product_param:
+            query_params[product_param] = external_product_id
+
+        return query_params
+
+    def build_headers(self):
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        if self.config.api_key:
+            api_key_header = self.get_extra("api_key_header", "Authorization")
+            api_key_prefix = self.get_extra("api_key_prefix", "Bearer")
+
+            if api_key_header.lower() == "authorization" and api_key_prefix:
+                headers[api_key_header] = f"{api_key_prefix} {self.config.api_key}"
+            else:
+                headers[api_key_header] = self.config.api_key
+
+        if self.config.api_secret:
+            secret_header = self.get_extra("api_secret_header", "")
+            if secret_header:
+                headers[secret_header] = self.config.api_secret
+
+        extra_headers = self.get_extra("headers", {})
+        if isinstance(extra_headers, dict):
+            headers.update(extra_headers)
+
+        return headers
+
+    def request(self, method="GET", path="", query_params=None, payload=None, timeout=20):
         if not self.is_ready():
             return {
                 "ok": False,
@@ -882,57 +953,146 @@ class WelletClient:
                 "error": "Wellet config is missing or disabled.",
             }
 
-        url = self.build_products_url(service_date=service_date)
+        url = self.build_url(path=path, query_params=query_params)
+        headers = self.build_headers()
+        body = None
 
-        headers = {
-            "Accept": "application/json",
+        if payload is not None:
+            body = json.dumps(payload, default=str).encode("utf-8")
+
+        safe_headers = {
+            key: ("***" if key.lower() in ["authorization", "x-api-key", "api-key"] else value)
+            for key, value in headers.items()
         }
 
-        if self.config.api_key:
-            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        print("\n================ WELLET BACKEND REQUEST ================", flush=True)
+        print("METHOD:", method.upper(), flush=True)
+        print("URL:", url, flush=True)
+        print("QUERY PARAMS:", query_params or {}, flush=True)
+        print("HEADERS:", safe_headers, flush=True)
+        if payload is not None:
+            print("PAYLOAD:", payload, flush=True)
+        print("========================================================\n", flush=True)
 
-        request = Request(url, headers=headers, method="GET")
+        request = Request(
+            url,
+            data=body,
+            headers=headers,
+            method=method.upper(),
+        )
 
         try:
             with urlopen(request, timeout=timeout) as response:
-                body = response.read().decode("utf-8")
-                data = json.loads(body) if body else {}
+                response_body = response.read().decode("utf-8")
+                data = json.loads(response_body) if response_body else {}
+
+                print("\n================ WELLET BACKEND RESPONSE ================", flush=True)
+                print("STATUS:", response.status, flush=True)
+                print("URL:", url, flush=True)
+                print("BODY PREVIEW:", response_body[:1000], flush=True)
+                print("=========================================================\n", flush=True)
 
                 return {
                     "ok": True,
                     "status_code": response.status,
                     "data": data,
                     "error": "",
+                    "url": url,
                 }
 
         except HTTPError as error:
             try:
-                body = error.read().decode("utf-8")
+                error_body = error.read().decode("utf-8")
+                error_data = json.loads(error_body) if error_body else {}
             except Exception:
-                body = ""
+                error_data = error_body if "error_body" in locals() else ""
+
+            print("\n================ WELLET BACKEND HTTP ERROR ================", flush=True)
+            print("STATUS:", error.code, flush=True)
+            print("URL:", url, flush=True)
+            print("ERROR:", error_data, flush=True)
+            print("===========================================================\n", flush=True)
 
             return {
                 "ok": False,
                 "status_code": error.code,
-                "data": body,
+                "data": error_data,
                 "error": str(error),
+                "url": url,
             }
 
         except URLError as error:
+            print("\n================ WELLET BACKEND URL ERROR ================", flush=True)
+            print("URL:", url, flush=True)
+            print("ERROR:", str(error), flush=True)
+            print("==========================================================\n", flush=True)
+
             return {
                 "ok": False,
                 "status_code": None,
                 "data": None,
                 "error": str(error),
+                "url": url,
             }
 
         except Exception as error:
+            print("\n================ WELLET BACKEND UNKNOWN ERROR ================", flush=True)
+            print("URL:", url, flush=True)
+            print("ERROR:", str(error), flush=True)
+            print("==============================================================\n", flush=True)
+
             return {
                 "ok": False,
                 "status_code": None,
                 "data": None,
                 "error": str(error),
+                "url": url,
             }
+
+    def list_products(self, service_date=None, timeout=20):
+        products_path = self.get_extra("products_path", "")
+        query_params = self.build_default_query_params(service_date=service_date)
+
+        return self.request(
+            method="GET",
+            path=products_path,
+            query_params=query_params,
+            timeout=timeout,
+        )
+
+    def get_availability(self, external_product_id="", service_date=None, timeout=20):
+        availability_path = self.get_extra("availability_path", "")
+
+        query_params = self.build_default_query_params(
+            service_date=service_date,
+            external_product_id=external_product_id,
+        )
+
+        return self.request(
+            method="GET",
+            path=availability_path,
+            query_params=query_params,
+            timeout=timeout,
+        )
+
+    def create_booking_order(self, payload, timeout=30):
+        booking_path = self.get_extra("booking_path", "")
+
+        if not booking_path:
+            return {
+                "ok": False,
+                "status_code": None,
+                "data": None,
+                "error": "Wellet booking/order endpoint is not configured yet.",
+                "skipped": True,
+            }
+
+        return self.request(
+            method="POST",
+            path=booking_path,
+            payload=payload,
+            timeout=timeout,
+        )
 
 
 def get_wellet_config(organisation):
@@ -949,12 +1109,6 @@ def get_wellet_config(organisation):
 
 
 def fetch_wellet_products(organisation, service_date=None):
-    """
-    Fetch products from Wellet if config exists.
-
-    This function does not create bookings. It only returns provider data.
-    """
-
     config = get_wellet_config(organisation)
 
     if not config:
@@ -966,6 +1120,820 @@ def fetch_wellet_products(organisation, service_date=None):
 
     client = WelletClient(config)
     return client.list_products(service_date=service_date)
+
+
+def fetch_wellet_availability(organisation, product=None, service_date=None):
+    config = get_wellet_config(organisation)
+
+    if not config:
+        return {
+            "ok": False,
+            "data": None,
+            "error": "Wellet is not configured or not enabled for this organisation.",
+        }
+
+    external_product_id = ""
+
+    if product:
+        external_product_id = product.external_product_id or ""
+
+    client = WelletClient(config)
+
+    return client.get_availability(
+        external_product_id=external_product_id,
+        service_date=service_date,
+    )
+
+
+def extract_wellet_items(data):
+    """
+    Supports common provider shapes:
+    - {"products": [...]}
+    - {"items": [...]}
+    - {"data": [...]}
+    - {"data": {"items": [...]}}
+    - direct list
+    """
+
+    if isinstance(data, list):
+        return data
+
+    if not isinstance(data, dict):
+        return []
+
+    for key in ["products", "items", "tickets", "options", "availability"]:
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+
+    nested_data = data.get("data")
+
+    if isinstance(nested_data, list):
+        return nested_data
+
+    if isinstance(nested_data, dict):
+        for key in ["products", "items", "tickets", "options", "availability"]:
+            value = nested_data.get(key)
+            if isinstance(value, list):
+                return value
+
+    return []
+
+
+def first_value(data, keys, default=""):
+    if not isinstance(data, dict):
+        return default
+
+    for key in keys:
+        value = data.get(key)
+
+        if value not in [None, ""]:
+            return value
+
+    return default
+
+
+def normalize_bool_available(item):
+    if not isinstance(item, dict):
+        return True
+
+    sold_out_value = first_value(
+        item,
+        ["sold_out", "soldOut", "is_sold_out", "isSoldOut"],
+        None,
+    )
+
+    if sold_out_value in [True, "true", "True", 1, "1"]:
+        return False
+
+    available_value = first_value(
+        item,
+        ["available", "is_available", "isAvailable", "enabled", "active"],
+        None,
+    )
+
+    if available_value in [False, "false", "False", 0, "0"]:
+        return False
+
+    status_value = str(
+        first_value(item, ["status", "availability_status", "availabilityStatus"], "")
+    ).lower()
+
+    if status_value in ["sold_out", "soldout", "unavailable", "inactive", "closed"]:
+        return False
+
+    return True
+
+
+def normalize_available_quantity(item):
+    quantity = first_value(
+        item,
+        [
+            "available_quantity",
+            "availableQuantity",
+            "availability",
+            "remaining",
+            "remaining_quantity",
+            "remainingQuantity",
+            "stock",
+            "capacity",
+        ],
+        None,
+    )
+
+    if quantity in [None, ""]:
+        return None
+
+    try:
+        return int(quantity)
+    except Exception:
+        return None
+
+
+def normalize_price(item):
+    price = first_value(
+        item,
+        [
+            "price",
+            "amount",
+            "total",
+            "sale_price",
+            "salePrice",
+            "public_price",
+            "publicPrice",
+            "unit_price",
+            "unitPrice",
+        ],
+        ZERO,
+    )
+
+    return money(price)
+
+
+def normalize_wellet_availability(data, service_date=None, product=None):
+    """
+    Returns clean SaaS fields for React.
+
+    Supports the real Wellet Coco Bongo response shape:
+    data.options[].products[].prices[]
+
+    Also keeps the generic provider parser as fallback.
+    """
+
+    def clean_text(value):
+        return str(value or "").replace("\xa0", " ").strip()
+
+    def clean_bool(value):
+        return value in [True, "true", "True", 1, "1"]
+
+    def get_wellet_price(product_item):
+        prices = product_item.get("prices") or []
+
+        if isinstance(prices, list) and prices:
+            first_price = prices[0] or {}
+
+            amount = first_value(
+                first_price,
+                ["amount", "amountWithoutDiscount", "price", "salePrice", "unitPrice"],
+                ZERO,
+            )
+
+            currency = first_value(
+                first_price,
+                ["currencyCode", "currency", "Currency"],
+                "USD",
+            )
+
+            return money(amount), currency, first_price
+
+        amount = first_value(
+            product_item,
+            ["price", "amount", "salePrice", "unitPrice"],
+            ZERO,
+        )
+
+        currency = first_value(
+            product_item,
+            ["currencyCode", "currency", "Currency"],
+            "USD",
+        )
+
+        return money(amount), currency, {}
+
+    normalized_options = []
+
+    # Real Wellet Coco Bongo shape: data.options[].products[].prices[]
+    if isinstance(data, dict) and isinstance(data.get("options"), list):
+        for performance_group in data.get("options") or []:
+            if not isinstance(performance_group, dict):
+                continue
+
+            performance = performance_group.get("performance") or {}
+            products = performance_group.get("products") or []
+
+            if not isinstance(products, list):
+                continue
+
+            performance_id = clean_text(performance.get("id"))
+            performance_time = clean_text(
+                performance.get("timeStart")
+                or performance.get("time")
+                or performance.get("startTime")
+            )
+            performance_end_time = clean_text(
+                performance.get("timeEnd")
+                or performance.get("endTime")
+            )
+            checkin_time = clean_text(performance.get("timeCheckIn"))
+            performance_active = performance.get("isActive", True)
+
+            for wellet_product in products:
+                if not isinstance(wellet_product, dict):
+                    continue
+
+                product_id = clean_text(wellet_product.get("id"))
+                option_name = clean_text(wellet_product.get("name"))
+                description = clean_text(wellet_product.get("description"))
+                features = wellet_product.get("features") or []
+
+                price, currency, raw_price = get_wellet_price(wellet_product)
+
+                available_quantity = normalize_available_quantity(wellet_product)
+                if available_quantity is None:
+                    available_quantity = normalize_available_quantity(
+                        {
+                            "available_quantity": first_value(
+                                wellet_product,
+                                ["itemsAvailable", "stock"],
+                                None,
+                            )
+                        }
+                    )
+
+                is_sold_out = clean_bool(wellet_product.get("isSoldOut"))
+                is_unavailable = clean_bool(wellet_product.get("isUnavailable"))
+
+                available = (
+                    performance_active is not False
+                    and not is_sold_out
+                    and not is_unavailable
+                    and (available_quantity is None or int(available_quantity) > 0)
+                )
+
+                external_availability_id = (
+                    f"{performance_id}:{product_id}"
+                    if performance_id and product_id
+                    else product_id
+                )
+
+                normalized_options.append(
+                    {
+                        "provider": "wellet",
+                        "external_product_id": product_id,
+                        "external_variant_id": product_id,
+                        "external_availability_id": external_availability_id,
+                        "performance_id": performance_id,
+                        "name": product.name if product else "Coco Bongo",
+                        "option_name": option_name or description or "Ticket option",
+                        "description": description,
+                        "features": features if isinstance(features, list) else [],
+                        "price": str(price),
+                        "currency": currency or "USD",
+                        "available": available,
+                        "available_quantity": available_quantity,
+                        "sold_out": not available,
+                        "service_date": str(service_date) if service_date else "",
+                        "start_time": performance_time,
+                        "end_time": performance_end_time,
+                        "checkin_time": checkin_time,
+                        "high_demand": bool(wellet_product.get("highDemand")),
+                        "seat_distribution_image_url": clean_text(
+                            wellet_product.get("seatDistributionImgUrl")
+                        ),
+                        "max_pax_capacity": wellet_product.get("maxPaxCapacity"),
+                        "raw": {
+                            "performance": performance,
+                            "product": wellet_product,
+                            "price": raw_price,
+                        },
+                    }
+                )
+
+        if normalized_options:
+            return normalized_options
+
+    # Generic fallback for other providers / other Wellet shapes.
+    items = extract_wellet_items(data)
+    normalized_options = []
+
+    response_currency = "USD"
+
+    if isinstance(data, dict):
+        response_currency = data.get("currency") or data.get("Currency") or "USD"
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        nested_options = (
+            item.get("options")
+            or item.get("variants")
+            or item.get("tickets")
+            or item.get("prices")
+            or []
+        )
+
+        base_external_product_id = str(
+            first_value(
+                item,
+                [
+                    "id",
+                    "product_id",
+                    "productId",
+                    "external_id",
+                    "externalId",
+                    "sku",
+                    "code",
+                ],
+                "",
+            )
+        )
+
+        base_name = str(
+            first_value(
+                item,
+                ["name", "title", "product_name", "productName", "description"],
+                product.name if product else "",
+            )
+        ).strip()
+
+        base_currency = first_value(item, ["currency", "Currency"], response_currency)
+
+        if nested_options and isinstance(nested_options, list):
+            for option in nested_options:
+                if not isinstance(option, dict):
+                    continue
+
+                external_product_id = str(
+                    first_value(
+                        option,
+                        [
+                            "product_id",
+                            "productId",
+                            "external_product_id",
+                            "externalProductId",
+                        ],
+                        base_external_product_id,
+                    )
+                )
+
+                external_variant_id = str(
+                    first_value(
+                        option,
+                        [
+                            "id",
+                            "variant_id",
+                            "variantId",
+                            "ticket_id",
+                            "ticketId",
+                            "option_id",
+                            "optionId",
+                            "sku",
+                            "code",
+                        ],
+                        "",
+                    )
+                )
+
+                external_availability_id = str(
+                    first_value(
+                        option,
+                        [
+                            "availability_id",
+                            "availabilityId",
+                            "inventory_id",
+                            "inventoryId",
+                        ],
+                        "",
+                    )
+                )
+
+                option_name = str(
+                    first_value(
+                        option,
+                        ["name", "title", "label", "option_name", "optionName"],
+                        base_name,
+                    )
+                ).strip()
+
+                raw_option = {
+                    "parent": item,
+                    "option": option,
+                }
+
+                available_quantity = normalize_available_quantity(option)
+                available = normalize_bool_available(option)
+
+                normalized_options.append(
+                    {
+                        "provider": "wellet",
+                        "external_product_id": external_product_id or base_external_product_id,
+                        "external_variant_id": external_variant_id,
+                        "external_availability_id": external_availability_id,
+                        "name": base_name,
+                        "option_name": option_name,
+                        "price": str(normalize_price(option)),
+                        "currency": first_value(option, ["currency", "Currency"], base_currency),
+                        "available": available,
+                        "available_quantity": available_quantity,
+                        "sold_out": not available,
+                        "service_date": str(service_date) if service_date else "",
+                        "start_time": first_value(option, ["start_time", "startTime", "time"], ""),
+                        "end_time": first_value(option, ["end_time", "endTime"], ""),
+                        "raw": raw_option,
+                    }
+                )
+
+            continue
+
+        available_quantity = normalize_available_quantity(item)
+        available = normalize_bool_available(item)
+
+        normalized_options.append(
+            {
+                "provider": "wellet",
+                "external_product_id": base_external_product_id,
+                "external_variant_id": str(
+                    first_value(
+                        item,
+                        ["variant_id", "variantId", "ticket_id", "ticketId"],
+                        "",
+                    )
+                ),
+                "external_availability_id": str(
+                    first_value(
+                        item,
+                        ["availability_id", "availabilityId", "inventory_id", "inventoryId"],
+                        "",
+                    )
+                ),
+                "name": base_name,
+                "option_name": str(
+                    first_value(
+                        item,
+                        ["option_name", "optionName", "ticket_name", "ticketName", "name", "title"],
+                        base_name,
+                    )
+                ).strip(),
+                "price": str(normalize_price(item)),
+                "currency": base_currency,
+                "available": available,
+                "available_quantity": available_quantity,
+                "sold_out": not available,
+                "service_date": str(service_date) if service_date else "",
+                "start_time": first_value(item, ["start_time", "startTime", "time"], ""),
+                "end_time": first_value(item, ["end_time", "endTime"], ""),
+                "raw": item,
+            }
+        )
+
+    return normalized_options
+
+
+
+def get_local_product_availability(product, service_date=None):
+    queryset = product.availability.filter(is_available=True)
+
+    if service_date:
+        queryset = queryset.filter(date=service_date)
+
+    options = []
+
+    for availability in queryset.select_related("package"):
+        package = availability.package
+
+        price = (
+            availability.price_override
+            if availability.price_override is not None
+            else package.price if package else product.base_price
+        )
+
+        deposit = (
+            availability.deposit_override
+            if availability.deposit_override is not None
+            else package.deposit_amount if package else product.deposit_amount
+        )
+
+        options.append(
+            {
+                "provider": "local",
+                "product_id": product.id,
+                "package_id": package.id if package else None,
+                "name": product.name,
+                "option_name": package.name if package else product.name,
+                "price": str(price),
+                "deposit_amount": str(deposit),
+                "currency": "",
+                "available": availability.remaining_capacity > 0,
+                "available_quantity": availability.remaining_capacity,
+                "sold_out": availability.remaining_capacity <= 0,
+                "service_date": str(availability.date),
+                "raw": {
+                    "availability_id": availability.id,
+                    "package_id": package.id if package else None,
+                },
+            }
+        )
+
+    if not options and product.packages.filter(is_active=True).exists():
+        for package in product.packages.filter(is_active=True):
+            options.append(
+                {
+                    "provider": "local",
+                    "product_id": product.id,
+                    "package_id": package.id,
+                    "name": product.name,
+                    "option_name": package.name,
+                    "price": str(package.price),
+                    "deposit_amount": str(package.deposit_amount),
+                    "currency": "",
+                    "available": True,
+                    "available_quantity": package.capacity or None,
+                    "sold_out": False,
+                    "service_date": str(service_date) if service_date else "",
+                    "raw": {
+                        "package_id": package.id,
+                    },
+                }
+            )
+
+    if not options:
+        options.append(
+            {
+                "provider": "local",
+                "product_id": product.id,
+                "package_id": None,
+                "name": product.name,
+                "option_name": product.name,
+                "price": str(product.base_price),
+                "deposit_amount": str(product.deposit_amount),
+                "currency": "",
+                "available": product.status == "active" and product.is_active,
+                "available_quantity": product.capacity or None,
+                "sold_out": product.status == "sold_out",
+                "service_date": str(service_date) if service_date else "",
+                "raw": {},
+            }
+        )
+
+    return options
+
+
+def get_live_product_availability(organisation, product, service_date=None, include_raw=False):
+    if product.external_provider == "wellet" or product.is_cocobongo_product:
+        result = fetch_wellet_availability(
+            organisation=organisation,
+            product=product,
+            service_date=service_date,
+        )
+
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "provider": "wellet",
+                "product": {
+                    "id": product.id,
+                    "name": product.name,
+                    "slug": product.slug,
+                    "external_product_id": product.external_product_id,
+                },
+                "service_date": str(service_date) if service_date else "",
+                "options": [],
+                "raw": result.get("data") if include_raw else None,
+                "error": result.get("error") or "Could not fetch Wellet availability.",
+            }
+
+        raw_data = result.get("data") or {}
+        options = normalize_wellet_availability(
+            raw_data,
+            service_date=service_date,
+            product=product,
+        )
+
+        # IMPORTANT FOR COCO BONGO:
+        # A single SaaS product page can represent the whole Coco Bongo show,
+        # while Wellet returns several real ticket products for the same date
+        # such as Regular, Premium, Gold Member and Front Row.
+        #
+        # Do NOT filter the options here by product.external_product_id, because
+        # that can remove the ticket selected on the frontend and cause checkout
+        # validation to fail with:
+        # "Selected Wellet ticket option was not found for this date."
+        #
+        # The final selected ticket is validated later by find_selected_external_option().
+
+        return {
+            "ok": True,
+            "provider": "wellet",
+            "product": {
+                "id": product.id,
+                "name": product.name,
+                "slug": product.slug,
+                "external_product_id": product.external_product_id,
+            },
+            "service_date": str(service_date) if service_date else "",
+            "options": options,
+            "raw": raw_data if include_raw else None,
+            "error": "",
+        }
+
+    options = get_local_product_availability(
+        product=product,
+        service_date=service_date,
+    )
+
+    return {
+        "ok": True,
+        "provider": "local",
+        "product": {
+            "id": product.id,
+            "name": product.name,
+            "slug": product.slug,
+            "external_product_id": product.external_product_id,
+        },
+        "service_date": str(service_date) if service_date else "",
+        "options": options,
+        "raw": None,
+        "error": "",
+    }
+
+
+def find_selected_external_option(options, selected_external_product_id):
+    """
+    Find the Wellet option selected by the frontend.
+
+    The frontend can send any of these values:
+    - external_product_id: "18"
+    - external_variant_id: "18"
+    - external_availability_id: "84:18"
+    - selected_external_product_id: sometimes "18", sometimes "84:18"
+
+    This matcher accepts all of them and also compares the last part after ':'
+    so "84:18" matches an option with external_product_id "18".
+    """
+    if not selected_external_product_id:
+        return None
+
+    def clean(value):
+        return str(value or "").strip()
+
+    def expanded_values(value):
+        value = clean(value)
+        values = {value}
+
+        if ":" in value:
+            values.add(value.split(":")[-1].strip())
+
+        return {item for item in values if item}
+
+    selected_values = expanded_values(selected_external_product_id)
+
+    print("\n================ WELLET SELECTED OPTION DEBUG ================", flush=True)
+    print("SELECTED FROM CHECKOUT:", selected_external_product_id, flush=True)
+    print("SELECTED MATCH VALUES:", sorted(selected_values), flush=True)
+    print("AVAILABLE OPTION IDS:", flush=True)
+
+    for option in options:
+        possible_values = set()
+
+        for key in [
+            "external_product_id",
+            "external_variant_id",
+            "external_availability_id",
+            "performance_id",
+        ]:
+            possible_values.update(expanded_values(option.get(key)))
+
+        raw = option.get("raw") or {}
+
+        if isinstance(raw, dict):
+            raw_product = raw.get("product") or {}
+            raw_performance = raw.get("performance") or {}
+
+            if isinstance(raw_product, dict):
+                possible_values.update(expanded_values(raw_product.get("id")))
+
+            if isinstance(raw_performance, dict) and isinstance(raw_product, dict):
+                performance_id = clean(raw_performance.get("id"))
+                product_id = clean(raw_product.get("id"))
+
+                if performance_id and product_id:
+                    possible_values.add(f"{performance_id}:{product_id}")
+
+        possible_values = {item for item in possible_values if item}
+
+        print(
+            "-",
+            option.get("option_name") or option.get("name"),
+            sorted(possible_values),
+            flush=True,
+        )
+
+        if selected_values.intersection(possible_values):
+            print("MATCHED OPTION:", option.get("option_name") or option.get("name"), flush=True)
+            print("==============================================================\n", flush=True)
+            return option
+
+    print("NO MATCH FOUND", flush=True)
+    print("==============================================================\n", flush=True)
+    return None
+
+
+def validate_external_product_before_booking(
+    organisation,
+    product,
+    service_date,
+    selected_external_product_id,
+    quantity=1,
+):
+    if not product or not (
+        product.external_provider == "wellet" or product.is_cocobongo_product
+    ):
+        return {
+            "ok": True,
+            "provider": "local",
+            "selected_option": None,
+            "availability": None,
+            "error": "",
+        }
+
+    availability = get_live_product_availability(
+        organisation=organisation,
+        product=product,
+        service_date=service_date,
+        include_raw=True,
+    )
+
+    if not availability.get("ok"):
+        return {
+            "ok": False,
+            "provider": "wellet",
+            "selected_option": None,
+            "availability": availability,
+            "error": availability.get("error") or "Could not validate external availability.",
+        }
+
+    options = availability.get("options") or []
+
+    print("\n================ WELLET VALIDATION DEBUG ================", flush=True)
+    print("PRODUCT:", product.id, product.name, product.slug, flush=True)
+    print("SERVICE DATE:", service_date, flush=True)
+    print("SELECTED EXTERNAL PRODUCT ID:", selected_external_product_id, flush=True)
+    print("QUANTITY:", quantity, flush=True)
+    print("NORMALIZED OPTIONS COUNT:", len(options), flush=True)
+    print("=========================================================\n", flush=True)
+
+    selected_option = find_selected_external_option(
+        options=options,
+        selected_external_product_id=selected_external_product_id,
+    )
+
+    if not selected_option:
+        return {
+            "ok": False,
+            "provider": "wellet",
+            "selected_option": None,
+            "availability": availability,
+            "error": "Selected Wellet ticket option was not found for this date.",
+        }
+
+    if not selected_option.get("available"):
+        return {
+            "ok": False,
+            "provider": "wellet",
+            "selected_option": selected_option,
+            "availability": availability,
+            "error": "Selected Wellet ticket option is no longer available.",
+        }
+
+    available_quantity = selected_option.get("available_quantity")
+
+    if available_quantity is not None and int(quantity) > int(available_quantity):
+        return {
+            "ok": False,
+            "provider": "wellet",
+            "selected_option": selected_option,
+            "availability": availability,
+            "error": "Requested quantity is higher than the current Wellet availability.",
+        }
+
+    return {
+        "ok": True,
+        "provider": "wellet",
+        "selected_option": selected_option,
+        "availability": availability,
+        "error": "",
+    }
 
 
 def create_wellet_snapshot(
@@ -993,14 +1961,131 @@ def create_wellet_snapshot(
     return snapshot
 
 
+def create_wellet_snapshot_from_option(organisation, product, service_date, option):
+    return create_wellet_snapshot(
+        organisation=organisation,
+        product=product,
+        external_product_id=option.get("external_product_id") or "",
+        external_name=option.get("option_name") or option.get("name") or product.name,
+        price=option.get("price") or ZERO,
+        currency=option.get("currency") or "USD",
+        service_date=service_date,
+        raw_data=option.get("raw") or option,
+    )
+
+
+def build_external_booking_payload(booking):
+    items = []
+
+    for item in booking.items.filter(external_provider="wellet"):
+        items.append(
+            {
+                "external_product_id": item.external_product_id,
+                "external_variant_id": item.external_variant_id,
+                "external_availability_id": item.external_availability_id,
+                "name": item.product_name,
+                "quantity": item.quantity,
+                "unit_price": str(item.unit_price),
+                "service_date": str(item.service_date) if item.service_date else None,
+                "service_time": str(item.service_time) if item.service_time else None,
+                "raw": item.external_raw_data,
+            }
+        )
+
+    return {
+        "booking_code": booking.booking_code,
+        "customer": {
+            "name": booking.customer_name,
+            "email": booking.customer_email,
+            "whatsapp": booking.customer_whatsapp,
+            "hotel": booking.customer_hotel,
+        },
+        "service": {
+            "date": str(booking.service_date) if booking.service_date else None,
+            "time": str(booking.service_time) if booking.service_time else None,
+            "adults": booking.adults,
+            "children": booking.children,
+            "infants": booking.infants,
+            "total_guests": booking.total_guests,
+        },
+        "amounts": {
+            "subtotal": str(booking.subtotal_amount),
+            "total": str(booking.total_amount),
+            "deposit_paid": str(booking.deposit_paid),
+            "balance_due": str(booking.balance_due),
+        },
+        "items": items,
+    }
+
+
+def create_external_booking_order_if_possible(booking):
+    if booking.external_provider != "wellet":
+        return {
+            "ok": False,
+            "skipped": True,
+            "error": "Booking is not a Wellet booking.",
+        }
+
+    config = get_wellet_config(booking.organisation)
+
+    if not config:
+        return {
+            "ok": False,
+            "skipped": True,
+            "error": "Wellet config is missing or disabled.",
+        }
+
+    payload = build_external_booking_payload(booking)
+    client = WelletClient(config)
+    result = client.create_booking_order(payload=payload)
+
+    booking.external_raw_response = result.get("data") or {}
+    booking.external_status = "pending_provider_confirmation"
+
+    if result.get("ok"):
+        data = result.get("data") or {}
+
+        booking.external_status = str(
+            first_value(data, ["status", "order_status", "booking_status"], "created")
+        )
+
+        booking.external_order_id = str(
+            first_value(data, ["order_id", "orderId", "id", "reference"], "")
+        )
+
+        booking.external_booking_id = str(
+            first_value(data, ["booking_id", "bookingId", "reservation_id"], "")
+        )
+
+        booking.external_reference = (
+            booking.external_order_id
+            or booking.external_booking_id
+            or booking.external_reference
+        )
+
+        booking.external_order_created_at = timezone.now()
+
+    elif result.get("skipped"):
+        booking.external_status = "booking_endpoint_not_configured"
+    else:
+        booking.external_status = "provider_error"
+
+    booking.save(
+        update_fields=[
+            "external_raw_response",
+            "external_status",
+            "external_order_id",
+            "external_booking_id",
+            "external_reference",
+            "external_order_created_at",
+            "updated_at",
+        ]
+    )
+
+    return result
+
+
 def sync_wellet_products_to_snapshots(organisation, service_date=None):
-    """
-    Generic Wellet sync placeholder.
-
-    Because Wellet response fields may differ, this tries common keys only.
-    Adjust mapping after you confirm the real API response.
-    """
-
     result = fetch_wellet_products(
         organisation=organisation,
         service_date=service_date,
@@ -1010,43 +2095,22 @@ def sync_wellet_products_to_snapshots(organisation, service_date=None):
         return result
 
     data = result.get("data") or {}
-    items = data.get("products") or data.get("items") or data.get("data") or []
+    options = normalize_wellet_availability(
+        data=data,
+        service_date=service_date,
+    )
 
     snapshots = []
 
-    for item in items:
-        external_product_id = (
-            item.get("id")
-            or item.get("product_id")
-            or item.get("external_id")
-            or item.get("sku")
-            or ""
-        )
-
-        external_name = (
-            item.get("name")
-            or item.get("title")
-            or item.get("description")
-            or ""
-        )
-
-        price = (
-            item.get("price")
-            or item.get("amount")
-            or item.get("total")
-            or ZERO
-        )
-
-        currency = item.get("currency") or data.get("currency") or "USD"
-
+    for option in options:
         snapshot = create_wellet_snapshot(
             organisation=organisation,
-            external_product_id=external_product_id,
-            external_name=external_name,
-            price=price,
-            currency=currency,
+            external_product_id=option.get("external_product_id") or "",
+            external_name=option.get("option_name") or option.get("name") or "",
+            price=option.get("price") or ZERO,
+            currency=option.get("currency") or "USD",
             service_date=service_date,
-            raw_data=item,
+            raw_data=option.get("raw") or option,
         )
         snapshots.append(snapshot)
 

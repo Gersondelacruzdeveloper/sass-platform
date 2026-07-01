@@ -116,13 +116,56 @@ export interface TicketingPublicSiteSettings {
   logo_url?: string | null;
   favicon?: string | null;
   favicon_url?: string | null;
+  hero_title: string;
+  hero_subtitle: string;
+  hero_media_type: "image" | "video";
   hero_image?: string | null;
   hero_image_url?: string | null;
+  hero_video?: string | null;
+  hero_video_file_url?: string | null;
+  hero_video_url: string;
+  hero_video_poster?: string | null;
+  hero_video_poster_url?: string | null;
+  hero_overlay_opacity: Money;
   primary_color: string;
   secondary_color: string;
   accent_color: string;
   background_color: string;
   button_color: string;
+  text_color: string;
+  muted_text_color: string;
+  card_background_color: string;
+  homepage_layout_style: "marketplace" | "luxury" | "minimal" | "adventure";
+  trust_badges: string[];
+  show_category_grid: boolean;
+  show_trust_badges: boolean;
+  show_excursions_section: boolean;
+  show_transfers_section: boolean;
+  show_tickets_section: boolean;
+  show_events_section: boolean;
+  show_nightlife_section: boolean;
+  show_packages_section: boolean;
+  show_ai_assistant_section: boolean;
+  show_final_cta_section: boolean;
+  excursions_section_title: string;
+  excursions_section_subtitle: string;
+  transfers_section_title: string;
+  transfers_section_subtitle: string;
+  tickets_section_title: string;
+  tickets_section_subtitle: string;
+  events_section_title: string;
+  events_section_subtitle: string;
+  nightlife_section_title: string;
+  nightlife_section_subtitle: string;
+  packages_section_title: string;
+  packages_section_subtitle: string;
+  ai_assistant_title: string;
+  ai_assistant_subtitle: string;
+  final_cta_title: string;
+  final_cta_subtitle: string;
+  primary_cta_label: string;
+  secondary_cta_label: string;
+  whatsapp_cta_label: string;
   seo_title: string;
   meta_description: string;
   canonical_url: string;
@@ -274,6 +317,21 @@ export interface EventTicketType {
   sort_order: number;
 }
 
+export interface ProductGalleryImage {
+  id: ID;
+  product: ID;
+  product_name?: string;
+  image: string;
+  image_url?: string | null;
+  alt_text: string;
+  caption: string;
+  sort_order: number;
+  is_cover: boolean;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ExperienceProduct {
   id: ID;
   organisation: ID;
@@ -292,6 +350,7 @@ export interface ExperienceProduct {
   image?: string | null;
   image_url?: string | null;
   gallery: unknown[];
+  gallery_images?: ProductGalleryImage[];
   base_price: Money;
   cost_price: Money;
   profit_per_unit?: Money;

@@ -1,14 +1,14 @@
 // src/modules/ticketing/components/TicketingSidebar.tsx
 
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
   BadgeDollarSign,
   BarChart3,
   CalendarClock,
+  CalendarDays,
+  Clock3,
   Globe2,
   Landmark,
-  LogOut,
-  MapPinned,
   Package,
   Plane,
   Receipt,
@@ -21,18 +21,19 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import type {
-  Seller,
-  SellerPermissions,
-} from "../types/ticketingTypes";
+import type { Seller, SellerPermissions } from "../types/ticketingTypes";
 
 type TicketingPermissionKey = keyof SellerPermissions;
 
 type TicketingSidebarProps = {
   mobileOpen: boolean;
   onClose: () => void;
-  slug: string;
-  currentSeller: Seller | null;
+
+  // Optional so the sidebar works with both the old and new layouts.
+  slug?: string;
+  currentSeller?: Seller | null;
+  currentSellerLoading?: boolean;
+  isOwnerOrAdmin?: boolean;
 };
 
 type NavItem = {
@@ -43,15 +44,19 @@ type NavItem = {
 };
 
 function buildPath(slug: string, path: string) {
+  if (!slug) return "#";
   return `/ticketing/${slug}${path}`;
 }
 
 function getPermissionValue(
-  seller: Seller | null,
+  seller: Seller | null | undefined,
   permission: TicketingPermissionKey
 ) {
   if (!seller) return false;
-  if (seller.role === "owner") return true;
+
+  const role = String(seller.role || "").toLowerCase();
+
+  if (["owner", "admin", "manager"].includes(role)) return true;
 
   if (typeof seller.permissions?.[permission] === "boolean") {
     return Boolean(seller.permissions[permission]);
@@ -65,11 +70,14 @@ function getPermissionValue(
 }
 
 function hasAnyPermission(
-  seller: Seller | null,
+  seller: Seller | null | undefined,
   permissions: TicketingPermissionKey[]
 ) {
   if (!seller) return false;
-  if (seller.role === "owner") return true;
+
+  const role = String(seller.role || "").toLowerCase();
+
+  if (["owner", "admin", "manager"].includes(role)) return true;
 
   return permissions.some((permission) =>
     getPermissionValue(seller, permission)
@@ -80,32 +88,38 @@ export default function TicketingSidebar({
   mobileOpen,
   onClose,
   slug,
-  currentSeller,
+  currentSeller = null,
+  currentSellerLoading = false,
+  isOwnerOrAdmin = false,
 }: TicketingSidebarProps) {
   const location = useLocation();
+  const params = useParams();
+
+  const routeSlug = params.organisationSlug || params.slug || "";
+  const safeSlug = slug || routeSlug;
 
   const navItems: NavItem[] = [
     {
       label: "Dashboard",
-      path: buildPath(slug, "/dashboard"),
+      path: buildPath(safeSlug, "/dashboard"),
       icon: BarChart3,
       permissions: ["can_access_dashboard"],
     },
     {
       label: "Bookings",
-      path: buildPath(slug, "/bookings"),
+      path: buildPath(safeSlug, "/bookings"),
       icon: Receipt,
       permissions: ["can_view_own_sales", "can_create_bookings"],
     },
     {
       label: "New Booking",
-      path: buildPath(slug, "/new-booking"),
+      path: buildPath(safeSlug, "/new-booking"),
       icon: Ticket,
       permissions: ["can_create_bookings"],
     },
     {
       label: "Products",
-      path: buildPath(slug, "/products"),
+      path: buildPath(safeSlug, "/products"),
       icon: Package,
       permissions: [
         "can_manage_products",
@@ -117,95 +131,121 @@ export default function TicketingSidebar({
       ],
     },
     {
+      label: "Pickup Times",
+      path: buildPath(safeSlug, "/pickup-schedules"),
+      icon: Clock3,
+      permissions: ["can_manage_products", "can_override_pickup_time"],
+    },
+    {
+      label: "Availability",
+      path: buildPath(safeSlug, "/availability"),
+      icon: CalendarDays,
+      permissions: ["can_manage_products"],
+    },
+    {
       label: "Excursions",
-      path: buildPath(slug, "/excursions"),
+      path: buildPath(safeSlug, "/excursions"),
       icon: Sparkles,
       permissions: ["can_manage_products", "can_sell_excursions"],
     },
     {
       label: "Transfers",
-      path: buildPath(slug, "/transfers"),
+      path: buildPath(safeSlug, "/transfers"),
       icon: Plane,
       permissions: ["can_manage_products", "can_sell_transfers"],
     },
     {
       label: "Events",
-      path: buildPath(slug, "/events"),
+      path: buildPath(safeSlug, "/events"),
       icon: CalendarClock,
       permissions: ["can_manage_products", "can_sell_events"],
     },
     {
       label: "Sellers",
-      path: buildPath(slug, "/sellers"),
+      path: buildPath(safeSlug, "/sellers"),
       icon: Users,
       permissions: ["can_manage_sellers"],
     },
     {
       label: "Commissions",
-      path: buildPath(slug, "/commissions"),
+      path: buildPath(safeSlug, "/commissions"),
       icon: BadgeDollarSign,
       permissions: ["can_view_own_commissions", "can_view_reports"],
     },
     {
       label: "Reports",
-      path: buildPath(slug, "/reports"),
+      path: buildPath(safeSlug, "/reports"),
       icon: BarChart3,
       permissions: ["can_view_reports"],
     },
     {
-      label: "Pickup Schedules",
-      path: buildPath(slug, "/pickup-schedules"),
-      icon: MapPinned,
-      permissions: ["can_manage_products", "can_override_pickup_time"],
-    },
-    {
       label: "Branding",
-      path: buildPath(slug, "/branding"),
+      path: buildPath(safeSlug, "/branding"),
       icon: Globe2,
       permissions: ["can_manage_settings"],
     },
     {
       label: "Domain",
-      path: buildPath(slug, "/domain"),
+      path: buildPath(safeSlug, "/domain"),
       icon: Landmark,
       permissions: ["can_manage_settings"],
     },
     {
       label: "Integrations",
-      path: buildPath(slug, "/integrations"),
+      path: buildPath(safeSlug, "/integrations"),
       icon: Settings,
       permissions: ["can_manage_integrations"],
     },
     {
       label: "SEO",
-      path: buildPath(slug, "/seo"),
+      path: buildPath(safeSlug, "/seo"),
       icon: Search,
       permissions: ["can_manage_settings"],
     },
     {
       label: "Settings",
-      path: buildPath(slug, "/settings"),
+      path: buildPath(safeSlug, "/settings"),
       icon: Settings,
       permissions: ["can_manage_settings"],
     },
   ];
 
-  const visibleItems = navItems.filter((item) =>
-    hasAnyPermission(currentSeller, item.permissions)
-  );
+  const sellerRole = String(currentSeller?.role || "").toLowerCase();
+
+  // Important:
+  // Do not hide the whole menu while the seller profile is loading.
+  // Owners/admins may not have a seller profile yet, but they must still see the main module menu.
+  const shouldShowAllItems =
+    isOwnerOrAdmin ||
+    !currentSeller ||
+    ["owner", "admin", "manager"].includes(sellerRole);
+
+  const visibleItems = shouldShowAllItems
+    ? navItems
+    : navItems.filter((item) => hasAnyPermission(currentSeller, item.permissions));
+
+  const sellerName =
+    currentSeller?.full_name ||
+    (currentSellerLoading ? "Loading seller..." : "Owner / Admin");
+
+  const sellerSubtitle =
+    currentSeller?.role ||
+    (currentSellerLoading ? "Checking permissions" : "Full module access");
 
   const sidebarContent = (
     <div className="flex h-full flex-col bg-slate-950 text-white">
       <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
-        <Link to={buildPath(slug, "/dashboard")} className="flex items-center gap-3">
+        <Link
+          to={buildPath(safeSlug, "/dashboard")}
+          className="flex items-center gap-3"
+          onClick={onClose}
+        >
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-400 text-slate-950">
             <Ticket className="h-6 w-6" />
           </div>
 
           <div>
-            <p className="text-sm font-black leading-tight">
-              PCD Experiences
-            </p>
+            <p className="text-sm font-black leading-tight">PCD Experiences</p>
             <p className="text-xs font-semibold text-white/50">
               Tickets & Transfers
             </p>
@@ -252,10 +292,10 @@ export default function TicketingSidebar({
             Seller
           </p>
           <p className="mt-1 truncate text-sm font-black text-white">
-            {currentSeller?.full_name || "Loading..."}
+            {sellerName}
           </p>
           <p className="mt-1 truncate text-xs font-semibold text-white/50">
-            {currentSeller?.role || "seller"}
+            {sellerSubtitle}
           </p>
         </div>
       </div>

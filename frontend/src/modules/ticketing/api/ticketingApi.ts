@@ -16,6 +16,7 @@ import type {
   PickupResolveResponse,
   PickupZone,
   ProductAvailability,
+  ProductGalleryImage,
   ProductPickupSchedule,
   ProductReview,
   PublicBrandingResponse,
@@ -33,6 +34,40 @@ import type {
 } from "../types/ticketingTypes";
 
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+export type LiveTicketOption = {
+  provider: "wellet" | "local" | string;
+  external_product_id?: string;
+  external_variant_id?: string;
+  external_availability_id?: string;
+  name?: string;
+  option_name?: string;
+  price?: number | string;
+  currency?: string;
+  available?: boolean;
+  available_quantity?: number | null;
+  sold_out?: boolean;
+  service_date?: string;
+  start_time?: string;
+  end_time?: string;
+  raw?: unknown;
+};
+
+export type LiveProductAvailabilityResponse = {
+  ok: boolean;
+  provider: "wellet" | "local" | string;
+  product?: {
+    id: number;
+    name: string;
+    slug: string;
+    external_product_id?: string;
+  };
+  service_date?: string;
+  options: LiveTicketOption[];
+  raw?: unknown;
+  error?: string;
+};
+
 
 const cleanParams = (params?: QueryParams): QueryParams => {
   if (!params) return {};
@@ -217,6 +252,69 @@ export const ticketingApi = {
     await api.delete(`/ticketing/products/${id}/`, {
       params: withSlug(undefined, slug),
     });
+  },
+
+  // Product gallery images
+  getProductGalleryImages: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<ProductGalleryImage[]> => {
+    const response = await api.get<ProductGalleryImage[]>(
+      "/ticketing/product-gallery-images/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  createProductGalleryImage: async (
+    payload: FormData,
+    slug?: string
+  ): Promise<ProductGalleryImage> => {
+    const response = await api.post<ProductGalleryImage>(
+      "/ticketing/product-gallery-images/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updateProductGalleryImage: async (
+    id: number,
+    payload: UpdatePayload<ProductGalleryImage> | FormData,
+    slug?: string
+  ): Promise<ProductGalleryImage> => {
+    const response = await api.patch<ProductGalleryImage>(
+      `/ticketing/product-gallery-images/${id}/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  deleteProductGalleryImage: async (id: number, slug?: string): Promise<void> => {
+    await api.delete(`/ticketing/product-gallery-images/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  makeProductGalleryImageCover: async (
+    id: number,
+    slug?: string
+  ): Promise<ProductGalleryImage> => {
+    const response = await api.post<ProductGalleryImage>(
+      `/ticketing/product-gallery-images/${id}/make-cover/`,
+      {},
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
   },
 
   // Packages and availability
@@ -766,6 +864,19 @@ export const ticketingApi = {
     return response.data;
   },
 
+  getLiveAvailability: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<LiveProductAvailabilityResponse> => {
+    const response = await api.get<LiveProductAvailabilityResponse>(
+      "/ticketing/live-availability/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
   // Public website API
   getPublicBranding: async (slug: string): Promise<PublicBrandingResponse> => {
     const response = await api.get<PublicBrandingResponse>(`/ticketing/public/${slug}/branding/`);
@@ -776,6 +887,20 @@ export const ticketingApi = {
     const response = await api.get<ExperienceProduct[]>("/ticketing/public/products/", {
       params: withSlug(params, slug),
     });
+    return response.data;
+  },
+
+  getPublicProductAvailability: async (
+    slug: string,
+    productSlug: string,
+    params?: QueryParams
+  ): Promise<LiveProductAvailabilityResponse> => {
+    const response = await api.get<LiveProductAvailabilityResponse>(
+      `/ticketing/public/${slug}/products/${productSlug}/availability/`,
+      {
+        params: cleanParams(params),
+      }
+    );
     return response.data;
   },
 
@@ -810,5 +935,7 @@ export const ticketingApi = {
     return response.data;
   },
 };
+
+
 
 export default ticketingApi;

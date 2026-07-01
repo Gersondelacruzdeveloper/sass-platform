@@ -81,6 +81,18 @@ class TicketingSettings(models.Model):
 
 
 class TicketingPublicSiteSettings(models.Model):
+    HERO_MEDIA_TYPE_CHOICES = (
+        ("image", "Image"),
+        ("video", "Video"),
+    )
+
+    HOMEPAGE_LAYOUT_STYLE_CHOICES = (
+        ("marketplace", "Marketplace"),
+        ("luxury", "Luxury"),
+        ("minimal", "Minimal"),
+        ("adventure", "Adventure"),
+    )
+
     organisation = models.OneToOneField(
         Organisation,
         on_delete=models.CASCADE,
@@ -89,6 +101,32 @@ class TicketingPublicSiteSettings(models.Model):
 
     site_title = models.CharField(max_length=255, blank=True)
     public_description = models.TextField(blank=True)
+
+    hero_title = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Main headline shown on the public home page.",
+    )
+    hero_subtitle = models.TextField(
+        blank=True,
+        help_text="Short subtitle shown under the public home page headline.",
+    )
+
+    primary_cta_label = models.CharField(
+        max_length=80,
+        default="Explore Experiences",
+        blank=True,
+    )
+    secondary_cta_label = models.CharField(
+        max_length=80,
+        default="Book Transfers",
+        blank=True,
+    )
+    whatsapp_cta_label = models.CharField(
+        max_length=80,
+        default="Chat via WhatsApp",
+        blank=True,
+    )
 
     public_email = models.EmailField(blank=True, null=True)
     public_whatsapp = models.CharField(max_length=30, blank=True, null=True)
@@ -108,10 +146,43 @@ class TicketingPublicSiteSettings(models.Model):
         null=True,
     )
 
+    hero_media_type = models.CharField(
+        max_length=20,
+        choices=HERO_MEDIA_TYPE_CHOICES,
+        default="image",
+        help_text="Choose whether the public home hero uses an uploaded image or video.",
+    )
+
     hero_image = models.ImageField(
         upload_to="ticketing/public/hero/",
         blank=True,
         null=True,
+    )
+
+    hero_video = models.FileField(
+        upload_to="ticketing/public/hero-videos/",
+        blank=True,
+        null=True,
+        help_text="Optional uploaded hero video for the public home page.",
+    )
+
+    hero_video_url = models.URLField(
+        blank=True,
+        help_text="Optional external hero video URL. Useful for CDN, S3, Spaces or Cloudinary.",
+    )
+
+    hero_video_poster = models.ImageField(
+        upload_to="ticketing/public/hero-posters/",
+        blank=True,
+        null=True,
+        help_text="Poster image shown before the video loads.",
+    )
+
+    hero_overlay_opacity = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("0.45"),
+        help_text="Overlay opacity over the hero media. Example: 0.45.",
     )
 
     primary_color = models.CharField(max_length=20, default="#111827")
@@ -119,6 +190,64 @@ class TicketingPublicSiteSettings(models.Model):
     accent_color = models.CharField(max_length=20, default="#F59E0B")
     background_color = models.CharField(max_length=20, default="#FFFFFF")
     button_color = models.CharField(max_length=20, default="#111827")
+    text_color = models.CharField(max_length=20, default="#111827")
+    muted_text_color = models.CharField(max_length=20, default="#6B7280")
+    card_background_color = models.CharField(max_length=20, default="#FFFFFF")
+
+    homepage_layout_style = models.CharField(
+        max_length=30,
+        choices=HOMEPAGE_LAYOUT_STYLE_CHOICES,
+        default="marketplace",
+    )
+
+    trust_badges = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Public home trust badges. Example: ['5,000+ Happy Travelers', 'Resort Pickup'].",
+    )
+
+    show_category_grid = models.BooleanField(default=True)
+    show_trust_badges = models.BooleanField(default=True)
+    show_excursions_section = models.BooleanField(default=True)
+    show_transfers_section = models.BooleanField(default=True)
+    show_tickets_section = models.BooleanField(default=True)
+    show_events_section = models.BooleanField(default=True)
+    show_nightlife_section = models.BooleanField(default=True)
+    show_packages_section = models.BooleanField(default=True)
+    show_ai_assistant_section = models.BooleanField(default=True)
+    show_final_cta_section = models.BooleanField(default=True)
+
+    excursions_section_title = models.CharField(max_length=150, default="Top Experiences in Punta Cana", blank=True)
+    excursions_section_subtitle = models.CharField(max_length=255, default="Handpicked adventures you’ll never forget.", blank=True)
+
+    transfers_section_title = models.CharField(max_length=150, default="Transfers", blank=True)
+    transfers_section_subtitle = models.CharField(max_length=255, default="Private, reliable rides — airport, hotels and long distance.", blank=True)
+
+    tickets_section_title = models.CharField(max_length=150, default="Tickets & Attractions", blank=True)
+    tickets_section_subtitle = models.CharField(max_length=255, default="Book tickets and attractions with secure reservation options.", blank=True)
+
+    events_section_title = models.CharField(max_length=150, default="Events", blank=True)
+    events_section_subtitle = models.CharField(max_length=255, default="Discover local events, shows and limited-date experiences.", blank=True)
+
+    nightlife_section_title = models.CharField(max_length=150, default="Nightlife", blank=True)
+    nightlife_section_subtitle = models.CharField(max_length=255, default="Nightlife tickets, premium experiences and evening activities.", blank=True)
+
+    packages_section_title = models.CharField(max_length=150, default="Packages & Deals", blank=True)
+    packages_section_subtitle = models.CharField(max_length=255, default="Bundles with better prices — VIP, family and adventure packages.", blank=True)
+
+    ai_assistant_title = models.CharField(max_length=150, default="Meet Your Travel Assistant 🌴", blank=True)
+    ai_assistant_subtitle = models.CharField(
+        max_length=255,
+        default="Ask anything — best experiences, pickup from your hotel, or quick recommendations.",
+        blank=True,
+    )
+
+    final_cta_title = models.CharField(max_length=150, default="Ready to Start Your Adventure?", blank=True)
+    final_cta_subtitle = models.CharField(
+        max_length=255,
+        default="Punta Cana Discovery makes booking simple, fast, and secure.",
+        blank=True,
+    )
 
     seo_title = models.CharField(max_length=255, blank=True)
     meta_description = models.TextField(blank=True)
@@ -378,6 +507,46 @@ class ExperienceProduct(models.Model):
             models.Index(fields=["organisation", "product_type"]),
             models.Index(fields=["organisation", "status"]),
             models.Index(fields=["organisation", "public_enabled"]),
+        ]
+
+
+
+class ProductGalleryImage(models.Model):
+    product = models.ForeignKey(
+        ExperienceProduct,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+    )
+
+    image = models.ImageField(
+        upload_to="ticketing/products/gallery/",
+    )
+
+    alt_text = models.CharField(max_length=255, blank=True)
+    caption = models.CharField(max_length=255, blank=True)
+
+    sort_order = models.PositiveIntegerField(default=0)
+    is_cover = models.BooleanField(
+        default=False,
+        help_text="If true, this image can be used as the main public cover image.",
+    )
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def organisation(self):
+        return self.product.organisation
+
+    def __str__(self):
+        return f"{self.product.name} - Image {self.id}"
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        indexes = [
+            models.Index(fields=["product", "is_active"]),
+            models.Index(fields=["product", "sort_order"]),
         ]
 
 
@@ -1338,6 +1507,15 @@ class Booking(models.Model):
     external_provider = models.CharField(max_length=50, blank=True)
     external_reference = models.CharField(max_length=150, blank=True)
 
+    external_order_id = models.CharField(max_length=150, blank=True)
+    external_booking_id = models.CharField(max_length=150, blank=True)
+    external_status = models.CharField(max_length=80, blank=True)
+    external_currency = models.CharField(max_length=10, blank=True)
+
+    external_validation_response = models.JSONField(default=dict, blank=True)
+    external_raw_response = models.JSONField(default=dict, blank=True)
+    external_order_created_at = models.DateTimeField(null=True, blank=True)
+
     cancellation_reason = models.TextField(blank=True)
 
     created_by = models.ForeignKey(
@@ -1430,6 +1608,12 @@ class BookingItem(models.Model):
         blank=True,
         related_name="booking_items",
     )
+    external_provider = models.CharField(max_length=50, blank=True)
+    external_product_id = models.CharField(max_length=150, blank=True)
+    external_variant_id = models.CharField(max_length=150, blank=True)
+    external_availability_id = models.CharField(max_length=150, blank=True)
+    external_option_name = models.CharField(max_length=255, blank=True)
+    external_raw_data = models.JSONField(default=dict, blank=True)
 
     product_name = models.CharField(max_length=255)
     product_type = models.CharField(max_length=30, blank=True)

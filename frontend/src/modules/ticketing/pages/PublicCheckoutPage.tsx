@@ -1,0 +1,942 @@
+// src/modules/ticketing/pages/PublicCheckoutPage.tsx
+
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  Mail,
+  MapPin,
+  MessageCircle,
+  ShieldCheck,
+  Ticket,
+  User,
+  Users,
+} from "lucide-react";
+
+import ticketingApi from "../api/ticketingApi";
+import type {
+  Booking,
+  ExperienceProduct,
+  PublicBrandingResponse,
+} from "../types/ticketingTypes";
+
+type PublicTheme = {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  button: string;
+  text: string;
+  muted: string;
+  card: string;
+};
+
+type PaymentChoice = "deposit" | "full" | "pending" | "cash";
+
+type CheckoutForm = {
+  full_name: string;
+  whatsapp: string;
+  email: string;
+  hotel_name: string;
+  notes: string;
+};
+
+function getApiOrigin() {
+  const baseUrl =
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
+    "http://127.0.0.1:8000/api";
+
+  return baseUrl.replace(/\/api\/?$/, "");
+}
+
+function resolveAssetUrl(url?: string | null) {
+  if (!url) return "";
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  const apiOrigin = getApiOrigin();
+
+  return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function hexToRgba(hex: string, opacity: number) {
+  const cleanHex = String(hex || "#111827").replace("#", "");
+
+  const normalized =
+    cleanHex.length === 3
+      ? cleanHex
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : cleanHex.padEnd(6, "0").slice(0, 6);
+
+  const number = parseInt(normalized, 16);
+
+  if (Number.isNaN(number)) return `rgba(17, 24, 39, ${opacity})`;
+
+  const red = (number >> 16) & 255;
+  const green = (number >> 8) & 255;
+  const blue = number & 255;
+
+  return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
+}
+
+function getPublicTheme(publicSite: any): PublicTheme {
+  return {
+    primary: publicSite?.primary_color || "#111827",
+    secondary: publicSite?.secondary_color || "#3092B5",
+    accent: publicSite?.accent_color || "#F59E0B",
+    background: publicSite?.background_color || "#F8FAFC",
+    button: publicSite?.button_color || publicSite?.primary_color || "#111827",
+    text: publicSite?.text_color || "#111827",
+    muted: publicSite?.muted_text_color || "#64748B",
+    card: publicSite?.card_background_color || "#FFFFFF",
+  };
+}
+
+function money(value: unknown, symbol = "US$") {
+  const amount = Number(value || 0);
+
+  return `${symbol} ${amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function parseNumber(value: string | null, fallback = 0) {
+  const number = Number(value || "");
+
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeTime(value: string | null) {
+  if (!value) return null;
+
+  // Backend TimeField accepts HH:MM or HH:MM:SS. Keep seconds when present.
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(value)) return value;
+
+  return null;
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+
+  const [hoursRaw, minutesRaw] = value.split(":");
+  const hours = Number(hoursRaw);
+
+  if (Number.isNaN(hours)) return value;
+
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+
+  return `${hour12}:${minutesRaw || "00"} ${suffix}`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function paymentModeFor(choice: PaymentChoice) {
+  if (choice === "full") return "customer_full_online";
+  if (choice === "deposit") return "customer_deposit_online";
+  if (choice === "cash") return "customer_cash_to_seller";
+  return "pending_payment";
+}
+
+function paymentMethodFor(choice: PaymentChoice) {
+  if (choice === "cash") return "cash";
+  if (choice === "full" || choice === "deposit") return "online";
+  return "none";
+}
+
+function paymentStatusFor(choice: PaymentChoice) {
+  if (choice === "full" || choice === "deposit") return "pending";
+  return "unpaid";
+}
+
+function paymentLabel(choice: PaymentChoice) {
+  if (choice === "full") return "Pay total amount";
+  if (choice === "deposit") return "Pay deposit";
+  if (choice === "cash") return "Pay in person";
+  return "Reserve now, pay later";
+}
+
+function shouldCreatePendingPayment(choice: PaymentChoice) {
+  return choice === "full" || choice === "deposit";
+}
+
+function getFormErrorMessage(err: any) {
+  const data = err?.response?.data;
+
+  if (!data) return "Could not create booking. Please try again.";
+  if (typeof data === "string") return data;
+  if (data.detail) return String(data.detail);
+  if (data.message) return String(data.message);
+
+  const firstKey = Object.keys(data)[0];
+
+  if (firstKey) {
+    const value = data[firstKey];
+
+    if (Array.isArray(value)) return `${firstKey}: ${value.join(", ")}`;
+    return `${firstKey}: ${String(value)}`;
+  }
+
+  return "Could not create booking. Please check the information and try again.";
+}
+
+export default function PublicCheckoutPage() {
+  const { organisationSlug = "" } = useParams<{ organisationSlug: string }>();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
+  const [products, setProducts] = useState<ExperienceProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const productSlug = searchParams.get("product") || "";
+  const productId = searchParams.get("product_id") || "";
+  const serviceDate = searchParams.get("service_date") || "";
+  const adults = Math.max(1, parseNumber(searchParams.get("adults"), 1));
+  const children = Math.max(0, parseNumber(searchParams.get("children"), 0));
+  const infants = Math.max(0, parseNumber(searchParams.get("infants"), 0));
+  const guests = adults + children + infants;
+  const paymentChoice = (searchParams.get("payment") || "pending") as PaymentChoice;
+  const pickupLocationId = searchParams.get("pickup_location_id") || "";
+  const hotelFromQuery = searchParams.get("hotel") || "";
+  const pickupTime = normalizeTime(searchParams.get("pickup_time"));
+  const pickupPoint = searchParams.get("pickup_point") || "";
+  const sellerSlug = searchParams.get("seller") || "";
+  const unitPriceOverride = searchParams.get("unit_price");
+  const depositOverride = searchParams.get("deposit_amount");
+
+  const externalProvider = searchParams.get("external_provider") || "";
+  const externalProductId = searchParams.get("external_product_id") || "";
+  const externalVariantId = searchParams.get("external_variant_id") || "";
+  const externalAvailabilityId =
+    searchParams.get("external_availability_id") || "";
+  const selectedExternalProductIdFromUrl =
+    searchParams.get("selected_external_product_id") || "";
+  const externalOptionName = searchParams.get("external_option_name") || "";
+
+  /*
+   * IMPORTANT:
+   * The product page may send selected_external_product_id as "84:18"
+   * because that is a unique performance + product key.
+   *
+   * The backend final validation can match external_product_id, external_variant_id,
+   * or external_availability_id, but the safest value for Wellet products is the
+   * real Wellet product id, for example "18", "3327", "17", or "76".
+   *
+   * So for final validation we prefer external_product_id first, while still
+   * sending the availability id separately for audit/debug.
+   */
+  const selectedExternalProductId =
+    externalProductId ||
+    externalVariantId ||
+    externalAvailabilityId ||
+    selectedExternalProductIdFromUrl ||
+    "";
+
+  const [form, setForm] = useState<CheckoutForm>({
+    full_name: "",
+    whatsapp: "",
+    email: "",
+    hotel_name: hotelFromQuery,
+    notes: "",
+  });
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      hotel_name: hotelFromQuery || current.hotel_name,
+    }));
+  }, [hotelFromQuery]);
+
+  async function loadPage() {
+    if (!organisationSlug) return;
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const [brandingResponse, productsResponse] = await Promise.all([
+        ticketingApi.getPublicBranding(organisationSlug),
+        ticketingApi.getPublicProducts(organisationSlug, {
+          public_enabled: true,
+          status: "active",
+        }),
+      ]);
+
+      setBranding(brandingResponse);
+      setProducts(Array.isArray(productsResponse) ? productsResponse : []);
+    } catch (err: any) {
+      console.error("Could not load checkout:", err);
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "We could not load checkout."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPage();
+  }, [organisationSlug]);
+
+  const publicSite = branding?.public_site as any;
+  const ticketingSettings = branding?.ticketing_settings;
+  const organisation = branding?.organisation;
+
+  const theme = useMemo(() => getPublicTheme(publicSite), [publicSite]);
+
+  const brandName =
+    publicSite?.site_title ||
+    publicSite?.display_title ||
+    ticketingSettings?.public_brand_name ||
+    organisation?.name ||
+    "PCD Experiences";
+
+  const currencySymbol = ticketingSettings?.currency_symbol || "US$";
+  const logoUrl = resolveAssetUrl(publicSite?.logo_url || publicSite?.logo);
+
+  const product = useMemo(() => {
+    return (
+      products.find((item) => String(item.id) === productId) ||
+      products.find((item) => item.slug === productSlug) ||
+      null
+    );
+  }, [products, productId, productSlug]);
+
+  const isExternalBooking =
+    externalProvider === "wellet" ||
+    Boolean(selectedExternalProductId) ||
+    Boolean(externalProductId) ||
+    Boolean(externalVariantId) ||
+    Boolean(externalAvailabilityId);
+
+  const selectedTicketLabel = externalOptionName || product?.name || "Ticket option";
+  const selectedTicketDebugId =
+    externalProductId ||
+    externalVariantId ||
+    externalAvailabilityId ||
+    selectedExternalProductIdFromUrl ||
+    "";
+
+  const unitPrice = useMemo(() => {
+    const override = parseNumber(unitPriceOverride, NaN);
+
+    if (Number.isFinite(override)) return override;
+
+    return Number(product?.base_price || 0);
+  }, [product, unitPriceOverride]);
+
+  const depositPerGuest = useMemo(() => {
+    const override = parseNumber(depositOverride, NaN);
+
+    if (Number.isFinite(override)) return override;
+
+    return Number(product?.deposit_amount || 0);
+  }, [product, depositOverride]);
+
+  const totalFull = unitPrice * guests;
+
+  const depositFromPercent =
+    Number(product?.deposit_percentage || 0) > 0
+      ? totalFull * (Number(product?.deposit_percentage || 0) / 100)
+      : 0;
+
+  const totalDeposit =
+    paymentChoice === "full"
+      ? totalFull
+      : paymentChoice === "deposit"
+        ? depositPerGuest > 0
+          ? depositPerGuest * guests
+          : depositFromPercent
+        : 0;
+
+  const payNow = Math.min(totalFull, Math.max(0, totalDeposit));
+  const payLater = Math.max(0, totalFull - payNow);
+
+  function updateField(field: keyof CheckoutForm, value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function validateForm() {
+    if (!product) return "Product was not found.";
+    if (!serviceDate) return "Service date is required.";
+    if (!form.full_name.trim()) return "Full name is required.";
+    if (!form.whatsapp.trim()) return "WhatsApp number is required.";
+
+    if ((product.requires_pickup_location || product.supports_pickup) && !pickupLocationId) {
+      return "Pickup location is required.";
+    }
+
+    if (isExternalBooking && !selectedExternalProductId) {
+      return "Ticket option is required. Please go back and select an available Coco Bongo ticket option.";
+    }
+
+    return "";
+  }
+
+  async function submitBooking(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const validationMessage = validateForm();
+
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
+
+    if (!product) return;
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      const itemPayload: any = {
+        product_id: product.id,
+        product_name: product.name,
+        service_date: serviceDate,
+        service_time: pickupTime,
+        quantity: guests,
+        unit_price: unitPrice.toFixed(2),
+        instructions: [
+          externalOptionName ? `Ticket option: ${externalOptionName}` : "",
+          pickupPoint ? `Pickup point: ${pickupPoint}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      };
+
+      if (isExternalBooking) {
+        itemPayload.selected_external_product_id = selectedExternalProductId;
+        itemPayload.external_product_id = externalProductId || selectedExternalProductId;
+        itemPayload.external_variant_id = externalVariantId || externalProductId || selectedExternalProductId;
+        itemPayload.external_availability_id = externalAvailabilityId;
+        itemPayload.external_option_name = externalOptionName;
+        itemPayload.external_provider = externalProvider || "wellet";
+      }
+
+      const paymentsPayload = shouldCreatePendingPayment(paymentChoice)
+        ? [
+            {
+              amount: payNow.toFixed(2),
+              payment_type: paymentChoice === "full" ? "full" : "deposit",
+              payer_type: "customer",
+              method: "online",
+              status: "pending",
+              reference: "",
+              note:
+                paymentChoice === "full"
+                  ? "Customer selected online full payment. Payment is pending gateway confirmation."
+                  : "Customer selected online deposit payment. Payment is pending gateway confirmation.",
+            },
+          ]
+        : [];
+
+      const payload: any = {
+        primary_product: product.id,
+        source: "public_site",
+        external_provider: isExternalBooking ? externalProvider || "wellet" : "",
+        external_reference: isExternalBooking ? selectedExternalProductId : "",
+        status: "pending_payment",
+        payment_status: paymentStatusFor(paymentChoice),
+        payment_mode: paymentModeFor(paymentChoice),
+        payment_method: paymentMethodFor(paymentChoice),
+        service_date: serviceDate,
+        service_time: pickupTime,
+        customer_name: form.full_name.trim(),
+        customer_whatsapp: form.whatsapp.trim(),
+        customer_email: form.email.trim() || null,
+        customer_hotel: form.hotel_name.trim() || hotelFromQuery || "",
+        customer_notes: form.notes.trim(),
+        adults,
+        children,
+        infants,
+        subtotal_amount: totalFull.toFixed(2),
+        discount_amount: "0.00",
+        tax_amount: "0.00",
+        total_amount: totalFull.toFixed(2),
+        deposit_required: payNow.toFixed(2),
+        deposit_paid: "0.00",
+        balance_due: totalFull.toFixed(2),
+        pickup_location_id: pickupLocationId ? Number(pickupLocationId) : null,
+        items_payload: [itemPayload],
+        payments_payload: paymentsPayload,
+      };
+
+      if (sellerSlug) {
+        payload.seller_slug = sellerSlug;
+      }
+
+      const booking: Booking = sellerSlug
+        ? await ticketingApi.createPublicSellerBooking(
+            organisationSlug,
+            sellerSlug,
+            payload
+          )
+        : await ticketingApi.createPublicBooking(organisationSlug, payload);
+
+      navigate(
+        `/experiences/${organisationSlug}/confirmation/${booking.booking_code}`,
+        {
+          replace: true,
+          state: { booking, product, currencySymbol, brandName },
+        }
+      );
+    } catch (err: any) {
+      console.error("Could not create public booking:", err);
+      setError(getFormErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <PublicShell
+        organisationSlug={organisationSlug}
+        brandName={brandName}
+        logoUrl={logoUrl}
+        theme={theme}
+      >
+        <div
+          className="rounded-3xl border p-10 text-center"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <Loader2
+            className="mx-auto h-8 w-8 animate-spin"
+            style={{ color: theme.accent }}
+          />
+          <p className="mt-3 text-sm font-bold" style={{ color: theme.muted }}>
+            Loading checkout...
+          </p>
+        </div>
+      </PublicShell>
+    );
+  }
+
+  return (
+    <PublicShell
+      organisationSlug={organisationSlug}
+      brandName={brandName}
+      logoUrl={logoUrl}
+      theme={theme}
+    >
+      <div className="mb-6">
+        <Link
+          to={
+            product
+              ? `/experiences/${organisationSlug}/product/${product.slug}`
+              : `/experiences/${organisationSlug}`
+          }
+          className="inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-extrabold"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+            color: theme.text,
+          }}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </Link>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
+        <form
+          onSubmit={submitBooking}
+          className="rounded-3xl border p-5 shadow-sm sm:p-6"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <p className="text-sm font-black uppercase tracking-wide" style={{ color: theme.accent }}>
+            Checkout
+          </p>
+
+          <h1 className="mt-2 text-2xl font-black tracking-tight" style={{ color: theme.text }}>
+            Complete your booking
+          </h1>
+
+          <p className="mt-2 text-sm font-semibold leading-6" style={{ color: theme.muted }}>
+            Enter your details. Your pickup time is already calculated from the selected hotel and date.
+          </p>
+
+          {error && (
+            <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Full name"
+              value={form.full_name}
+              onChange={(value) => updateField("full_name", value)}
+              placeholder="John Smith"
+              icon={<User className="h-4 w-4" />}
+              required
+              theme={theme}
+            />
+
+            <Input
+              label="WhatsApp"
+              value={form.whatsapp}
+              onChange={(value) => updateField("whatsapp", value)}
+              placeholder="+1 829 000 0000"
+              icon={<MessageCircle className="h-4 w-4" />}
+              required
+              theme={theme}
+            />
+
+            <Input
+              label="Email"
+              type="email"
+              value={form.email}
+              onChange={(value) => updateField("email", value)}
+              placeholder="customer@email.com"
+              icon={<Mail className="h-4 w-4" />}
+              theme={theme}
+            />
+
+            <Input
+              label="Hotel / pickup location"
+              value={form.hotel_name}
+              onChange={(value) => updateField("hotel_name", value)}
+              placeholder="Hotel name"
+              icon={<MapPin className="h-4 w-4" />}
+              theme={theme}
+            />
+          </div>
+
+          <Textarea
+            label="Notes"
+            value={form.notes}
+            onChange={(value) => updateField("notes", value)}
+            placeholder="Room number, special requests, allergies, flight info..."
+            theme={theme}
+          />
+
+          <div className="mt-6 rounded-2xl border p-4" style={{
+            backgroundColor: hexToRgba(theme.primary, 0.04),
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}>
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" style={{ color: theme.accent }} />
+              <div>
+                <p className="text-sm font-black" style={{ color: theme.text }}>
+                  Payment note
+                </p>
+                <p className="mt-1 text-xs font-semibold leading-5" style={{ color: theme.muted }}>
+                  This checkout creates the booking and stores the selected payment option.
+                  Online payments are marked as pending until a payment gateway confirms them.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting || !product}
+            className="mt-6 inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+            style={{ backgroundColor: theme.button }}
+          >
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+            Confirm booking
+          </button>
+        </form>
+
+        <aside
+          className="rounded-3xl border p-5 shadow-sm sm:p-6"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <p className="text-sm font-black uppercase tracking-wide" style={{ color: theme.accent }}>
+            Booking summary
+          </p>
+
+          <h2 className="mt-2 text-xl font-black" style={{ color: theme.text }}>
+            {product?.name || productSlug || "Selected experience"}
+          </h2>
+
+          <div className="mt-5 space-y-3">
+            <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Product" value={product?.name || productSlug} theme={theme} />
+            {isExternalBooking && (
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={selectedTicketLabel} theme={theme} />
+            )}
+            {isExternalBooking && selectedTicketDebugId && (
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Wellet ticket ID" value={selectedTicketDebugId} theme={theme} />
+            )}
+            <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Date" value={formatDate(serviceDate)} theme={theme} />
+            <SummaryRow icon={<Users className="h-4 w-4" />} label="Guests" value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
+            {hotelFromQuery && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup hotel" value={hotelFromQuery} theme={theme} />
+            )}
+            {pickupTime && (
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Pickup time" value={formatTime(pickupTime)} theme={theme} />
+            )}
+            {pickupPoint && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup point" value={pickupPoint} theme={theme} />
+            )}
+          </div>
+
+          <div
+            className="mt-6 rounded-2xl border p-4"
+            style={{
+              backgroundColor: hexToRgba(theme.primary, 0.04),
+              borderColor: hexToRgba(theme.primary, 0.12),
+            }}
+          >
+            <div className="flex items-center justify-between text-sm font-black">
+              <span style={{ color: theme.text }}>Payment option</span>
+              <span style={{ color: theme.text }}>{paymentLabel(paymentChoice)}</span>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between text-sm font-bold">
+              <span style={{ color: theme.muted }}>Total</span>
+              <span style={{ color: theme.text }}>{money(totalFull, currencySymbol)}</span>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-sm font-bold">
+              <span style={{ color: theme.muted }}>Pay now</span>
+              <span style={{ color: theme.text }}>{money(payNow, currencySymbol)}</span>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-sm font-bold">
+              <span style={{ color: theme.muted }}>Pay later</span>
+              <span style={{ color: theme.text }}>{money(payLater, currencySymbol)}</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </PublicShell>
+  );
+}
+
+function PublicShell({
+  organisationSlug,
+  brandName,
+  logoUrl,
+  theme,
+  children,
+}: {
+  organisationSlug: string;
+  brandName: string;
+  logoUrl: string;
+  theme: PublicTheme;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="min-h-screen"
+      style={{
+        backgroundColor: theme.background,
+        color: theme.text,
+      }}
+    >
+      <header
+        className="sticky top-0 z-30 border-b backdrop-blur-xl"
+        style={{
+          backgroundColor: hexToRgba(theme.card, 0.92),
+          borderColor: hexToRgba(theme.primary, 0.12),
+        }}
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <Link to={`/experiences/${organisationSlug}`} className="flex items-center gap-3">
+            <div
+              className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl"
+              style={{
+                backgroundColor: hexToRgba(theme.accent, 0.15),
+                color: theme.accent,
+              }}
+            >
+              {logoUrl ? (
+                <img src={logoUrl} alt={brandName} className="h-full w-full object-cover" />
+              ) : (
+                <Ticket className="h-6 w-6" />
+              )}
+            </div>
+
+            <div>
+              <p className="text-sm font-black" style={{ color: theme.text }}>
+                {brandName}
+              </p>
+              <p className="text-xs font-bold" style={{ color: theme.muted }}>
+                Secure checkout
+              </p>
+            </div>
+          </Link>
+
+          <Link
+            to={`/experiences/${organisationSlug}`}
+            className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
+            style={{
+              backgroundColor: theme.card,
+              borderColor: hexToRgba(theme.primary, 0.12),
+              color: theme.text,
+            }}
+          >
+            Home
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 pb-14 pt-8 sm:px-6">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  icon,
+  required = false,
+  theme,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+  icon?: ReactNode;
+  required?: boolean;
+  theme: PublicTheme;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-black" style={{ color: theme.text }}>
+        {label}
+        {required && <span style={{ color: theme.accent }}> *</span>}
+      </span>
+
+      <div
+        className="mt-2 flex h-12 items-center gap-3 rounded-2xl border px-4"
+        style={{
+          backgroundColor: hexToRgba(theme.primary, 0.04),
+          borderColor: hexToRgba(theme.primary, 0.12),
+          color: theme.muted,
+        }}
+      >
+        {icon}
+        <input
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+          style={{ color: theme.text }}
+          required={required}
+        />
+      </div>
+    </label>
+  );
+}
+
+function Textarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+  theme,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  theme: PublicTheme;
+}) {
+  return (
+    <label className="mt-4 block">
+      <span className="text-sm font-black" style={{ color: theme.text }}>
+        {label}
+      </span>
+
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="mt-2 min-h-28 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none"
+        style={{
+          backgroundColor: hexToRgba(theme.primary, 0.04),
+          borderColor: hexToRgba(theme.primary, 0.12),
+          color: theme.text,
+        }}
+      />
+    </label>
+  );
+}
+
+function SummaryRow({
+  icon,
+  label,
+  value,
+  theme,
+}: {
+  icon: ReactNode;
+  label: string;
+  value?: string | null;
+  theme: PublicTheme;
+}) {
+  return (
+    <div
+      className="flex items-start gap-3 rounded-2xl border p-3"
+      style={{
+        backgroundColor: hexToRgba(theme.primary, 0.04),
+        borderColor: hexToRgba(theme.primary, 0.12),
+      }}
+    >
+      <div style={{ color: theme.accent }}>{icon}</div>
+      <div>
+        <p className="text-xs font-black uppercase tracking-wide" style={{ color: theme.muted }}>
+          {label}
+        </p>
+        <p className="mt-1 text-sm font-black" style={{ color: theme.text }}>
+          {value || "—"}
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -9,6 +9,7 @@ from .models import (
     TicketingPublicSiteSettings,
     ExperienceCategory,
     ExperienceProduct,
+    ProductGalleryImage,
     ExperiencePackage,
     ProductAvailability,
     PickupZone,
@@ -30,6 +31,11 @@ from .models import (
     ProductReview,
 )
 
+from .services import (
+    validate_external_product_before_booking,
+    create_wellet_snapshot_from_option,
+    create_external_booking_order_if_possible,
+)
 
 User = get_user_model()
 
@@ -142,6 +148,8 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
     logo_url = serializers.SerializerMethodField()
     favicon_url = serializers.SerializerMethodField()
     hero_image_url = serializers.SerializerMethodField()
+    hero_video_file_url = serializers.SerializerMethodField()
+    hero_video_poster_url = serializers.SerializerMethodField()
     og_image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -153,6 +161,11 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "site_title",
             "display_title",
             "public_description",
+            "hero_title",
+            "hero_subtitle",
+            "primary_cta_label",
+            "secondary_cta_label",
+            "whatsapp_cta_label",
             "public_email",
             "public_whatsapp",
             "subdomain",
@@ -161,13 +174,51 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "logo_url",
             "favicon",
             "favicon_url",
+            "hero_media_type",
             "hero_image",
             "hero_image_url",
+            "hero_video",
+            "hero_video_file_url",
+            "hero_video_url",
+            "hero_video_poster",
+            "hero_video_poster_url",
+            "hero_overlay_opacity",
             "primary_color",
             "secondary_color",
             "accent_color",
             "background_color",
             "button_color",
+            "text_color",
+            "muted_text_color",
+            "card_background_color",
+            "homepage_layout_style",
+            "trust_badges",
+            "show_category_grid",
+            "show_trust_badges",
+            "show_excursions_section",
+            "show_transfers_section",
+            "show_tickets_section",
+            "show_events_section",
+            "show_nightlife_section",
+            "show_packages_section",
+            "show_ai_assistant_section",
+            "show_final_cta_section",
+            "excursions_section_title",
+            "excursions_section_subtitle",
+            "transfers_section_title",
+            "transfers_section_subtitle",
+            "tickets_section_title",
+            "tickets_section_subtitle",
+            "events_section_title",
+            "events_section_subtitle",
+            "nightlife_section_title",
+            "nightlife_section_subtitle",
+            "packages_section_title",
+            "packages_section_subtitle",
+            "ai_assistant_title",
+            "ai_assistant_subtitle",
+            "final_cta_title",
+            "final_cta_subtitle",
             "seo_title",
             "meta_description",
             "canonical_url",
@@ -195,6 +246,8 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "logo_url",
             "favicon_url",
             "hero_image_url",
+            "hero_video_file_url",
+            "hero_video_poster_url",
             "og_image_url",
             "created_at",
             "updated_at",
@@ -208,6 +261,12 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
 
     def get_hero_image_url(self, obj):
         return self.build_file_url(obj.hero_image)
+
+    def get_hero_video_file_url(self, obj):
+        return self.build_file_url(obj.hero_video)
+
+    def get_hero_video_poster_url(self, obj):
+        return self.build_file_url(obj.hero_video_poster)
 
     def get_og_image_url(self, obj):
         return self.build_file_url(obj.og_image)
@@ -347,9 +406,16 @@ class ProductAvailabilitySerializer(OrganisationScopedSerializerMixin, serialize
             "updated_at",
         ]
 
+        # IMPORTANT:
+        # DRF cannot auto-create UniqueTogetherValidator here because this serializer
+        # exposes both `package` and `package_id`, and both point to the same model field.
+        # We disable auto validators and validate product/package/date manually below.
+        validators = []
+
     def validate(self, attrs):
-        product = attrs.get("product")
-        package = attrs.get("package")
+        product = attrs.get("product") or getattr(self.instance, "product", None)
+        package = attrs.get("package") if "package" in attrs else getattr(self.instance, "package", None)
+        date = attrs.get("date") or getattr(self.instance, "date", None)
 
         if product:
             self.validate_same_organisation(product, "product_id")
@@ -357,7 +423,32 @@ class ProductAvailabilitySerializer(OrganisationScopedSerializerMixin, serialize
         if package:
             self.validate_same_organisation(package, "package_id")
 
+            if product and package.product_id != product.id:
+                raise serializers.ValidationError(
+                    {
+                        "package_id": "This package does not belong to the selected product."
+                    }
+                )
+
+        if product and date:
+            duplicate_queryset = ProductAvailability.objects.filter(
+                product=product,
+                package=package,
+                date=date,
+            )
+
+            if self.instance:
+                duplicate_queryset = duplicate_queryset.exclude(pk=self.instance.pk)
+
+            if duplicate_queryset.exists():
+                raise serializers.ValidationError(
+                    {
+                        "date": "Availability already exists for this product/package/date."
+                    }
+                )
+
         return attrs
+
 
 
 class PickupZoneSerializer(serializers.ModelSerializer):
@@ -666,6 +757,59 @@ class ExternalProviderProductSnapshotSerializer(MediaURLMixin, serializers.Model
         ]
 
 
+
+class ProductGalleryImageSerializer(
+    MediaURLMixin,
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        source="product",
+        queryset=ExperienceProduct.objects.all(),
+        write_only=True,
+        required=False,
+    )
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductGalleryImage
+        fields = [
+            "id",
+            "product",
+            "product_id",
+            "product_name",
+            "image",
+            "image_url",
+            "alt_text",
+            "caption",
+            "sort_order",
+            "is_cover",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "product",
+            "product_name",
+            "image_url",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+    def validate(self, attrs):
+        product = attrs.get("product")
+
+        if product:
+            self.validate_same_organisation(product, "product_id")
+
+        return attrs
+
+
 class ExperienceProductSerializer(
     MediaURLMixin,
     OrganisationScopedSerializerMixin,
@@ -697,6 +841,7 @@ class ExperienceProductSerializer(
     pickup_schedules = ProductPickupScheduleSerializer(many=True, read_only=True)
     transfer_routes = TransferRouteSerializer(many=True, read_only=True)
     event_ticket_types = EventTicketTypeSerializer(many=True, read_only=True)
+    gallery_images = ProductGalleryImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = ExperienceProduct
@@ -719,6 +864,7 @@ class ExperienceProductSerializer(
             "image",
             "image_url",
             "gallery",
+            "gallery_images",
             "base_price",
             "cost_price",
             "profit_per_unit",
@@ -779,6 +925,7 @@ class ExperienceProductSerializer(
             "pickup_schedules",
             "transfer_routes",
             "event_ticket_types",
+            "gallery_images",
             "created_at",
             "updated_at",
         ]
@@ -800,6 +947,7 @@ class ExperienceProductSerializer(
             "pickup_schedules",
             "transfer_routes",
             "event_ticket_types",
+            "gallery_images",
             "created_at",
             "updated_at",
         ]
@@ -1132,6 +1280,12 @@ class BookingItemSerializer(serializers.ModelSerializer):
             "event_ticket_type",
             "event_ticket_type_name",
             "external_snapshot",
+            "external_provider",
+            "external_product_id",
+            "external_variant_id",
+            "external_availability_id",
+            "external_option_name",
+            "external_raw_data",
             "product_name",
             "product_type",
             "service_date",
@@ -1143,6 +1297,7 @@ class BookingItemSerializer(serializers.ModelSerializer):
             "profit",
             "instructions",
             "created_at",
+            
         ]
         read_only_fields = [
             "id",
@@ -1161,6 +1316,10 @@ class BookingItemWriteSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(required=False, allow_null=True)
     event_ticket_type_id = serializers.IntegerField(required=False, allow_null=True)
     external_snapshot_id = serializers.IntegerField(required=False, allow_null=True)
+    selected_external_product_id = serializers.CharField(required=False, allow_blank=True)
+    external_product_id = serializers.CharField(required=False, allow_blank=True)
+    external_variant_id = serializers.CharField(required=False, allow_blank=True)
+    external_availability_id = serializers.CharField(required=False, allow_blank=True)
 
     product_name = serializers.CharField(required=False, allow_blank=True)
     service_date = serializers.DateField(required=False, allow_null=True)
@@ -1470,6 +1629,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "driver_phone",
             "external_provider",
             "external_reference",
+            "external_order_id",
+            "external_booking_id",
+            "external_status",
+            "external_currency",
+            "external_validation_response",
+            "external_raw_response",
+            "external_order_created_at",
             "cancellation_reason",
             "created_by",
             "created_at",
@@ -1508,6 +1674,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "commissions",
             "pickup_info",
             "receipt",
+            "external_order_id",
+            "external_booking_id",
+            "external_status",
+            "external_currency",
+            "external_validation_response",
+            "external_raw_response",
+            "external_order_created_at",
         ]
 
     def validate(self, attrs):
@@ -1621,27 +1794,112 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
             quantity = item_data.get("quantity", 1)
 
+            selected_external_product_id = (
+                item_data.get("selected_external_product_id")
+                or item_data.get("external_product_id")
+                or product.external_product_id
+                or ""
+            )
+
+            external_provider = ""
+            external_product_id = ""
+            external_variant_id = ""
+            external_availability_id = ""
+            external_option_name = ""
+            external_raw_data = {}
+
             unit_price = item_data.get("unit_price")
-
-            if unit_price is None:
-                if package:
-                    unit_price = package.price
-                elif event_ticket_type:
-                    unit_price = event_ticket_type.price
-                elif external_snapshot:
-                    unit_price = external_snapshot.price
-                else:
-                    unit_price = product.base_price
-
             unit_cost = item_data.get("unit_cost")
 
-            if unit_cost is None:
-                if package:
-                    unit_cost = package.cost_price
-                else:
+            product_name = item_data.get("product_name") or product.name
+
+            is_external_wellet = (
+                product.external_provider == "wellet"
+                or product.is_cocobongo_product
+            )
+
+            if is_external_wellet:
+                validation = validate_external_product_before_booking(
+                    organisation=organisation,
+                    product=product,
+                    service_date=item_data.get("service_date") or booking.service_date,
+                    selected_external_product_id=selected_external_product_id,
+                    quantity=quantity,
+                )
+
+                booking.external_provider = "wellet"
+                booking.external_validation_response = validation.get("availability") or {}
+
+                if not validation.get("ok"):
+                    booking.external_status = "validation_failed"
+                    booking.save(
+                        update_fields=[
+                            "external_provider",
+                            "external_status",
+                            "external_validation_response",
+                            "updated_at",
+                        ]
+                    )
+
+                    raise serializers.ValidationError(
+                        {
+                            "items_payload": validation.get("error")
+                            or "External product validation failed."
+                        }
+                    )
+
+                selected_option = validation.get("selected_option") or {}
+
+                external_snapshot = create_wellet_snapshot_from_option(
+                    organisation=organisation,
+                    product=product,
+                    service_date=item_data.get("service_date") or booking.service_date,
+                    option=selected_option,
+                )
+
+                external_provider = "wellet"
+                external_product_id = selected_option.get("external_product_id") or ""
+                external_variant_id = selected_option.get("external_variant_id") or ""
+                external_availability_id = selected_option.get("external_availability_id") or ""
+                external_option_name = selected_option.get("option_name") or ""
+                external_raw_data = selected_option.get("raw") or selected_option
+
+                product_name = external_option_name or selected_option.get("name") or product.name
+
+                if unit_price is None:
+                    unit_price = Decimal(str(selected_option.get("price") or "0.00"))
+
+                if unit_cost is None:
                     unit_cost = product.cost_price
 
-            product_name = item_data.get("product_name") or product.name
+                booking.external_currency = selected_option.get("currency") or ""
+                booking.external_status = "validated"
+                booking.save(
+                    update_fields=[
+                        "external_provider",
+                        "external_status",
+                        "external_currency",
+                        "external_validation_response",
+                        "updated_at",
+                    ]
+                )
+
+            else:
+                if unit_price is None:
+                    if package:
+                        unit_price = package.price
+                    elif event_ticket_type:
+                        unit_price = event_ticket_type.price
+                    elif external_snapshot:
+                        unit_price = external_snapshot.price
+                    else:
+                        unit_price = product.base_price
+
+                if unit_cost is None:
+                    if package:
+                        unit_cost = package.cost_price
+                    else:
+                        unit_cost = product.cost_price
 
             booking_item = BookingItem.objects.create(
                 booking=booking,
@@ -1649,6 +1907,12 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 package=package,
                 event_ticket_type=event_ticket_type,
                 external_snapshot=external_snapshot,
+                external_provider=external_provider,
+                external_product_id=external_product_id,
+                external_variant_id=external_variant_id,
+                external_availability_id=external_availability_id,
+                external_option_name=external_option_name,
+                external_raw_data=external_raw_data,
                 product_name=product_name,
                 product_type=product.product_type,
                 service_date=item_data.get("service_date") or booking.service_date,
@@ -1665,6 +1929,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
             if not booking.primary_product:
                 booking.primary_product = product
+                booking.save(update_fields=["primary_product", "updated_at"])
 
         return subtotal, total_cost
 
@@ -1944,6 +2209,10 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             )
 
         self.create_seller_commission(booking)
+
+        if booking.external_provider == "wellet":
+            create_external_booking_order_if_possible(booking)
+
         self.create_receipt_snapshot(booking)
 
         return booking

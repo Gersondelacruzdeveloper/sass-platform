@@ -9,6 +9,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.dateparse import parse_date
 
 from organisations.models import Organisation
 
@@ -17,6 +18,7 @@ from .models import (
     TicketingPublicSiteSettings,
     ExperienceCategory,
     ExperienceProduct,
+    ProductGalleryImage,
     ExperiencePackage,
     ProductAvailability,
     PickupZone,
@@ -43,6 +45,7 @@ from .serializers import (
     TicketingPublicSiteSettingsSerializer,
     ExperienceCategorySerializer,
     ExperienceProductSerializer,
+    ProductGalleryImageSerializer,
     ExperiencePackageSerializer,
     ProductAvailabilitySerializer,
     PickupZoneSerializer,
@@ -62,6 +65,11 @@ from .serializers import (
     TransferRouteSerializer,
     EventTicketTypeSerializer,
     ProductReviewSerializer,
+)
+from .services import (
+    fetch_wellet_products,
+    get_live_product_availability,
+    sync_wellet_products_to_snapshots,
 )
 
 from .permissions import (
@@ -294,6 +302,7 @@ class ExperienceProductViewSet(
             .filter(organisation=organisation)
             .select_related("organisation", "category", "created_by")
             .prefetch_related(
+                "gallery_images",
                 "packages",
                 "availability",
                 "pickup_schedules",
@@ -402,6 +411,103 @@ class ExperienceProductViewSet(
         queryset = self.get_queryset().filter(product_type="ticket")
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class ProductGalleryImageViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = ProductGalleryImageSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ProductGalleryImage.objects.none()
+
+        queryset = (
+            ProductGalleryImage.objects
+            .filter(product__organisation=organisation)
+            .select_related("product", "product__organisation")
+        )
+
+        product = self.request.query_params.get("product")
+        is_active = self.request.query_params.get("is_active")
+        is_cover = self.request.query_params.get("is_cover")
+
+        if product:
+            queryset = queryset.filter(product_id=product)
+
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        if is_cover in ["true", "false"]:
+            queryset = queryset.filter(is_cover=is_cover == "true")
+
+        return queryset
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+
+        product = serializer.validated_data.get("product")
+
+        if not product:
+            product_id = (
+                self.request.data.get("product")
+                or self.request.data.get("product_id")
+            )
+
+            product = get_object_or_404(
+                ExperienceProduct,
+                id=product_id,
+                organisation=organisation,
+            )
+
+        gallery_image = serializer.save(product=product)
+
+        if gallery_image.is_cover:
+            ProductGalleryImage.objects.filter(
+                product=product,
+                is_cover=True,
+            ).exclude(id=gallery_image.id).update(is_cover=False)
+
+            if gallery_image.image and not product.image:
+                product.image = gallery_image.image
+                product.save(update_fields=["image", "updated_at"])
+
+    def perform_update(self, serializer):
+        gallery_image = serializer.save()
+
+        if gallery_image.is_cover:
+            ProductGalleryImage.objects.filter(
+                product=gallery_image.product,
+                is_cover=True,
+            ).exclude(id=gallery_image.id).update(is_cover=False)
+
+            if gallery_image.image:
+                gallery_image.product.image = gallery_image.image
+                gallery_image.product.save(update_fields=["image", "updated_at"])
+
+    @action(detail=True, methods=["post"], url_path="make-cover")
+    def make_cover(self, request, pk=None):
+        gallery_image = self.get_object()
+
+        ProductGalleryImage.objects.filter(
+            product=gallery_image.product,
+            is_cover=True,
+        ).exclude(id=gallery_image.id).update(is_cover=False)
+
+        gallery_image.is_cover = True
+        gallery_image.save(update_fields=["is_cover", "updated_at"])
+
+        if gallery_image.image:
+            gallery_image.product.image = gallery_image.image
+            gallery_image.product.save(update_fields=["image", "updated_at"])
+
+        serializer = self.get_serializer(gallery_image)
+
+        return Response(serializer.data)
+
 
 
 class ExperiencePackageViewSet(
@@ -1865,6 +1971,7 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             )
             .select_related("organisation", "category")
             .prefetch_related(
+                "gallery_images",
                 "packages",
                 "availability",
                 "pickup_schedules",
@@ -1904,6 +2011,59 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             )
 
         return queryset
+
+class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None, product_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product = get_object_or_404(
+            ExperienceProduct,
+            organisation=organisation,
+            slug=product_slug,
+            public_enabled=True,
+            is_active=True,
+            status="active",
+        )
+
+        service_date_value = request.query_params.get("date") or request.query_params.get("service_date")
+        service_date = None
+
+        if service_date_value:
+            service_date = parse_date(service_date_value)
+
+            if not service_date:
+                return Response(
+                    {"detail": "date must be YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        result = get_live_product_availability(
+            organisation=organisation,
+            product=product,
+            service_date=service_date,
+            include_raw=False,
+        )
+
+        if not result.get("ok"):
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result)
 
 
 class PublicCategoryViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
@@ -2197,21 +2357,33 @@ class WelletProductsAPIView(TicketingOrganisationMixin, APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        config = ExternalProviderConfig.objects.filter(
-            organisation=organisation,
-            provider="wellet",
-            is_enabled=True,
-        ).first()
+        service_date_value = request.query_params.get("service_date") or request.query_params.get("date")
+        sync = request.query_params.get("sync") == "true"
 
-        if not config:
-            return Response(
-                {
-                    "detail": "Wellet config is missing or disabled for this organisation."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        service_date = None
+
+        if service_date_value:
+            service_date = parse_date(service_date_value)
+
+            if not service_date:
+                return Response(
+                    {"detail": "service_date must be YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if sync:
+            sync_result = sync_wellet_products_to_snapshots(
+                organisation=organisation,
+                service_date=service_date,
             )
 
-        service_date = request.query_params.get("service_date")
+            if not sync_result.get("ok"):
+                return Response(sync_result, status=status.HTTP_400_BAD_REQUEST)
+
+        live_result = fetch_wellet_products(
+            organisation=organisation,
+            service_date=service_date,
+        )
 
         snapshots = ExternalProviderProductSnapshot.objects.filter(
             organisation=organisation,
@@ -2225,14 +2397,8 @@ class WelletProductsAPIView(TicketingOrganisationMixin, APIView):
             {
                 "provider": "wellet",
                 "enabled": True,
-                "message": "Backend Wellet endpoint is ready. Add the real Wellet API client in services.py when credentials are confirmed.",
-                "config": {
-                    "show_id": config.show_id,
-                    "category_id": config.category_id,
-                    "currency": config.currency,
-                    "lang": config.lang,
-                    "include_table": config.include_table,
-                },
+                "service_date": str(service_date) if service_date else "",
+                "live": live_result,
                 "snapshots": ExternalProviderProductSnapshotSerializer(
                     snapshots[:50],
                     many=True,
@@ -2240,3 +2406,50 @@ class WelletProductsAPIView(TicketingOrganisationMixin, APIView):
                 ).data,
             }
         )
+
+class TicketingLiveAvailabilityAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [HasTicketingOrganisationAccess, HasTicketingSellerPermission]
+    ticketing_permission_required = "can_create_bookings"
+
+    def get(self, request):
+        organisation = self.require_organisation()
+
+        product_id = request.query_params.get("product")
+        service_date_value = request.query_params.get("service_date") or request.query_params.get("date")
+        include_raw = request.query_params.get("include_raw") == "true"
+
+        if not product_id:
+            return Response(
+                {"detail": "product is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        product = get_object_or_404(
+            ExperienceProduct,
+            id=product_id,
+            organisation=organisation,
+            is_active=True,
+        )
+
+        service_date = None
+
+        if service_date_value:
+            service_date = parse_date(service_date_value)
+
+            if not service_date:
+                return Response(
+                    {"detail": "service_date must be YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        result = get_live_product_availability(
+            organisation=organisation,
+            product=product,
+            service_date=service_date,
+            include_raw=include_raw,
+        )
+
+        if not result.get("ok"):
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result)

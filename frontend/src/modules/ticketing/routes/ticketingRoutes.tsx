@@ -22,16 +22,50 @@ import TicketingSellersPage from "../pages/TicketingSellersPage";
 import TicketingCommissionsPage from "../pages/TicketingCommissionsPage";
 import TicketingReportsPage from "../pages/TicketingReportsPage";
 import TicketingPickupSchedulesPage from "../pages/TicketingPickupSchedulesPage";
+import TicketingAvailabilityPage from "../pages/TicketingAvailabilityPage";
 import TicketingSettingsPage from "../pages/TicketingSettingsPage";
 import TicketingBrandingPage from "../pages/TicketingBrandingPage";
 import TicketingDomainPage from "../pages/TicketingDomainPage";
 import TicketingIntegrationsPage from "../pages/TicketingIntegrationsPage";
 import TicketingSEOPage from "../pages/TicketingSEOPage";
 
+import PublicExperienceHomePage from "../pages/PublicExperienceHomePage";
+import PublicProductDetailPage from "../pages/PublicProductDetailPage";
+import PublicProductsListingPage from "../pages/PublicProductsListingPage";
+import PublicCheckoutPage from "../pages/PublicCheckoutPage";
+import PublicConfirmationPage from "../pages/PublicConfirmationPage";
+
 export const ticketingRoutes = (
   <>
     {/* Public Landing Page */}
     <Route path="/ticketing" element={<TicketingLandingPage />} />
+
+    {/* Public Experience Website */}
+    <Route
+      path="/experiences/:organisationSlug"
+      element={<PublicExperienceHomePage />}
+    />
+
+    {/* Important: specific public routes must be before listing route */}
+    <Route
+      path="/experiences/:organisationSlug/product/:productSlug"
+      element={<PublicProductDetailPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/checkout"
+      element={<PublicCheckoutPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/confirmation/:bookingCode"
+      element={<PublicConfirmationPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/:listingType"
+      element={<PublicProductsListingPage />}
+    />
 
     {/* Public Login */}
     <Route
@@ -75,6 +109,10 @@ export const ticketingRoutes = (
 
         <Route path="products" element={<TicketingProductsPage />} />
 
+        <Route path="pickup-schedules" element={<TicketingPickupSchedulesPage />} />
+
+        <Route path="availability" element={<TicketingAvailabilityPage />} />
+
         <Route path="excursions" element={<TicketingExcursionsPage />} />
 
         <Route path="transfers" element={<TicketingTransfersPage />} />
@@ -86,11 +124,6 @@ export const ticketingRoutes = (
         <Route path="commissions" element={<TicketingCommissionsPage />} />
 
         <Route path="reports" element={<TicketingReportsPage />} />
-
-        <Route
-          path="pickup-schedules"
-          element={<TicketingPickupSchedulesPage />}
-        />
 
         <Route path="settings" element={<TicketingSettingsPage />} />
 
