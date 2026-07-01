@@ -1,16 +1,21 @@
 // src/modules/ticketing/pages/PublicProductsListingPage.tsx
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
+  ArrowRight,
+  BadgeCheck,
   BadgeDollarSign,
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Filter,
   Flame,
   Image as ImageIcon,
   Loader2,
   MapPin,
+  MessageCircle,
   Package,
   Plane,
   Search,
@@ -29,6 +34,17 @@ import type {
   ProductType,
   PublicBrandingResponse,
 } from "../types/ticketingTypes";
+
+type PublicTheme = {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  button: string;
+  text: string;
+  muted: string;
+  card: string;
+};
 
 type SortKey =
   | "recommended"
@@ -155,7 +171,43 @@ function resolveAssetUrl(url?: string | null) {
   }
 
   const apiOrigin = getApiOrigin();
+
   return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function hexToRgba(hex: string, opacity: number) {
+  const cleanHex = String(hex || "#111827").replace("#", "");
+
+  const normalized =
+    cleanHex.length === 3
+      ? cleanHex
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : cleanHex.padEnd(6, "0").slice(0, 6);
+
+  const number = parseInt(normalized, 16);
+
+  if (Number.isNaN(number)) return `rgba(17, 24, 39, ${opacity})`;
+
+  const red = (number >> 16) & 255;
+  const green = (number >> 8) & 255;
+  const blue = number & 255;
+
+  return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
+}
+
+function getPublicTheme(publicSite: any): PublicTheme {
+  return {
+    primary: publicSite?.primary_color || "#0F172A",
+    secondary: publicSite?.secondary_color || "#0EA5E9",
+    accent: publicSite?.accent_color || "#F59E0B",
+    background: publicSite?.background_color || "#F8FAFC",
+    button: publicSite?.button_color || publicSite?.primary_color || "#0F172A",
+    text: publicSite?.text_color || "#111827",
+    muted: publicSite?.muted_text_color || "#64748B",
+    card: publicSite?.card_background_color || "#FFFFFF",
+  };
 }
 
 function money(value: unknown, symbol = "US$") {
@@ -209,8 +261,20 @@ function getImage(product: ExperienceProduct) {
 
   if (mainImage) return mainImage;
 
-  if (Array.isArray(product.gallery)) {
-    for (const item of product.gallery) {
+  const galleryImages = Array.isArray((product as any).gallery_images)
+    ? (product as any).gallery_images
+    : [];
+
+  const cover = galleryImages.find((item: any) => item?.is_cover) || galleryImages[0];
+
+  const galleryImage = resolveAssetUrl(
+    cover?.image_url || cover?.image || cover?.url || cover?.src || ""
+  );
+
+  if (galleryImage) return galleryImage;
+
+  if (Array.isArray((product as any).gallery)) {
+    for (const item of (product as any).gallery) {
       if (typeof item === "string") {
         const url = resolveAssetUrl(item);
         if (url) return url;
@@ -245,8 +309,8 @@ function getProductScore(product: ExperienceProduct) {
   if (product.is_recommended) score += 30;
   if (product.is_top_excursion || product.is_top_transfer) score += 20;
 
-  score += Number(product.average_rating || 0) * 5;
-  score += Math.min(Number(product.booking_count || 0), 100) / 5;
+  score += Number((product as any).average_rating || 0) * 5;
+  score += Math.min(Number((product as any).booking_count || 0), 100) / 5;
 
   return score;
 }
@@ -265,26 +329,73 @@ function getTypeLabel(type: ProductType | string) {
   return String(type);
 }
 
+function getWhatsappUrl(value?: string | null, message?: string) {
+  if (!value) return "";
+
+  const phone = String(value).replace(/\D/g, "");
+  if (!phone) return "";
+
+  const text = message ? `?text=${encodeURIComponent(message)}` : "";
+
+  return `https://wa.me/${phone}${text}`;
+}
+
+function getLowestPrice(products: ExperienceProduct[]) {
+  const prices = products
+    .map((product) => Number(product.base_price || 0))
+    .filter((price) => Number.isFinite(price) && price > 0);
+
+  if (!prices.length) return 0;
+
+  return Math.min(...prices);
+}
+
+function getHighestPrice(products: ExperienceProduct[]) {
+  const prices = products
+    .map((product) => Number(product.base_price || 0))
+    .filter((price) => Number.isFinite(price) && price > 0);
+
+  if (!prices.length) return 0;
+
+  return Math.max(...prices);
+}
+
 function BadgePill({
   children,
   tone = "gray",
+  theme,
 }: {
-  children: React.ReactNode;
-  tone?: "gray" | "orange" | "green" | "blue";
+  children: ReactNode;
+  tone?: "gray" | "accent" | "green" | "blue";
+  theme: PublicTheme;
 }) {
-  const tones: Record<string, string> = {
-    gray: "bg-white ring-1 ring-gray-200 text-gray-800",
-    orange: "bg-orange-50 ring-1 ring-orange-100 text-orange-800",
-    green: "bg-emerald-50 ring-1 ring-emerald-100 text-emerald-800",
-    blue: "bg-sky-50 ring-1 ring-sky-100 text-sky-800",
+  const styles: Record<string, React.CSSProperties> = {
+    gray: {
+      backgroundColor: hexToRgba(theme.primary, 0.055),
+      color: theme.text,
+      borderColor: hexToRgba(theme.primary, 0.1),
+    },
+    accent: {
+      backgroundColor: hexToRgba(theme.accent, 0.13),
+      color: theme.accent,
+      borderColor: hexToRgba(theme.accent, 0.2),
+    },
+    green: {
+      backgroundColor: "rgba(16,185,129,0.1)",
+      color: "#047857",
+      borderColor: "rgba(16,185,129,0.18)",
+    },
+    blue: {
+      backgroundColor: hexToRgba(theme.secondary, 0.12),
+      color: theme.secondary,
+      borderColor: hexToRgba(theme.secondary, 0.18),
+    },
   };
 
   return (
     <span
-      className={[
-        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold",
-        tones[tone],
-      ].join(" ")}
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-black"
+      style={styles[tone]}
     >
       {children}
     </span>
@@ -293,6 +404,7 @@ function BadgePill({
 
 type FiltersPanelProps = {
   compact?: boolean;
+  theme: PublicTheme;
 
   q: string;
   setQ: React.Dispatch<React.SetStateAction<string>>;
@@ -330,8 +442,33 @@ type FiltersPanelProps = {
   hasActiveFilters: boolean;
 };
 
+function inputStyle(theme: PublicTheme): React.CSSProperties {
+  return {
+    backgroundColor: hexToRgba(theme.primary, 0.035),
+    borderColor: hexToRgba(theme.primary, 0.12),
+    color: theme.text,
+  };
+}
+
+function activeButtonStyle(theme: PublicTheme): React.CSSProperties {
+  return {
+    backgroundColor: theme.button,
+    borderColor: theme.button,
+    color: "#FFFFFF",
+  };
+}
+
+function inactiveButtonStyle(theme: PublicTheme): React.CSSProperties {
+  return {
+    backgroundColor: theme.card,
+    borderColor: hexToRgba(theme.primary, 0.12),
+    color: theme.text,
+  };
+}
+
 function FiltersPanel({
   compact = false,
+  theme,
 
   q,
   setQ,
@@ -371,24 +508,31 @@ function FiltersPanel({
   return (
     <div className={compact ? "space-y-4" : "space-y-6"}>
       <div>
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-black" style={{ color: theme.text }}>
           Search
         </label>
 
-        <div className="relative mt-2">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <div
+          className="relative mt-2 rounded-2xl border"
+          style={inputStyle(theme)}
+        >
+          <Search
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+            style={{ color: theme.muted }}
+          />
           <input
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="Saona, buggy, airport, nightlife..."
-            className="w-full rounded-2xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-100"
+            className="h-12 w-full bg-transparent py-3 pl-10 pr-4 text-sm font-bold outline-none"
+            style={{ color: theme.text }}
           />
         </div>
       </div>
 
       {categories.length > 0 && (
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-black" style={{ color: theme.text }}>
             Category
           </label>
 
@@ -396,12 +540,8 @@ function FiltersPanel({
             <button
               type="button"
               onClick={() => setCategoryId("all")}
-              className={[
-                "rounded-2xl border px-3 py-2 text-sm font-extrabold",
-                categoryId === "all"
-                  ? "border-gray-900 bg-gray-900 text-white"
-                  : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50",
-              ].join(" ")}
+              className="rounded-2xl border px-3 py-2 text-sm font-black transition hover:-translate-y-0.5"
+              style={categoryId === "all" ? activeButtonStyle(theme) : inactiveButtonStyle(theme)}
             >
               All
             </button>
@@ -414,12 +554,8 @@ function FiltersPanel({
                   key={category.id}
                   type="button"
                   onClick={() => setCategoryId(String(category.id))}
-                  className={[
-                    "rounded-2xl border px-3 py-2 text-sm font-extrabold",
-                    active
-                      ? "border-gray-900 bg-gray-900 text-white"
-                      : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50",
-                  ].join(" ")}
+                  className="rounded-2xl border px-3 py-2 text-sm font-black transition hover:-translate-y-0.5"
+                  style={active ? activeButtonStyle(theme) : inactiveButtonStyle(theme)}
                 >
                   {category.name}
                 </button>
@@ -429,71 +565,67 @@ function FiltersPanel({
         </div>
       )}
 
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-        <div className="text-sm font-extrabold text-gray-900">
+      <div
+        className="rounded-3xl border p-4"
+        style={{
+          backgroundColor: hexToRgba(theme.primary, 0.035),
+          borderColor: hexToRgba(theme.primary, 0.1),
+        }}
+      >
+        <div className="text-sm font-black" style={{ color: theme.text }}>
           Quick picks
         </div>
 
         <div className="mt-3 space-y-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={onlyRecommended}
-              onChange={(event) => setOnlyRecommended(event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            Recommended / featured
-          </label>
+          <ToggleLine
+            checked={onlyRecommended}
+            onChange={setOnlyRecommended}
+            label="Recommended / featured"
+            theme={theme}
+          />
 
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={pickupIncludedOnly}
-              onChange={(event) => setPickupIncludedOnly(event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            Pickup available
-          </label>
+          <ToggleLine
+            checked={pickupIncludedOnly}
+            onChange={setPickupIncludedOnly}
+            label="Pickup available"
+            theme={theme}
+          />
 
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={depositOnly}
-              onChange={(event) => setDepositOnly(event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            Deposit available
-          </label>
+          <ToggleLine
+            checked={depositOnly}
+            onChange={setDepositOnly}
+            label="Deposit available"
+            theme={theme}
+          />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-black" style={{ color: theme.text }}>
           Location
         </label>
 
-        <div className="mt-2">
-          <select
-            value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-100"
-          >
-            {locations.map((locationItem) => (
-              <option key={locationItem} value={locationItem}>
-                {locationItem === "all" ? "All locations" : locationItem}
-              </option>
-            ))}
-          </select>
-        </div>
+        <select
+          value={location}
+          onChange={(event) => setLocation(event.target.value)}
+          className="mt-2 h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
+          style={inputStyle(theme)}
+        >
+          {locations.map((locationItem) => (
+            <option key={locationItem} value={locationItem}>
+              {locationItem === "all" ? "All locations" : locationItem}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-black" style={{ color: theme.text }}>
             Price
           </label>
 
-          <span className="text-xs text-gray-500">
+          <span className="text-xs font-bold" style={{ color: theme.muted }}>
             Range: ${priceStats.min}–${priceStats.max}
           </span>
         </div>
@@ -506,7 +638,8 @@ function FiltersPanel({
               setMinPrice(event.target.value === "" ? "" : Number(event.target.value))
             }
             placeholder="Min"
-            className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-100"
+            className="h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
+            style={inputStyle(theme)}
           />
 
           <input
@@ -516,7 +649,8 @@ function FiltersPanel({
               setMaxPrice(event.target.value === "" ? "" : Number(event.target.value))
             }
             placeholder="Max"
-            className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-100"
+            className="h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
+            style={inputStyle(theme)}
           />
         </div>
 
@@ -531,7 +665,8 @@ function FiltersPanel({
               if (minPrice !== "") setMinPrice(clamp(Number(minPrice), 0, 10000));
               if (maxPrice !== "") setMaxPrice(clamp(Number(maxPrice), 0, 10000));
             }}
-            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
+            className="rounded-xl border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+            style={inactiveButtonStyle(theme)}
           >
             Apply
           </button>
@@ -548,7 +683,8 @@ function FiltersPanel({
                 setMinPrice(range.min === "" ? "" : Number(range.min));
                 setMaxPrice(range.max === "" ? "" : Number(range.max));
               }}
-              className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+              className="rounded-full border px-3 py-1.5 text-xs font-bold transition hover:-translate-y-0.5"
+              style={inactiveButtonStyle(theme)}
             >
               {range.label}
             </button>
@@ -557,7 +693,7 @@ function FiltersPanel({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-black" style={{ color: theme.text }}>
           Duration
         </label>
 
@@ -577,12 +713,8 @@ function FiltersPanel({
                 onClick={() =>
                   setDurationBucket(duration.key as DurationBucket)
                 }
-                className={[
-                  "rounded-2xl border px-3 py-2 text-sm font-extrabold",
-                  active
-                    ? "border-gray-900 bg-gray-900 text-white"
-                    : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50",
-                ].join(" ")}
+                className="rounded-2xl border px-3 py-2 text-sm font-black transition hover:-translate-y-0.5"
+                style={active ? activeButtonStyle(theme) : inactiveButtonStyle(theme)}
               >
                 {duration.label}
               </button>
@@ -592,36 +724,36 @@ function FiltersPanel({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-black" style={{ color: theme.text }}>
           Sort by
         </label>
 
-        <div className="mt-2">
-          <select
-            value={sort}
-            onChange={(event) => setSort(event.target.value as SortKey)}
-            className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-gray-300 focus:ring-2 focus:ring-gray-100"
-          >
-            <option value="recommended">Recommended</option>
-            <option value="rating_high">Rating: high to low</option>
-            <option value="price_low">Price: low to high</option>
-            <option value="price_high">Price: high to low</option>
-            <option value="duration_low">Duration: short to long</option>
-            <option value="duration_high">Duration: long to short</option>
-          </select>
-        </div>
+        <select
+          value={sort}
+          onChange={(event) => setSort(event.target.value as SortKey)}
+          className="mt-2 h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
+          style={inputStyle(theme)}
+        >
+          <option value="recommended">Recommended</option>
+          <option value="rating_high">Rating: high to low</option>
+          <option value="price_low">Price: low to high</option>
+          <option value="price_high">Price: high to low</option>
+          <option value="duration_low">Duration: short to long</option>
+          <option value="duration_high">Duration: long to short</option>
+        </select>
       </div>
 
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={clearFilters}
-          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          className="rounded-xl border px-4 py-2 text-sm font-black transition hover:-translate-y-0.5"
+          style={inactiveButtonStyle(theme)}
         >
           Clear filters
         </button>
 
-        <span className="text-xs text-gray-500">
+        <span className="text-xs font-bold" style={{ color: theme.muted }}>
           {hasActiveFilters ? "Filters active" : "No filters"}
         </span>
       </div>
@@ -682,7 +814,7 @@ export default function PublicProductsListingPage() {
 
       setBranding(brandingResponse);
       setProducts(publicProducts);
-      setCategories(categoriesResponse);
+      setCategories(Array.isArray(categoriesResponse) ? categoriesResponse : []);
     } catch (err: any) {
       console.error("Could not load public listing:", err);
 
@@ -700,9 +832,10 @@ export default function PublicProductsListingPage() {
     loadData();
   }, [organisationSlug, listingSegment]);
 
-  const publicSite = branding?.public_site;
+  const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;
   const organisation = branding?.organisation;
+  const theme = useMemo(() => getPublicTheme(publicSite), [publicSite]);
 
   const brandName =
     publicSite?.site_title ||
@@ -713,6 +846,10 @@ export default function PublicProductsListingPage() {
 
   const currencySymbol = ticketingSettings?.currency_symbol || "US$";
   const logoUrl = resolveAssetUrl(publicSite?.logo_url || publicSite?.logo);
+  const whatsappUrl = getWhatsappUrl(
+    publicSite?.public_whatsapp,
+    `Hi, I want information about ${brandName}.`
+  );
 
   useEffect(() => {
     document.title = `${labels.title} | ${brandName}`;
@@ -731,11 +868,9 @@ export default function PublicProductsListingPage() {
   const priceStats = useMemo(() => {
     if (!products.length) return { min: 0, max: 0 };
 
-    const prices = products.map((product) => Number(product.base_price || 0));
-
     return {
-      min: Math.floor(Math.min(...prices)),
-      max: Math.ceil(Math.max(...prices)),
+      min: Math.floor(getLowestPrice(products)),
+      max: Math.ceil(getHighestPrice(products)),
     };
   }, [products]);
 
@@ -746,7 +881,7 @@ export default function PublicProductsListingPage() {
           product.is_best_seller ||
           product.is_featured ||
           product.is_recommended ||
-          Number(product.average_rating || 0) >= 4.7
+          Number((product as any).average_rating || 0) >= 4.7
       )
       .slice()
       .sort((a, b) => getProductScore(b) - getProductScore(a))
@@ -827,8 +962,8 @@ export default function PublicProductsListingPage() {
       const pb = Number(b.base_price || 0);
       const da = parseDuration(a.duration_text);
       const db = parseDuration(b.duration_text);
-      const ra = Number(a.average_rating || 0);
-      const rb = Number(b.average_rating || 0);
+      const ra = Number((a as any).average_rating || 0);
+      const rb = Number((b as any).average_rating || 0);
 
       switch (sort) {
         case "price_low":
@@ -990,54 +1125,216 @@ export default function PublicProductsListingPage() {
     sort,
   ]);
 
+  if (loading) {
+    return (
+      <div
+        className="grid min-h-screen place-items-center px-4"
+        style={{
+          background: `radial-gradient(circle at top left, ${hexToRgba(
+            theme.secondary,
+            0.18
+          )}, transparent 32rem), ${theme.background}`,
+          color: theme.text,
+        }}
+      >
+        <div
+          className="relative overflow-hidden rounded-[2rem] border p-8 text-center shadow-2xl"
+          style={{
+            backgroundColor: hexToRgba(theme.card, 0.9),
+            borderColor: hexToRgba(theme.primary, 0.1),
+          }}
+        >
+          <div
+            className="absolute inset-x-0 top-0 h-1 animate-pulse"
+            style={{ backgroundColor: theme.accent }}
+          />
+          <Loader2
+            className="mx-auto h-9 w-9 animate-spin"
+            style={{ color: theme.accent }}
+          />
+          <p className="mt-4 text-sm font-black" style={{ color: theme.muted }}>
+            Loading experiences...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-orange-50 via-white to-white pt-6">
+    <div
+      className="min-h-screen overflow-hidden pt-6"
+      style={{
+        background: `radial-gradient(circle at top left, ${hexToRgba(
+          theme.secondary,
+          0.14
+        )}, transparent 32rem), radial-gradient(circle at top right, ${hexToRgba(
+          theme.accent,
+          0.13
+        )}, transparent 28rem), ${theme.background}`,
+        color: theme.text,
+      }}
+    >
+      <style>{`
+        @keyframes pcdFloat {
+          0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+          50% { transform: translate3d(0, -14px, 0) rotate(1deg); }
+        }
+
+        @keyframes pcdReveal {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pcdShimmer {
+          0% { transform: translateX(-110%); }
+          100% { transform: translateX(110%); }
+        }
+
+        .pcd-floating {
+          animation: pcdFloat 7s ease-in-out infinite;
+        }
+
+        .pcd-animate-reveal {
+          animation: pcdReveal 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .pcd-glow-card {
+          position: relative;
+          isolation: isolate;
+        }
+
+        .pcd-glow-card::before {
+          content: "";
+          position: absolute;
+          inset: -1px;
+          z-index: -1;
+          border-radius: inherit;
+          opacity: 0;
+          transition: opacity 260ms ease;
+          background: linear-gradient(135deg, ${theme.accent}, ${theme.secondary}, ${theme.primary});
+        }
+
+        .pcd-glow-card:hover::before {
+          opacity: 0.34;
+        }
+
+        .pcd-shine {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .pcd-shine::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          transform: translateX(-110%);
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+        }
+
+        .pcd-shine:hover::after {
+          animation: pcdShimmer 900ms ease;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .pcd-floating,
+          .pcd-animate-reveal {
+            animation: none !important;
+          }
+        }
+      `}</style>
+
       <PublicHeader
         organisationSlug={organisationSlug}
         brandName={brandName}
         logoUrl={logoUrl}
+        theme={theme}
+        whatsappUrl={whatsappUrl}
       />
 
-      <div className="mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6">
-        <div className="relative mb-8 overflow-hidden rounded-3xl border-2 border-gray-100 bg-white shadow-sm">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(249,115,22,0.18),transparent_55%)]" />
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div
+          className="pcd-floating absolute -left-20 top-32 h-72 w-72 rounded-full blur-3xl"
+          style={{ backgroundColor: hexToRgba(theme.secondary, 0.13) }}
+        />
+        <div
+          className="pcd-floating absolute -right-24 top-96 h-96 w-96 rounded-full blur-3xl"
+          style={{ backgroundColor: hexToRgba(theme.accent, 0.13) }}
+        />
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6">
+        <div
+          className="pcd-animate-reveal relative mb-8 overflow-hidden rounded-[2rem] border shadow-2xl"
+          style={{
+            backgroundColor: hexToRgba(theme.card, 0.9),
+            borderColor: hexToRgba(theme.primary, 0.1),
+          }}
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `radial-gradient(circle at top right, ${hexToRgba(
+                theme.accent,
+                0.18
+              )}, transparent 40%), radial-gradient(circle at top left, ${hexToRgba(
+                theme.secondary,
+                0.14
+              )}, transparent 38%)`,
+            }}
+          />
 
           <div className="relative p-5 sm:p-10">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-800 ring-1 ring-orange-100">
+                <div
+                  className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-wide"
+                  style={{
+                    backgroundColor: hexToRgba(theme.accent, 0.12),
+                    borderColor: hexToRgba(theme.accent, 0.2),
+                    color: theme.accent,
+                  }}
+                >
                   <Sparkles className="h-4 w-4" />
                   {labels.eyebrow}
                 </div>
 
-                <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-gray-900 sm:text-4xl">
+                <h1
+                  className="mt-4 max-w-3xl text-4xl font-black tracking-tight sm:text-5xl"
+                  style={{ color: theme.text }}
+                >
                   {labels.title}
                 </h1>
 
-                <p className="mt-2 max-w-2xl text-gray-600">
+                <p
+                  className="mt-3 max-w-2xl text-sm font-semibold leading-7 sm:text-base"
+                  style={{ color: theme.muted }}
+                >
                   {labels.subtitle}
                 </p>
 
-                <div className="mt-5 flex flex-wrap gap-2 text-sm">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-gray-800 ring-1 ring-gray-200">
-                    <ShieldCheck className="h-4 w-4 text-orange-700" />
+                <div className="mt-6 flex flex-wrap gap-2">
+                  <BadgePill theme={theme} tone="accent">
+                    <ShieldCheck className="h-4 w-4" />
                     Secure booking
-                  </span>
+                  </BadgePill>
 
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-gray-800 ring-1 ring-gray-200">
-                    <MapPin className="h-4 w-4 text-orange-700" />
+                  <BadgePill theme={theme} tone="blue">
+                    <MapPin className="h-4 w-4" />
                     Pickup options
-                  </span>
+                  </BadgePill>
 
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-gray-800 ring-1 ring-gray-200">
-                    <Star className="h-4 w-4 text-orange-700" />
+                  <BadgePill theme={theme} tone="gray">
+                    <Star className="h-4 w-4" />
                     Curated experiences
-                  </span>
+                  </BadgePill>
                 </div>
 
                 {!loading && featured.length > 0 && (
-                  <div className="mt-6">
-                    <div className="mb-2 text-xs font-extrabold text-gray-800">
+                  <div className="mt-7">
+                    <div
+                      className="mb-2 text-xs font-black uppercase tracking-wide"
+                      style={{ color: theme.muted }}
+                    >
                       Featured picks
                     </div>
 
@@ -1046,13 +1343,21 @@ export default function PublicProductsListingPage() {
                         <Link
                           key={product.id}
                           to={`/experiences/${organisationSlug}/product/${product.slug}`}
-                          className="group inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-800 hover:shadow-sm"
+                          className="group inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5 hover:shadow-sm"
+                          style={{
+                            backgroundColor: theme.card,
+                            borderColor: hexToRgba(theme.primary, 0.1),
+                            color: theme.text,
+                          }}
                         >
                           <span className="max-w-[240px] truncate">
                             {product.name}
                           </span>
 
-                          <span className="rounded-full bg-gray-900 px-2 py-1 text-[11px] text-white">
+                          <span
+                            className="rounded-full px-2 py-1 text-[11px] font-black text-white"
+                            style={{ backgroundColor: theme.button }}
+                          >
                             {money(product.base_price, currencySymbol)}
                           </span>
                         </Link>
@@ -1065,7 +1370,8 @@ export default function PublicProductsListingPage() {
               <button
                 type="button"
                 onClick={() => setMobileFiltersOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 py-3 text-sm font-extrabold text-gray-900 transition hover:shadow lg:hidden"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 lg:hidden"
+                style={inactiveButtonStyle(theme)}
               >
                 <SlidersHorizontal className="h-4 w-4" />
                 Filters
@@ -1083,12 +1389,16 @@ export default function PublicProductsListingPage() {
                   type="button"
                   onClick={chip.onRemove}
                   title="Remove filter"
-                  className="group inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-800 hover:bg-gray-50"
+                  className="group inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                  style={inactiveButtonStyle(theme)}
                 >
                   {chip.label}
 
-                  <span className="rounded-full border border-gray-200 p-1 group-hover:border-gray-300">
-                    <X className="h-3 w-3 text-gray-700" />
+                  <span
+                    className="rounded-full border p-1"
+                    style={{ borderColor: hexToRgba(theme.primary, 0.16) }}
+                  >
+                    <X className="h-3 w-3" style={{ color: theme.text }} />
                   </span>
                 </button>
               ))}
@@ -1096,7 +1406,8 @@ export default function PublicProductsListingPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="ml-1 inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-2 text-xs font-extrabold text-white hover:bg-black"
+                className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-black text-white transition hover:-translate-y-0.5"
+                style={{ backgroundColor: theme.button }}
               >
                 Clear all
                 <X className="h-3.5 w-3.5" />
@@ -1109,12 +1420,20 @@ export default function PublicProductsListingPage() {
           <button
             type="button"
             onClick={() => setMobileFiltersOpen(true)}
-            className="flex-1 rounded-2xl bg-gray-900 px-4 py-3 text-sm font-extrabold text-white"
+            className="flex-1 rounded-2xl px-4 py-3 text-sm font-black text-white"
+            style={{ backgroundColor: theme.button }}
           >
             Filters
           </button>
 
-          <div className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-center text-sm text-gray-700">
+          <div
+            className="flex-1 rounded-2xl border px-4 py-3 text-center text-sm font-bold"
+            style={{
+              backgroundColor: theme.card,
+              borderColor: hexToRgba(theme.primary, 0.1),
+              color: theme.muted,
+            }}
+          >
             {filtered.length} results
           </div>
         </div>
@@ -1127,18 +1446,25 @@ export default function PublicProductsListingPage() {
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
           <aside className="hidden lg:col-span-4 lg:block">
-            <div className="sticky top-24 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div
+              className="sticky top-24 rounded-[2rem] border p-6 shadow-xl backdrop-blur-xl"
+              style={{
+                backgroundColor: hexToRgba(theme.card, 0.92),
+                borderColor: hexToRgba(theme.primary, 0.1),
+              }}
+            >
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-extrabold text-gray-900">
+                <h2 className="text-lg font-black" style={{ color: theme.text }}>
                   Filters
                 </h2>
 
-                <span className="text-sm text-gray-500">
+                <span className="text-sm font-bold" style={{ color: theme.muted }}>
                   {filtered.length} results
                 </span>
               </div>
 
               <FiltersPanel
+                theme={theme}
                 q={q}
                 setQ={setQ}
                 categoryId={categoryId}
@@ -1169,29 +1495,35 @@ export default function PublicProductsListingPage() {
           </aside>
 
           <section className="lg:col-span-8">
-            <div className="mb-4 rounded-3xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+            <div
+              className="mb-4 rounded-[2rem] border p-4 shadow-xl sm:p-5"
+              style={{
+                backgroundColor: hexToRgba(theme.card, 0.92),
+                borderColor: hexToRgba(theme.primary, 0.1),
+              }}
+            >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm font-bold" style={{ color: theme.muted }}>
                     Showing{" "}
-                    <span className="font-extrabold text-gray-900">
+                    <span className="font-black" style={{ color: theme.text }}>
                       {filtered.length}
                     </span>{" "}
                     result{filtered.length === 1 ? "" : "s"}
                   </div>
 
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <BadgePill tone="green">
+                    <BadgePill theme={theme} tone="green">
                       <CheckCircle2 className="h-4 w-4" />
                       Deposit booking
                     </BadgePill>
 
-                    <BadgePill tone="blue">
+                    <BadgePill theme={theme} tone="blue">
                       <Clock3 className="h-4 w-4" />
                       Easy reservation
                     </BadgePill>
 
-                    <BadgePill tone="orange">
+                    <BadgePill theme={theme} tone="accent">
                       <BadgeDollarSign className="h-4 w-4" />
                       Local prices
                     </BadgePill>
@@ -1199,21 +1531,25 @@ export default function PublicProductsListingPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-gray-600">
+                  <label
+                    className="text-xs font-black uppercase tracking-wide"
+                    style={{ color: theme.muted }}
+                  >
                     Sort
                   </label>
 
                   <select
                     value={sort}
                     onChange={(event) => setSort(event.target.value as SortKey)}
-                    className="rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-100"
+                    className="rounded-2xl border px-4 py-2.5 text-sm font-black outline-none"
+                    style={inputStyle(theme)}
                   >
                     <option value="recommended">Recommended</option>
                     <option value="rating_high">Rating</option>
-                    <option value="price_low">Price (low)</option>
-                    <option value="price_high">Price (high)</option>
-                    <option value="duration_low">Duration (short)</option>
-                    <option value="duration_high">Duration (long)</option>
+                    <option value="price_low">Price low</option>
+                    <option value="price_high">Price high</option>
+                    <option value="duration_low">Duration short</option>
+                    <option value="duration_high">Duration long</option>
                   </select>
                 </div>
               </div>
@@ -1223,12 +1559,12 @@ export default function PublicProductsListingPage() {
                   <button
                     type="button"
                     onClick={() => setCategoryId("all")}
-                    className={[
-                      "rounded-full border px-3 py-2 text-xs font-extrabold transition",
+                    className="rounded-full border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                    style={
                       categoryId === "all"
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50",
-                    ].join(" ")}
+                        ? activeButtonStyle(theme)
+                        : inactiveButtonStyle(theme)
+                    }
                   >
                     All
                   </button>
@@ -1241,12 +1577,12 @@ export default function PublicProductsListingPage() {
                         key={category.id}
                         type="button"
                         onClick={() => setCategoryId(String(category.id))}
-                        className={[
-                          "rounded-full border px-3 py-2 text-xs font-extrabold transition",
+                        className="rounded-full border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                        style={
                           active
-                            ? "border-gray-900 bg-gray-900 text-white"
-                            : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50",
-                        ].join(" ")}
+                            ? activeButtonStyle(theme)
+                            : inactiveButtonStyle(theme)
+                        }
                       >
                         {category.name}
                       </button>
@@ -1257,38 +1593,65 @@ export default function PublicProductsListingPage() {
             </div>
 
             {loading ? (
-              <div className="rounded-3xl border border-gray-200 bg-white p-10 text-center text-gray-600">
-                <Loader2 className="mx-auto h-7 w-7 animate-spin text-orange-500" />
+              <div
+                className="rounded-[2rem] border p-10 text-center"
+                style={{
+                  backgroundColor: theme.card,
+                  borderColor: hexToRgba(theme.primary, 0.1),
+                  color: theme.muted,
+                }}
+              >
+                <Loader2
+                  className="mx-auto h-7 w-7 animate-spin"
+                  style={{ color: theme.accent }}
+                />
                 <p className="mt-3 font-bold">Loading...</p>
               </div>
             ) : filtered.length > 0 ? (
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {filtered.map((product) => (
+                {filtered.map((product, index) => (
                   <ProductCard
                     key={product.id}
                     product={product}
                     organisationSlug={organisationSlug}
                     currencySymbol={currencySymbol}
+                    theme={theme}
+                    index={index}
                   />
                 ))}
               </div>
             ) : (
-              <div className="rounded-3xl border border-gray-200 bg-white p-10 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50">
-                  <Flame className="h-6 w-6 text-orange-700" />
+              <div
+                className="rounded-[2rem] border p-10 text-center shadow-sm"
+                style={{
+                  backgroundColor: theme.card,
+                  borderColor: hexToRgba(theme.primary, 0.12),
+                }}
+              >
+                <div
+                  className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
+                  style={{
+                    backgroundColor: hexToRgba(theme.accent, 0.14),
+                    color: theme.accent,
+                  }}
+                >
+                  <Flame className="h-7 w-7" />
                 </div>
 
-                <p className="mt-3 font-extrabold text-gray-900">
+                <p className="mt-3 text-lg font-black" style={{ color: theme.text }}>
                   {labels.emptyTitle}
                 </p>
 
-                <p className="mt-2 text-gray-600">{labels.emptyText}</p>
+                <p className="mt-2 font-semibold" style={{ color: theme.muted }}>
+                  {labels.emptyText}
+                </p>
 
                 <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="rounded-2xl bg-gray-900 px-6 py-3 text-sm font-extrabold text-white hover:bg-black"
+                    className="rounded-2xl px-6 py-3 text-sm font-black text-white transition hover:-translate-y-0.5"
+                    style={{ backgroundColor: theme.button }}
                   >
                     Clear filters
                   </button>
@@ -1296,7 +1659,8 @@ export default function PublicProductsListingPage() {
                   <button
                     type="button"
                     onClick={() => setMobileFiltersOpen(true)}
-                    className="rounded-2xl border border-gray-200 bg-white px-6 py-3 text-sm font-extrabold text-gray-900 hover:bg-gray-50 lg:hidden"
+                    className="rounded-2xl border px-6 py-3 text-sm font-black transition hover:-translate-y-0.5 lg:hidden"
+                    style={inactiveButtonStyle(theme)}
                   >
                     Open filters
                   </button>
@@ -1310,17 +1674,23 @@ export default function PublicProductsListingPage() {
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
               aria-label="Close filters"
-              className="absolute inset-0 bg-black/40"
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={() => setMobileFiltersOpen(false)}
             />
 
-            <div className="absolute right-0 top-0 h-full w-[92%] max-w-md bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+            <div
+              className="absolute right-0 top-0 h-full w-[92%] max-w-md shadow-2xl"
+              style={{ backgroundColor: theme.card }}
+            >
+              <div
+                className="flex items-center justify-between border-b px-5 py-4"
+                style={{ borderColor: hexToRgba(theme.primary, 0.1) }}
+              >
                 <div>
-                  <h2 className="text-lg font-extrabold text-gray-900">
+                  <h2 className="text-lg font-black" style={{ color: theme.text }}>
                     Filters
                   </h2>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm font-bold" style={{ color: theme.muted }}>
                     {filtered.length} results
                   </p>
                 </div>
@@ -1328,16 +1698,18 @@ export default function PublicProductsListingPage() {
                 <button
                   type="button"
                   onClick={() => setMobileFiltersOpen(false)}
-                  className="rounded-xl border border-gray-200 p-2"
+                  className="rounded-xl border p-2"
+                  style={inactiveButtonStyle(theme)}
                   aria-label="Close"
                 >
-                  <X className="h-5 w-5 text-gray-700" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
               <div className="h-[calc(100%-64px)] overflow-y-auto p-5">
                 <FiltersPanel
                   compact
+                  theme={theme}
                   q={q}
                   setQ={setQ}
                   categoryId={categoryId}
@@ -1369,7 +1741,8 @@ export default function PublicProductsListingPage() {
                   <button
                     type="button"
                     onClick={() => setMobileFiltersOpen(false)}
-                    className="w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-extrabold text-white"
+                    className="w-full rounded-2xl px-4 py-3 text-sm font-black text-white"
+                    style={{ backgroundColor: theme.button }}
                   >
                     Show results ({filtered.length})
                   </button>
@@ -1383,20 +1756,62 @@ export default function PublicProductsListingPage() {
   );
 }
 
+function ToggleLine({
+  checked,
+  onChange,
+  label,
+  theme,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  theme: PublicTheme;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-bold" style={{ color: theme.muted }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 rounded"
+        style={{ accentColor: theme.accent }}
+      />
+      {label}
+    </label>
+  );
+}
+
 function PublicHeader({
   organisationSlug,
   brandName,
   logoUrl,
+  theme,
+  whatsappUrl,
 }: {
   organisationSlug: string;
   brandName: string;
   logoUrl: string;
+  theme: PublicTheme;
+  whatsappUrl: string;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/90 backdrop-blur-xl">
+    <header
+      className="sticky top-0 z-30 border-b backdrop-blur-2xl"
+      style={{
+        backgroundColor: hexToRgba(theme.card, 0.82),
+        borderColor: hexToRgba(theme.primary, 0.1),
+      }}
+    >
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link to={`/experiences/${organisationSlug}`} className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-orange-50 text-orange-700 ring-1 ring-orange-100">
+        <Link to={`/experiences/${organisationSlug}`} className="group flex items-center gap-3">
+          <div
+            className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl ring-1 transition group-hover:scale-105"
+            style={{
+              backgroundColor: hexToRgba(theme.accent, 0.15),
+              color: theme.accent,
+              borderColor: hexToRgba(theme.accent, 0.15),
+            }}
+          >
             {logoUrl ? (
               <img
                 src={logoUrl}
@@ -1409,19 +1824,37 @@ function PublicHeader({
           </div>
 
           <div>
-            <p className="text-sm font-black text-gray-950">{brandName}</p>
-            <p className="text-xs font-bold text-gray-500">
+            <p className="text-sm font-black" style={{ color: theme.text }}>
+              {brandName}
+            </p>
+            <p className="text-xs font-bold" style={{ color: theme.muted }}>
               Tours, Tickets & Transfers
             </p>
           </div>
         </Link>
 
-        <Link
-          to={`/experiences/${organisationSlug}`}
-          className="rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm font-extrabold text-gray-900 hover:bg-gray-50"
-        >
-          Home
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/experiences/${organisationSlug}`}
+            className="rounded-2xl border px-4 py-2 text-sm font-black transition hover:-translate-y-0.5"
+            style={inactiveButtonStyle(theme)}
+          >
+            Home
+          </Link>
+
+          {whatsappUrl && (
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden items-center gap-2 rounded-2xl px-4 py-2 text-sm font-black text-white transition hover:-translate-y-0.5 sm:inline-flex"
+              style={{ backgroundColor: theme.button }}
+            >
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp
+            </a>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -1431,98 +1864,164 @@ function ProductCard({
   product,
   organisationSlug,
   currencySymbol,
+  theme,
+  index = 0,
 }: {
   product: ExperienceProduct;
   organisationSlug: string;
   currencySymbol: string;
+  theme: PublicTheme;
+  index?: number;
 }) {
   const imageUrl = getImage(product);
   const Icon = getProductTypeIcon(product.product_type);
+  const isTop = product.is_best_seller || product.is_recommended || product.is_featured;
 
   return (
     <Link
       to={`/experiences/${organisationSlug}/product/${product.slug}`}
-      className="group overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+      className="pcd-glow-card pcd-animate-reveal group rounded-[2rem] border p-[1px] shadow-sm transition hover:-translate-y-2 hover:shadow-2xl"
+      style={{
+        animationDelay: `${Math.min(index * 45, 280)}ms`,
+        backgroundColor: hexToRgba(theme.primary, 0.08),
+        borderColor: hexToRgba(theme.primary, 0.08),
+      }}
     >
-      <div className="relative aspect-[4/3] bg-gray-100">
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={product.image_alt_text || product.name}
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-            loading="lazy"
-          />
-        ) : (
-          <div className="grid h-full place-items-center">
-            <ImageIcon className="h-10 w-10 text-gray-300" />
-          </div>
-        )}
+      <article
+        className="h-full overflow-hidden rounded-[1.95rem]"
+        style={{ backgroundColor: theme.card }}
+      >
+        <div className="relative aspect-[4/3] overflow-hidden">
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={product.image_alt_text || product.name}
+              className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
+              loading="lazy"
+            />
+          ) : (
+            <div
+              className="grid h-full place-items-center"
+              style={{ backgroundColor: hexToRgba(theme.primary, 0.04) }}
+            >
+              <ImageIcon className="h-10 w-10" style={{ color: theme.muted }} />
+            </div>
+          )}
 
-        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-          {product.is_best_seller && (
-            <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-900 shadow">
-              Most booked
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
+
+          <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+            {product.is_best_seller && (
+              <span
+                className="rounded-full px-3 py-1 text-xs font-black shadow backdrop-blur"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.9)",
+                  color: theme.text,
+                }}
+              >
+                Most booked
+              </span>
+            )}
+
+            {product.is_recommended && !product.is_best_seller && (
+              <span
+                className="rounded-full px-3 py-1 text-xs font-black shadow backdrop-blur"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.9)",
+                  color: theme.text,
+                }}
+              >
+                Recommended
+              </span>
+            )}
+
+            {isTop && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-black shadow"
+                style={{
+                  backgroundColor: theme.accent,
+                  color: theme.primary,
+                }}
+              >
+                <Star className="h-3.5 w-3.5" />
+                Top
+              </span>
+            )}
+          </div>
+
+          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-white/70">
+                From
+              </p>
+              <p className="text-2xl font-black text-white">
+                {money(product.base_price, currencySymbol)}
+              </p>
+            </div>
+
+            <span
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-lg transition group-hover:translate-x-1"
+              style={{ backgroundColor: theme.accent, color: theme.primary }}
+            >
+              <ArrowRight className="h-5 w-5" />
             </span>
-          )}
-
-          {product.is_recommended && !product.is_best_seller && (
-            <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-900 shadow">
-              Recommended
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-extrabold text-orange-800">
-              <Icon className="h-3.5 w-3.5" />
-              {getTypeLabel(product.product_type)}
-            </div>
-
-            <h3 className="line-clamp-2 text-lg font-bold leading-snug text-gray-900">
-              {product.name}
-            </h3>
-
-            <p className="mt-1 line-clamp-2 text-sm text-gray-600">
-              {product.short_description || product.long_description}
-            </p>
-          </div>
-
-          <div className="shrink-0 text-right text-sm font-bold text-orange-600">
-            {money(product.base_price, currencySymbol)}
           </div>
         </div>
 
-        <div className="mt-4 space-y-2 text-sm text-gray-600">
-          {product.duration_text && (
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4 text-orange-700" />
-              {product.duration_text}
-            </div>
-          )}
+        <div className="p-5">
+          <div className="mb-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-black"
+            style={{
+              backgroundColor: hexToRgba(theme.accent, 0.12),
+              color: theme.accent,
+            }}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {getTypeLabel(product.product_type)}
+          </div>
 
-          {product.location && (
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-orange-700" />
-              {product.location}
-            </div>
-          )}
+          <h3
+            className="line-clamp-2 text-lg font-black leading-snug"
+            style={{ color: theme.text }}
+          >
+            {product.name}
+          </h3>
 
-          {(product.supports_pickup || product.requires_pickup_location) && (
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              Pickup available
-            </div>
-          )}
+          <p
+            className="mt-2 line-clamp-2 text-sm font-semibold leading-6"
+            style={{ color: theme.muted }}
+          >
+            {product.short_description || product.long_description || "Book this experience online."}
+          </p>
+
+          <div className="mt-4 space-y-2 text-sm font-bold" style={{ color: theme.muted }}>
+            {product.duration_text && (
+              <div className="flex items-center gap-2">
+                <Clock3 className="h-4 w-4" style={{ color: theme.accent }} />
+                {product.duration_text}
+              </div>
+            )}
+
+            {product.location && (
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4" style={{ color: theme.accent }} />
+                {product.location}
+              </div>
+            )}
+
+            {(product.supports_pickup || product.requires_pickup_location) && (
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                Pickup available
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 inline-flex items-center text-sm font-black" style={{ color: theme.text }}>
+            Explore
+            <span className="ml-2 transition group-hover:translate-x-1">→</span>
+          </div>
         </div>
-
-        <div className="mt-4 inline-flex items-center text-sm font-semibold text-gray-900">
-          Explore
-          <span className="ml-2 transition group-hover:translate-x-1">→</span>
-        </div>
-      </div>
+      </article>
     </Link>
   );
 }
