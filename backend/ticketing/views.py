@@ -2330,6 +2330,180 @@ class PublicCategoryViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewS
         )
 
 
+class PublicPickupLocationViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Public read-only pickup locations for the public booking website.
+
+    This endpoint is intentionally separate from the private/admin
+    PickupLocationViewSet. It only exposes active pickup locations for a
+    published public ticketing site.
+    """
+    serializer_class = PickupLocationSerializer
+    permission_classes = [permissions.AllowAny]
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return PickupLocation.objects.none()
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return PickupLocation.objects.none()
+
+        queryset = (
+            PickupLocation.objects
+            .filter(
+                organisation=organisation,
+                is_active=True,
+            )
+            .select_related("zone")
+        )
+
+        zone = self.request.query_params.get("zone")
+        location_type = self.request.query_params.get("location_type")
+        search = self.request.query_params.get("search")
+
+        if zone:
+            queryset = queryset.filter(Q(zone_id=zone) | Q(zone__name__icontains=zone))
+
+        if location_type:
+            queryset = queryset.filter(location_type=location_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(address__icontains=search)
+                | Q(default_pickup_point__icontains=search)
+            )
+
+        return queryset.order_by("name")
+
+
+class PublicPickupScheduleResolveAPIView(PublicOrganisationMixin, APIView):
+    """
+    Public pickup schedule resolver for the public booking website.
+
+    It allows the public product detail/checkout flow to resolve the pickup time
+    only for public active products and active pickup locations belonging to the
+    resolved organisation.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product_id = (
+            request.query_params.get("product")
+            or request.query_params.get("product_id")
+        )
+        pickup_location_id = (
+            request.query_params.get("pickup_location")
+            or request.query_params.get("pickup_location_id")
+        )
+        service_date_value = (
+            request.query_params.get("service_date")
+            or request.query_params.get("date")
+        )
+
+        if not product_id or not pickup_location_id or not service_date_value:
+            return Response(
+                {
+                    "detail": "product, pickup_location and service_date are required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service_date = parse_date(service_date_value)
+
+        if not service_date:
+            return Response(
+                {"detail": "service_date must be YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        product = get_object_or_404(
+            ExperienceProduct,
+            id=product_id,
+            organisation=organisation,
+            public_enabled=True,
+            is_active=True,
+            status="active",
+        )
+
+        pickup_location = get_object_or_404(
+            PickupLocation,
+            id=pickup_location_id,
+            organisation=organisation,
+            is_active=True,
+        )
+
+        schedules = ProductPickupSchedule.objects.filter(
+            product=product,
+            pickup_location=pickup_location,
+            is_active=True,
+        ).filter(
+            Q(specific_date=service_date)
+            | Q(day_of_week=service_date.weekday(), specific_date__isnull=True)
+            | Q(day_of_week__isnull=True, specific_date__isnull=True)
+        )
+
+        schedule = schedules.filter(specific_date=service_date).first()
+
+        if not schedule:
+            schedule = schedules.filter(
+                day_of_week=service_date.weekday(),
+                specific_date__isnull=True,
+            ).first()
+
+        if not schedule:
+            schedule = schedules.filter(
+                day_of_week__isnull=True,
+                specific_date__isnull=True,
+            ).first()
+
+        if not schedule:
+            return Response(
+                {
+                    "found": False,
+                    "product": product.name,
+                    "pickup_location": pickup_location.name,
+                    "service_date": service_date_value,
+                    "message": "No pickup schedule found for this product, date and location.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = ProductPickupScheduleSerializer(
+            schedule,
+            context={"request": request, "organisation": organisation},
+        )
+
+        return Response(
+            {
+                "found": True,
+                "schedule": serializer.data,
+            }
+        )
+
+
+
 class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
     serializer_class = BookingSerializer
     permission_classes = [permissions.AllowAny]

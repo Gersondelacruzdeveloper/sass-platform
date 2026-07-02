@@ -1259,19 +1259,22 @@ export default function PublicProductDetailPage() {
       if (!foundProduct) {
         setBranding(brandingResponse);
         setProduct(null);
+        setPickupLocations([]);
         setError("This product is not available or is no longer public.");
         return;
       }
 
       setBranding(brandingResponse);
       setProduct(foundProduct);
+
       console.log("PUBLIC PRODUCT PAYMENT FLAGS", {
         name: foundProduct.name,
         allow_deposit_payment: foundProduct.allow_deposit_payment,
         allow_full_payment: foundProduct.allow_full_payment,
         allow_pending_payment: foundProduct.allow_pending_payment,
         allow_cash_payment: foundProduct.allow_cash_payment,
-        });
+      });
+
       setPaymentChoice(getDefaultPayment(foundProduct));
 
       setRelatedProducts(
@@ -1291,8 +1294,13 @@ export default function PublicProductDetailPage() {
         Boolean(foundProduct.requires_pickup_location) ||
         productSchedules.length > 0;
 
-      if (inferredPickupEnabled) {
-        const locations = await ticketingApi.getPickupLocations(
+      if (!inferredPickupEnabled) {
+        setPickupLocations([]);
+        return;
+      }
+
+      try {
+        const locations = await ticketingApi.getPublicPickupLocations(
           organisationSlug,
           { is_active: true }
         );
@@ -1308,12 +1316,18 @@ export default function PublicProductDetailPage() {
           : locations;
 
         setPickupLocations(visibleLocations);
-      } else {
+      } catch (pickupError) {
+        console.error("Could not load public pickup locations:", pickupError);
+
+        // Do not hide the product just because pickup locations failed.
+        // The customer can still view the experience.
         setPickupLocations([]);
       }
     } catch (err: any) {
       console.error("Could not load public product detail:", err);
 
+      setProduct(null);
+      setPickupLocations([]);
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
@@ -1563,7 +1577,7 @@ export default function PublicProductDetailPage() {
       try {
         setResolvingPickup(true);
 
-        const response = await ticketingApi.resolvePickupSchedule(
+        const response = await ticketingApi.resolvePublicPickupSchedule(
           organisationSlug,
           product.id,
           Number(pickupLocationId),

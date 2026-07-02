@@ -35,13 +35,13 @@ from .views import (
     PublicCategoryViewSet,
     PublicBookingViewSet,
     PublicProductAvailabilityAPIView,
+    PublicPickupLocationViewSet,
+    PublicPickupScheduleResolveAPIView,
     TicketingLiveAvailabilityAPIView,
     PublicSEOAPIView,
     PublicSitemapAPIView,
     PublicRobotsAPIView,
     WelletProductsAPIView,
-
-
 )
 
 
@@ -78,6 +78,7 @@ router.register("reviews", ProductReviewViewSet, basename="ticketing-reviews")
 router.register("public/products", PublicProductViewSet, basename="ticketing-public-products")
 router.register("public/categories", PublicCategoryViewSet, basename="ticketing-public-categories")
 router.register("public/bookings", PublicBookingViewSet, basename="ticketing-public-bookings")
+router.register("public/pickup-locations", PublicPickupLocationViewSet, basename="ticketing-public-pickup-locations")
 
 
 urlpatterns = [
@@ -85,6 +86,14 @@ urlpatterns = [
     path("dashboard/", TicketingDashboardAPIView.as_view(), name="ticketing-dashboard"),
     path("reports/", TicketingReportsAPIView.as_view(), name="ticketing-reports"),
     path("seller-dashboard/", SellerDashboardAPIView.as_view(), name="ticketing-seller-dashboard"),
+
+    # Public domain resolver:
+    # /api/ticketing/public/resolve-domain/?domain=www.example.com
+    path(
+        "public/resolve-domain/",
+        PublicDomainResolveAPIView.as_view(),
+        name="ticketing-public-resolve-domain",
+    ),
 
     # Public branding / SEO using query param:
     # /api/ticketing/public/branding/?slug=organisation-slug
@@ -95,15 +104,27 @@ urlpatterns = [
 
     # Public branding / SEO using path slug:
     # /api/ticketing/public/hard-rock/branding/
-    path(
-    "public/resolve-domain/",
-    PublicDomainResolveAPIView.as_view(),
-    name="ticketing-public-resolve-domain",
-    ),
     path("public/<slug:organisation_slug>/branding/", PublicBrandingAPIView.as_view(), name="ticketing-public-branding-by-slug"),
     path("public/<slug:organisation_slug>/seo/", PublicSEOAPIView.as_view(), name="ticketing-public-seo-by-slug"),
     path("public/<slug:organisation_slug>/sitemap.xml", PublicSitemapAPIView.as_view(), name="ticketing-public-sitemap-by-slug"),
     path("public/<slug:organisation_slug>/robots.txt", PublicRobotsAPIView.as_view(), name="ticketing-public-robots-by-slug"),
+
+    # Public pickup schedule resolver.
+    # Preferred public custom-domain version:
+    # /api/ticketing/public/pickup-schedules/resolve/?slug=organisation-slug&product=1&pickup_location=2&service_date=2026-07-01
+    path(
+        "public/pickup-schedules/resolve/",
+        PublicPickupScheduleResolveAPIView.as_view(),
+        name="ticketing-public-pickup-schedule-resolve",
+    ),
+
+    # Optional path-slug version:
+    # /api/ticketing/public/hard-rock/pickup-schedules/resolve/?product=1&pickup_location=2&service_date=2026-07-01
+    path(
+        "public/<slug:organisation_slug>/pickup-schedules/resolve/",
+        PublicPickupScheduleResolveAPIView.as_view(),
+        name="ticketing-public-pickup-schedule-resolve-by-slug",
+    ),
 
     # Public seller link booking flow:
     # /api/ticketing/public/hard-rock/s/juan-perez/bookings/
@@ -138,7 +159,7 @@ urlpatterns = [
         name="ticketing-wellet-settings",
     ),
 
-        # Private/seller live availability:
+    # Private/seller live availability:
     # /api/ticketing/live-availability/?product=1&service_date=2026-07-01
     path(
         "live-availability/",

@@ -425,6 +425,19 @@ export const ticketingApi = {
     return response.data;
   },
 
+  getPublicPickupLocations: async (
+    slug: string,
+    params?: QueryParams
+  ): Promise<PickupLocation[]> => {
+    const response = await api.get<PickupLocation[]>(
+      "/ticketing/public/pickup-locations/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
   createPickupLocation: async (
     payload: CreatePayload<PickupLocation> & { zone_id?: number | null },
     slug?: string
@@ -478,6 +491,28 @@ export const ticketingApi = {
         slug
       ),
     });
+    return response.data;
+  },
+
+  resolvePublicPickupSchedule: async (
+    slug: string,
+    product: number,
+    pickupLocation: number,
+    serviceDate: string
+  ): Promise<PickupResolveResponse> => {
+    const response = await api.get<PickupResolveResponse>(
+      "/ticketing/public/pickup-schedules/resolve/",
+      {
+        params: withSlug(
+          {
+            product,
+            pickup_location: pickupLocation,
+            service_date: serviceDate,
+          },
+          slug
+        ),
+      }
+    );
     return response.data;
   },
 
