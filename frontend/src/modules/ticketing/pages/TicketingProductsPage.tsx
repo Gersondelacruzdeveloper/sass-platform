@@ -25,7 +25,6 @@ import {
   Tag,
   Ticket,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
 

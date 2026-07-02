@@ -11,7 +11,6 @@ import {
   Eye,
   Loader2,
   MapPin,
-  Phone,
   RefreshCw,
   Search,
   Ticket,

@@ -5,23 +5,19 @@ import type { ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertCircle,
-  CalendarDays,
   CheckCircle2,
   Clock3,
   CreditCard,
-  DollarSign,
   ExternalLink,
   Hotel,
   Loader2,
   MapPin,
   Package,
-  Plus,
   RefreshCw,
   Save,
   Search,
   Ticket,
   UserRound,
-  Users,
   Wallet,
 } from "lucide-react";
 

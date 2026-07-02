@@ -5,12 +5,10 @@ import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowRight,
-  BadgeCheck,
   BadgeDollarSign,
   CalendarDays,
   CheckCircle2,
   Clock3,
-  Filter,
   Flame,
   Image as ImageIcon,
   Loader2,

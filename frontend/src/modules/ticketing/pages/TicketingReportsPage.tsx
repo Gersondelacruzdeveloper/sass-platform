@@ -11,7 +11,6 @@ import {
   CreditCard,
   DollarSign,
   Download,
-  Loader2,
   Package,
   RefreshCw,
   Search,

@@ -9,7 +9,6 @@ import {
   BadgeCheck,
   Eye,
   EyeOff,
-  Globe2,
   Loader2,
   Lock,
   MapPinned,

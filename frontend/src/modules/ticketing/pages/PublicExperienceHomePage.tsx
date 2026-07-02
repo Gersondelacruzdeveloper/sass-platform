@@ -515,7 +515,7 @@ export default function PublicExperienceHomePage() {
 
   return (
     <div
-      className="min-h-screen overflow-hidden"
+      className="min-h-screen overflow-x-hidden"
       style={{
         backgroundColor: theme.background,
         color: theme.text,
@@ -564,7 +564,9 @@ export default function PublicExperienceHomePage() {
         }
 
         .pcd-marquee-track {
-          animation: pcdMarquee 22s linear infinite;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
         }
 
         .pcd-glow-card {
@@ -710,14 +712,14 @@ export default function PublicExperienceHomePage() {
       </header>
 
       <section
-        className="relative z-10 overflow-hidden"
+        className="relative z-10 min-h-[700px] overflow-hidden sm:min-h-[760px] lg:min-h-[780px]"
         style={{
           backgroundColor: theme.primary,
         }}
       >
         {heroMediaType === "video" && heroVideoUrl ? (
           <video
-            className="absolute inset-0 h-full w-full scale-105 object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-center sm:scale-105"
             src={heroVideoUrl}
             poster={heroPosterUrl || undefined}
             autoPlay
@@ -729,7 +731,7 @@ export default function PublicExperienceHomePage() {
           <img
             src={heroImageUrl}
             alt={brandName}
-            className="absolute inset-0 h-full w-full scale-105 object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-center sm:scale-105"
           />
         ) : null}
 
@@ -755,8 +757,8 @@ export default function PublicExperienceHomePage() {
           style={{ borderColor: "rgba(255,255,255,0.2)" }}
         />
 
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-24">
-          <div className="pcd-animate-reveal flex flex-col justify-center">
+        <div className="relative mx-auto grid min-h-[700px] max-w-7xl gap-10 px-4 py-12 sm:min-h-[760px] sm:px-6 sm:py-16 lg:min-h-[780px] lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-24">
+          <div className="pcd-animate-reveal flex min-w-0 flex-col justify-center">
             <div className="flex flex-wrap items-center gap-2">
               <span
                 className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-wide text-white backdrop-blur-xl"
@@ -782,18 +784,18 @@ export default function PublicExperienceHomePage() {
               </span>
             </div>
 
-            <h1 className="mt-6 max-w-4xl text-5xl font-black tracking-tight text-white sm:text-6xl lg:text-7xl">
+            <h1 className="mt-6 max-w-full break-words text-4xl font-black leading-[1.05] tracking-tight text-white sm:max-w-4xl sm:text-6xl lg:text-7xl">
               {heroTitle}
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base font-semibold leading-8 text-white/86 sm:text-lg">
+            <p className="mt-5 max-w-full text-sm font-semibold leading-7 text-white/90 sm:mt-6 sm:max-w-2xl sm:text-lg sm:leading-8">
               {heroSubtitle}
             </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <a
                 href="#products"
-                className="pcd-shine inline-flex h-14 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black shadow-2xl transition hover:-translate-y-0.5"
+                className="pcd-shine inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-center text-sm font-black shadow-2xl transition hover:-translate-y-0.5 sm:w-auto"
                 style={{
                   backgroundColor: theme.accent,
                   color: theme.primary,
@@ -808,7 +810,7 @@ export default function PublicExperienceHomePage() {
                   href={whatsappUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border px-6 text-sm font-black text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/20"
+                  className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl border px-6 text-center text-sm font-black text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/20 sm:w-auto"
                   style={{
                     borderColor: "rgba(255,255,255,0.24)",
                     backgroundColor: "rgba(255,255,255,0.12)",
@@ -822,14 +824,14 @@ export default function PublicExperienceHomePage() {
 
             {showTrustBadges && trustBadges.length > 0 && (
               <div
-                className="mt-9 overflow-hidden rounded-2xl border py-3 backdrop-blur-xl"
+                className="mt-8 max-w-full overflow-hidden rounded-2xl border p-3 backdrop-blur-xl lg:mt-9 lg:py-3"
                 style={{
                   borderColor: "rgba(255,255,255,0.16)",
                   backgroundColor: "rgba(255,255,255,0.08)",
                 }}
               >
-                <div className="pcd-marquee-track flex w-[200%] gap-3">
-                  {[...trustBadges, ...trustBadges].map(
+                <div className="pcd-marquee-track">
+                  {trustBadges.map(
                     (badge: string, index: number) => (
                       <span
                         key={`${badge}-${index}`}
@@ -920,11 +922,11 @@ export default function PublicExperienceHomePage() {
 
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   <div className="mb-3 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-white/18 px-3 py-1 text-xs font-black text-white backdrop-blur">
+                    <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black text-white backdrop-blur">
                       Featured experience
                     </span>
                     {heroProduct?.location && (
-                      <span className="rounded-full bg-white/18 px-3 py-1 text-xs font-black text-white backdrop-blur">
+                      <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black text-white backdrop-blur">
                         {heroProduct.location}
                       </span>
                     )}

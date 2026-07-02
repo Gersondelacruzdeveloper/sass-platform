@@ -17,7 +17,6 @@ import {
   Save,
   Search,
   Trash2,
-  X,
 } from "lucide-react";
 
 import api from "../../../api/axios";

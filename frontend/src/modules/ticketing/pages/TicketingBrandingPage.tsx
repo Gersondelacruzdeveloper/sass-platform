@@ -227,15 +227,15 @@ export default function TicketingBrandingPage() {
   }, [organisationSlug]);
 
   const logoPreview = filePreview(logoFile, publicSite.logo_url || publicSite.logo);
-  const faviconPreview = filePreview(
-    faviconFile,
-    publicSite.favicon_url || publicSite.favicon
-  );
+//   const faviconPreview = filePreview(
+//     faviconFile,
+//     publicSite.favicon_url || publicSite.favicon
+//   );
   const heroPreview = filePreview(
     heroImageFile,
     publicSite.hero_image_url || publicSite.hero_image
   );
-  const ogPreview = filePreview(ogImageFile, publicSite.og_image_url || publicSite.og_image);
+//   const ogPreview = filePreview(ogImageFile, publicSite.og_image_url || publicSite.og_image);
 
   async function loadBranding() {
     if (!organisationSlug) return;

@@ -371,8 +371,7 @@ function summarizePickupAvailability(
   const hasDailyFallback = schedulesToDisplay.some(
     (schedule) =>
       (schedule.day_of_week === null ||
-        schedule.day_of_week === undefined ||
-        schedule.day_of_week === "") &&
+        schedule.day_of_week === undefined) &&
       !schedule.specific_date
   );
 
@@ -437,11 +436,7 @@ function isPickupDateAllowed(
       return schedule.specific_date === date;
     }
 
-    if (
-      schedule.day_of_week === null ||
-      schedule.day_of_week === undefined ||
-      schedule.day_of_week === ""
-    ) {
+    if (schedule.day_of_week === null || schedule.day_of_week === undefined) {
       return true;
     }
 
@@ -926,7 +921,10 @@ function getPaymentChoices(product: ExperienceProduct) {
     helper: string;
   }[] = [];
 
-  if (product.allow_deposit_payment) {
+  // Important:
+  // Use === true only. If the backend does not send the field, or if the
+  // owner unticked it, the payment option must NOT appear on the public page.
+  if (product.allow_deposit_payment === true) {
     options.push({
       value: "deposit",
       label: "Pay deposit",
@@ -937,7 +935,7 @@ function getPaymentChoices(product: ExperienceProduct) {
     });
   }
 
-  if (product.allow_full_payment) {
+  if (product.allow_full_payment === true) {
     options.push({
       value: "full",
       label: "Pay total amount",
@@ -945,7 +943,7 @@ function getPaymentChoices(product: ExperienceProduct) {
     });
   }
 
-  if (product.allow_pending_payment) {
+  if (product.allow_pending_payment === true) {
     options.push({
       value: "pending",
       label: "Reserve now, pay later",
@@ -953,7 +951,7 @@ function getPaymentChoices(product: ExperienceProduct) {
     });
   }
 
-  if (product.allow_cash_payment) {
+  if (product.allow_cash_payment === true) {
     options.push({
       value: "cash",
       label: "Pay in person",
@@ -961,19 +959,18 @@ function getPaymentChoices(product: ExperienceProduct) {
     });
   }
 
-  return options.length
-    ? options
-    : [
-        {
-          value: "full" as PaymentChoice,
-          label: "Reserve",
-          helper: "Send your reservation request.",
-        },
-      ];
+  return options;
 }
 
 function getDefaultPayment(product: ExperienceProduct): PaymentChoice {
   return getPaymentChoices(product)[0]?.value || "full";
+}
+
+function hasSelectedPaymentOption(
+  paymentOptions: { value: PaymentChoice; label: string; helper: string }[],
+  paymentChoice: PaymentChoice
+) {
+  return paymentOptions.some((option) => option.value === paymentChoice);
 }
 
 function buildCheckoutUrl({
@@ -1123,6 +1120,13 @@ export default function PublicProductDetailPage() {
 
       setBranding(brandingResponse);
       setProduct(foundProduct);
+      console.log("PUBLIC PRODUCT PAYMENT FLAGS", {
+        name: foundProduct.name,
+        allow_deposit_payment: foundProduct.allow_deposit_payment,
+        allow_full_payment: foundProduct.allow_full_payment,
+        allow_pending_payment: foundProduct.allow_pending_payment,
+        allow_cash_payment: foundProduct.allow_cash_payment,
+        });
       setPaymentChoice(getDefaultPayment(foundProduct));
 
       setRelatedProducts(
@@ -1350,6 +1354,15 @@ export default function PublicProductDetailPage() {
     return getPaymentChoices(product);
   }, [product]);
 
+  useEffect(() => {
+    if (!product) return;
+    if (!paymentOptions.length) return;
+
+    if (!hasSelectedPaymentOption(paymentOptions, paymentChoice)) {
+      setPaymentChoice(paymentOptions[0].value);
+    }
+  }, [product?.id, paymentOptions, paymentChoice]);
+
   const pax = qty.adult + qty.child + qty.infant;
 
   const totals = useMemo(() => {
@@ -1512,6 +1525,8 @@ export default function PublicProductDetailPage() {
 
   const canCheckout = useMemo(() => {
     if (!product) return false;
+    if (!paymentOptions.length) return false;
+    if (!hasSelectedPaymentOption(paymentOptions, paymentChoice)) return false;
     if (!date) return false;
     if (qty.adult < 1) return false;
     if (pax < 1) return false;
@@ -1534,6 +1549,8 @@ export default function PublicProductDetailPage() {
     return true;
   }, [
     product,
+    paymentOptions,
+    paymentChoice,
     date,
     qty.adult,
     pax,
@@ -1567,6 +1584,24 @@ export default function PublicProductDetailPage() {
     if (!product) return;
 
     if (!canCheckout) {
+      if (!paymentOptions.length) {
+        setNotice({
+          type: "checkout",
+          title: "No payment option is available.",
+          subtitle:
+            "This product is not open for checkout until the owner enables at least one payment option.",
+        });
+        return;
+      }
+
+      if (!hasSelectedPaymentOption(paymentOptions, paymentChoice)) {
+        setNotice({
+          type: "checkout",
+          title: "Please select an available payment option.",
+        });
+        return;
+      }
+
       if (date && !availabilityDateAllowed) {
         setNotice({
           type: "checkout",
@@ -2562,7 +2597,7 @@ function BookingCard({
             className="inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: canCheckout ? theme.button : theme.muted }}
           >
-            Checkout • {money2(totals.totalDeposit, currencySymbol)}
+            {paymentOptions.length ? `Checkout • ${money2(totals.totalDeposit, currencySymbol)}` : "Checkout unavailable"}
           </button>
         </div>
 
@@ -2683,48 +2718,62 @@ function BookingCard({
             Payment option
           </div>
 
-          <div className="mt-2 space-y-2">
-            {paymentOptions.map((option) => (
-              <label
-                key={option.value}
-                className="block cursor-pointer rounded-2xl border p-3 transition"
-                style={{
-                  borderColor:
-                    paymentChoice === option.value
-                      ? hexToRgba(theme.accent, 0.55)
-                      : hexToRgba(theme.primary, 0.12),
-                  backgroundColor:
-                    paymentChoice === option.value
-                      ? hexToRgba(theme.accent, 0.12)
-                      : theme.card,
-                }}
-              >
-                <div className="flex gap-3">
-                  <input
-                    type="radio"
-                    name="payment_choice"
-                    value={option.value}
-                    checked={paymentChoice === option.value}
-                    onChange={() => setPaymentChoice(option.value)}
-                    className="mt-1"
-                    style={{ accentColor: theme.accent }}
-                  />
+          {paymentOptions.length > 0 ? (
+            <div className="mt-2 space-y-2">
+              {paymentOptions.map((option) => (
+                <label
+                  key={option.value}
+                  className="block cursor-pointer rounded-2xl border p-3 transition"
+                  style={{
+                    borderColor:
+                      paymentChoice === option.value
+                        ? hexToRgba(theme.accent, 0.55)
+                        : hexToRgba(theme.primary, 0.12),
+                    backgroundColor:
+                      paymentChoice === option.value
+                        ? hexToRgba(theme.accent, 0.12)
+                        : theme.card,
+                  }}
+                >
+                  <div className="flex gap-3">
+                    <input
+                      type="radio"
+                      name="payment_choice"
+                      value={option.value}
+                      checked={paymentChoice === option.value}
+                      onChange={() => setPaymentChoice(option.value)}
+                      className="mt-1"
+                      style={{ accentColor: theme.accent }}
+                    />
 
-                  <div>
-                    <div className="text-sm font-extrabold" style={{ color: theme.text }}>
-                      {option.label}
-                    </div>
-                    <div
-                      className="mt-1 text-xs font-semibold leading-5"
-                      style={{ color: theme.muted }}
-                    >
-                      {option.helper}
+                    <div>
+                      <div className="text-sm font-extrabold" style={{ color: theme.text }}>
+                        {option.label}
+                      </div>
+                      <div
+                        className="mt-1 text-xs font-semibold leading-5"
+                        style={{ color: theme.muted }}
+                      >
+                        {option.helper}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </label>
-            ))}
-          </div>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="mt-2 rounded-2xl border p-4 text-sm font-bold leading-6"
+              style={{
+                backgroundColor: hexToRgba(theme.accent, 0.1),
+                borderColor: hexToRgba(theme.accent, 0.25),
+                color: theme.text,
+              }}
+            >
+              No payment option is available for this product yet. Please contact the
+              seller or administrator.
+            </div>
+          )}
         </div>
 
         <div
@@ -2764,7 +2813,7 @@ function BookingCard({
           className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
           style={{ backgroundColor: canCheckout ? theme.button : theme.muted }}
         >
-          Checkout • {money2(totals.totalDeposit, currencySymbol)}
+          {paymentOptions.length ? `Checkout • ${money2(totals.totalDeposit, currencySymbol)}` : "Checkout unavailable"}
         </button>
 
         <div className="text-xs font-semibold" style={{ color: theme.muted }}>

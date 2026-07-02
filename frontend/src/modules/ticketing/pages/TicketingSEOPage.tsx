@@ -20,7 +20,6 @@ import {
   Network,
   Sparkles,
   Tags,
-  XCircle,
 } from "lucide-react";
 
 import api from "../../../api/axios";
