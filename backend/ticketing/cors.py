@@ -6,7 +6,10 @@ from django.db.models import Q
 
 
 PUBLIC_TICKETING_CORS_PATH_PREFIXES = [
+    # Domain resolver
     "/api/ticketing/public/",
+
+    # Public ticketing endpoints without organisation slug
     "/api/ticketing/public-branding/",
     "/api/ticketing/public-products/",
     "/api/ticketing/public-categories/",
@@ -14,6 +17,8 @@ PUBLIC_TICKETING_CORS_PATH_PREFIXES = [
     "/api/ticketing/public-seo/",
     "/api/ticketing/public-sitemap/",
     "/api/ticketing/public-robots/",
+    "/api/ticketing/public-pickup-locations/",
+    "/api/ticketing/public-live-availability/",
 ]
 
 
@@ -41,12 +46,53 @@ def build_domain_candidates(hostname):
 
 
 def is_public_ticketing_path(path):
+    """
+    Allow only public ticketing API paths.
+
+    Allowed examples:
+    /api/ticketing/public/resolve-domain/
+    /api/ticketing/public-products/
+    /api/ticketing/public-branding/
+    /api/ticketing/punta-cana-discovery/public-products/
+    /api/ticketing/punta-cana-discovery/public-branding/
+    /api/ticketing/punta-cana-discovery/public-bookings/
+
+    Blocked examples:
+    /api/accounts/me/
+    /api/organisations/
+    /api/subscriptions/
+    /api/ticketing/sellers/me/
+    /api/ticketing/products/
+    /api/disco/employees/me/
+    """
     path = str(path or "")
 
-    return any(
-        path.startswith(prefix)
-        for prefix in PUBLIC_TICKETING_CORS_PATH_PREFIXES
-    )
+    if not path.startswith("/api/ticketing/"):
+        return False
+
+    # Direct public endpoint patterns.
+    if any(path.startswith(prefix) for prefix in PUBLIC_TICKETING_CORS_PATH_PREFIXES):
+        return True
+
+    # Slugged public endpoint patterns:
+    # /api/ticketing/<organisation_slug>/public-products/
+    # /api/ticketing/<organisation_slug>/public-branding/
+    # /api/ticketing/<organisation_slug>/public-bookings/
+    parts = path.strip("/").split("/")
+
+    if len(parts) >= 4:
+        api_part = parts[0]
+        ticketing_part = parts[1]
+        public_part = parts[3]
+
+        if (
+            api_part == "api"
+            and ticketing_part == "ticketing"
+            and public_part.startswith("public-")
+        ):
+            return True
+
+    return False
 
 
 def cors_allow_ticketing_public_domains(sender, request, **kwargs):
@@ -54,7 +100,8 @@ def cors_allow_ticketing_public_domains(sender, request, **kwargs):
     Allow tenant custom domains from the DB only for public ticketing endpoints.
 
     This intentionally does NOT allow custom domains to call private endpoints
-    like /api/accounts/me/, /api/organisations/, /api/subscriptions/, etc.
+    like /api/accounts/me/, /api/organisations/, /api/subscriptions/,
+    /api/ticketing/sellers/me/, /api/ticketing/products/, etc.
     """
     if not is_public_ticketing_path(request.path):
         return False
@@ -76,7 +123,6 @@ def cors_allow_ticketing_public_domains(sender, request, **kwargs):
     candidates = build_domain_candidates(hostname)
 
     query = Q()
-
     for candidate in candidates:
         query |= Q(custom_domain__iexact=candidate)
 
