@@ -57,7 +57,7 @@ INSTALLED_APPS = [
     "core",
     "disco",
     'training',
-    "ticketing",
+    "ticketing.apps.TicketingConfig",
 ]
 
 MIDDLEWARE = [

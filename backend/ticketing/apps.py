@@ -2,4 +2,8 @@ from django.apps import AppConfig
 
 
 class TicketingConfig(AppConfig):
-    name = 'ticketing'
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "ticketing"
+
+    def ready(self):
+        from . import cors  # noqa
