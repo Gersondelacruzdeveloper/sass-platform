@@ -114,8 +114,12 @@ function money(value: unknown, symbol = "US$") {
   })}`;
 }
 
-function parseNumber(value: string | null, fallback = 0) {
-  const number = Number(value || "");
+function parseNumber(value: string | null | undefined, fallback = 0) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return fallback;
+  }
+
+  const number = Number(String(value).replace(/,/g, "").trim());
 
   return Number.isFinite(number) ? number : fallback;
 }
@@ -234,34 +238,6 @@ export default function PublicCheckoutPage() {
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
 
-  const externalProvider = searchParams.get("external_provider") || "";
-  const externalProductId = searchParams.get("external_product_id") || "";
-  const externalVariantId = searchParams.get("external_variant_id") || "";
-  const externalAvailabilityId =
-    searchParams.get("external_availability_id") || "";
-  const selectedExternalProductIdFromUrl =
-    searchParams.get("selected_external_product_id") || "";
-  const externalOptionName = searchParams.get("external_option_name") || "";
-
-  /*
-   * IMPORTANT:
-   * The product page may send selected_external_product_id as "84:18"
-   * because that is a unique performance + product key.
-   *
-   * The backend final validation can match external_product_id, external_variant_id,
-   * or external_availability_id, but the safest value for Wellet products is the
-   * real Wellet product id, for example "18", "3327", "17", or "76".
-   *
-   * So for final validation we prefer external_product_id first, while still
-   * sending the availability id separately for audit/debug.
-   */
-  const selectedExternalProductId =
-    externalProductId ||
-    externalVariantId ||
-    externalAvailabilityId ||
-    selectedExternalProductIdFromUrl ||
-    "";
-
   const [form, setForm] = useState<CheckoutForm>({
     full_name: "",
     whatsapp: "",
@@ -334,35 +310,27 @@ export default function PublicCheckoutPage() {
     );
   }, [products, productId, productSlug]);
 
-  const isExternalBooking =
-    externalProvider === "wellet" ||
-    Boolean(selectedExternalProductId) ||
-    Boolean(externalProductId) ||
-    Boolean(externalVariantId) ||
-    Boolean(externalAvailabilityId);
-
-  const selectedTicketLabel = externalOptionName || product?.name || "Ticket option";
-  const selectedTicketDebugId =
-    externalProductId ||
-    externalVariantId ||
-    externalAvailabilityId ||
-    selectedExternalProductIdFromUrl ||
-    "";
-
   const unitPrice = useMemo(() => {
+    const productPrice = Number(product?.base_price || 0);
     const override = parseNumber(unitPriceOverride, NaN);
 
-    if (Number.isFinite(override)) return override;
+    /*
+      Do not allow a missing or accidental 0.00 query parameter to erase the
+      real product price. The checkout should use the product price from the API
+      unless a positive override was intentionally passed from the product page.
+    */
+    if (Number.isFinite(override) && override > 0) return override;
 
-    return Number(product?.base_price || 0);
+    return productPrice;
   }, [product, unitPriceOverride]);
 
   const depositPerGuest = useMemo(() => {
+    const productDeposit = Number(product?.deposit_amount || 0);
     const override = parseNumber(depositOverride, NaN);
 
-    if (Number.isFinite(override)) return override;
+    if (Number.isFinite(override) && override > 0) return override;
 
-    return Number(product?.deposit_amount || 0);
+    return productDeposit;
   }, [product, depositOverride]);
 
   const totalFull = unitPrice * guests;
@@ -401,10 +369,6 @@ export default function PublicCheckoutPage() {
       return "Pickup location is required.";
     }
 
-    if (isExternalBooking && !selectedExternalProductId) {
-      return "Ticket option is required. Please go back and select an available Coco Bongo ticket option.";
-    }
-
     return "";
   }
 
@@ -424,29 +388,15 @@ export default function PublicCheckoutPage() {
       setSubmitting(true);
       setError("");
 
-      const itemPayload: any = {
+      const itemPayload = {
         product_id: product.id,
         product_name: product.name,
         service_date: serviceDate,
         service_time: pickupTime,
         quantity: guests,
         unit_price: unitPrice.toFixed(2),
-        instructions: [
-          externalOptionName ? `Ticket option: ${externalOptionName}` : "",
-          pickupPoint ? `Pickup point: ${pickupPoint}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        instructions: pickupPoint ? `Pickup point: ${pickupPoint}` : "",
       };
-
-      if (isExternalBooking) {
-        itemPayload.selected_external_product_id = selectedExternalProductId;
-        itemPayload.external_product_id = externalProductId || selectedExternalProductId;
-        itemPayload.external_variant_id = externalVariantId || externalProductId || selectedExternalProductId;
-        itemPayload.external_availability_id = externalAvailabilityId;
-        itemPayload.external_option_name = externalOptionName;
-        itemPayload.external_provider = externalProvider || "wellet";
-      }
 
       const paymentsPayload = shouldCreatePendingPayment(paymentChoice)
         ? [
@@ -468,8 +418,6 @@ export default function PublicCheckoutPage() {
       const payload: any = {
         primary_product: product.id,
         source: "public_site",
-        external_provider: isExternalBooking ? externalProvider || "wellet" : "",
-        external_reference: isExternalBooking ? selectedExternalProductId : "",
         status: "pending_payment",
         payment_status: paymentStatusFor(paymentChoice),
         payment_mode: paymentModeFor(paymentChoice),
@@ -699,12 +647,6 @@ export default function PublicCheckoutPage() {
 
           <div className="mt-5 space-y-3">
             <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Product" value={product?.name || productSlug} theme={theme} />
-            {isExternalBooking && (
-              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={selectedTicketLabel} theme={theme} />
-            )}
-            {isExternalBooking && selectedTicketDebugId && (
-              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Wellet ticket ID" value={selectedTicketDebugId} theme={theme} />
-            )}
             <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Date" value={formatDate(serviceDate)} theme={theme} />
             <SummaryRow icon={<Users className="h-4 w-4" />} label="Guests" value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
             {hotelFromQuery && (
