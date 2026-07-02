@@ -65,6 +65,23 @@ type PublicTheme = {
   card: string;
 };
 
+type PublicTicketingDomainResolution = {
+  organisation_id: number;
+  organisation_slug: string;
+  organisation_name: string;
+  business_type?: string;
+  public_domain: string;
+  public_base_url: string;
+  is_published: boolean;
+  domain_status?: string;
+};
+
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
 type PickupScheduleRule = ProductPickupSchedule & {
   pickup_location?: number | string | null;
   pickup_location_id?: number | string | null;
@@ -144,12 +161,32 @@ const productTypeLabels: Record<ProductType, string> = {
   custom: "Custom",
 };
 
-function getApiOrigin() {
+function getApiBaseUrl() {
   const baseUrl =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
     "http://127.0.0.1:8000/api";
 
-  return baseUrl.replace(/\/api\/?$/, "");
+  return baseUrl;
+}
+
+function getApiOrigin() {
+  return getApiBaseUrl().replace(/\/api\/?$/, "");
+}
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isPlatformHost(hostname = getCurrentHostname()) {
+  return PLATFORM_HOSTS.includes(hostname);
+}
+
+function isCustomTicketingDomain(hostname = getCurrentHostname()) {
+  return Boolean(hostname) && !isPlatformHost(hostname);
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -974,7 +1011,7 @@ function hasSelectedPaymentOption(
 }
 
 function buildCheckoutUrl({
-  organisationSlug,
+  publicPath,
   product,
   date,
   qty,
@@ -984,7 +1021,7 @@ function buildCheckoutUrl({
   selectedAvailability,
   selectedLiveOption,
 }: {
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   product: ExperienceProduct;
   date: string;
   qty: BookingQty;
@@ -1044,7 +1081,7 @@ function buildCheckoutUrl({
     );
   }
 
-  return `/experiences/${organisationSlug}/checkout?${params.toString()}`;
+  return `${publicPath("/checkout")}?${params.toString()}`;
 }
 
 function listingPath(productType: ProductType) {
@@ -1056,11 +1093,119 @@ function listingPath(productType: ProductType) {
   return productType;
 }
 
+function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const hostname = useMemo(() => getCurrentHostname(), []);
+  const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
+
+  const [resolvedDomain, setResolvedDomain] =
+    useState<PublicTicketingDomainResolution | null>(null);
+  const [loading, setLoading] = useState<boolean>(
+    !organisationSlugFromUrl && customDomain
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveDomain() {
+      if (organisationSlugFromUrl) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      if (!customDomain || !hostname) {
+        setLoading(false);
+        setError("Organisation slug is missing.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${getApiBaseUrl()}/ticketing/public/resolve-domain/?domain=${encodeURIComponent(
+            hostname
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.detail || "Unable to resolve this domain.");
+        }
+
+        if (!cancelled) {
+          setResolvedDomain(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedDomain(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to resolve this domain."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    resolveDomain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostname, customDomain, organisationSlugFromUrl]);
+
+  return {
+    organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
+    resolvedDomain,
+    loading,
+    error,
+    isCustomDomain: customDomain,
+  };
+}
+
 export default function PublicProductDetailPage() {
-  const { organisationSlug = "", productSlug = "" } = useParams<{
-    organisationSlug: string;
-    productSlug: string;
+  const {
+    organisationSlug: organisationSlugFromUrl = "",
+    productSlug = "",
+  } = useParams<{
+    organisationSlug?: string;
+    productSlug?: string;
   }>();
+
+  const {
+    organisationSlug,
+    loading: organisationLoading,
+    error: organisationError,
+    isCustomDomain,
+  } = usePublicTicketingOrganisation(organisationSlugFromUrl);
+
+  const publicPath = (path: string = "/") => {
+    if (!organisationSlug) {
+      return path || "/";
+    }
+
+    if (isCustomDomain) {
+      return path || "/";
+    }
+
+    const cleanPath = path === "/" ? "" : path;
+    return `/experiences/${organisationSlug}${cleanPath}`;
+  };
 
   const navigate = useNavigate();
 
@@ -1568,7 +1713,7 @@ export default function PublicProductDetailPage() {
   const checkoutUrl =
     product && canCheckout
       ? buildCheckoutUrl({
-          organisationSlug,
+          publicPath,
           product,
           date,
           qty,
@@ -1668,10 +1813,39 @@ export default function PublicProductDetailPage() {
     navigate(checkoutUrl);
   }
 
-  if (loading) {
+  if (organisationError) {
     return (
       <PublicShell
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
+        brandName={brandName}
+        logoUrl={logoUrl}
+        theme={theme}
+      >
+        <div
+          className="rounded-3xl border p-10 text-center shadow-sm"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+            color: theme.text,
+          }}
+        >
+          <p className="font-extrabold">Website not available</p>
+
+          <p
+            className="mx-auto mt-2 max-w-lg text-sm font-semibold leading-6"
+            style={{ color: theme.muted }}
+          >
+            {organisationError}
+          </p>
+        </div>
+      </PublicShell>
+    );
+  }
+
+  if (organisationLoading || loading) {
+    return (
+      <PublicShell
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -1699,7 +1873,7 @@ export default function PublicProductDetailPage() {
   if (error || !product) {
     return (
       <PublicShell
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -1722,7 +1896,7 @@ export default function PublicProductDetailPage() {
           </p>
 
           <Link
-            to={`/experiences/${organisationSlug}`}
+            to={publicPath("/")}
             className="mt-4 inline-flex items-center gap-2 text-sm font-bold underline"
             style={{ color: theme.text }}
           >
@@ -1745,7 +1919,7 @@ export default function PublicProductDetailPage() {
       }}
     >
       <PublicHeader
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -1802,7 +1976,7 @@ export default function PublicProductDetailPage() {
             </button>
 
             <Link
-              to={`/experiences/${organisationSlug}/${listingPath(product.product_type)}`}
+              to={publicPath(`/${listingPath(product.product_type)}`)}
               className="hidden items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-extrabold text-white transition sm:inline-flex"
               style={{ backgroundColor: theme.button }}
             >
@@ -2172,7 +2346,7 @@ export default function PublicProductDetailPage() {
                       <RelatedProductCard
                         key={relatedProduct.id}
                         product={relatedProduct}
-                        organisationSlug={organisationSlug}
+                        publicPath={publicPath}
                         currencySymbol={currencySymbol}
                         theme={theme}
                       />
@@ -2340,13 +2514,13 @@ export default function PublicProductDetailPage() {
 }
 
 function PublicShell({
-  organisationSlug,
+  publicPath,
   brandName,
   logoUrl,
   theme,
   children,
 }: {
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
@@ -2361,7 +2535,7 @@ function PublicShell({
       }}
     >
       <PublicHeader
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -2375,12 +2549,12 @@ function PublicShell({
 }
 
 function PublicHeader({
-  organisationSlug,
+  publicPath,
   brandName,
   logoUrl,
   theme,
 }: {
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
@@ -2394,7 +2568,7 @@ function PublicHeader({
       }}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link to={`/experiences/${organisationSlug}`} className="flex items-center gap-3">
+        <Link to={publicPath("/")} className="flex items-center gap-3">
           <div
             className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl"
             style={{
@@ -2424,7 +2598,7 @@ function PublicHeader({
         </Link>
 
         <Link
-          to={`/experiences/${organisationSlug}`}
+          to={publicPath("/")}
           className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
           style={{
             backgroundColor: theme.card,
@@ -3947,12 +4121,12 @@ function PillList({
 
 function RelatedProductCard({
   product,
-  organisationSlug,
+  publicPath,
   currencySymbol,
   theme,
 }: {
   product: ExperienceProduct;
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   currencySymbol: string;
   theme: PublicTheme;
 }) {
@@ -3960,7 +4134,7 @@ function RelatedProductCard({
 
   return (
     <Link
-      to={`/experiences/${organisationSlug}/product/${product.slug}`}
+      to={publicPath(`/product/${product.slug}`)}
       className="group overflow-hidden rounded-3xl border shadow-sm transition hover:-translate-y-1 hover:shadow-md"
       style={{
         backgroundColor: theme.card,

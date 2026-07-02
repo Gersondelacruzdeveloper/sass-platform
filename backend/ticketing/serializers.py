@@ -151,6 +151,7 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
     hero_video_file_url = serializers.SerializerMethodField()
     hero_video_poster_url = serializers.SerializerMethodField()
     og_image_url = serializers.SerializerMethodField()
+    domain_dns_records = serializers.SerializerMethodField()
 
     class Meta:
         model = TicketingPublicSiteSettings
@@ -170,7 +171,23 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "public_whatsapp",
             "subdomain",
             "custom_domain",
+            "domain_status",
+            "domain_verified_at",
+            "domain_last_checked_at",
+            "domain_error_message",
+            "aws_acm_certificate_arn",
+            "aws_acm_certificate_status",
+            "aws_acm_requested_at",
+            "aws_acm_validation_record_name",
+            "aws_acm_validation_record_type",
+            "aws_acm_validation_record_value",
+            "cloudfront_distribution_id",
+            "cloudfront_domain_name",
+            "cloudfront_alias_added_at",
+            "dns_records_payload",
+            "domain_dns_records",
             "logo",
+
             "logo_url",
             "favicon",
             "favicon_url",
@@ -243,6 +260,21 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "organisation",
             "organisation_name",
             "display_title",
+            "domain_status",
+            "domain_verified_at",
+            "domain_last_checked_at",
+            "domain_error_message",
+            "aws_acm_certificate_arn",
+            "aws_acm_certificate_status",
+            "aws_acm_requested_at",
+            "aws_acm_validation_record_name",
+            "aws_acm_validation_record_type",
+            "aws_acm_validation_record_value",
+            "cloudfront_distribution_id",
+            "cloudfront_domain_name",
+            "cloudfront_alias_added_at",
+            "dns_records_payload",
+            "domain_dns_records",
             "logo_url",
             "favicon_url",
             "hero_image_url",
@@ -251,7 +283,17 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "og_image_url",
             "created_at",
             "updated_at",
+            
         ]
+
+    def get_domain_dns_records(self, obj):
+        if getattr(obj, "dns_records_payload", None):
+            return obj.dns_records_payload
+
+        if hasattr(obj, "build_dns_records_payload"):
+            return obj.build_dns_records_payload()
+
+        return []
 
     def get_logo_url(self, obj):
         return self.build_file_url(obj.logo)

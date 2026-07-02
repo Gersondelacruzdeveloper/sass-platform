@@ -70,6 +70,8 @@ from .services import (
     fetch_wellet_products,
     get_live_product_availability,
     sync_wellet_products_to_snapshots,
+    connect_ticketing_custom_domain,
+    check_ticketing_custom_domain,
 )
 
 from .permissions import (
@@ -143,7 +145,86 @@ class TicketingOrganisationMixin:
         context["organisation"] = self.get_organisation()
         return context
 
+class PublicDomainResolveAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
 
+    def clean_domain(self, domain):
+        if not domain:
+            return ""
+
+        domain = domain.strip().lower()
+        domain = domain.replace("https://", "").replace("http://", "")
+        domain = domain.split("/")[0]
+        domain = domain.split(":")[0]
+
+        return domain
+
+    def get_domain_candidates(self, domain):
+        domain = self.clean_domain(domain)
+
+        if not domain:
+            return []
+
+        candidates = [domain]
+
+        if domain.startswith("www."):
+            candidates.append(domain[4:])
+        else:
+            candidates.append(f"www.{domain}")
+
+        return candidates
+
+    def get(self, request):
+        raw_domain = request.query_params.get("domain", "")
+        domain = self.clean_domain(raw_domain)
+
+        if not domain:
+            return Response(
+                {"detail": "domain is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        query = Q()
+
+        for candidate in self.get_domain_candidates(domain):
+            query |= Q(custom_domain__iexact=candidate)
+
+        site_settings = (
+            TicketingPublicSiteSettings.objects
+            .select_related("organisation")
+            .filter(
+                query,
+                organisation__is_active=True,
+                is_published=True,
+            )
+            .first()
+        )
+
+        if not site_settings:
+            return Response(
+                {
+                    "detail": "No published ticketing site found for this domain.",
+                    "domain": domain,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        organisation = site_settings.organisation
+        public_domain = site_settings.custom_domain or domain
+
+        return Response(
+            {
+                "organisation_id": organisation.id,
+                "organisation_slug": organisation.slug,
+                "organisation_name": organisation.name,
+                "business_type": getattr(organisation, "business_type", "ticketing"),
+                "public_domain": public_domain,
+                "public_base_url": f"https://{public_domain}",
+                "is_published": site_settings.is_published,
+                "domain_status": getattr(site_settings, "domain_status", "active"),
+            }
+        )
+    
 class TicketingPrivateViewSet(TicketingOrganisationMixin, viewsets.ModelViewSet):
     permission_classes = [HasTicketingOrganisationAccess]
 
@@ -236,8 +317,7 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
 
         return TicketingPublicSiteSettings.objects.filter(organisation=organisation)
 
-    @action(detail=False, methods=["get", "patch"], url_path="mine")
-    def mine(self, request):
+    def get_or_create_site_settings(self):
         organisation = self.require_organisation()
 
         site_settings, created = TicketingPublicSiteSettings.objects.get_or_create(
@@ -248,6 +328,12 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
                 "public_whatsapp": organisation.phone,
             },
         )
+
+        return site_settings
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        site_settings = self.get_or_create_site_settings()
 
         if request.method == "PATCH":
             serializer = self.get_serializer(
@@ -261,6 +347,105 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
 
         serializer = self.get_serializer(site_settings)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["post"], url_path="connect-domain")
+    def connect_domain(self, request):
+        """
+        Starts AWS setup for a custom public domain.
+
+        The customer still creates DNS records in GoDaddy manually, but the app:
+        - creates/reuses the AWS ACM certificate
+        - reads the ACM DNS validation CNAME
+        - prepares the CloudFront CNAME target
+        - saves the DNS records that the frontend must show to the customer
+        """
+        site_settings = self.get_or_create_site_settings()
+
+        custom_domain = (
+            request.data.get("custom_domain")
+            or request.data.get("domain")
+            or ""
+        )
+
+        custom_domain = str(custom_domain).strip()
+
+        if not custom_domain:
+            return Response(
+                {"custom_domain": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            site_settings = connect_ticketing_custom_domain(
+                site_settings=site_settings,
+                custom_domain=custom_domain,
+            )
+        except Exception as exc:
+            site_settings.custom_domain = custom_domain
+            site_settings.mark_domain_failed(str(exc), save=True)
+
+            serializer = self.get_serializer(site_settings)
+
+            return Response(
+                {
+                    "detail": str(exc),
+                    "site": serializer.data,
+                    "dns_records": serializer.data.get("domain_dns_records", []),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(site_settings)
+
+        return Response(
+            {
+                "site": serializer.data,
+                "dns_records": serializer.data.get("domain_dns_records", []),
+                "message": "Domain setup started. Add the DNS records in GoDaddy, then click Check Domain.",
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="check-domain")
+    def check_domain(self, request):
+        """
+        Checks AWS ACM validation and CloudFront alias setup.
+
+        When ACM is issued, the domain automation service will try to attach the
+        custom domain and certificate to CloudFront, then mark the domain active.
+        """
+        site_settings = self.get_or_create_site_settings()
+
+        if not site_settings.custom_domain:
+            return Response(
+                {"custom_domain": "No custom domain has been configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            site_settings = check_ticketing_custom_domain(site_settings=site_settings)
+        except Exception as exc:
+            site_settings.mark_domain_failed(str(exc), save=True)
+
+            serializer = self.get_serializer(site_settings)
+
+            return Response(
+                {
+                    "detail": str(exc),
+                    "site": serializer.data,
+                    "dns_records": serializer.data.get("domain_dns_records", []),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(site_settings)
+
+        return Response(
+            {
+                "site": serializer.data,
+                "dns_records": serializer.data.get("domain_dns_records", []),
+                "message": "Domain status checked.",
+            }
+        )
 
 
 class ExperienceCategoryViewSet(
@@ -1871,6 +2056,53 @@ class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
 class PublicOrganisationMixin:
     permission_classes = [permissions.AllowAny]
 
+    def clean_domain(self, domain):
+        if not domain:
+            return ""
+
+        domain = domain.strip().lower()
+        domain = domain.replace("https://", "").replace("http://", "")
+        domain = domain.split("/")[0]
+        domain = domain.split(":")[0]
+
+        return domain
+
+    def get_public_domain(self):
+        return self.clean_domain(
+            self.request.query_params.get("domain")
+            or self.request.headers.get("X-Public-Domain")
+            or ""
+        )
+
+    def get_public_site_by_domain(self, domain):
+        domain = self.clean_domain(domain)
+
+        if not domain:
+            return None
+
+        candidates = [domain]
+
+        if domain.startswith("www."):
+            candidates.append(domain[4:])
+        else:
+            candidates.append(f"www.{domain}")
+
+        query = Q()
+
+        for candidate in candidates:
+            query |= Q(custom_domain__iexact=candidate)
+
+        return (
+            TicketingPublicSiteSettings.objects
+            .select_related("organisation")
+            .filter(
+                query,
+                organisation__is_active=True,
+                is_published=True,
+            )
+            .first()
+        )
+
     def get_public_organisation(self):
         organisation_slug = (
             self.kwargs.get("organisation_slug")
@@ -1879,16 +2111,32 @@ class PublicOrganisationMixin:
             or self.request.query_params.get("slug")
         )
 
-        if not organisation_slug:
-            return None
+        if organisation_slug:
+            return get_object_or_404(
+                Organisation,
+                slug=organisation_slug,
+                is_active=True,
+            )
 
-        return get_object_or_404(
-            Organisation,
-            slug=organisation_slug,
-            is_active=True,
-        )
+        domain = self.get_public_domain()
+
+        if domain:
+            site_settings = self.get_public_site_by_domain(domain)
+
+            if site_settings:
+                return site_settings.organisation
+
+        return None
 
     def get_public_site_settings(self, organisation):
+        domain = self.get_public_domain()
+
+        if domain:
+            site_settings = self.get_public_site_by_domain(domain)
+
+            if site_settings and site_settings.organisation_id == organisation.id:
+                return site_settings
+
         return TicketingPublicSiteSettings.objects.filter(
             organisation=organisation,
             is_published=True,
@@ -1898,8 +2146,7 @@ class PublicOrganisationMixin:
         context = super().get_serializer_context()
         context["organisation"] = self.get_public_organisation()
         return context
-
-
+    
 class PublicBrandingAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
 

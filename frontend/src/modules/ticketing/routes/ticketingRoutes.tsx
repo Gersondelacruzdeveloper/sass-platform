@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { Navigate, Route } from "react-router-dom";
 
 import ProtectedRoute from "../../../components/ProtectedRoute";
@@ -35,18 +36,91 @@ import PublicProductsListingPage from "../pages/PublicProductsListingPage";
 import PublicCheckoutPage from "../pages/PublicCheckoutPage";
 import PublicConfirmationPage from "../pages/PublicConfirmationPage";
 
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isCustomTicketingDomain() {
+  const hostname = getCurrentHostname();
+
+  return Boolean(hostname) && !PLATFORM_HOSTS.includes(hostname);
+}
+
+function CustomDomainOnly({ children }: { children: ReactElement }) {
+  if (!isCustomTicketingDomain()) {
+    return <Navigate to="/ticketing" replace />;
+  }
+
+  return children;
+}
+
 export const ticketingRoutes = (
   <>
     {/* Public Landing Page */}
     <Route path="/ticketing" element={<TicketingLandingPage />} />
 
-    {/* Public Experience Website */}
+    {/* Clean public routes for custom ticketing domains */}
+    <Route
+      path="/"
+      element={
+        <CustomDomainOnly>
+          <PublicExperienceHomePage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
+      path="/product/:productSlug"
+      element={
+        <CustomDomainOnly>
+          <PublicProductDetailPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
+      path="/checkout"
+      element={
+        <CustomDomainOnly>
+          <PublicCheckoutPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
+      path="/confirmation/:bookingCode"
+      element={
+        <CustomDomainOnly>
+          <PublicConfirmationPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
+      path="/:listingType"
+      element={
+        <CustomDomainOnly>
+          <PublicProductsListingPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    {/* Public Experience Website fallback using organisation slug */}
     <Route
       path="/experiences/:organisationSlug"
       element={<PublicExperienceHomePage />}
     />
 
-    {/* Important: specific public routes must be before listing route */}
     <Route
       path="/experiences/:organisationSlug/product/:productSlug"
       element={<PublicProductDetailPage />}
@@ -102,37 +176,21 @@ export const ticketingRoutes = (
         <Route index element={<Navigate to="dashboard" replace />} />
 
         <Route path="dashboard" element={<TicketingDashboardPage />} />
-
         <Route path="bookings" element={<TicketingBookingsPage />} />
-
         <Route path="new-booking" element={<TicketingNewBookingPage />} />
-
         <Route path="products" element={<TicketingProductsPage />} />
-
         <Route path="pickup-schedules" element={<TicketingPickupSchedulesPage />} />
-
         <Route path="availability" element={<TicketingAvailabilityPage />} />
-
         <Route path="excursions" element={<TicketingExcursionsPage />} />
-
         <Route path="transfers" element={<TicketingTransfersPage />} />
-
         <Route path="events" element={<TicketingEventsPage />} />
-
         <Route path="sellers" element={<TicketingSellersPage />} />
-
         <Route path="commissions" element={<TicketingCommissionsPage />} />
-
         <Route path="reports" element={<TicketingReportsPage />} />
-
         <Route path="settings" element={<TicketingSettingsPage />} />
-
         <Route path="branding" element={<TicketingBrandingPage />} />
-
         <Route path="domain" element={<TicketingDomainPage />} />
-
         <Route path="integrations" element={<TicketingIntegrationsPage />} />
-
         <Route path="seo" element={<TicketingSEOPage />} />
       </Route>
     </Route>

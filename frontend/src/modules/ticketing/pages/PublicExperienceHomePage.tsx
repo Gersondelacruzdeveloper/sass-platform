@@ -45,6 +45,23 @@ type PublicTheme = {
   card: string;
 };
 
+type PublicTicketingDomainResolution = {
+  organisation_id: number;
+  organisation_slug: string;
+  organisation_name: string;
+  business_type?: string;
+  public_domain: string;
+  public_base_url: string;
+  is_published: boolean;
+  domain_status?: string;
+};
+
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
 const productTypeLabels: Record<ProductType, string> = {
   excursion: "Excursion",
   transfer: "Transfer",
@@ -72,12 +89,32 @@ const typeOrder: ProductType[] = [
   "custom",
 ];
 
-function getApiOrigin() {
+function getApiBaseUrl() {
   const baseUrl =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
     "http://127.0.0.1:8000/api";
 
-  return baseUrl.replace(/\/api\/?$/, "");
+  return baseUrl;
+}
+
+function getApiOrigin() {
+  return getApiBaseUrl().replace(/\/api\/?$/, "");
+}
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isPlatformHost(hostname = getCurrentHostname()) {
+  return PLATFORM_HOSTS.includes(hostname);
+}
+
+function isCustomTicketingDomain(hostname = getCurrentHostname()) {
+  return Boolean(hostname) && !isPlatformHost(hostname);
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -212,14 +249,119 @@ function getFeaturedRank(product: ExperienceProduct) {
   return score;
 }
 
+function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const hostname = useMemo(() => getCurrentHostname(), []);
+  const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
+
+  const [resolvedDomain, setResolvedDomain] =
+    useState<PublicTicketingDomainResolution | null>(null);
+  const [loading, setLoading] = useState<boolean>(
+    !organisationSlugFromUrl && customDomain
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveDomain() {
+      if (organisationSlugFromUrl) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      if (!customDomain || !hostname) {
+        setLoading(false);
+        setError("Organisation slug is missing.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${getApiBaseUrl()}/ticketing/public/resolve-domain/?domain=${encodeURIComponent(
+            hostname
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.detail || "Unable to resolve this domain.");
+        }
+
+        if (!cancelled) {
+          setResolvedDomain(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedDomain(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to resolve this domain."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    resolveDomain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostname, customDomain, organisationSlugFromUrl]);
+
+  return {
+    organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
+    resolvedDomain,
+    loading,
+    error,
+    isCustomDomain: customDomain,
+  };
+}
+
 export default function PublicExperienceHomePage() {
   const params = useParams();
-  const slug = params.organisationSlug || params.slug || "";
+  const slugFromUrl = params.organisationSlug || params.slug || "";
+
+  const {
+    organisationSlug,
+    loading: organisationLoading,
+    error: organisationError,
+    isCustomDomain,
+  } = usePublicTicketingOrganisation(slugFromUrl);
+
+  const publicPath = (path: string = "/") => {
+    if (!organisationSlug) {
+      return path || "/";
+    }
+
+    if (isCustomDomain) {
+      return path || "/";
+    }
+
+    const cleanPath = path === "/" ? "" : path;
+    return `/experiences/${organisationSlug}${cleanPath}`;
+  };
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [categories, setCategories] = useState<ExperienceCategory[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!organisationSlug);
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
@@ -227,7 +369,7 @@ export default function PublicExperienceHomePage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   async function loadPublicData() {
-    if (!slug) return;
+    if (!organisationSlug) return;
 
     try {
       setLoading(true);
@@ -235,12 +377,12 @@ export default function PublicExperienceHomePage() {
 
       const [brandingResponse, productsResponse, categoriesResponse] =
         await Promise.all([
-          ticketingApi.getPublicBranding(slug),
-          ticketingApi.getPublicProducts(slug, {
+          ticketingApi.getPublicBranding(organisationSlug),
+          ticketingApi.getPublicProducts(organisationSlug, {
             public_enabled: true,
             status: "active",
           }),
-          ticketingApi.getPublicCategories(slug),
+          ticketingApi.getPublicCategories(organisationSlug),
         ]);
 
       setBranding(brandingResponse);
@@ -260,8 +402,9 @@ export default function PublicExperienceHomePage() {
   }
 
   useEffect(() => {
+    if (!organisationSlug) return;
     loadPublicData();
-  }, [slug]);
+  }, [organisationSlug]);
 
   const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;
@@ -395,7 +538,7 @@ export default function PublicExperienceHomePage() {
   const heroProduct = featuredProducts[0] || filteredProducts[0] || null;
   const heroProductImage = heroProduct ? getGalleryImage(heroProduct) : "";
   const heroProductPath = heroProduct
-    ? `/experiences/${slug}/product/${heroProduct.slug}`
+    ? publicPath(`/product/${heroProduct.slug}`)
     : "#products";
 
   const productsByType = useMemo(() => {
@@ -426,7 +569,7 @@ export default function PublicExperienceHomePage() {
     };
   }, [publicProducts, categories]);
 
-  if (loading) {
+  if (organisationLoading || loading) {
     return (
       <div
         className="grid min-h-screen place-items-center px-4"
@@ -461,7 +604,7 @@ export default function PublicExperienceHomePage() {
     );
   }
 
-  if (error) {
+  if (organisationError || error) {
     return (
       <div
         className="grid min-h-screen place-items-center px-4"
@@ -497,7 +640,7 @@ export default function PublicExperienceHomePage() {
             className="mt-2 text-sm font-semibold leading-6"
             style={{ color: theme.muted }}
           >
-            {error}
+            {organisationError || error}
           </p>
 
           <button
@@ -640,7 +783,7 @@ export default function PublicExperienceHomePage() {
         }}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <Link to={`/experiences/${slug}`} className="group flex items-center gap-3">
+          <Link to={publicPath("/")} className="group flex items-center gap-3">
             <div
               className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl shadow-sm transition group-hover:scale-105"
               style={{
@@ -685,7 +828,7 @@ export default function PublicExperienceHomePage() {
             </a>
 
             <Link
-              to={`/experiences/${slug}/all`}
+              to={publicPath("/all")}
               className="rounded-2xl px-4 py-2 text-sm font-black transition hover:scale-105"
               style={{
                 backgroundColor: hexToRgba(theme.primary, 0.06),
@@ -1087,7 +1230,7 @@ export default function PublicExperienceHomePage() {
                 return (
                   <Link
                     key={type}
-                    to={`/experiences/${slug}/${listingPathByType[type]}`}
+                    to={publicPath(`/${listingPathByType[type]}`)}
                     className="pcd-glow-card group rounded-[1.7rem] border p-4 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-2xl"
                     style={{
                       animationDelay: `${index * 70}ms`,
@@ -1149,7 +1292,7 @@ export default function PublicExperienceHomePage() {
                 <PublicProductCard
                   key={`featured-${product.id}`}
                   product={product}
-                  slug={slug}
+                  publicPath={publicPath}
                   currencySymbol={currencySymbol}
                   theme={theme}
                   featured
@@ -1211,7 +1354,7 @@ export default function PublicExperienceHomePage() {
                 <PublicProductCard
                   key={product.id}
                   product={product}
-                  slug={slug}
+                  publicPath={publicPath}
                   currencySymbol={currencySymbol}
                   theme={theme}
                   index={index}
@@ -1360,14 +1503,14 @@ function MetricCard({
 
 function PublicProductCard({
   product,
-  slug,
+  publicPath,
   currencySymbol,
   theme,
   featured = false,
   index = 0,
 }: {
   product: ExperienceProduct;
-  slug: string;
+  publicPath: (path: string) => string;
   currencySymbol: string;
   theme: PublicTheme;
   featured?: boolean;
@@ -1375,7 +1518,7 @@ function PublicProductCard({
 }) {
   const Icon = getProductTypeIcon(product.product_type);
   const imageUrl = getGalleryImage(product);
-  const detailPath = `/experiences/${slug}/product/${product.slug}`;
+  const detailPath = publicPath(`/product/${product.slug}`);
   const description = getBestDescription(product);
   const isTop =
     product.is_best_seller ||

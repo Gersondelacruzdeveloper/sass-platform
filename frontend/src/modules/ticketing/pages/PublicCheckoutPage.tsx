@@ -36,6 +36,23 @@ type PublicTheme = {
   card: string;
 };
 
+type PublicTicketingDomainResolution = {
+  organisation_id: number;
+  organisation_slug: string;
+  organisation_name: string;
+  business_type?: string;
+  public_domain: string;
+  public_base_url: string;
+  is_published: boolean;
+  domain_status?: string;
+};
+
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
 type PaymentChoice = "deposit" | "full" | "pending" | "cash";
 
 type CheckoutForm = {
@@ -46,12 +63,32 @@ type CheckoutForm = {
   notes: string;
 };
 
-function getApiOrigin() {
+function getApiBaseUrl() {
   const baseUrl =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
     "http://127.0.0.1:8000/api";
 
-  return baseUrl.replace(/\/api\/?$/, "");
+  return baseUrl;
+}
+
+function getApiOrigin() {
+  return getApiBaseUrl().replace(/\/api\/?$/, "");
+}
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isPlatformHost(hostname = getCurrentHostname()) {
+  return PLATFORM_HOSTS.includes(hostname);
+}
+
+function isCustomTicketingDomain(hostname = getCurrentHostname()) {
+  return Boolean(hostname) && !isPlatformHost(hostname);
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -211,8 +248,116 @@ function getFormErrorMessage(err: any) {
   return "Could not create booking. Please check the information and try again.";
 }
 
+function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const hostname = useMemo(() => getCurrentHostname(), []);
+  const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
+
+  const [resolvedDomain, setResolvedDomain] =
+    useState<PublicTicketingDomainResolution | null>(null);
+  const [loading, setLoading] = useState<boolean>(
+    !organisationSlugFromUrl && customDomain
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveDomain() {
+      if (organisationSlugFromUrl) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      if (!customDomain || !hostname) {
+        setLoading(false);
+        setError("Organisation slug is missing.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${getApiBaseUrl()}/ticketing/public/resolve-domain/?domain=${encodeURIComponent(
+            hostname
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.detail || "Unable to resolve this domain.");
+        }
+
+        if (!cancelled) {
+          setResolvedDomain(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedDomain(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to resolve this domain."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    resolveDomain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostname, customDomain, organisationSlugFromUrl]);
+
+  return {
+    organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
+    resolvedDomain,
+    loading,
+    error,
+    isCustomDomain: customDomain,
+  };
+}
+
 export default function PublicCheckoutPage() {
-  const { organisationSlug = "" } = useParams<{ organisationSlug: string }>();
+  const { organisationSlug: organisationSlugFromUrl = "" } = useParams<{
+    organisationSlug?: string;
+  }>();
+
+  const {
+    organisationSlug,
+    loading: organisationLoading,
+    error: organisationError,
+    isCustomDomain,
+  } = usePublicTicketingOrganisation(organisationSlugFromUrl);
+
+  const publicPath = (path: string = "/") => {
+    if (!organisationSlug) {
+      return path || "/";
+    }
+
+    if (isCustomDomain) {
+      return path || "/";
+    }
+
+    const cleanPath = path === "/" ? "" : path;
+    return `/experiences/${organisationSlug}${cleanPath}`;
+  };
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -456,13 +601,10 @@ export default function PublicCheckoutPage() {
           )
         : await ticketingApi.createPublicBooking(organisationSlug, payload);
 
-      navigate(
-        `/experiences/${organisationSlug}/confirmation/${booking.booking_code}`,
-        {
-          replace: true,
-          state: { booking, product, currencySymbol, brandName },
-        }
-      );
+      navigate(publicPath(`/confirmation/${booking.booking_code}`), {
+        replace: true,
+        state: { booking, product, currencySymbol, brandName },
+      });
     } catch (err: any) {
       console.error("Could not create public booking:", err);
       setError(getFormErrorMessage(err));
@@ -471,10 +613,34 @@ export default function PublicCheckoutPage() {
     }
   }
 
-  if (loading) {
+  if (organisationError) {
     return (
       <PublicShell
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
+        brandName={brandName}
+        logoUrl={logoUrl}
+        theme={theme}
+      >
+        <div
+          className="rounded-3xl border p-10 text-center"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <AlertCircle className="mx-auto h-8 w-8" style={{ color: theme.accent }} />
+          <p className="mt-3 text-sm font-bold" style={{ color: theme.muted }}>
+            {organisationError}
+          </p>
+        </div>
+      </PublicShell>
+    );
+  }
+
+  if (organisationLoading || loading) {
+    return (
+      <PublicShell
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -500,18 +666,14 @@ export default function PublicCheckoutPage() {
 
   return (
     <PublicShell
-      organisationSlug={organisationSlug}
+      publicPath={publicPath}
       brandName={brandName}
       logoUrl={logoUrl}
       theme={theme}
     >
       <div className="mb-6">
         <Link
-          to={
-            product
-              ? `/experiences/${organisationSlug}/product/${product.slug}`
-              : `/experiences/${organisationSlug}`
-          }
+          to={product ? publicPath(`/product/${product.slug}`) : publicPath("/")}
           className="inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-extrabold"
           style={{
             backgroundColor: theme.card,
@@ -694,13 +856,13 @@ export default function PublicCheckoutPage() {
 }
 
 function PublicShell({
-  organisationSlug,
+  publicPath,
   brandName,
   logoUrl,
   theme,
   children,
 }: {
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
@@ -722,7 +884,7 @@ function PublicShell({
         }}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <Link to={`/experiences/${organisationSlug}`} className="flex items-center gap-3">
+          <Link to={publicPath("/")} className="flex items-center gap-3">
             <div
               className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl"
               style={{
@@ -748,7 +910,7 @@ function PublicShell({
           </Link>
 
           <Link
-            to={`/experiences/${organisationSlug}`}
+            to={publicPath("/")}
             className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
             style={{
               backgroundColor: theme.card,

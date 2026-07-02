@@ -1,10 +1,14 @@
 // src/modules/ticketing/pages/PublicConfirmationPage.tsx
 
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
+  AlertCircle,
   CheckCircle2,
   Clock3,
   Home,
+  Loader2,
   MapPin,
   Ticket,
   Users,
@@ -18,6 +22,132 @@ type LocationState = {
   currencySymbol?: string;
   brandName?: string;
 };
+
+type PublicTicketingDomainResolution = {
+  organisation_id: number;
+  organisation_slug: string;
+  organisation_name: string;
+  business_type?: string;
+  public_domain: string;
+  public_base_url: string;
+  is_published: boolean;
+  domain_status?: string;
+};
+
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
+function getApiBaseUrl() {
+  const baseUrl =
+    import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
+    "http://127.0.0.1:8000/api";
+
+  return baseUrl;
+}
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isPlatformHost(hostname = getCurrentHostname()) {
+  return PLATFORM_HOSTS.includes(hostname);
+}
+
+function isCustomTicketingDomain(hostname = getCurrentHostname()) {
+  return Boolean(hostname) && !isPlatformHost(hostname);
+}
+
+function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const hostname = useMemo(() => getCurrentHostname(), []);
+  const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
+
+  const [resolvedDomain, setResolvedDomain] =
+    useState<PublicTicketingDomainResolution | null>(null);
+  const [loading, setLoading] = useState<boolean>(
+    !organisationSlugFromUrl && customDomain
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveDomain() {
+      if (organisationSlugFromUrl) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      if (!customDomain || !hostname) {
+        setLoading(false);
+        setError("Organisation slug is missing.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${getApiBaseUrl()}/ticketing/public/resolve-domain/?domain=${encodeURIComponent(
+            hostname
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.detail || "Unable to resolve this domain.");
+        }
+
+        if (!cancelled) {
+          setResolvedDomain(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedDomain(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to resolve this domain."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    resolveDomain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostname, customDomain, organisationSlugFromUrl]);
+
+  return {
+    organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
+    resolvedDomain,
+    loading,
+    error,
+    isCustomDomain: customDomain,
+  };
+}
 
 function money(value: unknown, symbol = "US$") {
   const amount = Number(value || 0);
@@ -58,10 +188,33 @@ function formatDate(value?: string | null) {
 }
 
 export default function PublicConfirmationPage() {
-  const { organisationSlug = "", bookingCode = "" } = useParams<{
-    organisationSlug: string;
-    bookingCode: string;
+  const {
+    organisationSlug: organisationSlugFromUrl = "",
+    bookingCode = "",
+  } = useParams<{
+    organisationSlug?: string;
+    bookingCode?: string;
   }>();
+
+  const {
+    organisationSlug,
+    loading: organisationLoading,
+    error: organisationError,
+    isCustomDomain,
+  } = usePublicTicketingOrganisation(organisationSlugFromUrl);
+
+  const publicPath = (path: string = "/") => {
+    if (!organisationSlug) {
+      return path || "/";
+    }
+
+    if (isCustomDomain) {
+      return path || "/";
+    }
+
+    const cleanPath = path === "/" ? "" : path;
+    return `/experiences/${organisationSlug}${cleanPath}`;
+  };
 
   const location = useLocation();
   const state = (location.state || {}) as LocationState;
@@ -72,14 +225,149 @@ export default function PublicConfirmationPage() {
 
   const pickup = booking?.pickup_info;
 
+  if (organisationLoading) {
+    return (
+      <PublicShell brandName={brandName} publicPath={publicPath}>
+        <section className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-amber-600" />
+          <p className="mt-3 text-sm font-bold text-slate-500">
+            Loading booking confirmation...
+          </p>
+        </section>
+      </PublicShell>
+    );
+  }
+
+  if (organisationError) {
+    return (
+      <PublicShell brandName={brandName} publicPath={publicPath}>
+        <section className="rounded-3xl border border-red-200 bg-red-50 p-10 text-center shadow-sm">
+          <AlertCircle className="mx-auto h-8 w-8 text-red-600" />
+          <h1 className="mt-4 text-xl font-black text-red-950">
+            Website not available
+          </h1>
+          <p className="mx-auto mt-2 max-w-lg text-sm font-bold leading-6 text-red-700">
+            {organisationError}
+          </p>
+        </section>
+      </PublicShell>
+    );
+  }
+
+  return (
+    <PublicShell brandName={brandName} publicPath={publicPath}>
+      <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center">
+        <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+
+        <h1 className="mt-4 text-2xl font-black text-emerald-950">
+          Booking received
+        </h1>
+
+        <p className="mt-2 text-sm font-bold leading-6 text-emerald-800">
+          Your booking request has been created. Save this booking code.
+        </p>
+
+        <div className="mx-auto mt-5 inline-flex rounded-2xl bg-white px-5 py-3 text-xl font-black text-emerald-950 shadow-sm">
+          {booking?.booking_code || bookingCode}
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-black">Booking details</h2>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Info
+              label="Product"
+              value={product?.name || booking?.primary_product_detail?.name || "Experience"}
+              icon={<Ticket className="h-4 w-4" />}
+            />
+            <Info
+              label="Date"
+              value={formatDate(booking?.service_date)}
+              icon={<Clock3 className="h-4 w-4" />}
+            />
+            <Info
+              label="Guests"
+              value={`${booking?.total_guests || 0} total`}
+              icon={<Users className="h-4 w-4" />}
+            />
+            <Info
+              label="Customer"
+              value={booking?.customer_name || "—"}
+              icon={<Users className="h-4 w-4" />}
+            />
+            <Info
+              label="Hotel"
+              value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"}
+              icon={<MapPin className="h-4 w-4" />}
+            />
+            <Info
+              label="Pickup time"
+              value={formatTime(pickup?.pickup_time || booking?.service_time)}
+              icon={<Clock3 className="h-4 w-4" />}
+            />
+          </div>
+
+          {pickup?.pickup_point && (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Pickup point
+              </p>
+              <p className="mt-1 text-sm font-black text-slate-950">
+                {pickup.pickup_point}
+              </p>
+              {pickup.instructions && (
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                  {pickup.instructions}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-black">Payment summary</h2>
+
+          <div className="mt-4 space-y-3">
+            <PaymentLine label="Total" value={money(booking?.total_amount, currencySymbol)} />
+            <PaymentLine label="Deposit required" value={money(booking?.deposit_required, currencySymbol)} />
+            <PaymentLine label="Paid" value={money(booking?.deposit_paid, currencySymbol)} />
+            <PaymentLine label="Balance due" value={money(booking?.balance_due, currencySymbol)} />
+            <PaymentLine label="Payment status" value={booking?.payment_status || "pending"} />
+          </div>
+
+          <p className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
+            You may receive a confirmation by WhatsApp or email when the booking is reviewed or payment is completed.
+          </p>
+
+          <Link
+            to={publicPath("/")}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+          >
+            <Home className="h-4 w-4" />
+            Back to home
+          </Link>
+        </aside>
+      </section>
+    </PublicShell>
+  );
+}
+
+function PublicShell({
+  brandName,
+  publicPath,
+  children,
+}: {
+  brandName: string;
+  publicPath: (path: string) => string;
+  children: ReactNode;
+}) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link
-            to={`/experiences/${organisationSlug}`}
-            className="flex items-center gap-3"
-          >
+          <Link to={publicPath("/")} className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
               <Ticket className="h-6 w-6" />
             </div>
@@ -93,7 +381,7 @@ export default function PublicConfirmationPage() {
           </Link>
 
           <Link
-            to={`/experiences/${organisationSlug}`}
+            to={publicPath("/")}
             className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700"
           >
             <Home className="h-4 w-4" />
@@ -103,68 +391,7 @@ export default function PublicConfirmationPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center">
-          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
-
-          <h1 className="mt-4 text-2xl font-black text-emerald-950">
-            Booking received
-          </h1>
-
-          <p className="mt-2 text-sm font-bold leading-6 text-emerald-800">
-            Your booking request has been created. Save this booking code.
-          </p>
-
-          <div className="mx-auto mt-5 inline-flex rounded-2xl bg-white px-5 py-3 text-xl font-black text-emerald-950 shadow-sm">
-            {booking?.booking_code || bookingCode}
-          </div>
-        </section>
-
-        <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">Booking details</h2>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Info label="Product" value={product?.name || booking?.primary_product_detail?.name || "Experience"} icon={<Ticket className="h-4 w-4" />} />
-              <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
-              <Info label="Guests" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
-              <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
-              <Info label="Hotel" value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
-              <Info label="Pickup time" value={formatTime(pickup?.pickup_time || booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
-            </div>
-
-            {pickup?.pickup_point && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Pickup point
-                </p>
-                <p className="mt-1 text-sm font-black text-slate-950">
-                  {pickup.pickup_point}
-                </p>
-                {pickup.instructions && (
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    {pickup.instructions}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">Payment summary</h2>
-
-            <div className="mt-4 space-y-3">
-              <PaymentLine label="Total" value={money(booking?.total_amount, currencySymbol)} />
-              <PaymentLine label="Deposit required" value={money(booking?.deposit_required, currencySymbol)} />
-              <PaymentLine label="Paid" value={money(booking?.deposit_paid, currencySymbol)} />
-              <PaymentLine label="Balance due" value={money(booking?.balance_due, currencySymbol)} />
-              <PaymentLine label="Payment status" value={booking?.payment_status || "pending"} />
-            </div>
-
-            <p className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
-              You may receive a confirmation by WhatsApp or email when the booking is reviewed or payment is completed.
-            </p>
-          </aside>
-        </section>
+        {children}
       </main>
     </div>
   );
@@ -175,7 +402,7 @@ function Info({
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value?: string | null;
 }) {

@@ -131,8 +131,82 @@ class TicketingPublicSiteSettings(models.Model):
     public_email = models.EmailField(blank=True, null=True)
     public_whatsapp = models.CharField(max_length=30, blank=True, null=True)
 
+    DOMAIN_STATUS_CHOICES = (
+        ("not_configured", "Not Configured"),
+        ("pending_aws_setup", "Pending AWS Setup"),
+        ("pending_dns", "Pending DNS"),
+        ("pending_ssl", "Pending SSL"),
+        ("pending_cloudfront", "Pending CloudFront"),
+        ("active", "Active"),
+        ("failed", "Failed"),
+    )
+
     subdomain = models.SlugField(blank=True, null=True)
-    custom_domain = models.CharField(max_length=255, blank=True, null=True)
+
+    custom_domain = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Custom public domain for this ticketing website. Example: www.puntacanaticket.com",
+    )
+
+    domain_status = models.CharField(
+        max_length=30,
+        choices=DOMAIN_STATUS_CHOICES,
+        default="not_configured",
+        db_index=True,
+    )
+
+    domain_verified_at = models.DateTimeField(blank=True, null=True)
+    domain_last_checked_at = models.DateTimeField(blank=True, null=True)
+    domain_error_message = models.TextField(blank=True)
+
+    aws_acm_certificate_arn = models.CharField(
+        max_length=512,
+        blank=True,
+        help_text="AWS ACM certificate ARN created for this custom domain.",
+    )
+    aws_acm_certificate_status = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text="Latest ACM certificate status. Example: PENDING_VALIDATION or ISSUED.",
+    )
+    aws_acm_requested_at = models.DateTimeField(blank=True, null=True)
+
+    aws_acm_validation_record_name = models.CharField(
+        max_length=512,
+        blank=True,
+        help_text="DNS CNAME name required by ACM validation.",
+    )
+    aws_acm_validation_record_type = models.CharField(
+        max_length=20,
+        default="CNAME",
+        blank=True,
+    )
+    aws_acm_validation_record_value = models.CharField(
+        max_length=512,
+        blank=True,
+        help_text="DNS CNAME value required by ACM validation.",
+    )
+
+    cloudfront_distribution_id = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="CloudFront distribution ID used to serve this public site.",
+    )
+    cloudfront_domain_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="CloudFront target domain. Example: dxxxxx.cloudfront.net",
+    )
+    cloudfront_alias_added_at = models.DateTimeField(blank=True, null=True)
+
+    dns_records_payload = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="DNS records shown to the customer so they can paste them in GoDaddy.",
+    )
 
     logo = models.ImageField(
         upload_to="ticketing/public/logos/",
@@ -275,6 +349,96 @@ class TicketingPublicSiteSettings(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def clean_custom_domain(self):
+        if not self.custom_domain:
+            self.custom_domain = None
+            self.domain_status = "not_configured"
+            self.aws_acm_certificate_arn = ""
+            self.aws_acm_certificate_status = ""
+            self.aws_acm_requested_at = None
+            self.aws_acm_validation_record_name = ""
+            self.aws_acm_validation_record_type = "CNAME"
+            self.aws_acm_validation_record_value = ""
+            self.cloudfront_alias_added_at = None
+            self.dns_records_payload = []
+            return
+
+        domain = self.custom_domain.strip().lower()
+        domain = domain.replace("https://", "").replace("http://", "")
+        domain = domain.split("/")[0]
+        domain = domain.split(":")[0]
+
+        self.custom_domain = domain or None
+
+        if self.custom_domain and self.domain_status == "not_configured":
+            self.domain_status = "pending_aws_setup"
+
+    def build_dns_records_payload(self):
+        records = []
+
+        if (
+            self.aws_acm_validation_record_name
+            and self.aws_acm_validation_record_value
+        ):
+            records.append(
+                {
+                    "purpose": "ssl_validation",
+                    "label": "SSL Certificate Validation",
+                    "type": self.aws_acm_validation_record_type or "CNAME",
+                    "host": self.aws_acm_validation_record_name,
+                    "value": self.aws_acm_validation_record_value,
+                    "status": self.aws_acm_certificate_status or "PENDING_VALIDATION",
+                }
+            )
+
+        if self.custom_domain and self.cloudfront_domain_name:
+            records.append(
+                {
+                    "purpose": "website",
+                    "label": "Website Domain",
+                    "type": "CNAME",
+                    "host": self.custom_domain,
+                    "value": self.cloudfront_domain_name,
+                    "status": self.domain_status,
+                }
+            )
+
+        return records
+
+    def refresh_dns_records_payload(self, save=False):
+        self.dns_records_payload = self.build_dns_records_payload()
+
+        if save:
+            self.save(update_fields=["dns_records_payload", "updated_at"])
+
+        return self.dns_records_payload
+
+    def mark_domain_failed(self, message, save=True):
+        self.domain_status = "failed"
+        self.domain_error_message = str(message or "")
+
+        if save:
+            self.save(update_fields=["domain_status", "domain_error_message", "updated_at"])
+
+    def mark_domain_active(self, save=True):
+        self.domain_status = "active"
+        self.domain_error_message = ""
+        self.domain_verified_at = timezone.now()
+
+        if save:
+            self.save(
+                update_fields=[
+                    "domain_status",
+                    "domain_error_message",
+                    "domain_verified_at",
+                    "updated_at",
+                ]
+            )
+
+    def save(self, *args, **kwargs):
+        self.clean_custom_domain()
+        super().save(*args, **kwargs)
 
     @property
     def display_title(self):

@@ -30,6 +30,7 @@ from .views import (
     TicketingReportsAPIView,
     SellerDashboardAPIView,
     PublicBrandingAPIView,
+    PublicDomainResolveAPIView,
     PublicProductViewSet,
     PublicCategoryViewSet,
     PublicBookingViewSet,
@@ -39,6 +40,7 @@ from .views import (
     PublicSitemapAPIView,
     PublicRobotsAPIView,
     WelletProductsAPIView,
+
 
 )
 
@@ -93,6 +95,11 @@ urlpatterns = [
 
     # Public branding / SEO using path slug:
     # /api/ticketing/public/hard-rock/branding/
+    path(
+    "public/resolve-domain/",
+    PublicDomainResolveAPIView.as_view(),
+    name="ticketing-public-resolve-domain",
+    ),
     path("public/<slug:organisation_slug>/branding/", PublicBrandingAPIView.as_view(), name="ticketing-public-branding-by-slug"),
     path("public/<slug:organisation_slug>/seo/", PublicSEOAPIView.as_view(), name="ticketing-public-seo-by-slug"),
     path("public/<slug:organisation_slug>/sitemap.xml", PublicSitemapAPIView.as_view(), name="ticketing-public-sitemap-by-slug"),

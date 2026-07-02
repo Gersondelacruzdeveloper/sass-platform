@@ -1,10 +1,12 @@
 from decimal import Decimal
 import json
+import os
 import uuid
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg, Count, Sum, Q
 from django.utils import timezone
@@ -2122,3 +2124,542 @@ def sync_wellet_products_to_snapshots(organisation, service_date=None):
         },
         "error": "",
     }
+
+
+# ============================================================
+# Custom domain automation for Ticketing public websites
+# ============================================================
+
+def get_setting_value(name, default=""):
+    """
+    Read a value from Django settings first, then environment variables.
+
+    This keeps production secrets outside the database.
+    """
+    value = getattr(settings, name, None)
+
+    if value not in [None, ""]:
+        return value
+
+    return os.environ.get(name, default)
+
+
+def clean_custom_domain_value(domain):
+    if not domain:
+        return ""
+
+    domain = str(domain).strip().lower()
+    domain = domain.replace("https://", "").replace("http://", "")
+    domain = domain.split("/")[0]
+    domain = domain.split(":")[0]
+    domain = domain.strip(".")
+
+    return domain
+
+
+def validate_custom_domain_value(domain):
+    domain = clean_custom_domain_value(domain)
+
+    if not domain:
+        raise ValueError("Custom domain is required.")
+
+    if "." not in domain:
+        raise ValueError("Enter a valid domain, for example www.puntacanaticket.com.")
+
+    if domain.startswith("*"):
+        raise ValueError("Wildcard domains are not supported here.")
+
+    if domain.startswith("http://") or domain.startswith("https://"):
+        raise ValueError("Enter only the domain, without http:// or https://.")
+
+    # MVP rule:
+    # External DNS providers like GoDaddy usually cannot CNAME the root/apex
+    # domain in the same way Route 53 can use an ALIAS. For now, require a
+    # subdomain such as www.example.com.
+    if len(domain.split(".")) < 3:
+        raise ValueError(
+            "Use a subdomain like www.example.com. Root domains need a different DNS setup."
+        )
+
+    return domain
+
+
+def strip_dns_dot(value):
+    return str(value or "").strip().rstrip(".")
+
+
+def guess_dns_zone(domain):
+    """
+    Good enough for the common GoDaddy .com/.net/.org use case.
+
+    Example:
+    www.puntacanaticket.com -> puntacanaticket.com
+    """
+    domain = clean_custom_domain_value(domain)
+    parts = domain.split(".")
+
+    if len(parts) <= 2:
+        return domain
+
+    return ".".join(parts[-2:])
+
+
+def get_godaddy_host_value(record_name, custom_domain):
+    """
+    Returns the Host value a customer normally enters in GoDaddy.
+
+    Examples for zone puntacanaticket.com:
+    www.puntacanaticket.com -> www
+    _abc.www.puntacanaticket.com -> _abc.www
+    """
+    record_name = strip_dns_dot(record_name).lower()
+    zone = guess_dns_zone(custom_domain)
+
+    if not record_name:
+        return ""
+
+    if record_name == zone:
+        return "@"
+
+    suffix = f".{zone}"
+
+    if record_name.endswith(suffix):
+        return record_name[: -len(suffix)]
+
+    return record_name
+
+
+def get_aws_acm_region():
+    return (
+        get_setting_value("AWS_ACM_REGION")
+        or get_setting_value("TICKETING_AWS_ACM_REGION")
+        or "us-east-1"
+    )
+
+
+def get_cloudfront_distribution_id():
+    distribution_id = (
+        get_setting_value("AWS_CLOUDFRONT_DISTRIBUTION_ID")
+        or get_setting_value("TICKETING_CLOUDFRONT_DISTRIBUTION_ID")
+    )
+
+    if not distribution_id:
+        raise ValueError(
+            "AWS_CLOUDFRONT_DISTRIBUTION_ID is missing from your backend environment."
+        )
+
+    return distribution_id
+
+
+def get_cloudfront_domain_name():
+    domain_name = (
+        get_setting_value("AWS_CLOUDFRONT_DOMAIN")
+        or get_setting_value("TICKETING_CLOUDFRONT_DOMAIN")
+    )
+
+    if not domain_name:
+        raise ValueError(
+            "AWS_CLOUDFRONT_DOMAIN is missing from your backend environment."
+        )
+
+    return strip_dns_dot(domain_name)
+
+
+def get_boto3_client(service_name, region_name=None):
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError(
+            "boto3 is not installed. Install it with: pip install boto3"
+        ) from exc
+
+    kwargs = {}
+
+    if region_name:
+        kwargs["region_name"] = region_name
+
+    return boto3.client(service_name, **kwargs)
+
+
+def get_acm_client():
+    return get_boto3_client("acm", region_name=get_aws_acm_region())
+
+
+def get_cloudfront_client():
+    return get_boto3_client("cloudfront")
+
+
+def build_acm_idempotency_token(site_settings, custom_domain):
+    token_source = f"ticketing-{site_settings.organisation_id}-{custom_domain}"
+    return uuid.uuid5(uuid.NAMESPACE_DNS, token_source).hex[:32]
+
+
+def request_or_reuse_acm_certificate(site_settings, custom_domain):
+    acm = get_acm_client()
+
+    if site_settings.aws_acm_certificate_arn:
+        try:
+            acm.describe_certificate(
+                CertificateArn=site_settings.aws_acm_certificate_arn,
+            )
+            return site_settings.aws_acm_certificate_arn
+        except Exception:
+            # If the stored ARN was deleted in AWS, request a new one.
+            site_settings.aws_acm_certificate_arn = ""
+
+    response = acm.request_certificate(
+        DomainName=custom_domain,
+        ValidationMethod="DNS",
+        IdempotencyToken=build_acm_idempotency_token(site_settings, custom_domain),
+        Tags=[
+            {
+                "Key": "Project",
+                "Value": "Punta Cana Discovery",
+            },
+            {
+                "Key": "Module",
+                "Value": "Ticketing",
+            },
+            {
+                "Key": "OrganisationSlug",
+                "Value": site_settings.organisation.slug,
+            },
+        ],
+    )
+
+    certificate_arn = response["CertificateArn"]
+
+    site_settings.aws_acm_certificate_arn = certificate_arn
+    site_settings.aws_acm_requested_at = timezone.now()
+
+    return certificate_arn
+
+
+def read_acm_certificate_details(site_settings):
+    if not site_settings.aws_acm_certificate_arn:
+        return {}
+
+    acm = get_acm_client()
+
+    response = acm.describe_certificate(
+        CertificateArn=site_settings.aws_acm_certificate_arn,
+    )
+
+    certificate = response.get("Certificate") or {}
+    status_value = certificate.get("Status") or ""
+
+    site_settings.aws_acm_certificate_status = status_value
+
+    validation_options = certificate.get("DomainValidationOptions") or []
+    validation_option = None
+
+    for option in validation_options:
+        if clean_custom_domain_value(option.get("DomainName")) == site_settings.custom_domain:
+            validation_option = option
+            break
+
+    if not validation_option and validation_options:
+        validation_option = validation_options[0]
+
+    resource_record = {}
+
+    if validation_option:
+        resource_record = validation_option.get("ResourceRecord") or {}
+
+    if resource_record:
+        site_settings.aws_acm_validation_record_name = strip_dns_dot(
+            resource_record.get("Name")
+        )
+        site_settings.aws_acm_validation_record_type = (
+            resource_record.get("Type") or "CNAME"
+        )
+        site_settings.aws_acm_validation_record_value = strip_dns_dot(
+            resource_record.get("Value")
+        )
+
+    return certificate
+
+
+def build_ticketing_domain_dns_records(site_settings):
+    records = []
+
+    custom_domain = clean_custom_domain_value(site_settings.custom_domain)
+
+    if (
+        site_settings.aws_acm_validation_record_name
+        and site_settings.aws_acm_validation_record_value
+    ):
+        records.append(
+            {
+                "purpose": "ssl_validation",
+                "label": "SSL Certificate Validation",
+                "type": site_settings.aws_acm_validation_record_type or "CNAME",
+                "host": strip_dns_dot(site_settings.aws_acm_validation_record_name),
+                "godaddy_host": get_godaddy_host_value(
+                    site_settings.aws_acm_validation_record_name,
+                    custom_domain,
+                ),
+                "value": strip_dns_dot(site_settings.aws_acm_validation_record_value),
+                "status": site_settings.aws_acm_certificate_status
+                or "PENDING_VALIDATION",
+                "instructions": "Add this CNAME in GoDaddy to validate the SSL certificate.",
+            }
+        )
+
+    if custom_domain and site_settings.cloudfront_domain_name:
+        records.append(
+            {
+                "purpose": "website",
+                "label": "Website Domain",
+                "type": "CNAME",
+                "host": custom_domain,
+                "godaddy_host": get_godaddy_host_value(custom_domain, custom_domain),
+                "value": strip_dns_dot(site_settings.cloudfront_domain_name),
+                "status": site_settings.domain_status,
+                "instructions": "Add this CNAME in GoDaddy to point the website to Punta Cana Discovery.",
+            }
+        )
+
+    return records
+
+
+def save_ticketing_domain_dns_records(site_settings):
+    site_settings.dns_records_payload = build_ticketing_domain_dns_records(site_settings)
+    return site_settings.dns_records_payload
+
+
+def get_cloudfront_distribution_status(distribution_id):
+    cloudfront = get_cloudfront_client()
+
+    response = cloudfront.get_distribution(Id=distribution_id)
+    distribution = response.get("Distribution") or {}
+
+    return distribution.get("Status") or ""
+
+
+def ensure_cloudfront_alias(site_settings):
+    """
+    Attach the custom domain to the configured CloudFront distribution.
+
+    Important for future scaling:
+    One CloudFront distribution can use only one viewer certificate at a time.
+    For many tenant domains, use a shared SAN certificate strategy or a
+    distribution-per-domain strategy. This helper is correct for the MVP where
+    this distribution/certificate setup is controlled by the platform owner.
+    """
+    custom_domain = clean_custom_domain_value(site_settings.custom_domain)
+
+    if not custom_domain:
+        raise ValueError("Custom domain is missing.")
+
+    if not site_settings.aws_acm_certificate_arn:
+        raise ValueError("ACM certificate ARN is missing.")
+
+    distribution_id = (
+        site_settings.cloudfront_distribution_id
+        or get_cloudfront_distribution_id()
+    )
+
+    cloudfront = get_cloudfront_client()
+
+    config_response = cloudfront.get_distribution_config(Id=distribution_id)
+    etag = config_response["ETag"]
+    distribution_config = config_response["DistributionConfig"]
+
+    aliases = distribution_config.get("Aliases") or {}
+    alias_items = aliases.get("Items") or []
+
+    if custom_domain not in alias_items:
+        alias_items.append(custom_domain)
+
+    distribution_config["Aliases"] = {
+        "Quantity": len(alias_items),
+        "Items": alias_items,
+    }
+
+    current_certificate_arn = (
+        distribution_config.get("ViewerCertificate", {}).get("ACMCertificateArn")
+    )
+
+    certificate_changed = current_certificate_arn != site_settings.aws_acm_certificate_arn
+
+    distribution_config["ViewerCertificate"] = {
+        "ACMCertificateArn": site_settings.aws_acm_certificate_arn,
+        "SSLSupportMethod": "sni-only",
+        "MinimumProtocolVersion": "TLSv1.2_2021",
+        "CertificateSource": "acm",
+    }
+
+    response = cloudfront.update_distribution(
+        Id=distribution_id,
+        IfMatch=etag,
+        DistributionConfig=distribution_config,
+    )
+
+    site_settings.cloudfront_distribution_id = distribution_id
+    site_settings.cloudfront_domain_name = (
+        site_settings.cloudfront_domain_name or get_cloudfront_domain_name()
+    )
+
+    distribution = response.get("Distribution") or {}
+    distribution_status = distribution.get("Status") or "InProgress"
+
+    if custom_domain in alias_items:
+        site_settings.cloudfront_alias_added_at = timezone.now()
+
+    return {
+        "updated": True,
+        "certificate_changed": certificate_changed,
+        "distribution_id": distribution_id,
+        "status": distribution_status,
+    }
+
+
+@transaction.atomic
+def connect_ticketing_custom_domain(site_settings, custom_domain):
+    """
+    Starts the AWS side of custom-domain setup.
+
+    Customer still handles GoDaddy manually:
+    - The app creates/reads ACM certificate validation CNAME.
+    - The app returns the DNS records that the customer copies to GoDaddy.
+    """
+    custom_domain = validate_custom_domain_value(custom_domain)
+
+    previous_domain = clean_custom_domain_value(site_settings.custom_domain)
+
+    if previous_domain != custom_domain:
+        site_settings.aws_acm_certificate_arn = ""
+        site_settings.aws_acm_certificate_status = ""
+        site_settings.aws_acm_requested_at = None
+        site_settings.aws_acm_validation_record_name = ""
+        site_settings.aws_acm_validation_record_type = "CNAME"
+        site_settings.aws_acm_validation_record_value = ""
+        site_settings.cloudfront_alias_added_at = None
+        site_settings.domain_verified_at = None
+        site_settings.domain_error_message = ""
+        site_settings.dns_records_payload = []
+
+    site_settings.custom_domain = custom_domain
+    site_settings.domain_status = "pending_aws_setup"
+    site_settings.domain_error_message = ""
+    site_settings.domain_last_checked_at = timezone.now()
+    site_settings.cloudfront_distribution_id = get_cloudfront_distribution_id()
+    site_settings.cloudfront_domain_name = get_cloudfront_domain_name()
+    site_settings.save()
+
+    request_or_reuse_acm_certificate(site_settings, custom_domain)
+    read_acm_certificate_details(site_settings)
+
+    if (
+        site_settings.aws_acm_validation_record_name
+        and site_settings.aws_acm_validation_record_value
+    ):
+        site_settings.domain_status = "pending_dns"
+    else:
+        site_settings.domain_status = "pending_aws_setup"
+
+    save_ticketing_domain_dns_records(site_settings)
+
+    site_settings.save(
+        update_fields=[
+            "custom_domain",
+            "domain_status",
+            "domain_error_message",
+            "domain_last_checked_at",
+            "aws_acm_certificate_arn",
+            "aws_acm_certificate_status",
+            "aws_acm_requested_at",
+            "aws_acm_validation_record_name",
+            "aws_acm_validation_record_type",
+            "aws_acm_validation_record_value",
+            "cloudfront_distribution_id",
+            "cloudfront_domain_name",
+            "cloudfront_alias_added_at",
+            "domain_verified_at",
+            "dns_records_payload",
+            "updated_at",
+        ]
+    )
+
+    return site_settings
+
+
+@transaction.atomic
+def check_ticketing_custom_domain(site_settings):
+    """
+    Checks ACM validation. If issued, it tries to attach the domain to CloudFront.
+    """
+    custom_domain = validate_custom_domain_value(site_settings.custom_domain)
+
+    site_settings.domain_last_checked_at = timezone.now()
+    site_settings.domain_error_message = ""
+
+    if not site_settings.cloudfront_distribution_id:
+        site_settings.cloudfront_distribution_id = get_cloudfront_distribution_id()
+
+    if not site_settings.cloudfront_domain_name:
+        site_settings.cloudfront_domain_name = get_cloudfront_domain_name()
+
+    if not site_settings.aws_acm_certificate_arn:
+        request_or_reuse_acm_certificate(site_settings, custom_domain)
+
+    certificate = read_acm_certificate_details(site_settings)
+    certificate_status = certificate.get("Status") or site_settings.aws_acm_certificate_status
+
+    if certificate_status in ["FAILED", "VALIDATION_TIMED_OUT", "REVOKED"]:
+        site_settings.domain_status = "failed"
+        site_settings.domain_error_message = (
+            f"ACM certificate status is {certificate_status}."
+        )
+        save_ticketing_domain_dns_records(site_settings)
+        site_settings.save()
+        return site_settings
+
+    if certificate_status != "ISSUED":
+        if (
+            site_settings.aws_acm_validation_record_name
+            and site_settings.aws_acm_validation_record_value
+        ):
+            site_settings.domain_status = "pending_dns"
+        else:
+            site_settings.domain_status = "pending_aws_setup"
+
+        save_ticketing_domain_dns_records(site_settings)
+        site_settings.save()
+        return site_settings
+
+    site_settings.domain_status = "pending_cloudfront"
+    save_ticketing_domain_dns_records(site_settings)
+    site_settings.save()
+
+    cloudfront_result = ensure_cloudfront_alias(site_settings)
+    distribution_status = cloudfront_result.get("status") or ""
+
+    if distribution_status == "Deployed":
+        site_settings.mark_domain_active(save=False)
+    else:
+        site_settings.domain_status = "pending_cloudfront"
+
+    save_ticketing_domain_dns_records(site_settings)
+
+    site_settings.save(
+        update_fields=[
+            "domain_status",
+            "domain_error_message",
+            "domain_verified_at",
+            "domain_last_checked_at",
+            "aws_acm_certificate_status",
+            "aws_acm_validation_record_name",
+            "aws_acm_validation_record_type",
+            "aws_acm_validation_record_value",
+            "cloudfront_distribution_id",
+            "cloudfront_domain_name",
+            "cloudfront_alias_added_at",
+            "dns_records_payload",
+            "updated_at",
+        ]
+    )
+
+    return site_settings
+

@@ -15,10 +15,22 @@ import {
   Save,
   Server,
   ShieldCheck,
+  Zap,
 } from "lucide-react";
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+
+type DomainDnsRecord = {
+  purpose?: string;
+  label?: string;
+  type?: string;
+  host?: string;
+  godaddy_host?: string;
+  value?: string;
+  status?: string;
+  instructions?: string;
+};
 
 type TicketingPublicSiteSettings = {
   id?: number;
@@ -34,6 +46,25 @@ type TicketingPublicSiteSettings = {
   custom_domain?: string | null;
   canonical_url?: string | null;
 
+  domain_status?: string;
+  domain_verified_at?: string | null;
+  domain_last_checked_at?: string | null;
+  domain_error_message?: string;
+
+  aws_acm_certificate_arn?: string;
+  aws_acm_certificate_status?: string;
+  aws_acm_requested_at?: string | null;
+  aws_acm_validation_record_name?: string;
+  aws_acm_validation_record_type?: string;
+  aws_acm_validation_record_value?: string;
+
+  cloudfront_distribution_id?: string;
+  cloudfront_domain_name?: string;
+  cloudfront_alias_added_at?: string | null;
+
+  dns_records_payload?: DomainDnsRecord[];
+  domain_dns_records?: DomainDnsRecord[];
+
   robots_allow_indexing?: boolean;
   robots_allow_ai_crawlers?: boolean;
   is_published?: boolean;
@@ -42,7 +73,21 @@ type TicketingPublicSiteSettings = {
   updated_at?: string;
 };
 
-type DomainHealthStatus = "ready" | "needs_setup" | "missing" | "warning";
+type DomainApiResponse = {
+  site?: TicketingPublicSiteSettings;
+  dns_records?: DomainDnsRecord[];
+  message?: string;
+  detail?: string;
+};
+
+type DomainHealthStatus =
+  | "active"
+  | "pending_aws_setup"
+  | "pending_dns"
+  | "pending_ssl"
+  | "pending_cloudfront"
+  | "failed"
+  | "not_configured";
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -86,12 +131,6 @@ function getErrorMessage(err: any, fallback: string) {
   return fallback;
 }
 
-function getCurrentHost() {
-  if (typeof window === "undefined") return "";
-
-  return window.location.host;
-}
-
 function getCurrentOrigin() {
   if (typeof window === "undefined") return "";
 
@@ -115,8 +154,8 @@ function cleanDomain(value: string) {
     .toLowerCase()
     .trim()
     .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
     .replace(/\/.*$/, "")
+    .replace(/:\d+$/, "")
     .replace(/[^a-z0-9.-]/g, "")
     .replace(/\.+/g, ".")
     .replace(/^\.+|\.+$/g, "");
@@ -130,88 +169,141 @@ function isValidDomain(value: string) {
   return /^(?!-)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/.test(domain);
 }
 
+function isSupportedCustomDomain(value: string) {
+  const domain = cleanDomain(value);
+
+  if (!domain) return true;
+
+  return domain.split(".").length >= 3;
+}
+
 function buildDefaultPublicUrl(organisationSlug: string) {
   return `${getCurrentOrigin()}/experiences/${organisationSlug}`;
 }
 
-function buildSubdomainUrl(subdomain: string) {
-  if (!subdomain) return "";
-
-  const host = getCurrentHost();
-
-  if (!host) return `https://${subdomain}`;
-
-  return `${window.location.protocol}//${subdomain}.${host.replace(/^www\./, "")}`;
-}
-
 function buildCustomDomainUrl(customDomain: string) {
-  if (!customDomain) return "";
+  const domain = cleanDomain(customDomain);
 
-  return `https://${cleanDomain(customDomain)}`;
+  if (!domain) return "";
+
+  return `https://${domain}`;
 }
 
 function getBestPublicUrl(
   organisationSlug: string,
-  subdomain: string,
   customDomain: string,
   canonicalUrl: string
 ) {
   if (canonicalUrl.trim()) return canonicalUrl.trim();
   if (customDomain.trim()) return buildCustomDomainUrl(customDomain);
-  if (subdomain.trim()) return buildSubdomainUrl(subdomain);
 
   return buildDefaultPublicUrl(organisationSlug);
 }
 
-function getDomainStatus(
-  customDomain: string,
-  subdomain: string,
-  canonicalUrl: string,
-  isPublished: boolean
-): DomainHealthStatus {
-  if (!customDomain && !subdomain) return "missing";
-  if (!isPublished) return "warning";
-  if (customDomain && !canonicalUrl) return "needs_setup";
+function normalizeDomainStatus(value?: string): DomainHealthStatus {
+  const status = String(value || "not_configured") as DomainHealthStatus;
 
-  return "ready";
+  if (
+    [
+      "active",
+      "pending_aws_setup",
+      "pending_dns",
+      "pending_ssl",
+      "pending_cloudfront",
+      "failed",
+      "not_configured",
+    ].includes(status)
+  ) {
+    return status;
+  }
+
+  return "not_configured";
 }
 
-function getStatusConfig(status: DomainHealthStatus) {
-  if (status === "ready") {
-    return {
-      label: "Ready",
-      className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    };
-  }
-
-  if (status === "needs_setup") {
-    return {
-      label: "Needs canonical URL",
-      className: "bg-amber-50 text-amber-700 ring-amber-200",
-    };
-  }
-
-  if (status === "warning") {
+function getStatusConfig(status: DomainHealthStatus, isPublished: boolean) {
+  if (!isPublished) {
     return {
       label: "Site not published",
       className: "bg-amber-50 text-amber-700 ring-amber-200",
+      description: "Publish the public site before sharing the custom domain.",
+    };
+  }
+
+  if (status === "active") {
+    return {
+      label: "Active",
+      className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      description: "The custom domain is connected and ready.",
+    };
+  }
+
+  if (status === "pending_dns") {
+    return {
+      label: "Waiting for GoDaddy DNS",
+      className: "bg-amber-50 text-amber-700 ring-amber-200",
+      description:
+        "Add the DNS records below in GoDaddy, then click Check Domain.",
+    };
+  }
+
+  if (status === "pending_ssl") {
+    return {
+      label: "Waiting for SSL",
+      className: "bg-blue-50 text-blue-700 ring-blue-200",
+      description: "AWS is waiting for the SSL certificate to be validated.",
+    };
+  }
+
+  if (status === "pending_cloudfront") {
+    return {
+      label: "Updating CloudFront",
+      className: "bg-blue-50 text-blue-700 ring-blue-200",
+      description: "AWS is attaching the domain to CloudFront.",
+    };
+  }
+
+  if (status === "pending_aws_setup") {
+    return {
+      label: "Preparing AWS",
+      className: "bg-blue-50 text-blue-700 ring-blue-200",
+      description: "AWS setup has started. DNS records will appear shortly.",
+    };
+  }
+
+  if (status === "failed") {
+    return {
+      label: "Failed",
+      className: "bg-red-50 text-red-700 ring-red-200",
+      description: "The last domain setup attempt failed. Review the error.",
     };
   }
 
   return {
     label: "No domain configured",
-    className: "bg-red-50 text-red-700 ring-red-200",
+    className: "bg-slate-100 text-slate-700 ring-slate-200",
+    description: "Enter a custom domain and click Connect Domain.",
   };
 }
 
-function getDnsTarget() {
-  const host = getCurrentHost();
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
 
-  if (!host || host.includes("localhost") || host.includes("127.0.0.1")) {
-    return "app.puntacanadiscovery.com";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
   }
+}
 
-  return host;
+function getRecords(settings: TicketingPublicSiteSettings) {
+  return settings.domain_dns_records || settings.dns_records_payload || [];
+}
+
+function getRecordCopyValue(record: DomainDnsRecord, field: "host" | "godaddy_host" | "value") {
+  return normalizeText(record[field]);
 }
 
 export default function TicketingDomainPage() {
@@ -227,6 +319,8 @@ export default function TicketingDomainPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
@@ -237,14 +331,8 @@ export default function TicketingDomainPage() {
   );
 
   const publicUrl = useMemo(
-    () =>
-      getBestPublicUrl(
-        organisationSlug,
-        subdomain,
-        customDomain,
-        canonicalUrl
-      ),
-    [organisationSlug, subdomain, customDomain, canonicalUrl]
+    () => getBestPublicUrl(organisationSlug, customDomain, canonicalUrl),
+    [organisationSlug, customDomain, canonicalUrl]
   );
 
   const defaultUrl = useMemo(
@@ -252,24 +340,32 @@ export default function TicketingDomainPage() {
     [organisationSlug]
   );
 
-  const subdomainUrl = useMemo(
-    () => buildSubdomainUrl(subdomain),
-    [subdomain]
-  );
-
   const customDomainUrl = useMemo(
     () => buildCustomDomainUrl(customDomain),
     [customDomain]
   );
 
-  const domainStatus = getDomainStatus(
-    customDomain,
-    subdomain,
-    canonicalUrl,
-    isPublished
-  );
+  const domainStatus = normalizeDomainStatus(settings.domain_status);
+  const statusConfig = getStatusConfig(domainStatus, isPublished);
+  const dnsRecords = getRecords(settings);
 
-  const statusConfig = getStatusConfig(domainStatus);
+  function hydrateForm(data: TicketingPublicSiteSettings) {
+    setSettings(data);
+    setSubdomain(normalizeText(data.subdomain));
+    setCustomDomain(normalizeText(data.custom_domain));
+    setCanonicalUrl(normalizeText(data.canonical_url));
+    setIsPublished(normalizeBoolean(data.is_published, false));
+    setRobotsAllowIndexing(normalizeBoolean(data.robots_allow_indexing, true));
+  }
+
+  function hydrateDomainResponse(data: DomainApiResponse) {
+    if (data.site) {
+      hydrateForm(data.site);
+      return;
+    }
+
+    loadDomainSettings();
+  }
 
   async function loadDomainSettings() {
     if (!organisationSlug) return;
@@ -285,14 +381,7 @@ export default function TicketingDomainPage() {
         }
       );
 
-      const data = response.data;
-
-      setSettings(data);
-      setSubdomain(normalizeText(data.subdomain));
-      setCustomDomain(normalizeText(data.custom_domain));
-      setCanonicalUrl(normalizeText(data.canonical_url));
-      setIsPublished(normalizeBoolean(data.is_published, false));
-      setRobotsAllowIndexing(normalizeBoolean(data.robots_allow_indexing, true));
+      hydrateForm(response.data);
     } catch (err: any) {
       console.error("Could not load domain settings:", err);
       setError(getErrorMessage(err, "Could not load domain settings."));
@@ -303,6 +392,7 @@ export default function TicketingDomainPage() {
 
   useEffect(() => {
     loadDomainSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organisationSlug]);
 
   async function saveDomainSettings() {
@@ -310,7 +400,12 @@ export default function TicketingDomainPage() {
     const cleanedSubdomain = cleanSubdomain(subdomain);
 
     if (cleanedCustomDomain && !isValidDomain(cleanedCustomDomain)) {
-      setError("Custom domain is not valid. Example: bookings.example.com");
+      setError("Custom domain is not valid. Example: www.example.com");
+      return;
+    }
+
+    if (cleanedCustomDomain && !isSupportedCustomDomain(cleanedCustomDomain)) {
+      setError("Use a subdomain like www.example.com. Root domains need a different DNS setup.");
       return;
     }
 
@@ -326,9 +421,7 @@ export default function TicketingDomainPage() {
           canonicalUrl.trim() ||
           (cleanedCustomDomain
             ? buildCustomDomainUrl(cleanedCustomDomain)
-            : cleanedSubdomain
-              ? buildSubdomainUrl(cleanedSubdomain)
-              : defaultUrl),
+            : defaultUrl),
         is_published: isPublished,
         robots_allow_indexing: robotsAllowIndexing,
       };
@@ -341,25 +434,97 @@ export default function TicketingDomainPage() {
         }
       );
 
-      setSettings((current) => ({
-        ...current,
-        ...response.data,
-      }));
-
-      setSubdomain(normalizeText(response.data.subdomain));
-      setCustomDomain(normalizeText(response.data.custom_domain));
-      setCanonicalUrl(normalizeText(response.data.canonical_url));
-      setIsPublished(normalizeBoolean(response.data.is_published, false));
-      setRobotsAllowIndexing(
-        normalizeBoolean(response.data.robots_allow_indexing, true)
-      );
-
+      hydrateForm(response.data);
       setSavedMessage("Domain settings saved.");
     } catch (err: any) {
       console.error("Could not save domain settings:", err);
       setError(getErrorMessage(err, "Could not save domain settings."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function connectDomain() {
+    const cleanedCustomDomain = cleanDomain(customDomain);
+
+    if (!cleanedCustomDomain) {
+      setError("Enter a custom domain first. Example: www.example.com");
+      return;
+    }
+
+    if (!isValidDomain(cleanedCustomDomain)) {
+      setError("Custom domain is not valid. Example: www.example.com");
+      return;
+    }
+
+    if (!isSupportedCustomDomain(cleanedCustomDomain)) {
+      setError("Use a subdomain like www.example.com. Root domains need a different DNS setup.");
+      return;
+    }
+
+    try {
+      setConnecting(true);
+      setError("");
+      setSavedMessage("");
+
+      const response = await api.post<DomainApiResponse>(
+        "/ticketing/public-site-settings/connect-domain/",
+        {
+          custom_domain: cleanedCustomDomain,
+        },
+        {
+          params: requestParams,
+        }
+      );
+
+      hydrateDomainResponse(response.data);
+      setSavedMessage(
+        response.data.message ||
+          "Domain setup started. Add the DNS records in GoDaddy, then click Check Domain."
+      );
+    } catch (err: any) {
+      console.error("Could not connect domain:", err);
+
+      const data = err?.response?.data as DomainApiResponse | undefined;
+
+      if (data?.site) {
+        hydrateDomainResponse(data);
+      }
+
+      setError(getErrorMessage(err, "Could not connect domain."));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function checkDomain() {
+    try {
+      setChecking(true);
+      setError("");
+      setSavedMessage("");
+
+      const response = await api.post<DomainApiResponse>(
+        "/ticketing/public-site-settings/check-domain/",
+        {},
+        {
+          params: requestParams,
+        }
+      );
+
+      hydrateDomainResponse(response.data);
+      setSavedMessage(response.data.message || "Domain status checked.");
+    } catch (err: any) {
+      console.error("Could not check domain:", err);
+
+      const data = err?.response?.data as DomainApiResponse | undefined;
+
+      if (data?.site) {
+        hydrateDomainResponse(data);
+      }
+
+      setError(getErrorMessage(err, "Could not check domain."));
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -376,7 +541,7 @@ export default function TicketingDomainPage() {
     return (
       <TicketingPageShell
         title="Domain"
-        subtitle="Configure custom domain and subdomain for the public booking website."
+        subtitle="Connect a custom domain for the public booking website."
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
           Loading domain settings...
@@ -388,7 +553,7 @@ export default function TicketingDomainPage() {
   return (
     <TicketingPageShell
       title="Domain"
-      subtitle="Configure custom domain and subdomain for the public booking website."
+      subtitle="Connect a custom domain and show the DNS records your customer must add in GoDaddy."
     >
       <div className="space-y-5 pb-24">
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -404,8 +569,8 @@ export default function TicketingDomainPage() {
                   "PCD Experiences"}
               </h1>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                Configure the URL customers and sellers will use to open the
-                public booking website.
+                AWS setup is handled by your application. The customer only
+                copies the DNS records below into GoDaddy.
               </p>
             </div>
 
@@ -423,14 +588,28 @@ export default function TicketingDomainPage() {
                 type="button"
                 onClick={saveDomainSettings}
                 disabled={saving}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save domain
+                Save
+              </button>
+
+              <button
+                type="button"
+                onClick={connectDomain}
+                disabled={connecting}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {connecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4" />
+                )}
+                Connect domain
               </button>
             </div>
           </div>
@@ -439,49 +618,54 @@ export default function TicketingDomainPage() {
         {error && (
           <div className="flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            {error}
+            <span>{error}</span>
+          </div>
+        )}
+
+        {settings.domain_error_message && (
+          <div className="flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+            <span>{settings.domain_error_message}</span>
           </div>
         )}
 
         {savedMessage && (
           <div className="flex items-start gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-            {savedMessage}
+            <span>{savedMessage}</span>
           </div>
         )}
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <Panel
-            title="Domain settings"
-            description="Set a tenant subdomain, custom domain and canonical URL."
+            title="Custom domain"
+            description="Enter the public domain that will open this tenant website."
             icon={<Globe2 className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Input
-                label="Subdomain"
-                value={subdomain}
-                onChange={(value) => setSubdomain(cleanSubdomain(value))}
-                placeholder="experiences"
-                helper="Example: experiences.your-main-domain.com"
-              />
-
-              <Input
                 label="Custom domain"
                 value={customDomain}
                 onChange={(value) => setCustomDomain(cleanDomain(value))}
-                placeholder="bookings.example.com"
-                helper="Do not include https:// or any slash."
+                placeholder="www.example.com"
+                helper="Use a subdomain such as www.example.com. Do not include https://."
               />
 
-              <div className="md:col-span-2">
-                <Input
-                  label="Canonical URL"
-                  value={canonicalUrl}
-                  onChange={setCanonicalUrl}
-                  placeholder={customDomainUrl || subdomainUrl || defaultUrl}
-                  helper="This is the preferred public URL for SEO."
-                />
-              </div>
+              <Input
+                label="Canonical URL"
+                value={canonicalUrl}
+                onChange={setCanonicalUrl}
+                placeholder={customDomainUrl || defaultUrl}
+                helper="This is the preferred public URL for SEO."
+              />
+
+              <Input
+                label="Internal subdomain"
+                value={subdomain}
+                onChange={(value) => setSubdomain(cleanSubdomain(value))}
+                placeholder="experiences"
+                helper="Optional internal subdomain reference."
+              />
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -499,11 +683,41 @@ export default function TicketingDomainPage() {
                 onChange={setRobotsAllowIndexing}
               />
             </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={saveDomainSettings}
+                disabled={saving}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Save settings
+              </button>
+
+              <button
+                type="button"
+                onClick={connectDomain}
+                disabled={connecting}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {connecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4" />
+                )}
+                Start AWS setup
+              </button>
+            </div>
           </Panel>
 
           <Panel
             title="Current domain status"
-            description="Quick view of the public URL and setup state."
+            description={statusConfig.description}
             icon={<ShieldCheck className="h-5 w-5" />}
           >
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -528,14 +742,6 @@ export default function TicketingDomainPage() {
                   onCopy={() => copy(defaultUrl, "Default URL")}
                 />
 
-                {subdomain && (
-                  <DomainLine
-                    label="Subdomain URL"
-                    value={subdomainUrl}
-                    onCopy={() => copy(subdomainUrl, "Subdomain URL")}
-                  />
-                )}
-
                 {customDomain && (
                   <DomainLine
                     label="Custom domain URL"
@@ -552,155 +758,156 @@ export default function TicketingDomainPage() {
               </div>
             </div>
 
+            <div className="mt-4 grid gap-2 rounded-3xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">
+              <InfoLine label="ACM status" value={settings.aws_acm_certificate_status || "—"} />
+              <InfoLine label="Last checked" value={formatDateTime(settings.domain_last_checked_at)} />
+              <InfoLine label="Verified at" value={formatDateTime(settings.domain_verified_at)} />
+              <InfoLine label="CloudFront" value={settings.cloudfront_domain_name || "—"} />
+            </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={checkDomain}
+                disabled={checking}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {checking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Check Domain
+              </button>
+
               <a
                 href={publicUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <ExternalLink className="h-4 w-4" />
                 Open public site
               </a>
-
-              <button
-                type="button"
-                onClick={() => copy(publicUrl, "Preferred public URL")}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
-              >
-                <Copy className="h-4 w-4" />
-                Copy URL
-              </button>
             </div>
           </Panel>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-2">
-          <Panel
-            title="DNS instructions"
-            description="Use this when connecting a real custom domain."
-            icon={<Server className="h-5 w-5" />}
-          >
+        <Panel
+          title="DNS records for GoDaddy"
+          description="Give these records to the customer. They should create them in GoDaddy exactly as shown."
+          icon={<Server className="h-5 w-5" />}
+        >
+          {dnsRecords.length > 0 ? (
             <div className="space-y-3">
-              <DnsRow
-                type="CNAME"
-                name={customDomain || "bookings.example.com"}
-                value={getDnsTarget()}
-                onCopy={() => copy(getDnsTarget(), "DNS target")}
-              />
-
-              <DnsRow
-                type="TXT"
-                name={`_pcd-verify.${customDomain || "bookings.example.com"}`}
-                value={`pcd-ticketing=${organisationSlug || "organisation-slug"}`}
-                onCopy={() =>
-                  copy(
-                    `pcd-ticketing=${organisationSlug || "organisation-slug"}`,
-                    "TXT verification value"
-                  )
-                }
-              />
+              {dnsRecords.map((record, index) => (
+                <DnsRow
+                  key={`${record.purpose || "dns"}-${index}`}
+                  record={record}
+                  onCopyHost={() =>
+                    copy(getRecordCopyValue(record, "godaddy_host") || getRecordCopyValue(record, "host"), "GoDaddy host")
+                  }
+                  onCopyValue={() =>
+                    copy(getRecordCopyValue(record, "value"), "DNS value")
+                  }
+                />
+              ))}
             </div>
-
-            <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+          ) : (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-black text-amber-950">
-                DNS note
+                DNS records are not ready yet.
               </p>
               <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                After changing DNS, propagation can take minutes or several
-                hours. SSL/HTTPS must also be configured on your hosting layer
-                before the custom domain is fully ready.
+                Enter a custom domain and click Connect Domain. Your backend
+                will create/read the AWS ACM validation record and return the
+                DNS records here.
               </p>
             </div>
-          </Panel>
+          )}
 
+          <div className="mt-5 rounded-3xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-black text-blue-950">GoDaddy note</p>
+            <p className="mt-2 text-sm font-semibold leading-6 text-blue-800">
+              In GoDaddy, use the <strong>GoDaddy Host</strong> value for the
+              Host/Name field and the <strong>Value / Target</strong> value for
+              the Points to/Value field. After adding DNS, click Check Domain.
+            </p>
+          </div>
+        </Panel>
+
+        <section className="grid gap-5 xl:grid-cols-2">
           <Panel
             title="Setup checklist"
             description="Recommended steps before giving the link to customers."
             icon={<CheckCircle2 className="h-5 w-5" />}
           >
             <ChecklistItem
-              complete={Boolean(subdomain || customDomain)}
-              title="Choose a public URL"
-              description="Use either a tenant subdomain or your own custom domain."
+              complete={Boolean(customDomain)}
+              title="Enter custom domain"
+              description="Use a subdomain such as www.example.com."
             />
             <ChecklistItem
-              complete={!customDomain || isValidDomain(customDomain)}
-              title="Validate custom domain"
-              description="The custom domain should look like bookings.example.com."
+              complete={Boolean(settings.aws_acm_certificate_arn)}
+              title="AWS ACM certificate requested"
+              description="Your backend creates or reuses the SSL certificate in AWS."
             />
             <ChecklistItem
-              complete={Boolean(canonicalUrl || publicUrl)}
-              title="Set canonical URL"
-              description="This helps Google and AI search systems understand the preferred public page."
+              complete={dnsRecords.length > 0}
+              title="DNS records generated"
+              description="The customer can copy these DNS records into GoDaddy."
             />
             <ChecklistItem
-              complete={isPublished}
-              title="Publish the public site"
-              description="The public booking website should be published before sharing links."
+              complete={settings.aws_acm_certificate_status === "ISSUED"}
+              title="SSL validated"
+              description="After DNS is added, AWS ACM changes to ISSUED."
             />
             <ChecklistItem
-              complete={robotsAllowIndexing}
-              title="Allow indexing"
-              description="Enable indexing when you want Google and search engines to discover the site."
+              complete={domainStatus === "active"}
+              title="Domain active"
+              description="CloudFront is connected and the public site is ready."
             />
           </Panel>
-        </section>
 
-        <Panel
-          title="Public link examples"
-          description="Links generated from this domain configuration."
-          icon={<Link2 className="h-5 w-5" />}
-        >
-          <div className="grid gap-3 lg:grid-cols-3">
-            <ExampleLink
-              title="Public home"
-              value={publicUrl}
-              icon={<Home className="h-5 w-5" />}
-              onCopy={() => copy(publicUrl, "Public home URL")}
-            />
-
-            <ExampleLink
-              title="Product page pattern"
-              value={`${publicUrl.replace(/\/$/, "")}/product/product-slug`}
-              icon={<Globe2 className="h-5 w-5" />}
-              onCopy={() =>
-                copy(
-                  `${publicUrl.replace(/\/$/, "")}/product/product-slug`,
-                  "Product page URL pattern"
-                )
-              }
-            />
-
-            <ExampleLink
-              title="Seller page pattern"
-              value={`${publicUrl.replace(/\/$/, "")}/s/seller-slug`}
-              icon={<Link2 className="h-5 w-5" />}
-              onCopy={() =>
-                copy(
-                  `${publicUrl.replace(/\/$/, "")}/s/seller-slug`,
-                  "Seller page URL pattern"
-                )
-              }
-            />
-          </div>
-        </Panel>
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={saveDomainSettings}
-            disabled={saving}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+          <Panel
+            title="Public link examples"
+            description="Links generated from this domain configuration."
+            icon={<Link2 className="h-5 w-5" />}
           >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save domain
-          </button>
-        </div>
+            <div className="grid gap-3">
+              <ExampleLink
+                title="Public home"
+                value={publicUrl}
+                icon={<Home className="h-5 w-5" />}
+                onCopy={() => copy(publicUrl, "Public home URL")}
+              />
+
+              <ExampleLink
+                title="Product page pattern"
+                value={`${publicUrl.replace(/\/$/, "")}/product/product-slug`}
+                icon={<Globe2 className="h-5 w-5" />}
+                onCopy={() =>
+                  copy(
+                    `${publicUrl.replace(/\/$/, "")}/product/product-slug`,
+                    "Product page URL pattern"
+                  )
+                }
+              />
+
+              <ExampleLink
+                title="Checkout page"
+                value={`${publicUrl.replace(/\/$/, "")}/checkout`}
+                icon={<Link2 className="h-5 w-5" />}
+                onCopy={() =>
+                  copy(
+                    `${publicUrl.replace(/\/$/, "")}/checkout`,
+                    "Checkout page URL"
+                  )
+                }
+              />
+            </div>
+          </Panel>
+        </section>
       </div>
     </TicketingPageShell>
   );
@@ -834,49 +1041,103 @@ function DomainLine({
   );
 }
 
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-slate-500">{label}</span>
+      <span className="break-all text-right font-black text-slate-950">
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
 function DnsRow({
-  type,
-  name,
-  value,
-  onCopy,
+  record,
+  onCopyHost,
+  onCopyValue,
 }: {
-  type: string;
-  name: string;
-  value: string;
-  onCopy: () => void;
+  record: DomainDnsRecord;
+  onCopyHost: () => void;
+  onCopyValue: () => void;
 }) {
+  const godaddyHost = normalizeText(record.godaddy_host || record.host);
+  const fullHost = normalizeText(record.host);
+  const value = normalizeText(record.value);
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-      <div className="grid gap-3 md:grid-cols-[90px_1fr_1fr_auto] md:items-center">
+      <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div>
+          <p className="text-sm font-black text-slate-950">
+            {record.label || record.purpose || "DNS Record"}
+          </p>
+          {record.instructions && (
+            <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+              {record.instructions}
+            </p>
+          )}
+        </div>
+
+        {record.status && (
+          <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700 ring-1 ring-slate-200">
+            {record.status}
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[90px_1fr_1fr_auto] md:items-start">
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
             Type
           </p>
-          <p className="mt-1 font-black text-slate-950">{type}</p>
+          <p className="mt-1 font-black text-slate-950">
+            {record.type || "CNAME"}
+          </p>
         </div>
 
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Name / Host
+            GoDaddy Host
           </p>
-          <p className="mt-1 break-all font-black text-slate-950">{name}</p>
+          <p className="mt-1 break-all font-black text-slate-950">
+            {godaddyHost || "—"}
+          </p>
+          {fullHost && fullHost !== godaddyHost && (
+            <p className="mt-1 break-all text-xs font-bold text-slate-500">
+              Full host: {fullHost}
+            </p>
+          )}
         </div>
 
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
             Value / Target
           </p>
-          <p className="mt-1 break-all font-black text-slate-950">{value}</p>
+          <p className="mt-1 break-all font-black text-slate-950">
+            {value || "—"}
+          </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onCopy}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-        >
-          <Copy className="h-4 w-4" />
-          Copy
-        </button>
+        <div className="flex gap-2 md:flex-col">
+          <button
+            type="button"
+            onClick={onCopyHost}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+          >
+            <Copy className="h-4 w-4" />
+            Host
+          </button>
+
+          <button
+            type="button"
+            onClick={onCopyValue}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+          >
+            <Copy className="h-4 w-4" />
+            Value
+          </button>
+        </div>
       </div>
     </div>
   );

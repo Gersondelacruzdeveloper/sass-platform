@@ -44,6 +44,23 @@ type PublicTheme = {
   card: string;
 };
 
+type PublicTicketingDomainResolution = {
+  organisation_id: number;
+  organisation_slug: string;
+  organisation_name: string;
+  business_type?: string;
+  public_domain: string;
+  public_base_url: string;
+  is_published: boolean;
+  domain_status?: string;
+};
+
+const PLATFORM_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "app.puntacanadiscovery.com",
+];
+
 type SortKey =
   | "recommended"
   | "price_low"
@@ -149,12 +166,32 @@ const segmentLabels: Record<
   },
 };
 
-function getApiOrigin() {
+function getApiBaseUrl() {
   const baseUrl =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
     "http://127.0.0.1:8000/api";
 
-  return baseUrl.replace(/\/api\/?$/, "");
+  return baseUrl;
+}
+
+function getApiOrigin() {
+  return getApiBaseUrl().replace(/\/api\/?$/, "");
+}
+
+function getCurrentHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.hostname.toLowerCase();
+}
+
+function isPlatformHost(hostname = getCurrentHostname()) {
+  return PLATFORM_HOSTS.includes(hostname);
+}
+
+function isCustomTicketingDomain(hostname = getCurrentHostname()) {
+  return Boolean(hostname) && !isPlatformHost(hostname);
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -759,10 +796,115 @@ function FiltersPanel({
   );
 }
 
+function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const hostname = useMemo(() => getCurrentHostname(), []);
+  const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
+
+  const [resolvedDomain, setResolvedDomain] =
+    useState<PublicTicketingDomainResolution | null>(null);
+  const [loading, setLoading] = useState<boolean>(
+    !organisationSlugFromUrl && customDomain
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveDomain() {
+      if (organisationSlugFromUrl) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      if (!customDomain || !hostname) {
+        setLoading(false);
+        setError("Organisation slug is missing.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${getApiBaseUrl()}/ticketing/public/resolve-domain/?domain=${encodeURIComponent(
+            hostname
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.detail || "Unable to resolve this domain.");
+        }
+
+        if (!cancelled) {
+          setResolvedDomain(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedDomain(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to resolve this domain."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    resolveDomain();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hostname, customDomain, organisationSlugFromUrl]);
+
+  return {
+    organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
+    resolvedDomain,
+    loading,
+    error,
+    isCustomDomain: customDomain,
+  };
+}
+
 export default function PublicProductsListingPage() {
   const params = useParams();
 
-  const organisationSlug = params.organisationSlug || params.slug || "";
+  const organisationSlugFromUrl = params.organisationSlug || params.slug || "";
+  const {
+    organisationSlug,
+    loading: organisationLoading,
+    error: organisationError,
+    isCustomDomain,
+  } = usePublicTicketingOrganisation(organisationSlugFromUrl);
+
+  const publicPath = (path: string = "/") => {
+    if (!organisationSlug) {
+      return path || "/";
+    }
+
+    if (isCustomDomain) {
+      return path || "/";
+    }
+
+    const cleanPath = path === "/" ? "" : path;
+    return `/experiences/${organisationSlug}${cleanPath}`;
+  };
+
   const listingSegment = getListingSegment(params.listingType);
   const targetProductType = segmentToProductType[listingSegment];
   const labels = segmentLabels[listingSegment];
@@ -827,6 +969,7 @@ export default function PublicProductsListingPage() {
   }
 
   useEffect(() => {
+    if (!organisationSlug) return;
     loadData();
   }, [organisationSlug, listingSegment]);
 
@@ -1123,7 +1266,48 @@ export default function PublicProductsListingPage() {
     sort,
   ]);
 
-  if (loading) {
+  if (organisationError) {
+    return (
+      <div
+        className="grid min-h-screen place-items-center px-4"
+        style={{
+          background: `radial-gradient(circle at top left, ${hexToRgba(
+            theme.secondary,
+            0.18
+          )}, transparent 32rem), ${theme.background}`,
+          color: theme.text,
+        }}
+      >
+        <div
+          className="relative max-w-lg overflow-hidden rounded-[2rem] border p-8 text-center shadow-2xl"
+          style={{
+            backgroundColor: hexToRgba(theme.card, 0.9),
+            borderColor: hexToRgba(theme.primary, 0.1),
+          }}
+        >
+          <div
+            className="mx-auto grid h-14 w-14 place-items-center rounded-2xl"
+            style={{
+              backgroundColor: hexToRgba(theme.accent, 0.14),
+              color: theme.accent,
+            }}
+          >
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+
+          <h1 className="mt-5 text-2xl font-black" style={{ color: theme.text }}>
+            Public site unavailable
+          </h1>
+
+          <p className="mt-3 text-sm font-bold leading-6" style={{ color: theme.muted }}>
+            {organisationError}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (organisationLoading || loading) {
     return (
       <div
         className="grid min-h-screen place-items-center px-4"
@@ -1242,7 +1426,7 @@ export default function PublicProductsListingPage() {
       `}</style>
 
       <PublicHeader
-        organisationSlug={organisationSlug}
+        publicPath={publicPath}
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
@@ -1340,7 +1524,7 @@ export default function PublicProductsListingPage() {
                       {featured.map((product) => (
                         <Link
                           key={product.id}
-                          to={`/experiences/${organisationSlug}/product/${product.slug}`}
+                          to={publicPath(`/product/${product.slug}`)}
                           className="group inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5 hover:shadow-sm"
                           style={{
                             backgroundColor: theme.card,
@@ -1611,7 +1795,7 @@ export default function PublicProductsListingPage() {
                   <ProductCard
                     key={product.id}
                     product={product}
-                    organisationSlug={organisationSlug}
+                    publicPath={publicPath}
                     currencySymbol={currencySymbol}
                     theme={theme}
                     index={index}
@@ -1780,13 +1964,13 @@ function ToggleLine({
 }
 
 function PublicHeader({
-  organisationSlug,
+  publicPath,
   brandName,
   logoUrl,
   theme,
   whatsappUrl,
 }: {
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
@@ -1801,7 +1985,7 @@ function PublicHeader({
       }}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link to={`/experiences/${organisationSlug}`} className="group flex items-center gap-3">
+        <Link to={publicPath("/")} className="group flex items-center gap-3">
           <div
             className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl ring-1 transition group-hover:scale-105"
             style={{
@@ -1833,7 +2017,7 @@ function PublicHeader({
 
         <div className="flex items-center gap-2">
           <Link
-            to={`/experiences/${organisationSlug}`}
+            to={publicPath("/")}
             className="rounded-2xl border px-4 py-2 text-sm font-black transition hover:-translate-y-0.5"
             style={inactiveButtonStyle(theme)}
           >
@@ -1860,13 +2044,13 @@ function PublicHeader({
 
 function ProductCard({
   product,
-  organisationSlug,
+  publicPath,
   currencySymbol,
   theme,
   index = 0,
 }: {
   product: ExperienceProduct;
-  organisationSlug: string;
+  publicPath: (path: string) => string;
   currencySymbol: string;
   theme: PublicTheme;
   index?: number;
@@ -1877,7 +2061,7 @@ function ProductCard({
 
   return (
     <Link
-      to={`/experiences/${organisationSlug}/product/${product.slug}`}
+      to={publicPath(`/product/${product.slug}`)}
       className="pcd-glow-card pcd-animate-reveal group rounded-[2rem] border p-[1px] shadow-sm transition hover:-translate-y-2 hover:shadow-2xl"
       style={{
         animationDelay: `${Math.min(index * 45, 280)}ms`,
