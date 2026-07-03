@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock3,
+  CreditCard,
   Loader2,
   Mail,
   MapPin,
@@ -23,6 +24,8 @@ import type {
   Booking,
   ExperienceProduct,
   PublicBrandingResponse,
+  PublicPaymentOptions,
+  TicketingPaymentProvider,
 } from "../types/ticketingTypes";
 
 type PublicTheme = {
@@ -54,6 +57,7 @@ const PLATFORM_HOSTS = [
 ];
 
 type PaymentChoice = "deposit" | "full" | "pending" | "cash";
+type OnlineGateway = Exclude<TicketingPaymentProvider, "none">;
 
 type CheckoutForm = {
   full_name: string;
@@ -362,6 +366,8 @@ export default function PublicCheckoutPage() {
   const navigate = useNavigate();
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
+  const [paymentOptions, setPaymentOptions] = useState<PublicPaymentOptions | null>(null);
+  const [selectedGateway, setSelectedGateway] = useState<OnlineGateway>("stripe");
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -405,15 +411,22 @@ export default function PublicCheckoutPage() {
       setLoading(true);
       setError("");
 
-      const [brandingResponse, productsResponse] = await Promise.all([
+      const [brandingResponse, productsResponse, paymentOptionsResponse] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
         ticketingApi.getPublicProducts(organisationSlug, {
           public_enabled: true,
           status: "active",
         }),
+        ticketingApi.getPublicPaymentOptions(organisationSlug),
       ]);
 
       setBranding(brandingResponse);
+      setPaymentOptions(paymentOptionsResponse);
+      setSelectedGateway(
+        paymentOptionsResponse.default_provider === "paypal"
+          ? "paypal"
+          : "stripe"
+      );
       setProducts(Array.isArray(productsResponse) ? productsResponse : []);
     } catch (err: any) {
       console.error("Could not load checkout:", err);
@@ -496,6 +509,26 @@ export default function PublicCheckoutPage() {
 
   const payNow = Math.min(totalFull, Math.max(0, totalDeposit));
   const payLater = Math.max(0, totalFull - payNow);
+  const onlinePaymentSelected = shouldCreatePendingPayment(paymentChoice);
+  const stripeAvailable = Boolean(paymentOptions?.stripe_enabled);
+  const paypalAvailable = Boolean(paymentOptions?.paypal_enabled);
+  const hasOnlineGateway = stripeAvailable || paypalAvailable;
+
+  function getPaymentTypeForGateway(): "full" | "deposit" | "balance" {
+    if (paymentChoice === "deposit") return "deposit";
+    return "full";
+  }
+
+  function buildSuccessUrl(bookingCode: string, provider: OnlineGateway) {
+    if (typeof window === "undefined") return "";
+    const path = publicPath(`/confirmation/${bookingCode}`);
+    return `${window.location.origin}${path}?payment_provider=${provider}&payment_status=success`;
+  }
+
+  function buildCancelUrl() {
+    if (typeof window === "undefined") return "";
+    return window.location.href;
+  }
 
   function updateField(field: keyof CheckoutForm, value: string) {
     setForm((current) => ({
@@ -512,6 +545,18 @@ export default function PublicCheckoutPage() {
 
     if ((product.requires_pickup_location || product.supports_pickup) && !pickupLocationId) {
       return "Pickup location is required.";
+    }
+
+    if (onlinePaymentSelected && !hasOnlineGateway) {
+      return "Online payment is not configured yet. Choose pay later or pay in person.";
+    }
+
+    if (onlinePaymentSelected && selectedGateway === "stripe" && !stripeAvailable) {
+      return "Stripe is not available for this business.";
+    }
+
+    if (onlinePaymentSelected && selectedGateway === "paypal" && !paypalAvailable) {
+      return "PayPal is not available for this business.";
     }
 
     return "";
@@ -600,6 +645,44 @@ export default function PublicCheckoutPage() {
             payload
           )
         : await ticketingApi.createPublicBooking(organisationSlug, payload);
+
+      if (shouldCreatePendingPayment(paymentChoice)) {
+        const paymentPayload = {
+          booking_id: booking.id,
+          booking_code: booking.booking_code,
+          payment_type: getPaymentTypeForGateway(),
+          success_url: buildSuccessUrl(booking.booking_code, selectedGateway),
+          cancel_url: buildCancelUrl(),
+        };
+
+        if (selectedGateway === "stripe") {
+          const checkoutSession = await ticketingApi.createPublicStripeCheckoutSession(
+            organisationSlug,
+            paymentPayload
+          );
+
+          if (!checkoutSession.checkout_url) {
+            throw new Error("Stripe checkout URL was not returned.");
+          }
+
+          window.location.href = checkoutSession.checkout_url;
+          return;
+        }
+
+        if (selectedGateway === "paypal") {
+          const paypalOrder = await ticketingApi.createPublicPayPalOrder(
+            organisationSlug,
+            paymentPayload
+          );
+
+          if (!paypalOrder.approve_url) {
+            throw new Error("PayPal approval URL was not returned.");
+          }
+
+          window.location.href = paypalOrder.approve_url;
+          return;
+        }
+      }
 
       navigate(publicPath(`/confirmation/${booking.booking_code}`), {
         replace: true,
@@ -781,6 +864,66 @@ export default function PublicCheckoutPage() {
             </div>
           </div>
 
+          {onlinePaymentSelected && (
+            <div
+              className="mt-6 rounded-2xl border p-4"
+              style={{
+                backgroundColor: hexToRgba(theme.primary, 0.04),
+                borderColor: hexToRgba(theme.primary, 0.12),
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <CreditCard className="mt-0.5 h-5 w-5 shrink-0" style={{ color: theme.accent }} />
+                <div className="flex-1">
+                  <p className="text-sm font-black" style={{ color: theme.text }}>
+                    Online payment method
+                  </p>
+                  <p className="mt-1 text-xs font-semibold leading-5" style={{ color: theme.muted }}>
+                    Choose where the customer will pay now.
+                  </p>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {stripeAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGateway("stripe")}
+                        className="rounded-2xl border px-4 py-3 text-left text-sm font-black"
+                        style={{
+                          backgroundColor: selectedGateway === "stripe" ? hexToRgba(theme.accent, 0.16) : theme.card,
+                          borderColor: selectedGateway === "stripe" ? theme.accent : hexToRgba(theme.primary, 0.12),
+                          color: theme.text,
+                        }}
+                      >
+                        Stripe Checkout
+                        <span className="mt-1 block text-xs font-semibold" style={{ color: theme.muted }}>
+                          Card payment
+                        </span>
+                      </button>
+                    )}
+
+                    {paypalAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGateway("paypal")}
+                        className="rounded-2xl border px-4 py-3 text-left text-sm font-black"
+                        style={{
+                          backgroundColor: selectedGateway === "paypal" ? hexToRgba(theme.accent, 0.16) : theme.card,
+                          borderColor: selectedGateway === "paypal" ? theme.accent : hexToRgba(theme.primary, 0.12),
+                          color: theme.text,
+                        }}
+                      >
+                        PayPal
+                        <span className="mt-1 block text-xs font-semibold" style={{ color: theme.muted }}>
+                          PayPal account or card
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={submitting || !product}
@@ -788,7 +931,7 @@ export default function PublicCheckoutPage() {
             style={{ backgroundColor: theme.button }}
           >
             {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            Confirm booking
+            {onlinePaymentSelected ? "Continue to payment" : "Confirm booking"}
           </button>
         </form>
 

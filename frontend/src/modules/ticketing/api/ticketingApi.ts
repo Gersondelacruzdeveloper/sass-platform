@@ -26,6 +26,14 @@ import type {
   SellerDashboard,
   TicketingDashboard,
   TicketingPublicSiteSettings,
+  TicketingPaymentProviderSettings,
+  PublicPaymentOptions,
+  StripeCheckoutSessionPayload,
+  StripeCheckoutSessionResponse,
+  PayPalCreateOrderPayload,
+  PayPalCreateOrderResponse,
+  PayPalCaptureOrderPayload,
+  PayPalCaptureOrderResponse,
   TicketingReports,
   TicketingSettings,
   TransferRoute,
@@ -141,6 +149,32 @@ export const ticketingApi = {
   ): Promise<TicketingPublicSiteSettings> => {
     const response = await api.patch<TicketingPublicSiteSettings>(
       "/ticketing/public-site-settings/mine/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+
+
+  getPaymentProviderSettings: async (slug?: string): Promise<TicketingPaymentProviderSettings> => {
+    const response = await api.get<TicketingPaymentProviderSettings>(
+      "/ticketing/payment-provider-settings/mine/",
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updatePaymentProviderSettings: async (
+    payload: UpdatePayload<TicketingPaymentProviderSettings>,
+    slug?: string
+  ): Promise<TicketingPaymentProviderSettings> => {
+    const response = await api.patch<TicketingPaymentProviderSettings>(
+      "/ticketing/payment-provider-settings/mine/",
       payload,
       {
         params: withSlug(undefined, slug),
@@ -960,6 +994,65 @@ export const ticketingApi = {
   ): Promise<Booking> => {
     const response = await api.post<Booking>(
       `/ticketing/public/${slug}/s/${sellerSlug}/bookings/`,
+      payload
+    );
+    return response.data;
+  },
+
+
+  getPublicPaymentOptions: async (slug: string): Promise<PublicPaymentOptions> => {
+    const response = await api.get<PublicPaymentOptions>(
+      `/ticketing/public/${slug}/payments/options/`
+    );
+    return response.data;
+  },
+
+  getPublicBookingConfirmation: async (
+    slug: string,
+    bookingCode: string
+  ): Promise<Booking> => {
+    const response = await api.get<Booking[] | Booking>(
+      `/ticketing/public/${slug}/confirmation/${bookingCode}/`
+    );
+
+    if (Array.isArray(response.data)) {
+      if (!response.data[0]) {
+        throw new Error("Booking not found.");
+      }
+      return response.data[0];
+    }
+
+    return response.data;
+  },
+
+  createPublicStripeCheckoutSession: async (
+    slug: string,
+    payload: StripeCheckoutSessionPayload
+  ): Promise<StripeCheckoutSessionResponse> => {
+    const response = await api.post<StripeCheckoutSessionResponse>(
+      `/ticketing/public/${slug}/payments/stripe/create-checkout-session/`,
+      payload
+    );
+    return response.data;
+  },
+
+  createPublicPayPalOrder: async (
+    slug: string,
+    payload: PayPalCreateOrderPayload
+  ): Promise<PayPalCreateOrderResponse> => {
+    const response = await api.post<PayPalCreateOrderResponse>(
+      `/ticketing/public/${slug}/payments/paypal/create-order/`,
+      payload
+    );
+    return response.data;
+  },
+
+  capturePublicPayPalOrder: async (
+    slug: string,
+    payload: PayPalCaptureOrderPayload
+  ): Promise<PayPalCaptureOrderResponse> => {
+    const response = await api.post<PayPalCaptureOrderResponse>(
+      `/ticketing/public/${slug}/payments/paypal/capture-order/`,
       payload
     );
     return response.data;

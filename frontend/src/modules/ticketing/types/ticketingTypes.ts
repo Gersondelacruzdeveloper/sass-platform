@@ -51,6 +51,8 @@ export type PaymentMethod =
   | "cash"
   | "card"
   | "online"
+  | "stripe"
+  | "paypal"
   | "bank_transfer"
   | "seller_collected"
   | "mixed"
@@ -545,8 +547,15 @@ export interface BookingPayment {
   amount: Money;
   payment_type: "full" | "deposit" | "balance" | "commission_only" | "partial" | "refund";
   payer_type: "customer" | "seller" | "company";
-  method: "cash" | "card" | "online" | "bank_transfer" | "seller_balance" | "other";
+  method: "cash" | "card" | "online" | "stripe" | "paypal" | "bank_transfer" | "seller_balance" | "other";
   status: "pending" | "confirmed" | "failed" | "refunded" | "cancelled";
+  provider?: string;
+  provider_payment_id?: string;
+  provider_checkout_id?: string;
+  provider_order_id?: string;
+  provider_capture_id?: string;
+  provider_status?: string;
+  provider_response?: Record<string, unknown>;
   reference: string;
   note: string;
   paid_at?: string;
@@ -771,6 +780,86 @@ export interface PublicBrandingResponse {
   };
   ticketing_settings: TicketingSettings;
   public_site: TicketingPublicSiteSettings;
+}
+
+
+export type TicketingPaymentProvider = "stripe" | "paypal" | "none";
+
+export interface TicketingPaymentProviderSettings {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  default_provider: TicketingPaymentProvider;
+  stripe_enabled: boolean;
+  stripe_publishable_key: string;
+  stripe_connect_account_id: string;
+  stripe_connect_status: "not_connected" | "pending" | "connected" | "restricted";
+  stripe_configured?: boolean;
+  paypal_enabled: boolean;
+  paypal_mode: "sandbox" | "live";
+  paypal_client_id: string;
+  paypal_merchant_id: string;
+  paypal_configured?: boolean;
+  payment_success_message: string;
+  payment_pending_message: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PublicPaymentOptions {
+  default_provider: TicketingPaymentProvider;
+  stripe_enabled: boolean;
+  paypal_enabled: boolean;
+  stripe_publishable_key?: string;
+  paypal_mode?: "sandbox" | "live";
+  payment_success_message?: string;
+  payment_pending_message?: string;
+}
+
+export interface StripeCheckoutSessionPayload {
+  booking_id?: ID;
+  booking_code?: string;
+  payment_type: "full" | "deposit" | "balance";
+  success_url?: string;
+  cancel_url?: string;
+}
+
+export interface StripeCheckoutSessionResponse {
+  provider: "stripe";
+  booking_id: ID;
+  booking_code: string;
+  session_id: string;
+  checkout_url: string;
+}
+
+export interface PayPalCreateOrderPayload {
+  booking_id?: ID;
+  booking_code?: string;
+  payment_type: "full" | "deposit" | "balance";
+  success_url?: string;
+  cancel_url?: string;
+}
+
+export interface PayPalCreateOrderResponse {
+  provider: "paypal";
+  booking_id: ID;
+  booking_code: string;
+  order_id: string;
+  approve_url?: string;
+}
+
+export interface PayPalCaptureOrderPayload {
+  order_id?: string;
+  token?: string;
+}
+
+export interface PayPalCaptureOrderResponse {
+  provider: "paypal";
+  booking_id: ID;
+  booking_code: string;
+  status: string;
+  booking: Booking;
 }
 
 export interface ExternalProviderConfig {

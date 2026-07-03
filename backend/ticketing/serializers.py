@@ -7,6 +7,7 @@ from rest_framework import serializers
 from .models import (
     TicketingSettings,
     TicketingPublicSiteSettings,
+    TicketingPaymentProviderSettings,
     ExperienceCategory,
     ExperienceProduct,
     ProductGalleryImage,
@@ -766,6 +767,78 @@ class ExternalProviderConfigSerializer(serializers.ModelSerializer):
         }
 
 
+class TicketingPaymentProviderSettingsSerializer(serializers.ModelSerializer):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    stripe_configured = serializers.SerializerMethodField()
+    paypal_configured = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketingPaymentProviderSettings
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "default_provider",
+            "stripe_enabled",
+            "stripe_publishable_key",
+            "stripe_secret_key",
+            "stripe_webhook_secret",
+            "stripe_connect_account_id",
+            "stripe_connect_status",
+            "stripe_configured",
+            "paypal_enabled",
+            "paypal_mode",
+            "paypal_client_id",
+            "paypal_client_secret",
+            "paypal_merchant_id",
+            "paypal_webhook_id",
+            "paypal_configured",
+            "payment_success_message",
+            "payment_pending_message",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "stripe_connect_status",
+            "stripe_configured",
+            "paypal_configured",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "stripe_secret_key": {"write_only": True, "required": False},
+            "stripe_webhook_secret": {"write_only": True, "required": False},
+            "paypal_client_secret": {"write_only": True, "required": False},
+            "paypal_webhook_id": {"write_only": True, "required": False},
+        }
+
+    def get_stripe_configured(self, obj):
+        return obj.has_stripe_credentials
+
+    def get_paypal_configured(self, obj):
+        return obj.has_paypal_credentials
+
+    def update(self, instance, validated_data):
+        # Do not erase saved secrets when the frontend sends an empty string.
+        for secret_field in [
+            "stripe_secret_key",
+            "stripe_webhook_secret",
+            "paypal_client_secret",
+            "paypal_webhook_id",
+        ]:
+            if secret_field in validated_data and not validated_data[secret_field]:
+                validated_data.pop(secret_field)
+
+        return super().update(instance, validated_data)
+
+
 class ExternalProviderProductSnapshotSerializer(MediaURLMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
@@ -1406,6 +1479,13 @@ class BookingPaymentSerializer(serializers.ModelSerializer):
             "payer_type",
             "method",
             "status",
+            "provider",
+            "provider_payment_id",
+            "provider_checkout_id",
+            "provider_order_id",
+            "provider_capture_id",
+            "provider_status",
+            "provider_response",
             "reference",
             "note",
             "paid_at",
@@ -1437,6 +1517,13 @@ class BookingPaymentWriteSerializer(serializers.Serializer):
     )
     reference = serializers.CharField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True)
+    provider = serializers.CharField(required=False, allow_blank=True)
+    provider_payment_id = serializers.CharField(required=False, allow_blank=True)
+    provider_checkout_id = serializers.CharField(required=False, allow_blank=True)
+    provider_order_id = serializers.CharField(required=False, allow_blank=True)
+    provider_capture_id = serializers.CharField(required=False, allow_blank=True)
+    provider_status = serializers.CharField(required=False, allow_blank=True)
+    provider_response = serializers.JSONField(required=False)
 
 
 class SellerCommissionSerializer(serializers.ModelSerializer):

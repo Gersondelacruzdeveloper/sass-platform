@@ -1444,6 +1444,96 @@ class ExternalProviderConfig(models.Model):
         unique_together = ("organisation", "provider")
 
 
+class TicketingPaymentProviderSettings(models.Model):
+    DEFAULT_PROVIDER_CHOICES = (
+        ("stripe", "Stripe"),
+        ("paypal", "PayPal"),
+        ("none", "None"),
+    )
+
+    STRIPE_CONNECT_STATUS_CHOICES = (
+        ("not_connected", "Not Connected"),
+        ("pending", "Pending"),
+        ("connected", "Connected"),
+        ("restricted", "Restricted"),
+    )
+
+    PAYPAL_MODE_CHOICES = (
+        ("sandbox", "Sandbox"),
+        ("live", "Live"),
+    )
+
+    organisation = models.OneToOneField(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_payment_provider_settings",
+    )
+
+    default_provider = models.CharField(
+        max_length=20,
+        choices=DEFAULT_PROVIDER_CHOICES,
+        default="none",
+    )
+
+    stripe_enabled = models.BooleanField(default=False)
+    stripe_publishable_key = models.CharField(max_length=255, blank=True)
+    stripe_secret_key = models.CharField(max_length=255, blank=True)
+    stripe_webhook_secret = models.CharField(max_length=255, blank=True)
+
+    stripe_connect_account_id = models.CharField(max_length=255, blank=True)
+    stripe_connect_status = models.CharField(
+        max_length=30,
+        choices=STRIPE_CONNECT_STATUS_CHOICES,
+        default="not_connected",
+    )
+
+    paypal_enabled = models.BooleanField(default=False)
+    paypal_mode = models.CharField(
+        max_length=20,
+        choices=PAYPAL_MODE_CHOICES,
+        default="sandbox",
+    )
+    paypal_client_id = models.CharField(max_length=255, blank=True)
+    paypal_client_secret = models.CharField(max_length=255, blank=True)
+    paypal_merchant_id = models.CharField(max_length=255, blank=True)
+    paypal_webhook_id = models.CharField(max_length=255, blank=True)
+
+    payment_success_message = models.CharField(
+        max_length=255,
+        default="Payment received. Your booking is confirmed.",
+        blank=True,
+    )
+    payment_pending_message = models.CharField(
+        max_length=255,
+        default="Your booking was created. Payment is pending confirmation.",
+        blank=True,
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def has_stripe_credentials(self):
+        return bool(self.stripe_enabled and self.stripe_secret_key)
+
+    @property
+    def has_paypal_credentials(self):
+        return bool(
+            self.paypal_enabled
+            and self.paypal_client_id
+            and self.paypal_client_secret
+        )
+
+    def __str__(self):
+        return f"Payment Providers - {self.organisation.name}"
+
+    class Meta:
+        verbose_name = "Ticketing Payment Provider Settings"
+        verbose_name_plural = "Ticketing Payment Provider Settings"
+
+
 class ExternalProviderProductSnapshot(models.Model):
     organisation = models.ForeignKey(
         Organisation,
@@ -1526,6 +1616,8 @@ class Booking(models.Model):
         ("cash", "Cash"),
         ("card", "Card"),
         ("online", "Online"),
+        ("stripe", "Stripe"),
+        ("paypal", "PayPal"),
         ("bank_transfer", "Bank Transfer"),
         ("seller_collected", "Seller Collected"),
         ("mixed", "Mixed"),
@@ -1890,6 +1982,8 @@ class BookingPayment(models.Model):
         ("cash", "Cash"),
         ("card", "Card"),
         ("online", "Online"),
+        ("stripe", "Stripe"),
+        ("paypal", "PayPal"),
         ("bank_transfer", "Bank Transfer"),
         ("seller_balance", "Seller Balance"),
         ("other", "Other"),
@@ -1930,6 +2024,14 @@ class BookingPayment(models.Model):
     payer_type = models.CharField(max_length=30, choices=PAYER_TYPE_CHOICES, default="customer")
     method = models.CharField(max_length=30, choices=METHOD_CHOICES)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="confirmed")
+
+    provider = models.CharField(max_length=30, blank=True, db_index=True)
+    provider_payment_id = models.CharField(max_length=255, blank=True)
+    provider_checkout_id = models.CharField(max_length=255, blank=True, db_index=True)
+    provider_order_id = models.CharField(max_length=255, blank=True, db_index=True)
+    provider_capture_id = models.CharField(max_length=255, blank=True)
+    provider_status = models.CharField(max_length=80, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
 
     reference = models.CharField(max_length=150, blank=True)
     note = models.TextField(blank=True)

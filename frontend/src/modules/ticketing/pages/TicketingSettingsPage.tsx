@@ -88,6 +88,30 @@ type TicketingSettings = {
   is_active: boolean;
 };
 
+
+type TicketingPaymentProviderSettings = {
+  id?: number;
+  organisation_name?: string;
+  default_provider: "stripe" | "paypal" | "none";
+  stripe_enabled: boolean;
+  stripe_publishable_key: string;
+  stripe_secret_key?: string;
+  stripe_webhook_secret?: string;
+  stripe_connect_account_id: string;
+  stripe_connect_status: "not_connected" | "pending" | "connected" | "restricted";
+  stripe_configured?: boolean;
+  paypal_enabled: boolean;
+  paypal_mode: "sandbox" | "live";
+  paypal_client_id: string;
+  paypal_client_secret?: string;
+  paypal_merchant_id: string;
+  paypal_webhook_id?: string;
+  paypal_configured?: boolean;
+  payment_success_message: string;
+  payment_pending_message: string;
+  is_active: boolean;
+};
+
 type TicketingPublicSiteSettings = {
   id?: number;
   organisation_name?: string;
@@ -228,6 +252,28 @@ const initialSettings: TicketingSettings = {
   notify_owner_on_booking: true,
   require_supervisor_approval_for_unpaid_tickets: false,
   wellet_enabled: false,
+  is_active: true,
+};
+
+
+const initialPaymentProviders: TicketingPaymentProviderSettings = {
+  default_provider: "none",
+  stripe_enabled: false,
+  stripe_publishable_key: "",
+  stripe_secret_key: "",
+  stripe_webhook_secret: "",
+  stripe_connect_account_id: "",
+  stripe_connect_status: "not_connected",
+  stripe_configured: false,
+  paypal_enabled: false,
+  paypal_mode: "sandbox",
+  paypal_client_id: "",
+  paypal_client_secret: "",
+  paypal_merchant_id: "",
+  paypal_webhook_id: "",
+  paypal_configured: false,
+  payment_success_message: "Payment received. Your booking is confirmed.",
+  payment_pending_message: "Your booking was created. Payment is pending confirmation.",
   is_active: true,
 };
 
@@ -456,6 +502,7 @@ export default function TicketingSettingsPage() {
 
   const [branding, setBranding] = useState<OrganisationBranding>(initialBranding);
   const [settings, setSettings] = useState<TicketingSettings>(initialSettings);
+  const [paymentProviders, setPaymentProviders] = useState<TicketingPaymentProviderSettings>(initialPaymentProviders);
   const [publicSite, setPublicSite] =
     useState<TicketingPublicSiteSettings>(initialPublicSite);
 
@@ -489,7 +536,7 @@ export default function TicketingSettingsPage() {
         setLoading(true);
         setError("");
 
-        const [brandingResponse, settingsResponse, publicSiteResponse] =
+        const [brandingResponse, settingsResponse, paymentProvidersResponse, publicSiteResponse] =
           await Promise.all([
             api.get<OrganisationBranding>(
               `/organisations/branding/ticketing/${organisationSlug}/`
@@ -497,6 +544,12 @@ export default function TicketingSettingsPage() {
             api.get<TicketingSettings>("/ticketing/settings/mine/", {
               params: requestParams,
             }),
+            api.get<TicketingPaymentProviderSettings>(
+              "/ticketing/payment-provider-settings/mine/",
+              {
+                params: requestParams,
+              }
+            ),
             api.get<TicketingPublicSiteSettings>(
               "/ticketing/public-site-settings/mine/",
               {
@@ -507,6 +560,7 @@ export default function TicketingSettingsPage() {
 
         const brandingData = brandingResponse.data;
         const settingsData = settingsResponse.data;
+        const paymentProvidersData = paymentProvidersResponse.data;
         const publicSiteData = publicSiteResponse.data;
 
         setBranding({
@@ -625,6 +679,37 @@ export default function TicketingSettingsPage() {
         setSupportedCurrenciesText(
           normalizeArray(settingsData.supported_currencies).join(", ")
         );
+
+        setPaymentProviders({
+          ...initialPaymentProviders,
+          ...paymentProvidersData,
+          default_provider:
+            paymentProvidersData.default_provider || initialPaymentProviders.default_provider,
+          stripe_enabled: normalizeBoolean(paymentProvidersData.stripe_enabled, false),
+          stripe_publishable_key: normalizeText(paymentProvidersData.stripe_publishable_key),
+          stripe_secret_key: "",
+          stripe_webhook_secret: "",
+          stripe_connect_account_id: normalizeText(paymentProvidersData.stripe_connect_account_id),
+          stripe_connect_status:
+            paymentProvidersData.stripe_connect_status || "not_connected",
+          stripe_configured: normalizeBoolean(paymentProvidersData.stripe_configured, false),
+          paypal_enabled: normalizeBoolean(paymentProvidersData.paypal_enabled, false),
+          paypal_mode: paymentProvidersData.paypal_mode === "live" ? "live" : "sandbox",
+          paypal_client_id: normalizeText(paymentProvidersData.paypal_client_id),
+          paypal_client_secret: "",
+          paypal_merchant_id: normalizeText(paymentProvidersData.paypal_merchant_id),
+          paypal_webhook_id: "",
+          paypal_configured: normalizeBoolean(paymentProvidersData.paypal_configured, false),
+          payment_success_message: normalizeText(
+            paymentProvidersData.payment_success_message,
+            initialPaymentProviders.payment_success_message
+          ),
+          payment_pending_message: normalizeText(
+            paymentProvidersData.payment_pending_message,
+            initialPaymentProviders.payment_pending_message
+          ),
+          is_active: normalizeBoolean(paymentProvidersData.is_active, true),
+        });
 
         const normalizedTrustBadges = normalizeArray(
           publicSiteData.trust_badges
@@ -879,6 +964,16 @@ export default function TicketingSettingsPage() {
     }));
   }
 
+  function updatePaymentProviderField<K extends keyof TicketingPaymentProviderSettings>(
+    field: K,
+    value: TicketingPaymentProviderSettings[K]
+  ) {
+    setPaymentProviders((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
   function updatePublicSiteField<K extends keyof TicketingPublicSiteSettings>(
     field: K,
     value: TicketingPublicSiteSettings[K]
@@ -951,6 +1046,24 @@ export default function TicketingSettingsPage() {
 
         // Wellet/Coco Bongo is intentionally not sent here.
         // Platform admin controls it from backend/internal tools.
+      };
+
+      const paymentProviderPayload = {
+        default_provider: paymentProviders.default_provider,
+        stripe_enabled: paymentProviders.stripe_enabled,
+        stripe_publishable_key: paymentProviders.stripe_publishable_key,
+        stripe_secret_key: paymentProviders.stripe_secret_key || "",
+        stripe_webhook_secret: paymentProviders.stripe_webhook_secret || "",
+        stripe_connect_account_id: paymentProviders.stripe_connect_account_id,
+        paypal_enabled: paymentProviders.paypal_enabled,
+        paypal_mode: paymentProviders.paypal_mode,
+        paypal_client_id: paymentProviders.paypal_client_id,
+        paypal_client_secret: paymentProviders.paypal_client_secret || "",
+        paypal_merchant_id: paymentProviders.paypal_merchant_id,
+        paypal_webhook_id: paymentProviders.paypal_webhook_id || "",
+        payment_success_message: paymentProviders.payment_success_message,
+        payment_pending_message: paymentProviders.payment_pending_message,
+        is_active: paymentProviders.is_active,
       };
 
       const publicSiteFormData = new FormData();
@@ -1140,7 +1253,7 @@ export default function TicketingSettingsPage() {
         );
       }
 
-      const [brandingResponse, settingsResponse, publicSiteResponse] =
+      const [brandingResponse, settingsResponse, paymentProvidersResponse, publicSiteResponse] =
         await Promise.all([
           api.patch<OrganisationBranding>(
             `/organisations/branding/ticketing/${organisationSlug}/`,
@@ -1149,6 +1262,13 @@ export default function TicketingSettingsPage() {
           api.patch<TicketingSettings>(
             "/ticketing/settings/mine/",
             settingsPayload,
+            {
+              params: requestParams,
+            }
+          ),
+          api.patch<TicketingPaymentProviderSettings>(
+            "/ticketing/payment-provider-settings/mine/",
+            paymentProviderPayload,
             {
               params: requestParams,
             }
@@ -1178,6 +1298,15 @@ export default function TicketingSettingsPage() {
       setSupportedCurrenciesText(
         normalizeArray(settingsResponse.data.supported_currencies).join(", ")
       );
+
+      setPaymentProviders((current) => ({
+        ...current,
+        ...paymentProvidersResponse.data,
+        stripe_secret_key: "",
+        stripe_webhook_secret: "",
+        paypal_client_secret: "",
+        paypal_webhook_id: "",
+      }));
 
       setPublicSite((current) => ({
         ...current,
@@ -2332,6 +2461,163 @@ export default function TicketingSettingsPage() {
                 }
               />
             </div>
+          </div>
+        </Panel>
+
+
+        <Panel
+          title="Online payment gateways"
+          description="Allow each organisation to receive online customer payments through its own Stripe or PayPal credentials. Secret keys are write-only and will not be shown again after saving."
+          icon={CreditCard}
+          className="xl:col-span-2"
+        >
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Select
+              label="Default online gateway"
+              value={paymentProviders.default_provider}
+              onChange={(value) =>
+                updatePaymentProviderField(
+                  "default_provider",
+                  value as TicketingPaymentProviderSettings["default_provider"]
+                )
+              }
+              options={[
+                { value: "none", label: "None" },
+                { value: "stripe", label: "Stripe" },
+                { value: "paypal", label: "PayPal" },
+              ]}
+            />
+
+            <Toggle
+              label="Payment settings active"
+              description="Allow online payment gateways for this organisation."
+              checked={paymentProviders.is_active}
+              onChange={(value) => updatePaymentProviderField("is_active", value)}
+            />
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
+              Stripe: <strong>{paymentProviders.stripe_configured ? "Configured" : "Not configured"}</strong>
+              <br />
+              PayPal: <strong>{paymentProviders.paypal_configured ? "Configured" : "Not configured"}</strong>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-5 xl:grid-cols-2">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-950">Stripe Checkout</h3>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                    Paste the organisation Stripe keys for customer card payments.
+                  </p>
+                </div>
+
+                <Toggle
+                  label="Enable Stripe"
+                  checked={paymentProviders.stripe_enabled}
+                  onChange={(value) => updatePaymentProviderField("stripe_enabled", value)}
+                />
+              </div>
+
+              <div className="grid gap-4">
+                <Input
+                  label="Stripe publishable key"
+                  value={paymentProviders.stripe_publishable_key}
+                  onChange={(value) => updatePaymentProviderField("stripe_publishable_key", value)}
+                  placeholder="pk_test_..."
+                />
+
+                <Input
+                  label="Stripe secret key"
+                  value={paymentProviders.stripe_secret_key || ""}
+                  onChange={(value) => updatePaymentProviderField("stripe_secret_key", value)}
+                  placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current key" : "sk_test_..."}
+                />
+
+                <Input
+                  label="Stripe webhook secret"
+                  value={paymentProviders.stripe_webhook_secret || ""}
+                  onChange={(value) => updatePaymentProviderField("stripe_webhook_secret", value)}
+                  placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current webhook secret" : "whsec_..."}
+                />
+
+                <Input
+                  label="Stripe Connect account ID (optional)"
+                  value={paymentProviders.stripe_connect_account_id}
+                  onChange={(value) => updatePaymentProviderField("stripe_connect_account_id", value)}
+                  placeholder="acct_..."
+                />
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-950">PayPal Checkout</h3>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                    Paste the organisation PayPal REST app credentials.
+                  </p>
+                </div>
+
+                <Toggle
+                  label="Enable PayPal"
+                  checked={paymentProviders.paypal_enabled}
+                  onChange={(value) => updatePaymentProviderField("paypal_enabled", value)}
+                />
+              </div>
+
+              <div className="grid gap-4">
+                <Select
+                  label="PayPal mode"
+                  value={paymentProviders.paypal_mode}
+                  onChange={(value) =>
+                    updatePaymentProviderField(
+                      "paypal_mode",
+                      value === "live" ? "live" : "sandbox"
+                    )
+                  }
+                  options={[
+                    { value: "sandbox", label: "Sandbox" },
+                    { value: "live", label: "Live" },
+                  ]}
+                />
+
+                <Input
+                  label="PayPal client ID"
+                  value={paymentProviders.paypal_client_id}
+                  onChange={(value) => updatePaymentProviderField("paypal_client_id", value)}
+                  placeholder="PayPal client ID"
+                />
+
+                <Input
+                  label="PayPal client secret"
+                  value={paymentProviders.paypal_client_secret || ""}
+                  onChange={(value) => updatePaymentProviderField("paypal_client_secret", value)}
+                  placeholder={paymentProviders.paypal_configured ? "Saved — leave blank to keep current secret" : "PayPal client secret"}
+                />
+
+                <Input
+                  label="PayPal merchant ID"
+                  value={paymentProviders.paypal_merchant_id}
+                  onChange={(value) => updatePaymentProviderField("paypal_merchant_id", value)}
+                  placeholder="Merchant ID"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <Textarea
+              label="Payment success message"
+              value={paymentProviders.payment_success_message}
+              onChange={(value) => updatePaymentProviderField("payment_success_message", value)}
+            />
+
+            <Textarea
+              label="Payment pending message"
+              value={paymentProviders.payment_pending_message}
+              onChange={(value) => updatePaymentProviderField("payment_pending_message", value)}
+            />
           </div>
         </Panel>
 

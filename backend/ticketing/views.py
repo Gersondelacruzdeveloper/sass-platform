@@ -1,5 +1,10 @@
 from decimal import Decimal
+import json
 
+import requests
+import stripe
+
+from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -16,6 +21,7 @@ from organisations.models import Organisation
 from .models import (
     TicketingSettings,
     TicketingPublicSiteSettings,
+    TicketingPaymentProviderSettings,
     ExperienceCategory,
     ExperienceProduct,
     ProductGalleryImage,
@@ -43,6 +49,7 @@ from .models import (
 from .serializers import (
     TicketingSettingsSerializer,
     TicketingPublicSiteSettingsSerializer,
+    TicketingPaymentProviderSettingsSerializer,
     ExperienceCategorySerializer,
     ExperienceProductSerializer,
     ProductGalleryImageSerializer,
@@ -1761,6 +1768,42 @@ class ExternalProviderConfigViewSet(TicketingPrivateViewSet):
         return Response(serializer.data)
 
 
+class TicketingPaymentProviderSettingsViewSet(TicketingPrivateViewSet):
+    serializer_class = TicketingPaymentProviderSettingsSerializer
+    permission_classes = [CanManageTicketingIntegrations]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TicketingPaymentProviderSettings.objects.none()
+
+        return TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+        )
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+
+        provider_settings, created = TicketingPaymentProviderSettings.objects.get_or_create(
+            organisation=organisation,
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                provider_settings,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        serializer = self.get_serializer(provider_settings)
+        return Response(serializer.data)
+
+
 class ExternalProviderProductSnapshotViewSet(TicketingPrivateViewSet):
     serializer_class = ExternalProviderProductSnapshotSerializer
     permission_classes = [CanManageTicketingIntegrations]
@@ -2582,6 +2625,671 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
         )
 
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+
+def get_booking_payment_amount(booking, payment_type):
+    if payment_type == "full":
+        return booking.total_amount
+
+    if payment_type == "deposit":
+        if booking.deposit_required > Decimal("0.00"):
+            return booking.deposit_required
+        return booking.total_amount
+
+    if payment_type == "balance":
+        return booking.balance_due
+
+    return booking.balance_due or booking.total_amount
+
+
+def recalculate_booking_payment_totals(booking):
+    confirmed_payments = booking.payments.filter(status="confirmed")
+
+    paid_amount = Decimal("0.00")
+    seller_collected_amount = Decimal("0.00")
+
+    for payment in confirmed_payments:
+        if payment.payment_type == "refund":
+            paid_amount -= payment.amount
+        else:
+            paid_amount += payment.amount
+
+        if payment.seller:
+            seller_collected_amount += payment.amount
+
+    booking.deposit_paid = max(paid_amount, Decimal("0.00"))
+    booking.seller_collected_amount = seller_collected_amount
+    booking.balance_due = max(
+        booking.total_amount - booking.deposit_paid,
+        Decimal("0.00"),
+    )
+
+    if booking.seller:
+        if booking.seller.fixed_commission_amount > Decimal("0.00"):
+            booking.seller_commission_amount = booking.seller.fixed_commission_amount
+        elif booking.seller.commission_rate > Decimal("0.00"):
+            booking.seller_commission_amount = (
+                booking.subtotal_amount * booking.seller.commission_rate
+            ) / Decimal("100.00")
+
+    booking.seller_due_to_company = max(
+        booking.seller_collected_amount - booking.seller_commission_amount,
+        Decimal("0.00"),
+    )
+
+    if booking.deposit_paid >= booking.total_amount and booking.total_amount > Decimal("0.00"):
+        booking.payment_status = "paid"
+        booking.status = "confirmed"
+    elif booking.deposit_paid >= booking.deposit_required and booking.deposit_required > Decimal("0.00"):
+        booking.payment_status = "deposit_paid"
+        if booking.status == "pending_payment":
+            booking.status = "confirmed"
+    elif booking.deposit_paid > Decimal("0.00"):
+        booking.payment_status = "partially_paid"
+        if booking.status == "pending_payment":
+            booking.status = "confirmed"
+    else:
+        booking.payment_status = "unpaid"
+
+    if booking.status == "confirmed" and not booking.confirmed_at:
+        booking.confirmed_at = timezone.now()
+
+    booking.save()
+    return booking
+
+
+def mark_booking_payment_confirmed(
+    booking,
+    amount,
+    provider,
+    payment_type,
+    provider_payment_id="",
+    provider_checkout_id="",
+    provider_order_id="",
+    provider_capture_id="",
+    provider_status="",
+    provider_response=None,
+):
+    lookup = {
+        "booking": booking,
+        "provider": provider,
+    }
+
+    if provider_checkout_id:
+        lookup["provider_checkout_id"] = provider_checkout_id
+    elif provider_order_id:
+        lookup["provider_order_id"] = provider_order_id
+    elif provider_payment_id:
+        lookup["provider_payment_id"] = provider_payment_id
+    elif provider_capture_id:
+        lookup["provider_capture_id"] = provider_capture_id
+
+    payment, created = BookingPayment.objects.get_or_create(
+        **lookup,
+        defaults={
+            "amount": amount,
+            "payment_type": payment_type,
+            "payer_type": "customer",
+            "method": provider,
+            "status": "confirmed",
+            "reference": provider_payment_id or provider_order_id or provider_capture_id or provider_checkout_id,
+            "note": f"{provider.title()} payment confirmed.",
+            "provider_payment_id": provider_payment_id,
+            "provider_checkout_id": provider_checkout_id,
+            "provider_order_id": provider_order_id,
+            "provider_capture_id": provider_capture_id,
+            "provider_status": provider_status,
+            "provider_response": provider_response or {},
+            "paid_at": timezone.now(),
+        },
+    )
+
+    payment.amount = amount
+    payment.payment_type = payment_type
+    payment.payer_type = "customer"
+    payment.method = provider
+    payment.status = "confirmed"
+    payment.reference = provider_payment_id or provider_order_id or provider_capture_id or provider_checkout_id
+    payment.note = f"{provider.title()} payment confirmed."
+    payment.provider_payment_id = provider_payment_id or payment.provider_payment_id
+    payment.provider_checkout_id = provider_checkout_id or payment.provider_checkout_id
+    payment.provider_order_id = provider_order_id or payment.provider_order_id
+    payment.provider_capture_id = provider_capture_id or payment.provider_capture_id
+    payment.provider_status = provider_status
+    payment.provider_response = provider_response or {}
+    payment.paid_at = timezone.now()
+    payment.save()
+
+    booking = recalculate_booking_payment_totals(booking)
+
+    return payment, booking
+
+
+def get_organisation_currency(organisation):
+    settings_obj = TicketingSettings.objects.filter(organisation=organisation).first()
+    if settings_obj and settings_obj.default_currency:
+        return settings_obj.default_currency.upper()
+    return "USD"
+
+
+def get_public_success_url(request, organisation, booking, provider):
+    provided_url = request.data.get("success_url")
+
+    if provided_url:
+        return provided_url
+
+    return (
+        f"{settings.FRONTEND_URL.rstrip('/')}/experiences/{organisation.slug}"
+        f"/confirmation/{booking.booking_code}?payment_provider={provider}&payment_status=success"
+    )
+
+
+def get_public_cancel_url(request, organisation, booking=None):
+    provided_url = request.data.get("cancel_url")
+
+    if provided_url:
+        return provided_url
+
+    return f"{settings.FRONTEND_URL.rstrip('/')}/experiences/{organisation.slug}/checkout?payment_status=cancelled"
+
+
+class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_settings = TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        ).first()
+
+        if not provider_settings:
+            return Response(
+                {
+                    "default_provider": "none",
+                    "stripe_enabled": False,
+                    "paypal_enabled": False,
+                    "stripe_publishable_key": "",
+                    "paypal_mode": "sandbox",
+                    "payment_success_message": "Payment received. Your booking is confirmed.",
+                    "payment_pending_message": "Your booking was created. Payment is pending confirmation.",
+                }
+            )
+
+        return Response(
+            {
+                "default_provider": provider_settings.default_provider,
+                "stripe_enabled": bool(
+                    provider_settings.stripe_enabled
+                    and provider_settings.stripe_secret_key
+                ),
+                "paypal_enabled": bool(provider_settings.has_paypal_credentials),
+                "stripe_publishable_key": provider_settings.stripe_publishable_key,
+                "paypal_mode": provider_settings.paypal_mode,
+                "payment_success_message": provider_settings.payment_success_message,
+                "payment_pending_message": provider_settings.payment_pending_message,
+            }
+        )
+
+
+class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_settings = TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+            is_active=True,
+            stripe_enabled=True,
+        ).first()
+
+        if not provider_settings or not provider_settings.stripe_secret_key:
+            return Response(
+                {"detail": "Stripe is not configured for this organisation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking_id = request.data.get("booking_id")
+        booking_code = request.data.get("booking_code")
+        payment_type = request.data.get("payment_type", "full")
+
+        booking = Booking.objects.filter(organisation=organisation).filter(
+            Q(id=booking_id) | Q(booking_code=booking_code)
+        ).select_related("primary_product").first()
+
+        if not booking:
+            return Response(
+                {"detail": "Booking not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        amount = get_booking_payment_amount(booking, payment_type)
+
+        if amount <= Decimal("0.00"):
+            return Response(
+                {"detail": "Payment amount must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        currency = get_organisation_currency(organisation)
+        success_url = get_public_success_url(request, organisation, booking, "stripe")
+        cancel_url = get_public_cancel_url(request, organisation, booking)
+        line_item_name = (
+            booking.primary_product.name
+            if booking.primary_product
+            else f"Booking {booking.booking_code}"
+        )
+
+        session_payload = {
+            "mode": "payment",
+            "success_url": f"{success_url}&session_id={{CHECKOUT_SESSION_ID}}" if "?" in success_url else f"{success_url}?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": cancel_url,
+            "client_reference_id": booking.booking_code,
+            "metadata": {
+                "booking_id": str(booking.id),
+                "booking_code": booking.booking_code,
+                "organisation_id": str(organisation.id),
+                "payment_type": payment_type,
+            },
+            "line_items": [
+                {
+                    "price_data": {
+                        "currency": currency.lower(),
+                        "product_data": {
+                            "name": line_item_name,
+                        },
+                        "unit_amount": int(amount * Decimal("100")),
+                    },
+                    "quantity": 1,
+                }
+            ],
+        }
+
+        if provider_settings.stripe_connect_account_id:
+            session_payload["payment_intent_data"] = {
+                "transfer_data": {
+                    "destination": provider_settings.stripe_connect_account_id,
+                }
+            }
+
+        stripe.api_key = provider_settings.stripe_secret_key
+
+        try:
+            checkout_session = stripe.checkout.Session.create(**session_payload)
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        BookingPayment.objects.update_or_create(
+            booking=booking,
+            provider="stripe",
+            provider_checkout_id=checkout_session.id,
+            defaults={
+                "amount": amount,
+                "payment_type": payment_type,
+                "payer_type": "customer",
+                "method": "stripe",
+                "status": "pending",
+                "reference": checkout_session.id,
+                "note": "Stripe Checkout Session created. Payment pending.",
+                "provider_status": getattr(checkout_session, "payment_status", "pending"),
+                "provider_response": {
+                    "id": checkout_session.id,
+                    "url": checkout_session.url,
+                    "payment_status": getattr(checkout_session, "payment_status", ""),
+                },
+            },
+        )
+
+        return Response(
+            {
+                "provider": "stripe",
+                "booking_id": booking.id,
+                "booking_code": booking.booking_code,
+                "session_id": checkout_session.id,
+                "checkout_url": checkout_session.url,
+            }
+        )
+
+
+class StripeWebhookAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        payload = request.body
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
+
+        try:
+            unverified_event = json.loads(payload.decode("utf-8"))
+        except Exception:
+            return Response({"detail": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST)
+
+        event_type = unverified_event.get("type", "")
+        event_data = unverified_event.get("data", {}).get("object", {})
+        metadata = event_data.get("metadata", {}) or {}
+        organisation_id = metadata.get("organisation_id")
+
+        provider_settings = None
+
+        if organisation_id:
+            provider_settings = TicketingPaymentProviderSettings.objects.filter(
+                organisation_id=organisation_id,
+                stripe_enabled=True,
+                is_active=True,
+            ).first()
+
+        if not provider_settings:
+            return Response({"detail": "Stripe provider settings not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if provider_settings.stripe_webhook_secret:
+            try:
+                event = stripe.Webhook.construct_event(
+                    payload,
+                    sig_header,
+                    provider_settings.stripe_webhook_secret,
+                )
+            except Exception as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            event = unverified_event
+
+        if event.get("type") != "checkout.session.completed":
+            return Response({"received": True})
+
+        session = event.get("data", {}).get("object", {})
+        metadata = session.get("metadata", {}) or {}
+        booking_id = metadata.get("booking_id")
+        booking_code = metadata.get("booking_code")
+        payment_type = metadata.get("payment_type", "full")
+
+        booking = Booking.objects.filter(
+            organisation=provider_settings.organisation,
+        ).filter(
+            Q(id=booking_id) | Q(booking_code=booking_code)
+        ).first()
+
+        if not booking:
+            return Response({"detail": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        amount = Decimal(str(session.get("amount_total") or 0)) / Decimal("100")
+
+        mark_booking_payment_confirmed(
+            booking=booking,
+            amount=amount,
+            provider="stripe",
+            payment_type=payment_type,
+            provider_payment_id=str(session.get("payment_intent") or ""),
+            provider_checkout_id=str(session.get("id") or ""),
+            provider_status=str(session.get("payment_status") or "paid"),
+            provider_response=session,
+        )
+
+        return Response({"received": True})
+
+
+def get_paypal_base_url(provider_settings):
+    if provider_settings.paypal_mode == "live":
+        return "https://api-m.paypal.com"
+
+    return "https://api-m.sandbox.paypal.com"
+
+
+def get_paypal_access_token(provider_settings):
+    base_url = get_paypal_base_url(provider_settings)
+
+    response = requests.post(
+        f"{base_url}/v1/oauth2/token",
+        auth=(provider_settings.paypal_client_id, provider_settings.paypal_client_secret),
+        data={"grant_type": "client_credentials"},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    return response.json()["access_token"]
+
+
+class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_settings = TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+            is_active=True,
+            paypal_enabled=True,
+        ).first()
+
+        if not provider_settings or not provider_settings.has_paypal_credentials:
+            return Response(
+                {"detail": "PayPal is not configured for this organisation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking_id = request.data.get("booking_id")
+        booking_code = request.data.get("booking_code")
+        payment_type = request.data.get("payment_type", "full")
+
+        booking = Booking.objects.filter(organisation=organisation).filter(
+            Q(id=booking_id) | Q(booking_code=booking_code)
+        ).select_related("primary_product").first()
+
+        if not booking:
+            return Response(
+                {"detail": "Booking not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        amount = get_booking_payment_amount(booking, payment_type)
+
+        if amount <= Decimal("0.00"):
+            return Response(
+                {"detail": "Payment amount must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        currency = get_organisation_currency(organisation)
+        base_url = get_paypal_base_url(provider_settings)
+        return_url = get_public_success_url(request, organisation, booking, "paypal")
+        cancel_url = get_public_cancel_url(request, organisation, booking)
+
+        try:
+            access_token = get_paypal_access_token(provider_settings)
+
+            response = requests.post(
+                f"{base_url}/v2/checkout/orders",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+                json={
+                    "intent": "CAPTURE",
+                    "purchase_units": [
+                        {
+                            "reference_id": booking.booking_code,
+                            "description": booking.primary_product.name if booking.primary_product else f"Booking {booking.booking_code}",
+                            "custom_id": str(booking.id),
+                            "amount": {
+                                "currency_code": currency.upper(),
+                                "value": f"{amount:.2f}",
+                            },
+                        }
+                    ],
+                    "application_context": {
+                        "brand_name": organisation.name,
+                        "user_action": "PAY_NOW",
+                        "return_url": return_url,
+                        "cancel_url": cancel_url,
+                    },
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            paypal_order = response.json()
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        approve_url = ""
+
+        for link in paypal_order.get("links", []):
+            if link.get("rel") == "approve":
+                approve_url = link.get("href", "")
+                break
+
+        BookingPayment.objects.update_or_create(
+            booking=booking,
+            provider="paypal",
+            provider_order_id=paypal_order.get("id", ""),
+            defaults={
+                "amount": amount,
+                "payment_type": payment_type,
+                "payer_type": "customer",
+                "method": "paypal",
+                "status": "pending",
+                "reference": paypal_order.get("id", ""),
+                "note": "PayPal order created. Payment pending.",
+                "provider_status": paypal_order.get("status", ""),
+                "provider_response": paypal_order,
+            },
+        )
+
+        return Response(
+            {
+                "provider": "paypal",
+                "booking_id": booking.id,
+                "booking_code": booking.booking_code,
+                "order_id": paypal_order.get("id", ""),
+                "approve_url": approve_url,
+            }
+        )
+
+
+class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_settings = TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+            is_active=True,
+            paypal_enabled=True,
+        ).first()
+
+        if not provider_settings or not provider_settings.has_paypal_credentials:
+            return Response(
+                {"detail": "PayPal is not configured for this organisation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_id = request.data.get("order_id") or request.data.get("token")
+
+        if not order_id:
+            return Response(
+                {"order_id": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment = BookingPayment.objects.filter(
+            booking__organisation=organisation,
+            provider="paypal",
+            provider_order_id=order_id,
+        ).select_related("booking").first()
+
+        if not payment:
+            return Response(
+                {"detail": "PayPal payment record not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        base_url = get_paypal_base_url(provider_settings)
+
+        try:
+            access_token = get_paypal_access_token(provider_settings)
+
+            response = requests.post(
+                f"{base_url}/v2/checkout/orders/{order_id}/capture",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            capture_response = response.json()
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        capture_id = ""
+
+        try:
+            capture_id = capture_response["purchase_units"][0]["payments"]["captures"][0]["id"]
+        except Exception:
+            capture_id = ""
+
+        booking = payment.booking
+
+        confirmed_payment, booking = mark_booking_payment_confirmed(
+            booking=booking,
+            amount=payment.amount,
+            provider="paypal",
+            payment_type=payment.payment_type,
+            provider_order_id=order_id,
+            provider_capture_id=capture_id,
+            provider_status=capture_response.get("status", ""),
+            provider_response=capture_response,
+        )
+
+        serializer = BookingSerializer(
+            booking,
+            context={"request": request, "organisation": organisation},
+        )
+
+        return Response(
+            {
+                "provider": "paypal",
+                "booking_id": booking.id,
+                "booking_code": booking.booking_code,
+                "status": capture_response.get("status", ""),
+                "booking": serializer.data,
+            }
+        )
 
 
 class PublicSEOAPIView(PublicOrganisationMixin, APIView):

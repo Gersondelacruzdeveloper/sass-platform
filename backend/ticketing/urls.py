@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     TicketingSettingsViewSet,
     TicketingPublicSiteSettingsViewSet,
+    TicketingPaymentProviderSettingsViewSet,
     ExperienceCategoryViewSet,
     ExperienceProductViewSet,
     ProductGalleryImageViewSet,
@@ -37,6 +38,11 @@ from .views import (
     PublicProductAvailabilityAPIView,
     PublicPickupLocationViewSet,
     PublicPickupScheduleResolveAPIView,
+    PublicPaymentOptionsAPIView,
+    PublicStripeCheckoutSessionAPIView,
+    StripeWebhookAPIView,
+    PublicPayPalCreateOrderAPIView,
+    PublicPayPalCaptureOrderAPIView,
     TicketingLiveAvailabilityAPIView,
     PublicSEOAPIView,
     PublicSitemapAPIView,
@@ -50,6 +56,7 @@ router = DefaultRouter()
 # Private owner/admin routes
 router.register("settings", TicketingSettingsViewSet, basename="ticketing-settings")
 router.register("public-site-settings", TicketingPublicSiteSettingsViewSet, basename="ticketing-public-site-settings")
+router.register("payment-provider-settings", TicketingPaymentProviderSettingsViewSet, basename="ticketing-payment-provider-settings")
 router.register("categories", ExperienceCategoryViewSet, basename="ticketing-categories")
 router.register("products", ExperienceProductViewSet, basename="ticketing-products")
 router.register("product-gallery-images", ProductGalleryImageViewSet, basename="ticketing-product-gallery-images")
@@ -103,23 +110,17 @@ urlpatterns = [
     path("public/robots.txt", PublicRobotsAPIView.as_view(), name="ticketing-public-robots"),
 
     # Public branding / SEO using path slug:
-    # /api/ticketing/public/hard-rock/branding/
     path("public/<slug:organisation_slug>/branding/", PublicBrandingAPIView.as_view(), name="ticketing-public-branding-by-slug"),
     path("public/<slug:organisation_slug>/seo/", PublicSEOAPIView.as_view(), name="ticketing-public-seo-by-slug"),
     path("public/<slug:organisation_slug>/sitemap.xml", PublicSitemapAPIView.as_view(), name="ticketing-public-sitemap-by-slug"),
     path("public/<slug:organisation_slug>/robots.txt", PublicRobotsAPIView.as_view(), name="ticketing-public-robots-by-slug"),
 
     # Public pickup schedule resolver.
-    # Preferred public custom-domain version:
-    # /api/ticketing/public/pickup-schedules/resolve/?slug=organisation-slug&product=1&pickup_location=2&service_date=2026-07-01
     path(
         "public/pickup-schedules/resolve/",
         PublicPickupScheduleResolveAPIView.as_view(),
         name="ticketing-public-pickup-schedule-resolve",
     ),
-
-    # Optional path-slug version:
-    # /api/ticketing/public/hard-rock/pickup-schedules/resolve/?product=1&pickup_location=2&service_date=2026-07-01
     path(
         "public/<slug:organisation_slug>/pickup-schedules/resolve/",
         PublicPickupScheduleResolveAPIView.as_view(),
@@ -127,7 +128,6 @@ urlpatterns = [
     ),
 
     # Public seller link booking flow:
-    # /api/ticketing/public/hard-rock/s/juan-perez/bookings/
     path(
         "public/<slug:organisation_slug>/s/<slug:seller_slug>/bookings/",
         PublicBookingViewSet.as_view({"post": "create"}),
@@ -135,11 +135,37 @@ urlpatterns = [
     ),
 
     # Public confirmation by booking code:
-    # /api/ticketing/public/hard-rock/confirmation/PCD-12345678/
     path(
         "public/<slug:organisation_slug>/confirmation/<str:booking_code>/",
         PublicBookingViewSet.as_view({"get": "list"}),
         name="ticketing-public-booking-confirmation",
+    ),
+
+    # Public online payment routes.
+    path(
+        "public/<slug:organisation_slug>/payments/options/",
+        PublicPaymentOptionsAPIView.as_view(),
+        name="ticketing-public-payment-options",
+    ),
+    path(
+        "public/<slug:organisation_slug>/payments/stripe/create-checkout-session/",
+        PublicStripeCheckoutSessionAPIView.as_view(),
+        name="ticketing-public-stripe-create-checkout-session",
+    ),
+    path(
+        "public/<slug:organisation_slug>/payments/paypal/create-order/",
+        PublicPayPalCreateOrderAPIView.as_view(),
+        name="ticketing-public-paypal-create-order",
+    ),
+    path(
+        "public/<slug:organisation_slug>/payments/paypal/capture-order/",
+        PublicPayPalCaptureOrderAPIView.as_view(),
+        name="ticketing-public-paypal-capture-order",
+    ),
+    path(
+        "payments/stripe/webhook/",
+        StripeWebhookAPIView.as_view(),
+        name="ticketing-stripe-webhook",
     ),
 
     # Backend-only Wellet / Coco Bongo routes
@@ -160,7 +186,6 @@ urlpatterns = [
     ),
 
     # Private/seller live availability:
-    # /api/ticketing/live-availability/?product=1&service_date=2026-07-01
     path(
         "live-availability/",
         TicketingLiveAvailabilityAPIView.as_view(),
@@ -168,7 +193,6 @@ urlpatterns = [
     ),
 
     # Public product live availability:
-    # /api/ticketing/public/hard-rock/products/coco-bongo/availability/?date=2026-07-01
     path(
         "public/<slug:organisation_slug>/products/<slug:product_slug>/availability/",
         PublicProductAvailabilityAPIView.as_view(),
