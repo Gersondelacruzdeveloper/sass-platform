@@ -1,5 +1,7 @@
 from decimal import Decimal
 import json
+import traceback
+import logging
 
 import requests
 import stripe
@@ -15,6 +17,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils.dateparse import parse_date
+
+logger = logging.getLogger(__name__)
 
 from organisations.models import Organisation
 
@@ -2974,6 +2978,8 @@ class StripeWebhookAPIView(APIView):
     authentication_classes = []
 
     def post(self, request):
+        logger.error("========== STRIPE WEBHOOK START ==========")
+        logger.error("Headers: %s", dict(request.headers))
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
 
@@ -2986,6 +2992,9 @@ class StripeWebhookAPIView(APIView):
         event_data = unverified_event.get("data", {}).get("object", {})
         metadata = event_data.get("metadata", {}) or {}
         organisation_id = metadata.get("organisation_id")
+        logger.error("Unverified event: %s", unverified_event)
+        logger.error("Metadata: %s", metadata)
+        logger.error("Organisation ID: %s", organisation_id)
 
         provider_settings = None
 
@@ -3042,18 +3051,29 @@ class StripeWebhookAPIView(APIView):
 
         amount = Decimal(str(session.get("amount_total") or 0)) / Decimal("100")
 
-        mark_booking_payment_confirmed(
-            booking=booking,
-            amount=amount,
-            provider="stripe",
-            payment_type=payment_type,
-            provider_payment_id=str(session.get("payment_intent") or ""),
-            provider_checkout_id=str(session.get("id") or ""),
-            provider_status=str(session.get("payment_status") or "paid"),
-            provider_response=session,
-        )
+        try:
+            mark_booking_payment_confirmed(
+                booking=booking,
+                amount=amount,
+                provider="stripe",
+                payment_type=payment_type,
+                provider_payment_id=str(session.get("payment_intent") or ""),
+                provider_checkout_id=str(session.get("id") or ""),
+                provider_status=str(session.get("payment_status") or "paid"),
+                provider_response=session,
+            )
 
-        return Response({"received": True, "confirmed": True})
+            return Response({"received": True, "confirmed": True})
+        except Exception as e:
+            logger.exception("Stripe webhook failed")
+            return Response(
+                {
+                    "received": False,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                },
+                status=500,
+            )
 
 
 class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
