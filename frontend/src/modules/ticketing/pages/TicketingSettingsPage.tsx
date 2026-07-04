@@ -9,8 +9,10 @@ import {
   Bell,
   Building2,
   CheckCircle2,
+  Copy,
   CreditCard,
   Download,
+  ExternalLink,
   Globe2,
   Image,
   Info,
@@ -489,6 +491,38 @@ function getApiBaseUrl() {
 function buildManifestUrl(organisationSlug?: string) {
   if (!organisationSlug) return "";
   return `${getApiBaseUrl()}/organisations/public-manifest/ticketing/${organisationSlug}/manifest.json`;
+}
+
+function getStripeWebhookEndpoint() {
+  const apiBaseUrl = getApiBaseUrl();
+
+  if (!apiBaseUrl) {
+    return `${window.location.origin.replace(/\/$/, "")}/api/ticketing/payments/stripe/webhook/`;
+  }
+
+  return `${apiBaseUrl}/ticketing/payments/stripe/webhook/`;
+}
+
+function getDetectedPublicDomain(publicSite: TicketingPublicSiteSettings, organisationSlug?: string) {
+  const customDomain = normalizeText(publicSite.custom_domain).trim();
+
+  if (customDomain) {
+    return customDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  }
+
+  const subdomain = normalizeText(publicSite.subdomain).trim();
+
+  if (subdomain) {
+    return `${subdomain} on ${window.location.host}`;
+  }
+
+  return window.location.host || organisationSlug || "this organisation";
+}
+
+function getStripeKeyModeLabel(value: string) {
+  if (value.startsWith("pk_live_") || value.startsWith("sk_live_")) return "Live mode";
+  if (value.startsWith("pk_test_") || value.startsWith("sk_test_")) return "Test mode";
+  return "Not detected";
 }
 
 export default function TicketingSettingsPage() {
@@ -1059,7 +1093,6 @@ export default function TicketingSettingsPage() {
         paypal_mode: paymentProviders.paypal_mode,
         paypal_client_id: paymentProviders.paypal_client_id,
         paypal_client_secret: paymentProviders.paypal_client_secret || "",
-        paypal_merchant_id: paymentProviders.paypal_merchant_id,
         paypal_webhook_id: paymentProviders.paypal_webhook_id || "",
         payment_success_message: paymentProviders.payment_success_message,
         payment_pending_message: paymentProviders.payment_pending_message,
@@ -2496,9 +2529,21 @@ export default function TicketingSettingsPage() {
             />
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
-              Stripe: <strong>{paymentProviders.stripe_configured ? "Configured" : "Not configured"}</strong>
-              <br />
-              PayPal: <strong>{paymentProviders.paypal_configured ? "Configured" : "Not configured"}</strong>
+              <div className="flex items-center justify-between gap-3">
+                <span>Stripe</span>
+                <strong className={paymentProviders.stripe_configured ? "text-emerald-700" : "text-slate-700"}>
+                  {paymentProviders.stripe_configured ? "Ready" : "Not configured"}
+                </strong>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <span>PayPal</span>
+                <strong className={paymentProviders.paypal_configured ? "text-emerald-700" : "text-slate-700"}>
+                  {paymentProviders.paypal_configured ? "Ready" : "Not configured"}
+                </strong>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Detected public site: <strong>{getDetectedPublicDomain(publicSite, organisationSlug)}</strong>
+              </p>
             </div>
           </div>
 
@@ -2508,7 +2553,7 @@ export default function TicketingSettingsPage() {
                 <div>
                   <h3 className="text-sm font-black text-slate-950">Stripe Checkout</h3>
                   <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                    Paste the organisation Stripe keys for customer card payments.
+                    Paste the organisation Stripe API keys. The webhook endpoint below is detected automatically from this SaaS API URL.
                   </p>
                 </div>
 
@@ -2519,16 +2564,40 @@ export default function TicketingSettingsPage() {
                 />
               </div>
 
-              <div className="grid gap-4">
+              <PaymentHelpCard
+                title="Stripe setup guide"
+                tone="blue"
+                steps={[
+                  "Open Stripe Dashboard and switch Test mode on while testing.",
+                  "Go to Developers → API keys and copy the Publishable key and Secret key.",
+                  "Go to Developers → Webhooks and create an endpoint using the URL shown below.",
+                  "Select checkout.session.completed as the event to send.",
+                  "Copy the webhook Signing secret and paste it in Stripe webhook secret.",
+                ]}
+                links={[
+                  { label: "Open Stripe API keys", href: "https://dashboard.stripe.com/apikeys" },
+                  { label: "Open Stripe webhooks", href: "https://dashboard.stripe.com/webhooks" },
+                ]}
+              >
+                <CopyValue label="Webhook endpoint to paste in Stripe" value={getStripeWebhookEndpoint()} />
+              </PaymentHelpCard>
+
+              <div className="mt-4 grid gap-4">
                 <Input
                   label="Stripe publishable key"
+                  help="Found in Stripe Dashboard → Developers → API keys. Starts with pk_test_ or pk_live_."
                   value={paymentProviders.stripe_publishable_key}
                   onChange={(value) => updatePaymentProviderField("stripe_publishable_key", value)}
                   placeholder="pk_test_..."
                 />
 
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-600">
+                  Key mode: <span className="text-slate-950">{getStripeKeyModeLabel(paymentProviders.stripe_publishable_key)}</span>
+                </div>
+
                 <Input
                   label="Stripe secret key"
+                  help="Found in Stripe Dashboard → Developers → API keys. Starts with sk_test_ or sk_live_. Leave blank after saving to keep the saved key."
                   value={paymentProviders.stripe_secret_key || ""}
                   onChange={(value) => updatePaymentProviderField("stripe_secret_key", value)}
                   placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current key" : "sk_test_..."}
@@ -2536,6 +2605,7 @@ export default function TicketingSettingsPage() {
 
                 <Input
                   label="Stripe webhook secret"
+                  help="After creating the webhook endpoint, click Reveal signing secret in Stripe. It starts with whsec_."
                   value={paymentProviders.stripe_webhook_secret || ""}
                   onChange={(value) => updatePaymentProviderField("stripe_webhook_secret", value)}
                   placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current webhook secret" : "whsec_..."}
@@ -2543,6 +2613,7 @@ export default function TicketingSettingsPage() {
 
                 <Input
                   label="Stripe Connect account ID (optional)"
+                  help="Only needed later if you use Stripe Connect marketplace payouts. Normal checkout does not require this."
                   value={paymentProviders.stripe_connect_account_id}
                   onChange={(value) => updatePaymentProviderField("stripe_connect_account_id", value)}
                   placeholder="acct_..."
@@ -2555,7 +2626,7 @@ export default function TicketingSettingsPage() {
                 <div>
                   <h3 className="text-sm font-black text-slate-950">PayPal Checkout</h3>
                   <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                    Paste the organisation PayPal REST app credentials.
+                    Paste the PayPal REST app Client ID and Client Secret. Merchant ID is not required.
                   </p>
                 </div>
 
@@ -2566,9 +2637,26 @@ export default function TicketingSettingsPage() {
                 />
               </div>
 
-              <div className="grid gap-4">
+              <PaymentHelpCard
+                title="PayPal setup guide"
+                tone="amber"
+                steps={[
+                  "Open PayPal Developer Dashboard and go to Apps & Credentials.",
+                  "Use Sandbox while testing, then switch to Live when ready for real payments.",
+                  "Create or open a REST API app for the business merchant account.",
+                  "Copy the Client ID and Secret into the fields below.",
+                  "For testing, create or use a Sandbox Personal account as the buyer. Do not pay with the same merchant account.",
+                ]}
+                links={[
+                  { label: "Open PayPal Apps", href: "https://developer.paypal.com/dashboard/applications" },
+                  { label: "Open Sandbox Accounts", href: "https://developer.paypal.com/dashboard/accounts" },
+                ]}
+              />
+
+              <div className="mt-4 grid gap-4">
                 <Select
                   label="PayPal mode"
+                  help="Use Sandbox for testing. Switch to Live only when the organisation is ready to accept real payments."
                   value={paymentProviders.paypal_mode}
                   onChange={(value) =>
                     updatePaymentProviderField(
@@ -2584,6 +2672,7 @@ export default function TicketingSettingsPage() {
 
                 <Input
                   label="PayPal client ID"
+                  help="Found inside the PayPal REST API app under Apps & Credentials."
                   value={paymentProviders.paypal_client_id}
                   onChange={(value) => updatePaymentProviderField("paypal_client_id", value)}
                   placeholder="PayPal client ID"
@@ -2591,16 +2680,10 @@ export default function TicketingSettingsPage() {
 
                 <Input
                   label="PayPal client secret"
+                  help="Click Show beside Secret inside the same PayPal REST API app. Leave blank after saving to keep the saved secret."
                   value={paymentProviders.paypal_client_secret || ""}
                   onChange={(value) => updatePaymentProviderField("paypal_client_secret", value)}
                   placeholder={paymentProviders.paypal_configured ? "Saved — leave blank to keep current secret" : "PayPal client secret"}
-                />
-
-                <Input
-                  label="PayPal merchant ID"
-                  value={paymentProviders.paypal_merchant_id}
-                  onChange={(value) => updatePaymentProviderField("paypal_merchant_id", value)}
-                  placeholder="Merchant ID"
                 />
               </div>
             </div>
@@ -2774,6 +2857,109 @@ function InfoCard({ title, text }: { title: string; text: string }) {
   );
 }
 
+function HelpLabel({
+  label,
+  help,
+}: {
+  label: string;
+  help?: ReactNode;
+}) {
+  return (
+    <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
+      {label}
+      {help ? (
+        <span className="group relative inline-flex">
+          <Info className="h-4 w-4 cursor-help text-slate-400" />
+          <span className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-72 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 text-xs font-semibold leading-5 text-slate-600 shadow-xl group-hover:block">
+            {help}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function CopyValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  async function copyValue() {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (error) {
+      console.warn("Could not copy value", error);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="min-w-0 flex-1 break-all rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={copyValue}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+          title="Copy"
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentHelpCard({
+  title,
+  steps,
+  links = [],
+  tone = "blue",
+  children,
+}: {
+  title: string;
+  steps: string[];
+  links?: { label: string; href: string }[];
+  tone?: "blue" | "amber";
+  children?: ReactNode;
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <details className={`rounded-2xl border p-4 ${toneClass}`}>
+      <summary className="cursor-pointer text-sm font-black">{title}</summary>
+      <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs font-semibold leading-5">
+        {steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      {children}
+      {links.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {links.map((link) => (
+            <button
+              key={link.href}
+              type="button"
+              onClick={() => window.open(link.href, "_blank", "noopener,noreferrer")}
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              {link.label}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 function Input({
   label,
   value,
@@ -2782,6 +2968,7 @@ function Input({
   min,
   step,
   placeholder,
+  help,
 }: {
   label: string;
   value: string;
@@ -2790,10 +2977,11 @@ function Input({
   min?: string;
   step?: string;
   placeholder?: string;
+  help?: ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
+      <HelpLabel label={label} help={help} />
 
       <input
         type={type}
@@ -2839,15 +3027,17 @@ function Select({
   value,
   onChange,
   options,
+  help,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
+  help?: ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
+      <HelpLabel label={label} help={help} />
 
       <select
         value={value}
