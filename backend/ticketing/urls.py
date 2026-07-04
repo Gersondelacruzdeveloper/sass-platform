@@ -40,6 +40,7 @@ from .views import (
     PublicPickupScheduleResolveAPIView,
     PublicPaymentOptionsAPIView,
     PublicStripeCheckoutSessionAPIView,
+    PublicStripeConfirmSessionAPIView,
     StripeWebhookAPIView,
     PublicPayPalCreateOrderAPIView,
     PublicPayPalCaptureOrderAPIView,
@@ -151,6 +152,11 @@ urlpatterns = [
         "public/<slug:organisation_slug>/payments/stripe/create-checkout-session/",
         PublicStripeCheckoutSessionAPIView.as_view(),
         name="ticketing-public-stripe-create-checkout-session",
+    ),
+    path(
+        "public/<slug:organisation_slug>/payments/stripe/confirm-session/",
+        PublicStripeConfirmSessionAPIView.as_view(),
+        name="ticketing-public-stripe-confirm-session",
     ),
     path(
         "public/<slug:organisation_slug>/payments/paypal/create-order/",

@@ -1036,6 +1036,26 @@ export const ticketingApi = {
     return response.data;
   },
 
+  confirmPublicStripeSession: async (
+    slug: string,
+    payload: { session_id: string }
+  ): Promise<{
+    provider: "stripe";
+    confirmed: boolean;
+    payment_status?: string;
+    payment_id?: number;
+    booking_id?: number;
+    booking_code?: string;
+    booking: Booking;
+    detail?: string;
+  }> => {
+    const response = await api.post(
+      `/ticketing/public/${slug}/payments/stripe/confirm-session/`,
+      payload
+    );
+    return response.data;
+  },
+
   createPublicPayPalOrder: async (
     slug: string,
     payload: PayPalCreateOrderPayload

@@ -1,0 +1,420 @@
+.
+├── .gitignore
+├── backend
+│   ├── .DS_Store
+│   ├── .env
+│   ├── .gitignore
+│   ├── Dockerfile
+│   ├── Pipfile
+│   ├── Pipfile.lock
+│   ├── accounts
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_customuser_organisation.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── auditlogs
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── config
+│   │   ├── __init__.py
+│   │   ├── asgi.py
+│   │   ├── celery.py
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   └── wsgi.py
+│   ├── core
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── migrations
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── disco
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── dev_seed.py
+│   │   ├── management
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_alter_category_options_alter_expense_options_and_more.py
+│   │   │   ├── 0003_product_brand_product_is_alcohol_product_size_ml_and_more.py
+│   │   │   ├── 0004_discoemployee_photo.py
+│   │   │   ├── 0005_discoemployee_daily_pay_discosettings.py
+│   │   │   ├── 0006_alter_expense_options_expense_expense_date.py
+│   │   │   ├── 0007_discoemployee_end_date_discoemployee_start_date.py
+│   │   │   ├── 0008_discoemployee_can_access_dashboard_and_more.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── services
+│   │   │   ├── __init__.py
+│   │   │   └── sales_service.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── manage.py
+│   ├── organisations
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_organisation_business_type_alter_membership_role.py
+│   │   │   ├── 0003_organisationbranding_organisationdomain.py
+│   │   │   ├── 0004_organisation_stripe_customer_id_and_more.py
+│   │   │   ├── 0005_remove_organisation_stripe_customer_id_and_more.py
+│   │   │   ├── 0006_organisationbranding_app_description_and_more.py
+│   │   │   ├── 0007_alter_organisation_business_type.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   ├── utils
+│   │   │   └── branding_icons.py
+│   │   └── views.py
+│   ├── requirements.txt
+│   ├── subscriptions
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_subscriptionplan_max_employees.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   └── webhooks.py
+│   ├── ticketing
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── cors.py
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_ticketingpublicsitesettings_ai_assistant_subtitle_and_more.py
+│   │   │   ├── 0003_booking_external_booking_id_and_more.py
+│   │   │   ├── 0004_ticketingpublicsitesettings_domain_error_message_and_more.py
+│   │   │   ├── 0005_ticketingpublicsitesettings_aws_acm_certificate_arn_and_more.py
+│   │   │   ├── 0006_bookingpayment_provider_and_more.py
+│   │   │   └── __init__.py
+│   │   ├── models.py
+│   │   ├── permissions.py
+│   │   ├── serializers.py
+│   │   ├── services.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   └── training
+│       ├── __init__.py
+│       ├── admin.py
+│       ├── apps.py
+│       ├── management
+│       │   ├── __init__.py
+│       │   └── commands
+│       │       ├── __init__.py
+│       │       └── seed_training_demo.py
+│       ├── migrations
+│       │   ├── 0001_initial.py
+│       │   ├── 0002_alter_facilitator_assigned_employees_and_more.py
+│       │   ├── 0003_standard_employee_career_goal_employee_hire_date_and_more.py
+│       │   ├── 0004_employeeevaluation_evaluationquestion_and_more.py
+│       │   ├── 0005_employee_organisation_and_more.py
+│       │   ├── 0006_employee_user_facilitator_assigned_outlets_and_more.py
+│       │   ├── 0007_trainingresource_standardrecoveryplan_and_more.py
+│       │   └── __init__.py
+│       ├── models.py
+│       ├── permissions.py
+│       ├── resources
+│       │   ├── correct
+│       │   │   └── ChatGPT_Image_Jun_16_2026_04_12_00_PM.png
+│       │   └── incorrect
+│       │       └── ChatGPT_Image_Jun_16_2026_04_12_00_PM.png
+│       ├── serializers.py
+│       ├── tests.py
+│       ├── urls.py
+│       └── views.py
+├── frontend
+│   ├── .env
+│   ├── .env.production
+│   ├── .gitignore
+│   ├── README.md
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package.json
+│   ├── postcss.config.cjs
+│   ├── public
+│   │   ├── disco
+│   │   │   └── videos
+│   │   ├── icons
+│   │   │   ├── barcelo
+│   │   │   ├── default
+│   │   │   ├── hard-rock
+│   │   │   │   ├── apple-touch-icon.png
+│   │   │   │   ├── favicon-96x96.png
+│   │   │   │   ├── favicon.ico
+│   │   │   │   ├── favicon.svg
+│   │   │   │   ├── icon-192.png
+│   │   │   │   ├── icon-512.png
+│   │   │   │   └── site.webmanifest
+│   │   │   └── melia
+│   │   ├── manifest-barcelo.webmanifest
+│   │   ├── manifest-default.webmanifest
+│   │   ├── manifest-hard-rock.webmanifest
+│   │   └── manifest-melia.webmanifest
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.tsx
+│   │   ├── api
+│   │   │   ├── auditLogsApi.ts
+│   │   │   ├── authApi.ts
+│   │   │   ├── axios.ts
+│   │   │   ├── brandingApi.ts
+│   │   │   ├── discoApi.ts
+│   │   │   ├── organisationsApi.ts
+│   │   │   └── subscriptionsApi.ts
+│   │   ├── assets
+│   │   │   ├── hero.png
+│   │   │   ├── react.svg
+│   │   │   └── vite.svg
+│   │   ├── components
+│   │   │   ├── AuthInitializer.tsx
+│   │   │   └── ProtectedRoute.tsx
+│   │   ├── features
+│   │   │   ├── auth
+│   │   │   │   └── authSlice.ts
+│   │   │   ├── disco
+│   │   │   │   └── discoSlice.ts
+│   │   │   └── organisations
+│   │   │       └── organisationSlice.ts
+│   │   ├── index.css
+│   │   ├── layouts
+│   │   │   └── DashboardLayout.tsx
+│   │   ├── main.tsx
+│   │   ├── modules
+│   │   │   ├── .DS_Store
+│   │   │   ├── disco
+│   │   │   │   ├── api
+│   │   │   │   │   ├── brandingApi.ts
+│   │   │   │   │   ├── cashShiftsApi.ts
+│   │   │   │   │   ├── discoApi.ts
+│   │   │   │   │   ├── employeesApi.ts
+│   │   │   │   │   ├── expensesApi.ts
+│   │   │   │   │   ├── productsApi.ts
+│   │   │   │   │   ├── reservationsApi.ts
+│   │   │   │   │   ├── salesApi.ts
+│   │   │   │   │   ├── settingsApi.ts
+│   │   │   │   │   ├── stockMovementsApi.ts
+│   │   │   │   │   └── tablesApi.ts
+│   │   │   │   ├── components
+│   │   │   │   │   ├── CartPanel.tsx
+│   │   │   │   │   ├── CashShiftCard.tsx
+│   │   │   │   │   ├── DiscoDataTable.tsx
+│   │   │   │   │   ├── DiscoEmptyState.tsx
+│   │   │   │   │   ├── DiscoPageHeader.tsx
+│   │   │   │   │   ├── DiscoSidebar.tsx
+│   │   │   │   │   ├── DiscoStatCard.tsx
+│   │   │   │   │   ├── DiscoTopbar.tsx
+│   │   │   │   │   ├── EmployeeCard.tsx
+│   │   │   │   │   ├── InventoryTable.tsx
+│   │   │   │   │   ├── KPIStatCard.tsx
+│   │   │   │   │   ├── ProductCard.tsx
+│   │   │   │   │   ├── ReservationCard.tsx
+│   │   │   │   │   ├── SalesChart.tsx
+│   │   │   │   │   └── TableCard.tsx
+│   │   │   │   ├── hooks
+│   │   │   │   │   ├── useCart.ts
+│   │   │   │   │   ├── useDiscoDashboard.ts
+│   │   │   │   │   ├── useDiscoProducts.ts
+│   │   │   │   │   ├── useDiscoReservations.ts
+│   │   │   │   │   ├── useDiscoSales.ts
+│   │   │   │   │   └── useDiscoTables.ts
+│   │   │   │   ├── i18n
+│   │   │   │   │   ├── discoTranslations.ts
+│   │   │   │   │   └── useDiscoTranslation.ts
+│   │   │   │   ├── layouts
+│   │   │   │   │   └── DiscoDashboardLayout.tsx
+│   │   │   │   ├── management
+│   │   │   │   ├── pages
+│   │   │   │   │   ├── DiscoActivityLogsPage.tsx
+│   │   │   │   │   ├── DiscoBillingLockedPage.tsx
+│   │   │   │   │   ├── DiscoCashShiftsPage.tsx
+│   │   │   │   │   ├── DiscoDashboardPage.tsx
+│   │   │   │   │   ├── DiscoEmployeesPage.tsx
+│   │   │   │   │   ├── DiscoExpensesPage.tsx
+│   │   │   │   │   ├── DiscoInventoryPage.tsx
+│   │   │   │   │   ├── DiscoLandingPage.tsx
+│   │   │   │   │   ├── DiscoLoginPage.tsx
+│   │   │   │   │   ├── DiscoPOSPage.tsx
+│   │   │   │   │   ├── DiscoProductsPage.tsx
+│   │   │   │   │   ├── DiscoReportsPage.tsx
+│   │   │   │   │   ├── DiscoReservationsPage.tsx
+│   │   │   │   │   ├── DiscoSettingsPage.tsx
+│   │   │   │   │   ├── DiscoSignupPage.tsx
+│   │   │   │   │   ├── DiscoStockMovementsPage.tsx
+│   │   │   │   │   ├── DiscoSubscriptionCancelPage.tsx
+│   │   │   │   │   ├── DiscoSubscriptionSuccessPage.tsx
+│   │   │   │   │   ├── DiscoSubscriptionsPage.tsx
+│   │   │   │   │   └── DiscoTablesPage.tsx
+│   │   │   │   ├── routes
+│   │   │   │   │   └── discoRoutes.tsx
+│   │   │   │   ├── store
+│   │   │   │   │   └── discoSlice.ts
+│   │   │   │   ├── types
+│   │   │   │   │   ├── disco.ts
+│   │   │   │   │   └── pos.ts
+│   │   │   │   └── utils
+│   │   │   │       ├── calculateProfit.ts
+│   │   │   │       ├── compressImage.ts
+│   │   │   │       ├── discoPermissions.ts
+│   │   │   │       └── formatCurrency.ts
+│   │   │   ├── ticketing
+│   │   │   │   ├── api
+│   │   │   │   │   └── ticketingApi.ts
+│   │   │   │   ├── components
+│   │   │   │   │   ├── TicketingPageShell.tsx
+│   │   │   │   │   ├── TicketingSidebar.tsx
+│   │   │   │   │   └── TicketingTopbar.tsx
+│   │   │   │   ├── hooks
+│   │   │   │   │   └── usePublicTicketingOrganisation.ts
+│   │   │   │   ├── layouts
+│   │   │   │   │   └── TicketingDashboardLayout.tsx
+│   │   │   │   ├── pages
+│   │   │   │   │   ├── PublicCheckoutPage.tsx
+│   │   │   │   │   ├── PublicConfirmationPage.tsx
+│   │   │   │   │   ├── PublicExperienceHomePage.tsx
+│   │   │   │   │   ├── PublicProductDetailPage.tsx
+│   │   │   │   │   ├── PublicProductsListingPage.tsx
+│   │   │   │   │   ├── TicketingAvailabilityPage.tsx
+│   │   │   │   │   ├── TicketingBillingLockedPage.tsx
+│   │   │   │   │   ├── TicketingBookingsPage.tsx
+│   │   │   │   │   ├── TicketingBrandingPage.tsx
+│   │   │   │   │   ├── TicketingCommissionsPage.tsx
+│   │   │   │   │   ├── TicketingDashboardPage.tsx
+│   │   │   │   │   ├── TicketingDomainPage.tsx
+│   │   │   │   │   ├── TicketingEventsPage.tsx
+│   │   │   │   │   ├── TicketingExcursionsPage.tsx
+│   │   │   │   │   ├── TicketingIntegrationsPage.tsx
+│   │   │   │   │   ├── TicketingLandingPage.tsx
+│   │   │   │   │   ├── TicketingLoginPage.tsx
+│   │   │   │   │   ├── TicketingNewBookingPage.tsx
+│   │   │   │   │   ├── TicketingPickupSchedulesPage.tsx
+│   │   │   │   │   ├── TicketingProductsPage.tsx
+│   │   │   │   │   ├── TicketingReportsPage.tsx
+│   │   │   │   │   ├── TicketingSEOPage.tsx
+│   │   │   │   │   ├── TicketingSellersPage.tsx
+│   │   │   │   │   ├── TicketingSettingsPage.tsx
+│   │   │   │   │   ├── TicketingSignupPage.tsx
+│   │   │   │   │   ├── TicketingSubscriptionCancelPage.tsx
+│   │   │   │   │   ├── TicketingSubscriptionSuccessPage.tsx
+│   │   │   │   │   └── TicketingTransfersPage.tsx
+│   │   │   │   ├── routes
+│   │   │   │   │   └── ticketingRoutes.tsx
+│   │   │   │   ├── types
+│   │   │   │   │   └── ticketingTypes.ts
+│   │   │   │   └── utils
+│   │   │   │       └── publicDomain.ts
+│   │   │   └── training
+│   │   │       ├── api
+│   │   │       │   ├── trainingApi.ts
+│   │   │       │   └── trainingRecoveryApi.ts
+│   │   │       ├── components
+│   │   │       │   ├── RoadmapSection.tsx
+│   │   │       │   ├── StatCard.tsx
+│   │   │       │   ├── TopEmployees.tsx
+│   │   │       │   ├── TrainingSidebar.tsx
+│   │   │       │   └── TrainingToday.tsx
+│   │   │       ├── layouts
+│   │   │       │   └── TrainingLayout.tsx
+│   │   │       ├── pages
+│   │   │       │   ├── AnalyticsPage.tsx
+│   │   │       │   ├── AssignedTrainingsPage.tsx
+│   │   │       │   ├── CreateFacilitatorAccountPage.tsx
+│   │   │       │   ├── EditEvaluationTemplatePage.tsx
+│   │   │       │   ├── EditFacilitatorPage.tsx
+│   │   │       │   ├── EmployeeDetailPage.tsx
+│   │   │       │   ├── EmployeesPage.tsx
+│   │   │       │   ├── EvaluationTemplatesPage.tsx
+│   │   │       │   ├── EvaluationsPage.tsx
+│   │   │       │   ├── FacilitatorTrainingQueuePage.tsx
+│   │   │       │   ├── FacilitatorsPage.tsx
+│   │   │       │   ├── OutletsPage.tsx
+│   │   │       │   ├── RecoveryPlansPage.tsx
+│   │   │       │   ├── ReportsPage.tsx
+│   │   │       │   ├── RoadmapPage.tsx
+│   │   │       │   ├── StandardsPage.tsx
+│   │   │       │   ├── TrainingDashboardPage.tsx
+│   │   │       │   ├── TrainingLoginPage.tsx
+│   │   │       │   ├── TrainingResourcesPage.tsx
+│   │   │       │   ├── TrainingSessionsPage.tsx
+│   │   │       │   ├── facilitator
+│   │   │       │   │   ├── FacilitatorDashboardPage.tsx
+│   │   │       │   │   ├── FacilitatorEmployeesPage.tsx
+│   │   │       │   │   ├── FacilitatorEvaluationsPage.tsx
+│   │   │       │   │   └── FacilitatorTrainingsPage.tsx
+│   │   │       │   └── permissions.ts
+│   │   │       ├── routes
+│   │   │       │   └── trainingRoutes.tsx
+│   │   │       ├── types
+│   │   │       │   └── training.ts
+│   │   │       └── utils
+│   │   ├── pages
+│   │   │   ├── AuditLogsPage.tsx
+│   │   │   ├── DashboardPage.tsx
+│   │   │   ├── LoginPage.tsx
+│   │   │   ├── OrganisationsPage.tsx
+│   │   │   ├── RegisterPage.tsx
+│   │   │   ├── SubscriptionsPage.tsx
+│   │   │   ├── disco
+│   │   │   │   └── DiscoDashboardPage.tsx
+│   │   │   └── subscription
+│   │   │       ├── SubscriptionCancelPage.tsx
+│   │   │       └── SubscriptionSuccessPage.tsx
+│   │   ├── routes
+│   │   │   └── AppRoutes.tsx
+│   │   ├── store
+│   │   │   ├── hooks.ts
+│   │   │   └── store.ts
+│   │   ├── types
+│   │   │   ├── auditLog.ts
+│   │   │   ├── auth.ts
+│   │   │   ├── disco.ts
+│   │   │   ├── organisation.ts
+│   │   │   ├── subscription.ts
+│   │   │   └── user.ts
+│   │   └── utils
+│   │       ├── getDashboardRedirect.ts
+│   │       └── pwaTenant.ts
+│   ├── tailwind.config.cjs
+│   ├── tsconfig.app.json
+│   ├── tsconfig.json
+│   ├── tsconfig.node.json
+│   ├── vite.config.ts
+│   └── yarn.lock
+└── project_structure.txt
+
+83 directories, 335 files

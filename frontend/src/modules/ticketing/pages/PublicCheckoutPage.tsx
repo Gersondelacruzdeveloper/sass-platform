@@ -879,45 +879,26 @@ export default function PublicCheckoutPage() {
                     Online payment method
                   </p>
                   <p className="mt-1 text-xs font-semibold leading-5" style={{ color: theme.muted }}>
-                    Choose where the customer will pay now.
+                    Your payment will be processed securely after you continue.
                   </p>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {stripeAvailable && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedGateway("stripe")}
-                        className="rounded-2xl border px-4 py-3 text-left text-sm font-black"
-                        style={{
-                          backgroundColor: selectedGateway === "stripe" ? hexToRgba(theme.accent, 0.16) : theme.card,
-                          borderColor: selectedGateway === "stripe" ? theme.accent : hexToRgba(theme.primary, 0.12),
-                          color: theme.text,
-                        }}
-                      >
-                        Stripe Checkout
-                        <span className="mt-1 block text-xs font-semibold" style={{ color: theme.muted }}>
-                          Card payment
-                        </span>
-                      </button>
-                    )}
+                  <div
+                    className="mt-4 rounded-2xl border p-4"
+                    style={{
+                      backgroundColor: hexToRgba(theme.accent, 0.08),
+                      borderColor: hexToRgba(theme.accent, 0.25),
+                    }}
+                  >
+                    <p className="text-sm font-black" style={{ color: theme.text }}>
+                      Secure Online Payment
+                    </p>
 
-                    {paypalAvailable && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedGateway("paypal")}
-                        className="rounded-2xl border px-4 py-3 text-left text-sm font-black"
-                        style={{
-                          backgroundColor: selectedGateway === "paypal" ? hexToRgba(theme.accent, 0.16) : theme.card,
-                          borderColor: selectedGateway === "paypal" ? theme.accent : hexToRgba(theme.primary, 0.12),
-                          color: theme.text,
-                        }}
-                      >
-                        PayPal
-                        <span className="mt-1 block text-xs font-semibold" style={{ color: theme.muted }}>
-                          PayPal account or card
-                        </span>
-                      </button>
-                    )}
+                    <p
+                      className="mt-2 text-xs font-semibold leading-5"
+                      style={{ color: theme.muted }}
+                    >
+                      After confirming your booking you will automatically be redirected to our secure payment page.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -931,7 +912,7 @@ export default function PublicCheckoutPage() {
             style={{ backgroundColor: theme.button }}
           >
             {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            {onlinePaymentSelected ? "Continue to payment" : "Confirm booking"}
+            {onlinePaymentSelected ? "Continue to Secure Payment" : "Confirm Booking"}
           </button>
         </form>
 

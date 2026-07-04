@@ -3029,6 +3029,17 @@ class StripeWebhookAPIView(APIView):
         if not booking:
             return Response({"detail": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        stripe_payment_status = str(session.get("payment_status") or "").lower()
+
+        if stripe_payment_status != "paid":
+            return Response(
+                {
+                    "received": True,
+                    "confirmed": False,
+                    "detail": f"Stripe session payment_status is {stripe_payment_status or 'unknown'}.",
+                }
+            )
+
         amount = Decimal(str(session.get("amount_total") or 0)) / Decimal("100")
 
         mark_booking_payment_confirmed(
@@ -3042,7 +3053,177 @@ class StripeWebhookAPIView(APIView):
             provider_response=session,
         )
 
-        return Response({"received": True})
+        return Response({"received": True, "confirmed": True})
+
+
+class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
+    """
+    Public fallback confirmation for Stripe Checkout.
+
+    Why this exists:
+    - Webhooks are still the best source of truth.
+    - But in a SaaS model, each organisation may use its own Stripe account.
+    - If the tenant webhook is not configured correctly, the customer can pay,
+      return to the confirmation page, and the booking may remain unpaid.
+    - This endpoint lets the confirmation page verify the returned session_id
+      using that organisation's Stripe secret key and then mark the booking paid.
+
+    The frontend should call this after Stripe redirects back with:
+    ?payment_provider=stripe&payment_status=success&session_id=cs_...
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def stripe_to_dict(self, value):
+        if hasattr(value, "to_dict_recursive"):
+            return value.to_dict_recursive()
+
+        if isinstance(value, dict):
+            return value
+
+        try:
+            return json.loads(json.dumps(value))
+        except Exception:
+            return {"raw": str(value)}
+
+    def post(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session_id = (
+            request.data.get("session_id")
+            or request.query_params.get("session_id")
+            or ""
+        )
+
+        if not session_id:
+            return Response(
+                {"session_id": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        provider_settings = TicketingPaymentProviderSettings.objects.filter(
+            organisation=organisation,
+            is_active=True,
+            stripe_enabled=True,
+        ).first()
+
+        if not provider_settings or not provider_settings.stripe_secret_key:
+            return Response(
+                {"detail": "Stripe is not configured for this organisation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stripe.api_key = provider_settings.stripe_secret_key
+
+        try:
+            session = stripe.checkout.Session.retrieve(
+                session_id,
+                expand=["payment_intent"],
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session_data = self.stripe_to_dict(session)
+        metadata = session_data.get("metadata", {}) or {}
+
+        booking_id = metadata.get("booking_id")
+        booking_code = metadata.get("booking_code")
+        payment_type = metadata.get("payment_type", "full")
+        metadata_organisation_id = str(metadata.get("organisation_id") or "")
+
+        if metadata_organisation_id and metadata_organisation_id != str(organisation.id):
+            return Response(
+                {"detail": "Stripe session does not belong to this organisation."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking = Booking.objects.filter(
+            organisation=organisation,
+        ).filter(
+            Q(id=booking_id) | Q(booking_code=booking_code)
+        ).first()
+
+        if not booking:
+            # Fallback: find the pending payment by Stripe session id.
+            payment = BookingPayment.objects.filter(
+                booking__organisation=organisation,
+                provider="stripe",
+                provider_checkout_id=session_id,
+            ).select_related("booking").first()
+
+            if payment:
+                booking = payment.booking
+
+        if not booking:
+            return Response(
+                {"detail": "Booking not found for this Stripe session."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        stripe_payment_status = str(session_data.get("payment_status") or "").lower()
+
+        if stripe_payment_status != "paid":
+            serializer = BookingSerializer(
+                booking,
+                context={"request": request, "organisation": organisation},
+            )
+
+            return Response(
+                {
+                    "provider": "stripe",
+                    "confirmed": False,
+                    "payment_status": stripe_payment_status or "unknown",
+                    "booking": serializer.data,
+                    "detail": "Stripe has not marked this Checkout Session as paid yet.",
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        amount = Decimal(str(session_data.get("amount_total") or 0)) / Decimal("100")
+
+        payment_intent = session_data.get("payment_intent") or ""
+        provider_payment_id = ""
+
+        if isinstance(payment_intent, dict):
+            provider_payment_id = str(payment_intent.get("id") or "")
+        else:
+            provider_payment_id = str(payment_intent or "")
+
+        confirmed_payment, booking = mark_booking_payment_confirmed(
+            booking=booking,
+            amount=amount,
+            provider="stripe",
+            payment_type=payment_type,
+            provider_payment_id=provider_payment_id,
+            provider_checkout_id=str(session_data.get("id") or session_id),
+            provider_status=str(session_data.get("payment_status") or "paid"),
+            provider_response=session_data,
+        )
+
+        serializer = BookingSerializer(
+            booking,
+            context={"request": request, "organisation": organisation},
+        )
+
+        return Response(
+            {
+                "provider": "stripe",
+                "confirmed": True,
+                "payment_id": confirmed_payment.id,
+                "booking_id": booking.id,
+                "booking_code": booking.booking_code,
+                "booking": serializer.data,
+            }
+        )
 
 
 def get_paypal_base_url(provider_settings):

@@ -173,7 +173,7 @@ function getPaymentBanner(booking?: Booking | null, queryStatus?: string | null)
   if (queryStatus === "success") {
     return {
       title: "Payment is being confirmed",
-      message: "The payment provider redirected you back. If the status still shows pending, refresh in a few seconds.",
+      message: "The payment provider redirected you back. We are confirming the payment now.",
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
@@ -213,6 +213,7 @@ export default function PublicConfirmationPage() {
   const paymentProvider = searchParams.get("payment_provider");
   const queryPaymentStatus = searchParams.get("payment_status");
   const paypalToken = searchParams.get("token") || searchParams.get("order_id") || "";
+  const stripeSessionId = searchParams.get("session_id") || "";
 
   useEffect(() => {
     let cancelled = false;
@@ -254,6 +255,44 @@ export default function PublicConfirmationPage() {
       cancelled = true;
     };
   }, [organisationSlug, bookingCode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function confirmStripeIfNeeded() {
+      if (!organisationSlug || !stripeSessionId || paymentProvider !== "stripe") return;
+      if (booking?.payment_status === "paid" || booking?.payment_status === "deposit_paid") return;
+
+      try {
+        setPaymentActionLoading(true);
+
+        const response = await ticketingApi.confirmPublicStripeSession(organisationSlug, {
+          session_id: stripeSessionId,
+        });
+
+        if (!cancelled && response.booking) {
+          setBooking(response.booking);
+          setProduct(response.booking.primary_product_detail || product || null);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(
+            err?.response?.data?.detail ||
+              err?.response?.data?.message ||
+              "Stripe payment could not be confirmed. Please contact support with your booking code."
+          );
+        }
+      } finally {
+        if (!cancelled) setPaymentActionLoading(false);
+      }
+    }
+
+    confirmStripeIfNeeded();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationSlug, stripeSessionId, paymentProvider, booking?.id, booking?.payment_status]);
 
   useEffect(() => {
     let cancelled = false;

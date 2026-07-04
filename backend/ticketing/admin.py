@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    TicketingPaymentProviderSettings,
     TicketingSettings,
     TicketingPublicSiteSettings,
     ExperienceCategory,
@@ -930,3 +931,92 @@ class ProductReviewAdmin(admin.ModelAdmin):
         "comment",
     )
     readonly_fields = ("created_at",)
+
+@admin.register(TicketingPaymentProviderSettings)
+class TicketingPaymentProviderSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        "organisation",
+        "default_provider",
+        "stripe_enabled",
+        "stripe_connect_status",
+        "paypal_enabled",
+        "paypal_mode",
+        "is_active",
+        "updated_at",
+    )
+
+    list_filter = (
+        "default_provider",
+        "stripe_enabled",
+        "paypal_enabled",
+        "stripe_connect_status",
+        "paypal_mode",
+        "is_active",
+    )
+
+    search_fields = (
+        "organisation__name",
+        "stripe_connect_account_id",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+    fieldsets = (
+        (
+            "General",
+            {
+                "fields": (
+                    "organisation",
+                    "default_provider",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Stripe",
+            {
+                "fields": (
+                    "stripe_enabled",
+                    "stripe_publishable_key",
+                    "stripe_secret_key",
+                    "stripe_webhook_secret",
+                    "stripe_connect_account_id",
+                    "stripe_connect_status",
+                )
+            },
+        ),
+        (
+            "PayPal",
+            {
+                "fields": (
+                    "paypal_enabled",
+                    "paypal_mode",
+                    "paypal_client_id",
+                    "paypal_client_secret",
+                    "paypal_merchant_id",
+                    "paypal_webhook_id",
+                )
+            },
+        ),
+        (
+            "Messages",
+            {
+                "fields": (
+                    "payment_success_message",
+                    "payment_pending_message",
+                )
+            },
+        ),
+        (
+            "Dates",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
