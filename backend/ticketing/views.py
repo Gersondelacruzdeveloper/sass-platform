@@ -2990,13 +2990,6 @@ class StripeWebhookAPIView(APIView):
     authentication_classes = []
 
     def webhook_log(self, message, **extra):
-        """
-        Force webhook logs to appear in Docker logs.
-
-        logger.info() may be hidden by the current logging level, so this uses:
-        - print(..., flush=True) for guaranteed stdout
-        - logger.error(...) for Django/Gunicorn logging
-        """
         payload = {"message": message, **extra}
 
         try:
@@ -3041,7 +3034,7 @@ class StripeWebhookAPIView(APIView):
 
         event_type = unverified_event.get("type", "")
         event_id = unverified_event.get("id", "")
-        event_data = unverified_stripe_obj_get(stripe_obj_get(event, "data", {}), "object", {})
+        event_data = unverified_event.get("data", {}).get("object", {})
         metadata = event_data.get("metadata", {}) or {}
 
         self.webhook_log(
@@ -3052,8 +3045,6 @@ class StripeWebhookAPIView(APIView):
             metadata=metadata,
         )
 
-        # Keep ticketing and subscription Stripe flows separated.
-        # Ticketing should only handle Checkout Sessions that carry booking metadata.
         if event_type == "checkout.session.completed" and not (
             metadata.get("booking_id") or metadata.get("booking_code")
         ):
@@ -3062,12 +3053,7 @@ class StripeWebhookAPIView(APIView):
                 event_id=event_id,
                 metadata=metadata,
             )
-            return Response(
-                {
-                    "received": True,
-                    "ignored": "not_ticketing_payment",
-                }
-            )
+            return Response({"received": True, "ignored": "not_ticketing_payment"})
 
         organisation_id = metadata.get("organisation_id")
         booking_id_from_metadata = metadata.get("booking_id")
@@ -3181,20 +3167,21 @@ class StripeWebhookAPIView(APIView):
             )
             event = unverified_event
 
-        if stripe_obj_get(event, "type") != "checkout.session.completed":
+        verified_event_type = stripe_obj_get(event, "type")
+        verified_event_id = stripe_obj_get(event, "id")
+
+        if verified_event_type != "checkout.session.completed":
             self.webhook_log(
                 "IGNORED_EVENT_TYPE",
-                event_id=stripe_obj_get(event, "id"),
-                event_type=stripe_obj_get(event, "type"),
+                event_id=verified_event_id,
+                event_type=verified_event_type,
             )
-            return Response(
-                {
-                    "received": True,
-                    "ignored": stripe_obj_get(event, "type"),
-                }
-            )
+            return Response({"received": True, "ignored": verified_event_type})
 
-        session = stripe_obj_get(stripe_obj_get(event, "data", {}), "object", {})
+        event_data_verified = stripe_obj_get(event, "data", {})
+        session = stripe_obj_get(event_data_verified, "object", {})
+        session = stripe_obj_to_plain_dict(session)
+
         metadata = session.get("metadata", {}) or {}
 
         booking_id = metadata.get("booking_id") or booking_id_from_metadata
@@ -3203,7 +3190,7 @@ class StripeWebhookAPIView(APIView):
 
         self.webhook_log(
             "PROCESSING_CHECKOUT_SESSION",
-            event_id=stripe_obj_get(event, "id"),
+            event_id=verified_event_id,
             session_id=session.get("id"),
             payment_status=session.get("payment_status"),
             amount_total=session.get("amount_total"),
