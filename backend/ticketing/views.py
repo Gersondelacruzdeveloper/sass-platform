@@ -2984,6 +2984,22 @@ def stripe_obj_get(obj, key, default=None):
     except Exception:
         return getattr(obj, key, default)
 
+def stripe_obj_to_plain_dict(obj):
+    try:
+        return obj.to_dict_recursive()
+    except Exception:
+        pass
+
+    try:
+        return obj.to_dict()
+    except Exception:
+        pass
+
+    try:
+        return dict(obj)
+    except Exception:
+        return obj
+
 
 class StripeWebhookAPIView(APIView):
     permission_classes = [permissions.AllowAny]
