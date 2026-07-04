@@ -3133,16 +3133,6 @@ class StripeWebhookAPIView(APIView):
         logger.info("========== TICKETING STRIPE WEBHOOK END OK ==========")
 
         return Response({"received": True, "confirmed": True})
-        except Exception as e:
-            logger.exception("Stripe webhook failed")
-            return Response(
-                {
-                    "received": False,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                },
-                status=500,
-            )
 
 
 class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
