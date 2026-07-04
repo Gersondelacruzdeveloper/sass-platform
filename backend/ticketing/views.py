@@ -3178,9 +3178,20 @@ class StripeWebhookAPIView(APIView):
             )
             return Response({"received": True, "ignored": verified_event_type})
 
-        event_data_verified = stripe_obj_get(event, "data", {})
-        session = stripe_obj_get(event_data_verified, "object", {})
-        session = stripe_obj_to_plain_dict(session)
+        # Stripe returns StripeObject instances, not dicts.
+        event_data_verified = stripe_obj_to_plain_dict(
+            stripe_obj_get(event, "data", {})
+        )
+        session = stripe_obj_to_plain_dict(
+            stripe_obj_get(event_data_verified, "object", {})
+        )
+
+        self.webhook_log(
+            "SESSION_EXTRACTED",
+            session_id=session.get("id"),
+            payment_status=session.get("payment_status"),
+            metadata=session.get("metadata"),
+        )
 
         metadata = session.get("metadata", {}) or {}
 
