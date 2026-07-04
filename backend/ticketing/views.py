@@ -2983,60 +2983,160 @@ class StripeWebhookAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
 
+    def webhook_log(self, message, **extra):
+        """
+        Force webhook logs to appear in Docker logs.
+
+        logger.info() may be hidden by the current logging level, so this uses:
+        - print(..., flush=True) for guaranteed stdout
+        - logger.error(...) for Django/Gunicorn logging
+        """
+        payload = {"message": message, **extra}
+
+        try:
+            line = json.dumps(payload, default=str)
+        except Exception:
+            line = f"{message} | {extra}"
+
+        print(f"[TICKETING_STRIPE_WEBHOOK] {line}", flush=True)
+        logger.error("[TICKETING_STRIPE_WEBHOOK] %s", line)
+
     def post(self, request):
+        self.webhook_log("START")
+
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
 
-        logger.info("========== TICKETING STRIPE WEBHOOK START ==========")
+        self.webhook_log(
+            "REQUEST_RECEIVED",
+            content_length=len(payload),
+            has_signature=bool(sig_header),
+            remote_addr=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT"),
+        )
 
         try:
             unverified_event = json.loads(payload.decode("utf-8"))
-        except Exception:
-            logger.exception("Ticketing Stripe webhook invalid JSON payload.")
-            return Response({"detail": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            self.webhook_log(
+                "INVALID_JSON_PAYLOAD",
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "invalid_json_payload",
+                    "detail": "Invalid payload.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         event_type = unverified_event.get("type", "")
+        event_id = unverified_event.get("id", "")
         event_data = unverified_event.get("data", {}).get("object", {})
         metadata = event_data.get("metadata", {}) or {}
 
-        # Important separation:
-        # The platform subscription Stripe webhook also receives checkout.session.completed.
-        # Ticketing should only handle Checkout Sessions that belong to a booking.
+        self.webhook_log(
+            "UNVERIFIED_EVENT_PARSED",
+            event_id=event_id,
+            event_type=event_type,
+            object_id=event_data.get("id"),
+            metadata=metadata,
+        )
+
+        # Keep ticketing and subscription Stripe flows separated.
+        # Ticketing should only handle Checkout Sessions that carry booking metadata.
         if event_type == "checkout.session.completed" and not (
             metadata.get("booking_id") or metadata.get("booking_code")
         ):
-            logger.info(
-                "Ignoring checkout.session.completed because it is not a ticketing payment. metadata=%s",
-                metadata,
-            )
-            return Response({"received": True, "ignored": "not_ticketing_payment"})
-
-        organisation_id = metadata.get("organisation_id")
-
-        logger.info("Ticketing Stripe event type: %s", event_type)
-        logger.info("Ticketing Stripe event id: %s", unverified_event.get("id"))
-        logger.info("Ticketing Stripe metadata: %s", metadata)
-        logger.info("Ticketing Stripe organisation_id: %s", organisation_id)
-
-        provider_settings = None
-
-        if organisation_id:
-            provider_settings = TicketingPaymentProviderSettings.objects.filter(
-                organisation_id=organisation_id,
-                stripe_enabled=True,
-                is_active=True,
-            ).select_related("organisation").first()
-
-        if not provider_settings:
-            logger.warning(
-                "Ticketing Stripe provider settings not found. event_type=%s metadata=%s",
-                event_type,
-                metadata,
+            self.webhook_log(
+                "IGNORED_NOT_TICKETING_PAYMENT",
+                event_id=event_id,
+                metadata=metadata,
             )
             return Response(
-                {"detail": "Stripe provider settings not found."},
+                {
+                    "received": True,
+                    "ignored": "not_ticketing_payment",
+                }
+            )
+
+        organisation_id = metadata.get("organisation_id")
+        booking_id_from_metadata = metadata.get("booking_id")
+        booking_code_from_metadata = metadata.get("booking_code")
+
+        if not organisation_id:
+            self.webhook_log(
+                "MISSING_ORGANISATION_ID",
+                event_id=event_id,
+                metadata=metadata,
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "missing_organisation_id",
+                    "detail": "organisation_id missing from Stripe metadata.",
+                    "metadata": metadata,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            provider_settings = (
+                TicketingPaymentProviderSettings.objects
+                .select_related("organisation")
+                .filter(
+                    organisation_id=organisation_id,
+                    stripe_enabled=True,
+                    is_active=True,
+                )
+                .first()
+            )
+        except Exception as exc:
+            self.webhook_log(
+                "PROVIDER_SETTINGS_QUERY_CRASHED",
+                organisation_id=organisation_id,
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "provider_settings_query_crashed",
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not provider_settings:
+            self.webhook_log(
+                "PROVIDER_SETTINGS_NOT_FOUND",
+                organisation_id=organisation_id,
+                event_id=event_id,
+                metadata=metadata,
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "provider_settings_not_found",
+                    "detail": "Stripe provider settings not found.",
+                    "organisation_id": organisation_id,
+                    "metadata": metadata,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.webhook_log(
+            "PROVIDER_SETTINGS_FOUND",
+            organisation_id=organisation_id,
+            organisation_slug=getattr(provider_settings.organisation, "slug", None),
+            has_webhook_secret=bool(provider_settings.stripe_webhook_secret),
+            stripe_enabled=provider_settings.stripe_enabled,
+            is_active=provider_settings.is_active,
+        )
 
         if provider_settings.stripe_webhook_secret:
             try:
@@ -3045,67 +3145,149 @@ class StripeWebhookAPIView(APIView):
                     sig_header,
                     provider_settings.stripe_webhook_secret,
                 )
-                logger.info("Ticketing Stripe signature verified.")
+                self.webhook_log(
+                    "SIGNATURE_VERIFIED",
+                    event_id=event.get("id"),
+                    event_type=event.get("type"),
+                )
             except Exception as exc:
-                logger.exception("Ticketing Stripe signature verification failed.")
-                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                self.webhook_log(
+                    "SIGNATURE_VERIFICATION_FAILED",
+                    organisation_id=organisation_id,
+                    event_id=event_id,
+                    error=str(exc),
+                    traceback=traceback.format_exc(),
+                )
+                return Response(
+                    {
+                        "received": False,
+                        "stage": "signature_verification_failed",
+                        "detail": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
-            logger.warning(
-                "Ticketing Stripe webhook secret is empty for organisation_id=%s. Using unverified event.",
-                organisation_id,
+            self.webhook_log(
+                "WEBHOOK_SECRET_EMPTY_USING_UNVERIFIED_EVENT",
+                organisation_id=organisation_id,
+                event_id=event_id,
             )
             event = unverified_event
 
         if event.get("type") != "checkout.session.completed":
-            logger.info("Ticketing Stripe event ignored: %s", event.get("type"))
-            return Response({"received": True, "ignored": event.get("type")})
+            self.webhook_log(
+                "IGNORED_EVENT_TYPE",
+                event_id=event.get("id"),
+                event_type=event.get("type"),
+            )
+            return Response(
+                {
+                    "received": True,
+                    "ignored": event.get("type"),
+                }
+            )
 
         session = event.get("data", {}).get("object", {})
         metadata = session.get("metadata", {}) or {}
-        booking_id = metadata.get("booking_id")
-        booking_code = metadata.get("booking_code")
+
+        booking_id = metadata.get("booking_id") or booking_id_from_metadata
+        booking_code = metadata.get("booking_code") or booking_code_from_metadata
         payment_type = metadata.get("payment_type", "full")
 
-        logger.info(
-            "Ticketing Stripe processing session_id=%s booking_id=%s booking_code=%s payment_type=%s",
-            session.get("id"),
-            booking_id,
-            booking_code,
-            payment_type,
+        self.webhook_log(
+            "PROCESSING_CHECKOUT_SESSION",
+            event_id=event.get("id"),
+            session_id=session.get("id"),
+            payment_status=session.get("payment_status"),
+            amount_total=session.get("amount_total"),
+            booking_id=booking_id,
+            booking_code=booking_code,
+            payment_type=payment_type,
+            organisation_id=organisation_id,
         )
 
-        booking = Booking.objects.filter(
-            organisation=provider_settings.organisation,
-        ).filter(
-            Q(id=booking_id) | Q(booking_code=booking_code)
-        ).first()
+        try:
+            booking_query = Booking.objects.filter(
+                organisation=provider_settings.organisation,
+            )
+
+            if booking_id and booking_code:
+                booking = booking_query.filter(
+                    Q(id=booking_id) | Q(booking_code=booking_code)
+                ).first()
+            elif booking_id:
+                booking = booking_query.filter(id=booking_id).first()
+            elif booking_code:
+                booking = booking_query.filter(booking_code=booking_code).first()
+            else:
+                booking = None
+
+        except Exception as exc:
+            self.webhook_log(
+                "BOOKING_QUERY_CRASHED",
+                booking_id=booking_id,
+                booking_code=booking_code,
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "booking_query_crashed",
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         if not booking:
-            logger.warning(
-                "Ticketing Stripe booking not found. organisation_id=%s booking_id=%s booking_code=%s",
-                provider_settings.organisation_id,
-                booking_id,
-                booking_code,
+            self.webhook_log(
+                "BOOKING_NOT_FOUND",
+                organisation_id=organisation_id,
+                booking_id=booking_id,
+                booking_code=booking_code,
             )
-            return Response({"detail": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {
+                    "received": False,
+                    "stage": "booking_not_found",
+                    "detail": "Booking not found.",
+                    "organisation_id": organisation_id,
+                    "booking_id": booking_id,
+                    "booking_code": booking_code,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         stripe_payment_status = str(session.get("payment_status") or "").lower()
 
         if stripe_payment_status != "paid":
-            logger.info(
-                "Ticketing Stripe session not paid yet. session_id=%s payment_status=%s",
-                session.get("id"),
-                stripe_payment_status,
+            self.webhook_log(
+                "SESSION_NOT_PAID",
+                booking_code=booking.booking_code,
+                session_id=session.get("id"),
+                payment_status=stripe_payment_status,
             )
             return Response(
                 {
                     "received": True,
                     "confirmed": False,
+                    "stage": "session_not_paid",
                     "detail": f"Stripe session payment_status is {stripe_payment_status or 'unknown'}.",
                 }
             )
 
         amount = Decimal(str(session.get("amount_total") or 0)) / Decimal("100")
+
+        self.webhook_log(
+            "ABOUT_TO_CONFIRM_PAYMENT",
+            booking_id=booking.id,
+            booking_code=booking.booking_code,
+            amount=str(amount),
+            provider_checkout_id=session.get("id"),
+            provider_payment_id=session.get("payment_intent"),
+        )
 
         try:
             payment, updated_booking = mark_booking_payment_confirmed(
@@ -3119,27 +3301,47 @@ class StripeWebhookAPIView(APIView):
                 provider_response=make_json_safe(session),
             )
         except Exception as exc:
-            logger.exception("Ticketing Stripe failed while confirming booking payment.")
+            self.webhook_log(
+                "MARK_BOOKING_PAYMENT_CONFIRMED_CRASHED",
+                booking_id=getattr(booking, "id", None),
+                booking_code=getattr(booking, "booking_code", None),
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
             return Response(
                 {
                     "received": False,
+                    "stage": "mark_booking_payment_confirmed_crashed",
                     "detail": str(exc),
                     "traceback": traceback.format_exc(),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        logger.info(
-            "Ticketing Stripe payment confirmed. booking_code=%s payment_id=%s payment_status=%s booking_status=%s",
-            updated_booking.booking_code,
-            payment.id,
-            updated_booking.payment_status,
-            updated_booking.status,
+        self.webhook_log(
+            "PAYMENT_CONFIRMED",
+            booking_id=updated_booking.id,
+            booking_code=updated_booking.booking_code,
+            booking_status=updated_booking.status,
+            booking_payment_status=updated_booking.payment_status,
+            deposit_paid=str(updated_booking.deposit_paid),
+            balance_due=str(updated_booking.balance_due),
+            payment_id=payment.id,
+            payment_status=payment.status,
         )
-        logger.info("========== TICKETING STRIPE WEBHOOK END OK ==========")
 
-        return Response({"received": True, "confirmed": True})
+        self.webhook_log("END_OK")
 
+        return Response(
+            {
+                "received": True,
+                "confirmed": True,
+                "booking_id": updated_booking.id,
+                "booking_code": updated_booking.booking_code,
+                "booking_status": updated_booking.status,
+                "payment_status": updated_booking.payment_status,
+            }
+        )
 
 class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
     """
