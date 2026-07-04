@@ -3179,19 +3179,44 @@ class StripeWebhookAPIView(APIView):
             return Response({"received": True, "ignored": verified_event_type})
 
         # Stripe returns StripeObject instances, not dicts.
-        event_data_verified = stripe_obj_to_plain_dict(
-            stripe_obj_get(event, "data", {})
-        )
-        session = stripe_obj_to_plain_dict(
-            stripe_obj_get(event_data_verified, "object", {})
-        )
+        try:
+            self.webhook_log("ABOUT_TO_EXTRACT_SESSION")
 
-        self.webhook_log(
-            "SESSION_EXTRACTED",
-            session_id=session.get("id"),
-            payment_status=session.get("payment_status"),
-            metadata=session.get("metadata"),
-        )
+            event_plain = stripe_obj_to_plain_dict(event)
+            self.webhook_log(
+                "EVENT_CONVERTED_TO_DICT",
+                event_keys=list(event_plain.keys()) if isinstance(event_plain, dict) else str(type(event_plain)),
+            )
+
+            event_data_verified = event_plain.get("data", {}) if isinstance(event_plain, dict) else {}
+            session = event_data_verified.get("object", {}) if isinstance(event_data_verified, dict) else {}
+            session = stripe_obj_to_plain_dict(session)
+
+            if not isinstance(session, dict):
+                raise TypeError(f"Stripe session is not a dict after conversion: {type(session)}")
+
+            self.webhook_log(
+                "SESSION_EXTRACTED",
+                session_id=session.get("id"),
+                payment_status=session.get("payment_status"),
+                metadata=session.get("metadata"),
+            )
+
+        except Exception as exc:
+            self.webhook_log(
+                "SESSION_EXTRACTION_CRASHED",
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "session_extraction_crashed",
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         metadata = session.get("metadata", {}) or {}
 
