@@ -120,12 +120,13 @@ def update_subscription_from_stripe(stripe_subscription):
     subscription.save()
     set_organisation_access(subscription)
 
+
 @csrf_exempt
 def stripe_webhook(request):
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
-    logger.info("========== STRIPE WEBHOOK START ==========")
+    logger.info("========== SUBSCRIPTION STRIPE WEBHOOK START ==========")
     logger.info("Webhook payload length: %s", len(payload))
     logger.info("Stripe signature exists: %s", bool(sig_header))
 
@@ -145,17 +146,35 @@ def stripe_webhook(request):
     try:
         event_type = event["type"]
         data = event["data"]["object"]
+        metadata = stripe_metadata(data)
 
-        logger.info("Received Stripe webhook: %s", event_type)
+        logger.info("Received Stripe subscription webhook: %s", event_type)
         logger.info("Stripe event id: %s", stripe_get(event, "id"))
         logger.info("Stripe object id: %s", stripe_get(data, "id"))
-        logger.info("Stripe object metadata: %s", stripe_metadata(data))
+        logger.info("Stripe object metadata: %s", metadata)
+
+        # Important separation:
+        # Ticketing Checkout Sessions also use checkout.session.completed.
+        # Subscription webhook must ignore ticketing payments.
+        if metadata.get("booking_id") or metadata.get("booking_code"):
+            logger.info(
+                "Ignoring ticketing Checkout Session in subscription webhook. metadata=%s",
+                metadata,
+            )
+            logger.info("========== SUBSCRIPTION STRIPE WEBHOOK END IGNORED ==========")
+            return HttpResponse(status=200)
 
         if event_type == "checkout.session.completed":
-            metadata = stripe_metadata(data)
-
             organisation_id = metadata.get("organisation_id")
             subscription_id = metadata.get("subscription_id")
+
+            # If this Checkout Session has no subscription markers, ignore it.
+            if not subscription_id and not stripe_get(data, "subscription"):
+                logger.info(
+                    "Ignoring non-subscription checkout.session.completed. metadata=%s",
+                    metadata,
+                )
+                return HttpResponse(status=200)
 
             stripe_customer_id = stripe_get(data, "customer")
             stripe_subscription_id = stripe_get(data, "subscription")
@@ -165,12 +184,15 @@ def stripe_webhook(request):
             logger.info("Checkout stripe_customer_id: %s", stripe_customer_id)
             logger.info("Checkout stripe_subscription_id: %s", stripe_subscription_id)
 
-            subscription = (
-                Subscription.objects
-                .select_related("organisation", "plan")
-                .filter(id=subscription_id, organisation_id=organisation_id)
-                .first()
-            )
+            subscription = None
+
+            if subscription_id and organisation_id:
+                subscription = (
+                    Subscription.objects
+                    .select_related("organisation", "plan")
+                    .filter(id=subscription_id, organisation_id=organisation_id)
+                    .first()
+                )
 
             logger.info("Local subscription found by metadata: %s", bool(subscription))
 
@@ -267,9 +289,9 @@ def stripe_webhook(request):
                 set_organisation_access(subscription)
                 logger.info("Payment failed deactivated organisation: %s", subscription.organisation.slug)
 
-        logger.info("========== STRIPE WEBHOOK END OK ==========")
+        logger.info("========== SUBSCRIPTION STRIPE WEBHOOK END OK ==========")
         return HttpResponse(status=200)
 
     except Exception as exc:
-        logger.exception("STRIPE WEBHOOK CRASHED: %s", exc)
+        logger.exception("SUBSCRIPTION STRIPE WEBHOOK CRASHED: %s", exc)
         return HttpResponse(status=500)
