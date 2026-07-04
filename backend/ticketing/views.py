@@ -2978,6 +2978,12 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
             }
         )
 
+def stripe_obj_get(obj, key, default=None):
+    try:
+        return obj[key]
+    except Exception:
+        return getattr(obj, key, default)
+
 
 class StripeWebhookAPIView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -3035,7 +3041,7 @@ class StripeWebhookAPIView(APIView):
 
         event_type = unverified_event.get("type", "")
         event_id = unverified_event.get("id", "")
-        event_data = unverified_event.get("data", {}).get("object", {})
+        event_data = unverified_stripe_obj_get(stripe_obj_get(event, "data", {}), "object", {})
         metadata = event_data.get("metadata", {}) or {}
 
         self.webhook_log(
@@ -3147,8 +3153,8 @@ class StripeWebhookAPIView(APIView):
                 )
                 self.webhook_log(
                     "SIGNATURE_VERIFIED",
-                    event_id=event.get("id"),
-                    event_type=event.get("type"),
+                    event_id=stripe_obj_get(event, "id"),
+                    event_type=stripe_obj_get(event, "type"),
                 )
             except Exception as exc:
                 self.webhook_log(
@@ -3175,20 +3181,20 @@ class StripeWebhookAPIView(APIView):
             )
             event = unverified_event
 
-        if event.get("type") != "checkout.session.completed":
+        if stripe_obj_get(event, "type") != "checkout.session.completed":
             self.webhook_log(
                 "IGNORED_EVENT_TYPE",
-                event_id=event.get("id"),
-                event_type=event.get("type"),
+                event_id=stripe_obj_get(event, "id"),
+                event_type=stripe_obj_get(event, "type"),
             )
             return Response(
                 {
                     "received": True,
-                    "ignored": event.get("type"),
+                    "ignored": stripe_obj_get(event, "type"),
                 }
             )
 
-        session = event.get("data", {}).get("object", {})
+        session = stripe_obj_get(stripe_obj_get(event, "data", {}), "object", {})
         metadata = session.get("metadata", {}) or {}
 
         booking_id = metadata.get("booking_id") or booking_id_from_metadata
@@ -3197,7 +3203,7 @@ class StripeWebhookAPIView(APIView):
 
         self.webhook_log(
             "PROCESSING_CHECKOUT_SESSION",
-            event_id=event.get("id"),
+            event_id=stripe_obj_get(event, "id"),
             session_id=session.get("id"),
             payment_status=session.get("payment_status"),
             amount_total=session.get("amount_total"),
