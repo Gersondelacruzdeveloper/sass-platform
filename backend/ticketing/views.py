@@ -2703,6 +2703,12 @@ def recalculate_booking_payment_totals(booking):
     return booking
 
 
+def make_json_safe(value):
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return {"raw": str(value)}
+
 def mark_booking_payment_confirmed(
     booking,
     amount,
@@ -3110,7 +3116,7 @@ class StripeWebhookAPIView(APIView):
                 provider_payment_id=str(session.get("payment_intent") or ""),
                 provider_checkout_id=str(session.get("id") or ""),
                 provider_status=str(session.get("payment_status") or "paid"),
-                provider_response=session,
+                provider_response=make_json_safe(session),
             )
         except Exception as exc:
             logger.exception("Ticketing Stripe failed while confirming booking payment.")
