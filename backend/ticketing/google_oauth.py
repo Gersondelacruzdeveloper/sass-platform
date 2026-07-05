@@ -14,6 +14,14 @@ GMAIL_SCOPES = [
 ]
 
 
+GOOGLE_CLIENT_CONFIG = {
+    "web": {
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+}
+
+
 def get_google_oauth_config():
     client_id = getattr(settings, "GOOGLE_CLIENT_ID", "")
     client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", "")
@@ -28,18 +36,24 @@ def get_google_oauth_config():
 def build_google_flow(state=None):
     client_id, client_secret, redirect_uri = get_google_oauth_config()
 
+    client_config = {
+        "web": {
+            **GOOGLE_CLIENT_CONFIG["web"],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uris": [redirect_uri],
+        }
+    }
+
+    # This is a confidential server-side OAuth flow. We disable automatic PKCE
+    # because the callback is handled by Django and we are not storing a
+    # code_verifier between connect() and callback(). Without this, Google can
+    # return: invalid_grant / Missing code verifier.
     flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri],
-            }
-        },
+        client_config,
         scopes=GMAIL_SCOPES,
         state=state,
+        autogenerate_code_verifier=False,
     )
 
     flow.redirect_uri = redirect_uri
@@ -157,7 +171,13 @@ def send_gmail_email(email_settings, to_email, subject, body):
     credentials = refresh_google_credentials(email_settings)
     service = build("gmail", "v1", credentials=credentials)
 
-    sender = email_settings.from_email or email_settings.oauth_provider_account
+    sender_email = (
+        email_settings.sender_email
+        or email_settings.oauth_provider_account
+        or email_settings.oauth_provider_account
+    )
+    sender_name = email_settings.sender_name or ""
+    sender = f"{sender_name} <{sender_email}>" if sender_name else sender_email
     reply_to = email_settings.reply_to_email or email_settings.oauth_provider_account
 
     message = create_gmail_message(
