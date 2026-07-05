@@ -27,6 +27,7 @@ from .notifications.utils import get_email_connection
 from .notifications.templates import test_email_subject, test_email_body
 import secrets
 from django.shortcuts import redirect
+from .notifications.service import BookingNotificationService
 
 from .google_oauth import (
     build_google_authorization_url,
@@ -1871,6 +1872,14 @@ class BookingViewSet(TicketingPrivateViewSet):
         )
 
         booking = self.recalculate_booking_after_payment(booking)
+        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
+            try:
+                BookingNotificationService.payment_confirmed(booking)
+            except Exception:
+                logger.exception(
+                    "Failed sending payment confirmation notifications for booking %s",
+                    booking.booking_code,
+                )
 
         payment_serializer = BookingPaymentSerializer(payment, context=self.get_serializer_context())
         booking_serializer = self.get_serializer(booking)
@@ -4304,6 +4313,14 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
             provider_response=session_data,
         )
 
+        try:
+            BookingNotificationService.payment_confirmed(booking)
+        except Exception:
+            logger.exception(
+                "Failed sending payment confirmation notifications for booking %s",
+                booking.booking_code,
+            )
+
         serializer = BookingSerializer(
             booking,
             context={"request": request, "organisation": organisation},
@@ -4551,6 +4568,13 @@ class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
             provider_status=capture_response.get("status", ""),
             provider_response=capture_response,
         )
+        try:
+          BookingNotificationService.payment_confirmed(booking)
+        except Exception:
+            logger.exception(
+                "Failed sending payment confirmation notifications for booking %s",
+                booking.booking_code,
+            )
 
         serializer = BookingSerializer(
             booking,

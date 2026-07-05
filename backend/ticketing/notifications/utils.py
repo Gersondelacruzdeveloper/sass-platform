@@ -14,10 +14,7 @@ def get_email_settings(organisation):
     email_settings, _ = TicketingEmailSettings.objects.get_or_create(
         organisation=organisation,
         defaults={
-            "provider": "gmail",
-            "smtp_host": "smtp.gmail.com",
-            "smtp_port": 587,
-            "smtp_encryption": "tls",
+            "provider": "google_oauth",
         },
     )
 
@@ -49,7 +46,7 @@ def get_owner_email(booking):
 def get_brand_name(booking):
     site = get_site_settings(booking.organisation)
 
-    if site and site.display_title:
+    if site and getattr(site, "display_title", ""):
         return site.display_title
 
     return booking.organisation.name
@@ -61,7 +58,13 @@ def get_public_base_url(booking):
     if site and site.custom_domain:
         return f"https://{site.custom_domain}"
 
-    return getattr(settings, "FRONTEND_URL", "").rstrip("/")
+    frontend_app_url = getattr(settings, "FRONTEND_APP_URL", "") or getattr(
+        settings,
+        "FRONTEND_URL",
+        "",
+    )
+
+    return frontend_app_url.rstrip("/")
 
 
 def get_currency_symbol(booking):
