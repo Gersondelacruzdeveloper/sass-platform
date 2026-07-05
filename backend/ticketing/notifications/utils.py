@@ -25,9 +25,6 @@ def get_email_settings(organisation):
 
 
 def get_email_connection(email_settings):
-    if not email_settings or not email_settings.has_credentials:
-        return None
-
     return get_connection(
         backend="django.core.mail.backends.smtp.EmailBackend",
         host=email_settings.smtp_host,
@@ -36,7 +33,7 @@ def get_email_connection(email_settings):
         password=email_settings.smtp_password,
         use_tls=email_settings.smtp_encryption == "tls",
         use_ssl=email_settings.smtp_encryption == "ssl",
-        fail_silently=False,
+        timeout=15,
     )
 
 

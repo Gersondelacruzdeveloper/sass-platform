@@ -13,7 +13,6 @@ import {
   CreditCard,
   Download,
   ExternalLink,
-  Globe2,
   Info,
   Loader2,
   Percent,
@@ -507,7 +506,10 @@ function getStripeWebhookEndpoint() {
 }
 
 function getDetectedPublicDomain(
-  publicSite: TicketingPublicSiteSettings,
+  publicSite: {
+    custom_domain?: string | null;
+    subdomain?: string | null;
+  },
   organisationSlug?: string,
 ) {
   const customDomain = normalizeText(publicSite.custom_domain).trim();
@@ -1129,10 +1131,8 @@ export default function TicketingSettingsPage() {
     }));
   }
 
-  function updatePublicSiteField<K extends keyof TicketingPublicSiteSettings>(
-    field: K,
-    value: TicketingPublicSiteSettings[K],
-  ) {
+
+  function updatePublicSiteFieldLoose(field: string, value: unknown) {
     setPublicSite((current) => ({
       ...current,
       [field]: value,
@@ -2102,7 +2102,7 @@ export default function TicketingSettingsPage() {
 
         <PublicWebsiteSettings
           publicSite={publicSite}
-          onChange={updatePublicSiteField}
+          onChange={updatePublicSiteFieldLoose}
         />
 
         <HomePageSettings
@@ -2110,7 +2110,7 @@ export default function TicketingSettingsPage() {
           trustBadgesText={trustBadgesText}
           heroVideoFile={heroVideoFile}
           heroVideoPosterFile={heroVideoPosterFile}
-          onChange={updatePublicSiteField}
+          onChange={updatePublicSiteFieldLoose}
           onTrustBadgesTextChange={setTrustBadgesText}
           onHeroVideoFileChange={setHeroVideoFile}
           onHeroVideoPosterFileChange={setHeroVideoPosterFile}
@@ -2120,12 +2120,12 @@ export default function TicketingSettingsPage() {
           publicSite={publicSite}
           heroImageFile={heroImageFile}
           ogImageFile={ogImageFile}
-          onChange={updatePublicSiteField}
+          onChange={updatePublicSiteFieldLoose}
           onHeroImageFileChange={setHeroImageFile}
           onOgImageFileChange={setOgImageFile}
         />
 
-        <SeoSettings publicSite={publicSite} onChange={updatePublicSiteField} />
+        <SeoSettings publicSite={publicSite} onChange={updatePublicSiteFieldLoose} />
 
         <PaymentProvidersSettings
           paymentProviders={paymentProviders}
