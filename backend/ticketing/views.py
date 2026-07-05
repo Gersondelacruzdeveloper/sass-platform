@@ -2258,6 +2258,30 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
 
         return email_settings
 
+    def build_email_settings_redirect_url(
+        self,
+        organisation_slug,
+        status_value,
+        error_message=None,
+    ):
+        frontend_url = getattr(
+            settings,
+            "FRONTEND_APP_URL",
+            "https://app.puntacanadiscovery.com",
+        ).rstrip("/")
+
+        redirect_url = (
+            f"{frontend_url}/ticketing/{organisation_slug}/settings"
+            f"?google_email={status_value}"
+        )
+
+        if error_message:
+            from urllib.parse import quote
+
+            redirect_url += f"&error={quote(str(error_message))}"
+
+        return redirect_url
+
     @action(detail=False, methods=["get", "patch"], url_path="mine")
     def mine(self, request):
         email_settings = self.get_email_settings()
@@ -2304,17 +2328,29 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
         code = request.query_params.get("code")
         state = request.query_params.get("state", "")
 
-        frontend_url = getattr(
-            settings,
-            "FRONTEND_APP_URL",
-            "https://app.puntacanadiscovery.com",
-        )
-
-        if not code:
-            return redirect(f"{frontend_url}/ticketing/settings?google_email=failed")
+        organisation_slug = ""
 
         try:
-            organisation_slug = state.split(":", 1)[0]
+            organisation_slug = state.split(":", 1)[0] if state else ""
+
+            if not organisation_slug:
+                return redirect(
+                    self.build_email_settings_redirect_url(
+                        "punta-cana-discovery",
+                        "failed",
+                        "Missing OAuth state.",
+                    )
+                )
+
+            if not code:
+                return redirect(
+                    self.build_email_settings_redirect_url(
+                        organisation_slug,
+                        "failed",
+                        "Missing Google authorization code.",
+                    )
+                )
+
             organisation = get_object_or_404(Organisation, slug=organisation_slug)
 
             email_settings, created = TicketingEmailSettings.objects.get_or_create(
@@ -2328,13 +2364,23 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
             store_google_credentials(email_settings, credentials)
 
             return redirect(
-                f"{frontend_url}/ticketing/settings?google_email=connected"
+                self.build_email_settings_redirect_url(
+                    organisation.slug,
+                    "connected",
+                )
             )
 
         except Exception as exc:
             logger.exception("Google email OAuth callback failed.")
+
+            safe_slug = organisation_slug or "punta-cana-discovery"
+
             return redirect(
-                f"{frontend_url}/ticketing/settings?google_email=failed&error={str(exc)}"
+                self.build_email_settings_redirect_url(
+                    safe_slug,
+                    "failed",
+                    str(exc),
+                )
             )
 
     @action(detail=False, methods=["post"], url_path="google/disconnect")
@@ -2415,11 +2461,14 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
 
         try:
             if email_settings.provider == "google_oauth":
+                subject = test_email_subject(organisation)
+                body = test_email_body(organisation)
+
                 send_response = send_gmail_email(
                     email_settings=email_settings,
                     to_email=test_recipient,
-                    subject=test_email_subject(organisation),
-                    body=test_email_body(organisation),
+                    subject=subject,
+                    body=body,
                 )
 
                 provider_response = {
@@ -2427,9 +2476,6 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
                     "provider": email_settings.provider,
                     "gmail_response": send_response,
                 }
-
-                subject = test_email_subject(organisation)
-                body = test_email_body(organisation)
 
             else:
                 connection = get_email_connection(email_settings)
@@ -2524,7 +2570,7 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
 class ExternalProviderProductSnapshotViewSet(TicketingPrivateViewSet):
     serializer_class = ExternalProviderProductSnapshotSerializer
     permission_classes = [CanManageTicketingIntegrations]
