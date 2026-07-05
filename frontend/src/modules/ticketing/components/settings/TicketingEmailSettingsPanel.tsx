@@ -13,8 +13,8 @@ export type TicketingEmailSettings = {
   organisation_name?: string;
 
   provider:
-    | "gmail"
-    | "outlook"
+    | "google_oauth"
+    | "microsoft_oauth"
     | "zoho"
     | "amazon_ses"
     | "sendgrid"
@@ -33,6 +33,12 @@ export type TicketingEmailSettings = {
   sender_name: string;
   sender_email: string;
   reply_to_email: string;
+
+  oauth_connected?: boolean;
+  oauth_provider_account?: string;
+  oauth_token_expiry?: string | null;
+  oauth_last_refresh?: string | null;
+  oauth_scopes?: string[];
 
   send_customer_confirmation: boolean;
   send_owner_notification: boolean;
@@ -53,10 +59,10 @@ export type TicketingEmailSettings = {
 };
 
 export const initialEmailSettings: TicketingEmailSettings = {
-  provider: "gmail",
+  provider: "google_oauth",
   is_active: false,
 
-  smtp_host: "smtp.gmail.com",
+  smtp_host: "",
   smtp_port: 587,
   smtp_encryption: "tls",
 
@@ -66,6 +72,12 @@ export const initialEmailSettings: TicketingEmailSettings = {
   sender_name: "",
   sender_email: "",
   reply_to_email: "",
+
+  oauth_connected: false,
+  oauth_provider_account: "",
+  oauth_token_expiry: null,
+  oauth_last_refresh: null,
+  oauth_scopes: [],
 
   send_customer_confirmation: true,
   send_owner_notification: true,
@@ -86,13 +98,21 @@ type Props = {
   emailSettings: TicketingEmailSettings;
   testRecipient: string;
   testingEmail: boolean;
+  connectingGoogle?: boolean;
+  disconnectingGoogle?: boolean;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
   onChange: <K extends keyof TicketingEmailSettings>(
     field: K,
-    value: TicketingEmailSettings[K]
+    value: TicketingEmailSettings[K],
   ) => void;
   onTestRecipientChange: (value: string) => void;
   onTestEmail: () => void;
 };
+
+const smtpProviders = ["zoho", "amazon_ses", "sendgrid", "mailgun", "custom"] as const;
+
+type SmtpProvider = (typeof smtpProviders)[number];
 
 const providerOptions: Array<{
   value: TicketingEmailSettings["provider"];
@@ -100,14 +120,14 @@ const providerOptions: Array<{
   helper: string;
 }> = [
   {
-    value: "gmail",
-    label: "Gmail",
-    helper: "smtp.gmail.com / 587 / TLS",
+    value: "google_oauth",
+    label: "Google",
+    helper: "Recommended for Gmail / Google Workspace",
   },
   {
-    value: "outlook",
-    label: "Outlook / Microsoft 365",
-    helper: "smtp.office365.com / 587 / TLS",
+    value: "microsoft_oauth",
+    label: "Microsoft 365",
+    helper: "Coming soon",
   },
   {
     value: "zoho",
@@ -126,8 +146,8 @@ const providerOptions: Array<{
   },
   {
     value: "mailgun",
-    label: "Mailgun",
-    helper: "smtp.mailgun.org / 587 / TLS",
+    label: "Mailtrap / Mailgun",
+    helper: "SMTP credentials",
   },
   {
     value: "custom",
@@ -136,23 +156,13 @@ const providerOptions: Array<{
   },
 ];
 
+function isSmtpProvider(
+  provider: TicketingEmailSettings["provider"],
+): provider is SmtpProvider {
+  return smtpProviders.includes(provider as SmtpProvider);
+}
+
 function getProviderDefaults(provider: TicketingEmailSettings["provider"]) {
-  if (provider === "gmail") {
-    return {
-      smtp_host: "smtp.gmail.com",
-      smtp_port: 587,
-      smtp_encryption: "tls" as const,
-    };
-  }
-
-  if (provider === "outlook") {
-    return {
-      smtp_host: "smtp.office365.com",
-      smtp_port: 587,
-      smtp_encryption: "tls" as const,
-    };
-  }
-
   if (provider === "zoho") {
     return {
       smtp_host: "smtp.zoho.com",
@@ -212,12 +222,22 @@ export default function TicketingEmailSettingsPanel({
   emailSettings,
   testRecipient,
   testingEmail,
+  connectingGoogle = false,
+  disconnectingGoogle = false,
+  onConnectGoogle,
+  onDisconnectGoogle,
   onChange,
   onTestRecipientChange,
   onTestEmail,
 }: Props) {
-  const connected = emailSettings.connection_status === "connected";
+  const connected =
+    emailSettings.connection_status === "connected" ||
+    Boolean(emailSettings.oauth_connected);
   const failed = emailSettings.connection_status === "failed";
+  const showGoogleOAuth = emailSettings.provider === "google_oauth";
+  const showMicrosoftOAuth = emailSettings.provider === "microsoft_oauth";
+  const showSmtpFields = isSmtpProvider(emailSettings.provider);
+  const googleConnected = Boolean(emailSettings.oauth_connected);
 
   function handleProviderChange(provider: TicketingEmailSettings["provider"]) {
     onChange("provider", provider);
@@ -247,8 +267,9 @@ export default function TicketingEmailSettingsPanel({
               Email Notification Center
             </h2>
             <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-              Let this organisation send booking confirmations and owner alerts from its own email account.
-              Gmail requires a Google App Password, not the normal Gmail password.
+              Let this organisation send booking confirmations and owner alerts
+              from its own email account. Google is connected securely with
+              OAuth, without asking customers for SMTP passwords.
             </p>
           </div>
         </div>
@@ -263,7 +284,7 @@ export default function TicketingEmailSettingsPanel({
                 : "border-slate-200 bg-slate-50 text-slate-600",
           ].join(" ")}
         >
-          {connected ? "🟢" : failed ? "🔴" : "⚪"}{" "}
+          {connected ? "🟢" : failed ? "🔴" : "⚪"} {" "}
           {getStatusCopy(emailSettings.connection_status)}
         </div>
       </div>
@@ -272,7 +293,8 @@ export default function TicketingEmailSettingsPanel({
         <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-sm font-black text-slate-950">Email provider</h3>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-            Choose the provider. Common SMTP values are filled automatically.
+            Google is the easiest professional option. SMTP is available only
+            for advanced providers.
           </p>
 
           <div className="mt-4 grid gap-2">
@@ -302,67 +324,115 @@ export default function TicketingEmailSettingsPanel({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-blue-200 bg-blue-50 p-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
-            <div>
-              <h3 className="text-sm font-black text-blue-950">
-                Gmail App Password guide
-              </h3>
-              <p className="mt-1 text-sm font-semibold leading-6 text-blue-800">
-                Google normally blocks normal account passwords for SMTP. Use a 16-character App Password.
+        {showGoogleOAuth && (
+          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
+              <div>
+                <h3 className="text-sm font-black text-blue-950">
+                  Connect Google securely
+                </h3>
+                <p className="mt-1 text-sm font-semibold leading-6 text-blue-800">
+                  Customers sign in with Gmail or Google Workspace and approve
+                  permission. Booking emails then send from their own account.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/80 bg-white p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Google account
+              </p>
+              <p className="mt-1 text-sm font-black text-slate-950">
+                {googleConnected
+                  ? emailSettings.oauth_provider_account ||
+                    emailSettings.sender_email ||
+                    "Connected Google account"
+                  : "Not connected yet"}
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                Last refresh: {formatDateTime(emailSettings.oauth_last_refresh)}
               </p>
             </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onConnectGoogle}
+                disabled={connectingGoogle || !onConnectGoogle}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-blue-700 px-4 text-sm font-black text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {connectingGoogle ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ExternalLink className="h-4 w-4" />
+                )}
+                {googleConnected ? "Reconnect Google" : "Connect Google"}
+              </button>
+
+              {googleConnected && (
+                <button
+                  type="button"
+                  onClick={onDisconnectGoogle}
+                  disabled={disconnectingGoogle || !onDisconnectGoogle}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-4 text-sm font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {disconnectingGoogle ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Disconnect Google
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-800">
+              Recommended: no SMTP host, port, app password or Gmail password is
+              needed for Google OAuth.
+            </div>
           </div>
+        )}
 
-          <ol className="mt-4 space-y-3 text-sm font-semibold leading-6 text-blue-900">
-            <li>
-              <strong>1.</strong> Open your Google Account Security page.
-            </li>
-            <li>
-              <strong>2.</strong> Enable 2-Step Verification.
-            </li>
-            <li>
-              <strong>3.</strong> Open App Passwords.
-            </li>
-            <li>
-              <strong>4.</strong> Create an app password for Mail.
-            </li>
-            <li>
-              <strong>5.</strong> Copy the 16-character password and paste it below.
-            </li>
-          </ol>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a
-              href="https://myaccount.google.com/security"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-blue-700 shadow-sm"
-            >
-              Google Security <ExternalLink className="h-3 w-3" />
-            </a>
-
-            <a
-              href="https://myaccount.google.com/apppasswords"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-blue-700 shadow-sm"
-            >
-              App Passwords <ExternalLink className="h-3 w-3" />
-            </a>
+        {showMicrosoftOAuth && (
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-slate-600" />
+              <div>
+                <h3 className="text-sm font-black text-slate-950">
+                  Microsoft 365 coming soon
+                </h3>
+                <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                  Microsoft OAuth will be added later for Outlook and Microsoft
+                  365 accounts. Use Google now, or Custom SMTP as an advanced
+                  fallback.
+                </p>
+              </div>
+            </div>
           </div>
+        )}
 
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800">
-            Important: do not paste the normal Gmail password here. Paste only the App Password generated by Google.
+        {showSmtpFields && (
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div>
+                <h3 className="text-sm font-black text-amber-950">
+                  Advanced SMTP fallback
+                </h3>
+                <p className="mt-1 text-sm font-semibold leading-6 text-amber-800">
+                  Use this only for providers that give SMTP credentials.
+                  DigitalOcean may block or time out outbound SMTP depending on
+                  the provider and port.
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <ToggleCard
           label="Enable email sending"
-          description="Allow this organisation to send email notifications using these credentials."
+          description="Allow this organisation to send email notifications using this email provider."
           checked={emailSettings.is_active}
           onChange={(value) => onChange("is_active", value)}
         />
@@ -374,76 +444,101 @@ export default function TicketingEmailSettingsPanel({
           placeholder="Punta Cana Discovery"
         />
 
-        <Input
-          label="Email address / SMTP username"
-          value={emailSettings.smtp_username}
-          onChange={(value) => {
-            onChange("smtp_username", value);
+        {showSmtpFields && (
+          <>
+            <Input
+              label="Email address / SMTP username"
+              value={emailSettings.smtp_username}
+              onChange={(value) => {
+                onChange("smtp_username", value);
 
-            if (!emailSettings.sender_email) {
-              onChange("sender_email", value);
-            }
+                if (!emailSettings.sender_email) {
+                  onChange("sender_email", value);
+                }
 
-            if (!testRecipient) {
-              onTestRecipientChange(value);
-            }
-          }}
-          placeholder="bookings@gmail.com"
-        />
+                if (!testRecipient) {
+                  onTestRecipientChange(value);
+                }
+              }}
+              placeholder="bookings@example.com"
+            />
 
-        <Input
-          label="Sender email"
-          value={emailSettings.sender_email}
-          onChange={(value) => onChange("sender_email", value)}
-          placeholder="bookings@gmail.com"
-        />
+            <Input
+              label="Sender email"
+              value={emailSettings.sender_email}
+              onChange={(value) => onChange("sender_email", value)}
+              placeholder="bookings@example.com"
+            />
 
-        <Input
-          label="App password / SMTP password"
-          value={emailSettings.smtp_password || ""}
-          type="password"
-          onChange={(value) => onChange("smtp_password", value)}
-          placeholder={
-            emailSettings.configured
-              ? "Saved — leave blank to keep current password"
-              : "xxxx xxxx xxxx xxxx"
-          }
-        />
+            <Input
+              label="SMTP password"
+              value={emailSettings.smtp_password || ""}
+              type="password"
+              onChange={(value) => onChange("smtp_password", value)}
+              placeholder={
+                emailSettings.configured
+                  ? "Saved — leave blank to keep current password"
+                  : "SMTP password"
+              }
+            />
 
-        <Input
-          label="Reply-to email"
-          value={emailSettings.reply_to_email}
-          onChange={(value) => onChange("reply_to_email", value)}
-          placeholder="sales@example.com"
-        />
+            <Input
+              label="Reply-to email"
+              value={emailSettings.reply_to_email}
+              onChange={(value) => onChange("reply_to_email", value)}
+              placeholder="sales@example.com"
+            />
 
-        <Input
-          label="SMTP host"
-          value={emailSettings.smtp_host}
-          onChange={(value) => onChange("smtp_host", value)}
-          placeholder="smtp.gmail.com"
-        />
+            <Input
+              label="SMTP host"
+              value={emailSettings.smtp_host}
+              onChange={(value) => onChange("smtp_host", value)}
+              placeholder="smtp.example.com"
+            />
 
-        <Input
-          label="SMTP port"
-          value={String(emailSettings.smtp_port || 587)}
-          type="number"
-          onChange={(value) => onChange("smtp_port", Number(value || 587))}
-          placeholder="587"
-        />
+            <Input
+              label="SMTP port"
+              value={String(emailSettings.smtp_port || 587)}
+              type="number"
+              onChange={(value) => onChange("smtp_port", Number(value || 587))}
+              placeholder="587"
+            />
 
-        <Select
-          label="Encryption"
-          value={emailSettings.smtp_encryption}
-          onChange={(value) =>
-            onChange("smtp_encryption", value as TicketingEmailSettings["smtp_encryption"])
-          }
-          options={[
-            { value: "tls", label: "TLS" },
-            { value: "ssl", label: "SSL" },
-            { value: "none", label: "None" },
-          ]}
-        />
+            <Select
+              label="Encryption"
+              value={emailSettings.smtp_encryption}
+              onChange={(value) =>
+                onChange(
+                  "smtp_encryption",
+                  value as TicketingEmailSettings["smtp_encryption"],
+                )
+              }
+              options={[
+                { value: "tls", label: "TLS" },
+                { value: "ssl", label: "SSL" },
+                { value: "none", label: "None" },
+              ]}
+            />
+          </>
+        )}
+
+        {!showSmtpFields && (
+          <>
+            <Input
+              label="Sender email"
+              value={emailSettings.sender_email}
+              onChange={(value) => onChange("sender_email", value)}
+              placeholder="Connected Google account email"
+            />
+
+            <Input
+              label="Reply-to email"
+              value={emailSettings.reply_to_email}
+              onChange={(value) => onChange("reply_to_email", value)}
+              placeholder="Optional reply-to email"
+            />
+          </>
+        )}
       </div>
 
       <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -518,7 +613,7 @@ export default function TicketingEmailSettingsPanel({
           <button
             type="button"
             onClick={onTestEmail}
-            disabled={testingEmail}
+            disabled={testingEmail || (showGoogleOAuth && !googleConnected)}
             className="inline-flex h-12 items-center justify-center gap-2 self-end rounded-2xl bg-blue-700 px-5 text-sm font-black text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {testingEmail ? (
@@ -529,6 +624,12 @@ export default function TicketingEmailSettingsPanel({
             {testingEmail ? "Testing..." : "Send Test Email"}
           </button>
         </div>
+
+        {showGoogleOAuth && !googleConnected && (
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm font-bold text-blue-800">
+            Connect Google before sending a test email.
+          </div>
+        )}
 
         {emailSettings.last_error_message && (
           <div className="mt-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
