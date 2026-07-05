@@ -21,6 +21,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils.dateparse import parse_date
+from django.utils.text import slugify
 
 logger = logging.getLogger(__name__)
 
