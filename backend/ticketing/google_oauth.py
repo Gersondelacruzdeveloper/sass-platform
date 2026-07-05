@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.readonly",
 ]
 
 
