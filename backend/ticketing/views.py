@@ -4147,6 +4147,32 @@ class StripeWebhookAPIView(APIView):
             payment_status=payment.status,
         )
 
+        # Send customer confirmation email after payment is confirmed
+        try:
+            self.webhook_log(
+                "SENDING_CUSTOMER_CONFIRMATION",
+                booking_code=updated_booking.booking_code,
+                payment_status=updated_booking.payment_status,
+            )
+
+            notification_logs = BookingNotificationService.payment_confirmed(
+                updated_booking
+            )
+
+            self.webhook_log(
+                "CUSTOMER_CONFIRMATION_SENT",
+                booking_code=updated_booking.booking_code,
+                notification_count=len(notification_logs or []),
+            )
+
+        except Exception as exc:
+            self.webhook_log(
+                "CUSTOMER_CONFIRMATION_FAILED",
+                booking_code=updated_booking.booking_code,
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+
         self.webhook_log("END_OK")
 
         return Response(
