@@ -11,6 +11,9 @@ import {
   Hotel,
   Loader2,
   MapPin,
+  Upload,
+  Download,
+  FileSpreadsheet,
   Package,
   Plus,
   RefreshCw,
@@ -90,6 +93,41 @@ type ResolvePickupResponse = {
   service_date?: string;
   message?: string;
   schedule?: ProductPickupSchedule;
+};
+
+type ImportSummary = {
+  rows_read: number;
+  valid_rows: number;
+  invalid_rows: number;
+  existing_locations: number;
+  new_locations: number;
+  existing_schedules: number;
+  new_schedules: number;
+  updated_schedules: number;
+  created_locations: number;
+  created_schedules: number;
+  skipped_duplicates: number;
+};
+
+type ImportRow = {
+  row_number: number;
+  hotel_name: string;
+  pickup_time: string;
+  zone_name: string;
+  pickup_point: string;
+  instructions: string;
+  specific_date: string;
+  day_of_week: number | null;
+  status: string;
+  action: string;
+  errors: string[];
+};
+
+type ImportResponse = {
+  mode: "preview" | "import";
+  product: { id: number; name: string };
+  summary: ImportSummary;
+  rows: ImportRow[];
 };
 
 type ZoneForm = {
@@ -270,6 +308,13 @@ export default function TicketingPickupSchedulesPage() {
   const [testResult, setTestResult] = useState<ResolvePickupResponse | null>(
     null
   );
+
+  const [importProductId, setImportProductId] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importUpdateExisting, setImportUpdateExisting] = useState(false);
+  const [previewingImport, setPreviewingImport] = useState(false);
+  const [committingImport, setCommittingImport] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResponse | null>(null);
 
   async function loadData() {
     if (!organisationSlug) return;
@@ -609,6 +654,83 @@ export default function TicketingPickupSchedulesPage() {
     }
   }
 
+  function downloadImportTemplate() {
+    const csvRows = [
+      ["hotel", "pickup_time", "zone", "pickup_point", "instructions", "day_of_week", "specific_date"],
+      ["Hard Rock Punta Cana", "07:15", "Bavaro", "Main lobby", "Wait 10 minutes before pickup", "", ""],
+      ["Majestic Colonial", "07:25", "Bavaro", "Reception", "", "", ""],
+    ];
+
+    const csvContent = csvRows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "pickup-schedule-template.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  async function submitImport(mode: "preview" | "import") {
+    if (!importProductId) {
+      setError("Select the product this pickup schedule belongs to.");
+      return;
+    }
+
+    if (!importFile) {
+      setError("Choose a CSV file to import.");
+      return;
+    }
+
+    try {
+      if (mode === "preview") {
+        setPreviewingImport(true);
+      } else {
+        setCommittingImport(true);
+      }
+
+      setError("");
+      setSavedMessage("");
+
+      const formData = new FormData();
+      formData.append("product", importProductId);
+      formData.append("product_id", importProductId);
+      formData.append("file", importFile);
+      formData.append("mode", mode);
+      formData.append("update_existing", importUpdateExisting ? "true" : "false");
+
+      const response = await api.post<ImportResponse>(
+        "/ticketing/pickup-schedules/import-csv/",
+        formData,
+        {
+          params: requestParams,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      setImportResult(response.data);
+
+      if (mode === "import") {
+        setSavedMessage(
+          `Import completed. Created ${response.data.summary.created_locations} hotel(s) and ${response.data.summary.created_schedules} schedule(s).`
+        );
+        await loadData();
+      }
+    } catch (err: any) {
+      setError(getErrorMessage(err, "Could not import pickup schedule CSV."));
+    } finally {
+      setPreviewingImport(false);
+      setCommittingImport(false);
+    }
+  }
+
   async function testResolver() {
     if (!testProductId || !testLocationId || !testServiceDate) {
       setError("For the test, select product, hotel/location and service date.");
@@ -727,6 +849,154 @@ export default function TicketingPickupSchedulesPage() {
           icon={Clock3}
         />
       </section>
+
+      <Panel
+        title="Import pickup schedule CSV"
+        description="Upload a CSV with hotel names and pickup times. The system creates missing hotels for this organisation and adds pickup schedules for the selected product."
+        icon={FileSpreadsheet}
+      >
+        <div className="grid gap-4 xl:grid-cols-[1fr_1fr_auto_auto]">
+          <Select
+            label="Product for this schedule"
+            value={importProductId}
+            onChange={setImportProductId}
+            options={[
+              { value: "", label: "Select product" },
+              ...pickupProducts.map((product) => ({
+                value: String(product.id),
+                label: product.name,
+              })),
+            ]}
+          />
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">CSV file</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => {
+                setImportFile(event.target.files?.[0] || null);
+                setImportResult(null);
+              }}
+              className="mt-2 block h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:text-sm file:font-black file:text-white"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={downloadImportTemplate}
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" />
+              Template
+            </button>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => submitImport("preview")}
+              disabled={previewingImport || committingImport}
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 px-5 text-sm font-black text-white transition hover:bg-amber-600 disabled:opacity-60"
+            >
+              {previewingImport ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Analyze
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <Toggle
+            label="Update existing schedules when product + hotel + rule already exists"
+            checked={importUpdateExisting}
+            onChange={setImportUpdateExisting}
+          />
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-6 text-slate-500">
+          Required CSV columns: <strong>hotel</strong> and <strong>pickup_time</strong>. Optional columns: <strong>zone</strong>, <strong>pickup_point</strong>, <strong>instructions</strong>, <strong>day_of_week</strong>, <strong>specific_date</strong>.
+        </div>
+
+        {importResult && (
+          <div className="mt-5 space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <ResultBox label="Rows" value={String(importResult.summary.rows_read)} />
+              <ResultBox label="New hotels" value={String(importResult.summary.new_locations)} />
+              <ResultBox label="New schedules" value={String(importResult.summary.new_schedules)} />
+              <ResultBox label="Invalid" value={String(importResult.summary.invalid_rows)} />
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-slate-200">
+              <div className="max-h-96 overflow-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <Th>Row</Th>
+                      <Th>Hotel</Th>
+                      <Th>Time</Th>
+                      <Th>Zone</Th>
+                      <Th>Status</Th>
+                      <Th>Action</Th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {importResult.rows.map((row) => (
+                      <tr key={`${row.row_number}-${row.hotel_name}`}>
+                        <Td>{row.row_number}</Td>
+                        <Td>{row.hotel_name || "—"}</Td>
+                        <Td>{row.pickup_time || "—"}</Td>
+                        <Td>{row.zone_name || "—"}</Td>
+                        <Td>
+                          <span
+                            className={[
+                              "rounded-full px-2.5 py-1 text-xs font-black",
+                              row.errors.length
+                                ? "bg-red-50 text-red-700"
+                                : row.status === "duplicate"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-emerald-50 text-emerald-700",
+                            ].join(" ")}
+                          >
+                            {row.errors.length ? "Error" : row.status}
+                          </span>
+                        </Td>
+                        <Td>
+                          {row.errors.length ? row.errors.join(", ") : row.action}
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold leading-6 text-slate-500">
+                Review the preview before importing. Invalid rows will be skipped.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => submitImport("import")}
+                disabled={committingImport || previewingImport || importResult.summary.valid_rows === 0}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {committingImport ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Import Valid Rows
+              </button>
+            </div>
+          </div>
+        )}
+      </Panel>
 
       {error && (
         <div className="flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">

@@ -1,5 +1,8 @@
 from decimal import Decimal
+import csv
+import io
 import json
+import re
 import traceback
 import logging
 
@@ -7,6 +10,7 @@ import requests
 import stripe
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -900,6 +904,396 @@ class ProductPickupScheduleViewSet(
             )
 
         serializer.save(product=product, pickup_location=pickup_location)
+
+    def get_import_value(self, row, *keys):
+        for key in keys:
+            for row_key, value in row.items():
+                normalized_key = str(row_key or "").strip().lower().replace(" ", "_")
+                if normalized_key == key:
+                    return str(value or "").strip()
+        return ""
+
+    def normalize_import_time(self, value):
+        raw = str(value or "").strip()
+
+        if not raw:
+            return ""
+
+        cleaned = raw.lower().replace(".", ":").replace(" ", "")
+        is_pm = "pm" in cleaned or "p.m" in cleaned
+        is_am = "am" in cleaned or "a.m" in cleaned
+        cleaned = re.sub(r"[^0-9:]", "", cleaned)
+
+        if not cleaned:
+            return ""
+
+        if ":" in cleaned:
+            hour_raw, minute_raw = cleaned.split(":", 1)
+        elif len(cleaned) in [3, 4]:
+            hour_raw, minute_raw = cleaned[:-2], cleaned[-2:]
+        else:
+            hour_raw, minute_raw = cleaned, "00"
+
+        try:
+            hour = int(hour_raw)
+            minute = int((minute_raw or "00")[:2])
+        except ValueError:
+            return ""
+
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            return ""
+
+        if is_pm and hour < 12:
+            hour += 12
+
+        if is_am and hour == 12:
+            hour = 0
+
+        return f"{hour:02d}:{minute:02d}"
+
+    def parse_import_csv_rows(self, uploaded_file):
+        try:
+            decoded = uploaded_file.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            uploaded_file.seek(0)
+            decoded = uploaded_file.read().decode("latin-1")
+
+        stream = io.StringIO(decoded)
+        sample = decoded[:2048]
+
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+
+        reader = csv.DictReader(stream, dialect=dialect)
+
+        if not reader.fieldnames:
+            raise ValueError("CSV file must include a header row.")
+
+        rows = []
+
+        for index, row in enumerate(reader, start=2):
+            hotel_name = self.get_import_value(
+                row,
+                "hotel",
+                "hotel_name",
+                "pickup_location",
+                "pickup_location_name",
+                "location",
+                "name",
+            )
+            pickup_time = self.normalize_import_time(
+                self.get_import_value(row, "pickup_time", "time", "hour")
+            )
+            zone_name = self.get_import_value(row, "zone", "area", "pickup_zone")
+            pickup_point = self.get_import_value(row, "pickup_point", "point", "meeting_point")
+            instructions = self.get_import_value(row, "instructions", "notes", "note")
+            specific_date = self.get_import_value(row, "specific_date", "date", "service_date")
+            day_of_week = self.get_import_value(row, "day_of_week", "day", "weekday")
+
+            if not hotel_name and not pickup_time:
+                continue
+
+            rows.append(
+                {
+                    "row_number": index,
+                    "hotel_name": hotel_name,
+                    "pickup_time": pickup_time,
+                    "zone_name": zone_name,
+                    "pickup_point": pickup_point,
+                    "instructions": instructions,
+                    "specific_date": specific_date or None,
+                    "day_of_week": day_of_week,
+                    "errors": [],
+                }
+            )
+
+        return rows
+
+    def normalize_import_day_of_week(self, value):
+        raw = str(value or "").strip().lower()
+
+        if raw == "":
+            return None
+
+        if raw.isdigit():
+            number = int(raw)
+            return number if 0 <= number <= 6 else None
+
+        day_map = {
+            "monday": 0,
+            "mon": 0,
+            "lunes": 0,
+            "tuesday": 1,
+            "tue": 1,
+            "martes": 1,
+            "wednesday": 2,
+            "wed": 2,
+            "miercoles": 2,
+            "miércoles": 2,
+            "thursday": 3,
+            "thu": 3,
+            "jueves": 3,
+            "friday": 4,
+            "fri": 4,
+            "viernes": 4,
+            "saturday": 5,
+            "sat": 5,
+            "sabado": 5,
+            "sábado": 5,
+            "sunday": 6,
+            "sun": 6,
+            "domingo": 6,
+        }
+
+        return day_map.get(raw)
+
+    @action(detail=False, methods=["post"], url_path="import-csv")
+    def import_csv(self, request):
+        organisation = self.require_organisation()
+
+        product_id = request.data.get("product") or request.data.get("product_id")
+        upload = request.FILES.get("file")
+        mode = str(request.data.get("mode") or "preview").lower()
+        commit_import = mode in ["import", "commit", "save"]
+        update_existing = str(request.data.get("update_existing") or "false").lower() == "true"
+        create_zones = str(request.data.get("create_zones") or "true").lower() != "false"
+
+        if not product_id:
+            return Response(
+                {"product": "Select a product before importing."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not upload:
+            return Response(
+                {"file": "Upload a CSV file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        product = get_object_or_404(
+            ExperienceProduct,
+            id=product_id,
+            organisation=organisation,
+        )
+
+        try:
+            parsed_rows = self.parse_import_csv_rows(upload)
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        preview_rows = []
+        summary = {
+            "rows_read": len(parsed_rows),
+            "valid_rows": 0,
+            "invalid_rows": 0,
+            "existing_locations": 0,
+            "new_locations": 0,
+            "existing_schedules": 0,
+            "new_schedules": 0,
+            "updated_schedules": 0,
+            "created_locations": 0,
+            "created_schedules": 0,
+            "skipped_duplicates": 0,
+        }
+
+        seen_keys = set()
+
+        def process_rows():
+            for row in parsed_rows:
+                hotel_name = row["hotel_name"].strip()
+                pickup_time = row["pickup_time"]
+                zone_name = row["zone_name"].strip()
+                pickup_point = row["pickup_point"].strip()
+                instructions = row["instructions"].strip()
+                specific_date = row["specific_date"]
+                day_of_week = self.normalize_import_day_of_week(row["day_of_week"])
+                row_errors = []
+
+                if not hotel_name:
+                    row_errors.append("Hotel name is required.")
+
+                if not pickup_time:
+                    row_errors.append("Pickup time is required or invalid.")
+
+                if specific_date and not parse_date(str(specific_date)):
+                    row_errors.append("specific_date must be YYYY-MM-DD.")
+
+                if row["day_of_week"] and day_of_week is None:
+                    row_errors.append("day_of_week must be 0-6 or a valid day name.")
+
+                specific_date_value = parse_date(str(specific_date)) if specific_date else None
+                slug_value = slugify(hotel_name)
+
+                location = None
+                schedule = None
+                status_label = "invalid" if row_errors else "ready"
+                action_label = "Skipped"
+                location_created = False
+                schedule_created = False
+                schedule_updated = False
+
+                duplicate_key = (
+                    product.id,
+                    slug_value,
+                    specific_date_value.isoformat() if specific_date_value else "",
+                    "" if day_of_week is None else str(day_of_week),
+                )
+
+                if not row_errors and duplicate_key in seen_keys:
+                    row_errors.append("Duplicate row in this file.")
+                    status_label = "duplicate"
+                    action_label = "Skipped duplicate"
+
+                if not row_errors:
+                    seen_keys.add(duplicate_key)
+
+                    location = PickupLocation.objects.filter(
+                        organisation=organisation,
+                        slug=slug_value,
+                    ).first()
+
+                    location_exists = bool(location)
+
+                    if location_exists:
+                        summary["existing_locations"] += 1
+                    else:
+                        summary["new_locations"] += 1
+
+                    if commit_import and not location:
+                        zone = None
+
+                        if zone_name and create_zones:
+                            zone, _ = PickupZone.objects.get_or_create(
+                                organisation=organisation,
+                                name=zone_name,
+                                defaults={"description": "Imported from pickup schedule CSV."},
+                            )
+
+                        location = PickupLocation.objects.create(
+                            organisation=organisation,
+                            zone=zone,
+                            name=hotel_name,
+                            slug=slug_value,
+                            location_type="hotel",
+                            default_pickup_point=pickup_point,
+                            default_instructions=instructions,
+                            is_active=True,
+                        )
+                        location_created = True
+                        summary["created_locations"] += 1
+
+                    if location:
+                        schedule_queryset = ProductPickupSchedule.objects.filter(
+                            product=product,
+                            pickup_location=location,
+                            specific_date=specific_date_value,
+                        )
+
+                        if day_of_week is None:
+                            schedule_queryset = schedule_queryset.filter(day_of_week__isnull=True)
+                        else:
+                            schedule_queryset = schedule_queryset.filter(day_of_week=day_of_week)
+
+                        schedule = schedule_queryset.first()
+
+                        if schedule:
+                            summary["existing_schedules"] += 1
+
+                            if commit_import and update_existing:
+                                schedule.pickup_time = pickup_time
+                                schedule.pickup_point = pickup_point
+                                schedule.instructions = instructions
+                                schedule.is_active = True
+                                schedule.save(
+                                    update_fields=[
+                                        "pickup_time",
+                                        "pickup_point",
+                                        "instructions",
+                                        "is_active",
+                                        "updated_at",
+                                    ]
+                                )
+                                schedule_updated = True
+                                summary["updated_schedules"] += 1
+                        else:
+                            summary["new_schedules"] += 1
+
+                            if commit_import:
+                                ProductPickupSchedule.objects.create(
+                                    product=product,
+                                    pickup_location=location,
+                                    day_of_week=day_of_week,
+                                    specific_date=specific_date_value,
+                                    pickup_time=pickup_time,
+                                    pickup_point=pickup_point,
+                                    instructions=instructions,
+                                    is_active=True,
+                                )
+                                schedule_created = True
+                                summary["created_schedules"] += 1
+
+                    if row_errors:
+                        summary["invalid_rows"] += 1
+                    else:
+                        summary["valid_rows"] += 1
+
+                    if schedule_created:
+                        status_label = "created"
+                        action_label = "Created schedule"
+                    elif schedule_updated:
+                        status_label = "updated"
+                        action_label = "Updated existing schedule"
+                    elif schedule:
+                        status_label = "duplicate"
+                        action_label = "Existing schedule skipped"
+                        summary["skipped_duplicates"] += 1
+                    elif location_created:
+                        status_label = "created"
+                        action_label = "Created hotel and schedule"
+                    else:
+                        status_label = "new" if not location_exists else "matched"
+                        action_label = "Will create schedule" if not commit_import else "Ready"
+                else:
+                    summary["invalid_rows"] += 1
+
+                preview_rows.append(
+                    {
+                        "row_number": row["row_number"],
+                        "hotel_name": hotel_name,
+                        "pickup_time": pickup_time,
+                        "zone_name": zone_name,
+                        "pickup_point": pickup_point,
+                        "instructions": instructions,
+                        "specific_date": specific_date or "",
+                        "day_of_week": day_of_week,
+                        "status": status_label,
+                        "action": action_label,
+                        "errors": row_errors,
+                    }
+                )
+
+        if commit_import:
+            with transaction.atomic():
+                process_rows()
+        else:
+            process_rows()
+
+        return Response(
+            {
+                "mode": "import" if commit_import else "preview",
+                "product": {
+                    "id": product.id,
+                    "name": product.name,
+                },
+                "summary": summary,
+                "rows": preview_rows[:500],
+            }
+        )
 
     @action(detail=False, methods=["get"], url_path="resolve")
     def resolve(self, request):
