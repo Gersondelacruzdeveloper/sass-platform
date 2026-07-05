@@ -552,6 +552,8 @@ export default function TicketingSettingsPage() {
   const [emailSettings, setEmailSettings] =
     useState<TicketingEmailSettings>(initialEmailSettings);
   const [testingEmail, setTestingEmail] = useState(false);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
   const [testRecipient, setTestRecipient] = useState("");
   const [publicSite, setPublicSite] =
     useState<TicketingPublicSiteSettings>(initialPublicSite);
@@ -1639,6 +1641,77 @@ export default function TicketingSettingsPage() {
     }
   }
 
+  async function handleConnectGoogle() {
+    try {
+      setConnectingGoogle(true);
+      setError("");
+      setSavedMessage("");
+
+      const { data } = await api.post<{
+        authorization_url?: string;
+      }>(
+        "/ticketing/email-settings/google/connect/",
+        {},
+        {
+          params: requestParams,
+        },
+      );
+
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url;
+        return;
+      }
+
+      throw new Error("Google authorization URL was not returned.");
+    } catch (err: any) {
+      console.error("Could not start Google connection:", err);
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not start Google connection.",
+      );
+    } finally {
+      setConnectingGoogle(false);
+    }
+  }
+
+  async function handleDisconnectGoogle() {
+    try {
+      setDisconnectingGoogle(true);
+      setError("");
+      setSavedMessage("");
+
+      const { data } = await api.post<TicketingEmailSettings>(
+        "/ticketing/email-settings/google/disconnect/",
+        {},
+        {
+          params: requestParams,
+        },
+      );
+
+      setEmailSettings((current) => ({
+        ...current,
+        ...data,
+        smtp_password: "",
+      }));
+
+      setSavedMessage("Google account disconnected.");
+    } catch (err: any) {
+      console.error("Could not disconnect Google:", err);
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not disconnect Google.",
+      );
+    } finally {
+      setDisconnectingGoogle(false);
+    }
+  }
+
   async function handleTestEmail() {
     try {
       setTestingEmail(true);
@@ -2095,6 +2168,10 @@ export default function TicketingSettingsPage() {
           emailSettings={emailSettings}
           testRecipient={testRecipient}
           testingEmail={testingEmail}
+          connectingGoogle={connectingGoogle}
+          disconnectingGoogle={disconnectingGoogle}
+          onConnectGoogle={handleConnectGoogle}
+          onDisconnectGoogle={handleDisconnectGoogle}
           onChange={updateEmailSettingsField}
           onTestRecipientChange={setTestRecipient}
           onTestEmail={handleTestEmail}

@@ -196,3 +196,8 @@ DEFAULT_FROM_EMAIL = env.str(
     default="Punta Cana Discovery <no-reply@puntacanadiscovery.com>",
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+GOOGLE_CLIENT_ID= env.str("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET= env.str("GOOGLE_CLIENT_SECRET", default="")
+GOOGLE_OAUTH_REDIRECT_URI=env.str("GOOGLE_OAUTH_REDIRECT_URI", default="")
+FRONTEND_APP_URL=env.str("FRONTEND_APP_URL", default="https://app.puntacanadiscovery.com")

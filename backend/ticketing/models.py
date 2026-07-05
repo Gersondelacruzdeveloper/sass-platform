@@ -1536,8 +1536,8 @@ class TicketingPaymentProviderSettings(models.Model):
 
 class TicketingEmailSettings(models.Model):
     EMAIL_PROVIDER_CHOICES = (
-        ("gmail", "Gmail"),
-        ("outlook", "Outlook / Microsoft 365"),
+        ("google_oauth", "Google"),
+        ("microsoft_oauth", "Microsoft 365"),
         ("zoho", "Zoho Mail"),
         ("amazon_ses", "Amazon SES"),
         ("sendgrid", "SendGrid"),
@@ -1567,41 +1567,33 @@ class TicketingEmailSettings(models.Model):
     provider = models.CharField(
         max_length=30,
         choices=EMAIL_PROVIDER_CHOICES,
-        default="gmail",
+        default="google_oauth",
     )
 
     is_active = models.BooleanField(default=False)
 
-    smtp_host = models.CharField(
-        max_length=255,
-        blank=True,
-    )
-
-    smtp_port = models.PositiveIntegerField(
-        default=587,
-    )
-
+    smtp_host = models.CharField(max_length=255, blank=True)
+    smtp_port = models.PositiveIntegerField(default=587)
     smtp_encryption = models.CharField(
         max_length=10,
         choices=ENCRYPTION_CHOICES,
         default="tls",
     )
-
     smtp_username = models.EmailField(blank=True)
+    smtp_password = models.CharField(max_length=255, blank=True)
 
-    smtp_password = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="For Gmail use a Google App Password.",
-    )
+    # OAuth: Google / Microsoft
+    oauth_connected = models.BooleanField(default=False)
+    oauth_provider_account = models.EmailField(blank=True)
+    oauth_access_token = models.TextField(blank=True)
+    oauth_refresh_token = models.TextField(blank=True)
+    oauth_token_expiry = models.DateTimeField(null=True, blank=True)
+    oauth_last_refresh = models.DateTimeField(null=True, blank=True)
+    oauth_connection_id = models.CharField(max_length=255, blank=True)
+    oauth_scopes = models.JSONField(default=list, blank=True)
 
-    sender_name = models.CharField(
-        max_length=150,
-        blank=True,
-    )
-
+    sender_name = models.CharField(max_length=150, blank=True)
     sender_email = models.EmailField(blank=True)
-
     reply_to_email = models.EmailField(blank=True)
 
     send_customer_confirmation = models.BooleanField(default=True)
@@ -1618,19 +1610,25 @@ class TicketingEmailSettings(models.Model):
     )
 
     last_test_email = models.EmailField(blank=True)
-
-    last_test_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
+    last_test_at = models.DateTimeField(null=True, blank=True)
     last_error_message = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @property
+    def uses_oauth(self):
+        return self.provider in ["google_oauth", "microsoft_oauth"]
+
+    @property
     def has_credentials(self):
+        if self.uses_oauth:
+            return (
+                self.is_active
+                and self.oauth_connected
+                and bool(self.oauth_refresh_token)
+            )
+
         return (
             self.is_active
             and bool(self.smtp_host)
@@ -1640,18 +1638,20 @@ class TicketingEmailSettings(models.Model):
 
     @property
     def from_email(self):
-        if self.sender_name:
-            return f"{self.sender_name} <{self.sender_email}>"
-        return self.sender_email
+        email = self.sender_email or self.oauth_provider_account or self.smtp_username
+
+        if self.sender_name and email:
+            return f"{self.sender_name} <{email}>"
+
+        return email
 
     def apply_provider_defaults(self):
         defaults = {
-            "gmail": ("smtp.gmail.com", 587, "tls"),
-            "outlook": ("smtp.office365.com", 587, "tls"),
             "zoho": ("smtp.zoho.com", 587, "tls"),
             "amazon_ses": ("email-smtp.us-east-1.amazonaws.com", 587, "tls"),
             "sendgrid": ("smtp.sendgrid.net", 587, "tls"),
             "mailgun": ("smtp.mailgun.org", 587, "tls"),
+            "custom": ("", 587, "tls"),
         }
 
         if self.provider in defaults:
@@ -1676,7 +1676,7 @@ class TicketingEmailSettings(models.Model):
     class Meta:
         verbose_name = "Ticketing Email Settings"
         verbose_name_plural = "Ticketing Email Settings"
-        
+
 class ExternalProviderProductSnapshot(models.Model):
     organisation = models.ForeignKey(
         Organisation,

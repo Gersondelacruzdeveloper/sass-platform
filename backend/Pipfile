@@ -19,6 +19,9 @@ stripe = "*"
 django-storages = "*"
 boto3 = "*"
 pillow = "*"
+google-auth = "*"
+google-auth-oauthlib = "*"
+google-api-python-client = "*"
 
 [dev-packages]
 

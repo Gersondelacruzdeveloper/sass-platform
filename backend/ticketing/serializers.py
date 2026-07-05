@@ -858,17 +858,26 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             "provider",
             "is_active",
 
+            # SMTP
             "smtp_host",
             "smtp_port",
             "smtp_encryption",
-
             "smtp_username",
             "smtp_password",
 
+            # OAuth (display only)
+            "oauth_connected",
+            "oauth_provider_account",
+            "oauth_token_expiry",
+            "oauth_last_refresh",
+            "oauth_scopes",
+
+            # Sender
             "sender_name",
             "sender_email",
             "reply_to_email",
 
+            # Notifications
             "send_customer_confirmation",
             "send_owner_notification",
             "send_receipt_email",
@@ -876,6 +885,7 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             "send_review_request_email",
             "send_reminder_email",
 
+            # Status
             "connection_status",
             "last_test_email",
             "last_test_at",
@@ -892,6 +902,14 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             "organisation",
             "organisation_name",
 
+            # OAuth
+            "oauth_connected",
+            "oauth_provider_account",
+            "oauth_token_expiry",
+            "oauth_last_refresh",
+            "oauth_scopes",
+
+            # Status
             "connection_status",
             "last_test_email",
             "last_test_at",
@@ -914,7 +932,7 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
         return obj.has_credentials
 
     def update(self, instance, validated_data):
-        # Don't overwrite the saved password if frontend sends ""
+        # Don't overwrite the saved SMTP password if the frontend sends ""
         if (
             "smtp_password" in validated_data
             and not validated_data["smtp_password"]
@@ -922,7 +940,6 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             validated_data.pop("smtp_password")
 
         return super().update(instance, validated_data)
-    
 
 class ExternalProviderProductSnapshotSerializer(MediaURLMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(

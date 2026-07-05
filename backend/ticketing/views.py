@@ -25,6 +25,16 @@ from django.utils.text import slugify
 from django.core.mail import EmailMessage
 from .notifications.utils import get_email_connection
 from .notifications.templates import test_email_subject, test_email_body
+import secrets
+from django.shortcuts import redirect
+
+from .google_oauth import (
+    build_google_authorization_url,
+    exchange_google_code_for_credentials,
+    store_google_credentials,
+    disconnect_google,
+    send_gmail_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2223,7 +2233,7 @@ class TicketingPaymentProviderSettingsViewSet(TicketingPrivateViewSet):
 
         serializer = self.get_serializer(provider_settings)
         return Response(serializer.data)
-
+    
 class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
     serializer_class = TicketingEmailSettingsSerializer
     permission_classes = [CanManageTicketingIntegrations]
@@ -2236,19 +2246,21 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
 
         return TicketingEmailSettings.objects.filter(organisation=organisation)
 
-    @action(detail=False, methods=["get", "patch"], url_path="mine")
-    def mine(self, request):
+    def get_email_settings(self):
         organisation = self.require_organisation()
 
         email_settings, created = TicketingEmailSettings.objects.get_or_create(
             organisation=organisation,
             defaults={
-                "provider": "gmail",
-                "smtp_host": "smtp.gmail.com",
-                "smtp_port": 587,
-                "smtp_encryption": "tls",
+                "provider": "google_oauth",
             },
         )
+
+        return email_settings
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        email_settings = self.get_email_settings()
 
         if request.method == "PATCH":
             serializer = self.get_serializer(
@@ -2263,19 +2275,99 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
         serializer = self.get_serializer(email_settings)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["post"], url_path="google/connect")
+    def google_connect(self, request):
+        organisation = self.require_organisation()
+
+        email_settings = self.get_email_settings()
+        email_settings.provider = "google_oauth"
+        email_settings.save(update_fields=["provider", "updated_at"])
+
+        state = f"{organisation.slug}:{secrets.token_urlsafe(32)}"
+
+        authorization_url, returned_state = build_google_authorization_url(state)
+
+        return Response(
+            {
+                "authorization_url": authorization_url,
+                "state": returned_state,
+            }
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="google/callback",
+        permission_classes=[permissions.AllowAny],
+    )
+    def google_callback(self, request):
+        code = request.query_params.get("code")
+        state = request.query_params.get("state", "")
+
+        frontend_url = getattr(
+            settings,
+            "FRONTEND_APP_URL",
+            "https://app.puntacanadiscovery.com",
+        )
+
+        if not code:
+            return redirect(f"{frontend_url}/ticketing/settings?google_email=failed")
+
+        try:
+            organisation_slug = state.split(":", 1)[0]
+            organisation = get_object_or_404(Organisation, slug=organisation_slug)
+
+            email_settings, created = TicketingEmailSettings.objects.get_or_create(
+                organisation=organisation,
+                defaults={
+                    "provider": "google_oauth",
+                },
+            )
+
+            credentials = exchange_google_code_for_credentials(code, state=state)
+            store_google_credentials(email_settings, credentials)
+
+            return redirect(
+                f"{frontend_url}/ticketing/settings?google_email=connected"
+            )
+
+        except Exception as exc:
+            logger.exception("Google email OAuth callback failed.")
+            return redirect(
+                f"{frontend_url}/ticketing/settings?google_email=failed&error={str(exc)}"
+            )
+
+    @action(detail=False, methods=["post"], url_path="google/disconnect")
+    def google_disconnect(self, request):
+        email_settings = self.get_email_settings()
+        disconnect_google(email_settings)
+
+        return Response(
+            {
+                "ok": True,
+                "detail": "Google email disconnected.",
+                "email_settings": self.get_serializer(email_settings).data,
+            }
+        )
+
+    @action(detail=False, methods=["get"], url_path="google/status")
+    def google_status(self, request):
+        email_settings = self.get_email_settings()
+
+        return Response(
+            {
+                "provider": email_settings.provider,
+                "oauth_connected": email_settings.oauth_connected,
+                "oauth_provider_account": email_settings.oauth_provider_account,
+                "connection_status": email_settings.connection_status,
+                "email_settings": self.get_serializer(email_settings).data,
+            }
+        )
+
     @action(detail=False, methods=["post"], url_path="test")
     def test(self, request):
         organisation = self.require_organisation()
-
-        email_settings, created = TicketingEmailSettings.objects.get_or_create(
-            organisation=organisation,
-            defaults={
-                "provider": "gmail",
-                "smtp_host": "smtp.gmail.com",
-                "smtp_port": 587,
-                "smtp_encryption": "tls",
-            },
-        )
+        email_settings = self.get_email_settings()
 
         serializer = self.get_serializer(
             email_settings,
@@ -2288,6 +2380,7 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
         test_recipient = (
             request.data.get("test_recipient")
             or email_settings.sender_email
+            or email_settings.oauth_provider_account
             or email_settings.smtp_username
         )
 
@@ -2321,19 +2414,45 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
             )
 
         try:
-            connection = get_email_connection(email_settings)
+            if email_settings.provider == "google_oauth":
+                send_response = send_gmail_email(
+                    email_settings=email_settings,
+                    to_email=test_recipient,
+                    subject=test_email_subject(organisation),
+                    body=test_email_body(organisation),
+                )
 
-            message = EmailMessage(
-                subject=test_email_subject(organisation),
-                body=test_email_body(organisation),
-                from_email=email_settings.from_email,
-                to=[test_recipient],
-                reply_to=[email_settings.reply_to_email]
-                if email_settings.reply_to_email
-                else None,
-                connection=connection,
-            )
-            message.send(fail_silently=False)
+                provider_response = {
+                    "type": "test_email",
+                    "provider": email_settings.provider,
+                    "gmail_response": send_response,
+                }
+
+                subject = test_email_subject(organisation)
+                body = test_email_body(organisation)
+
+            else:
+                connection = get_email_connection(email_settings)
+
+                message = EmailMessage(
+                    subject=test_email_subject(organisation),
+                    body=test_email_body(organisation),
+                    from_email=email_settings.from_email,
+                    to=[test_recipient],
+                    reply_to=[email_settings.reply_to_email]
+                    if email_settings.reply_to_email
+                    else None,
+                    connection=connection,
+                )
+                message.send(fail_silently=False)
+
+                provider_response = {
+                    "type": "test_email",
+                    "provider": email_settings.provider,
+                }
+
+                subject = message.subject
+                body = message.body
 
             email_settings.connection_status = "connected"
             email_settings.last_test_email = test_recipient
@@ -2353,13 +2472,10 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
                 organisation=organisation,
                 channel="email",
                 recipient=test_recipient,
-                subject=message.subject,
-                message=message.body,
+                subject=subject,
+                message=body,
                 status="sent",
-                provider_response={
-                    "type": "test_email",
-                    "provider": email_settings.provider,
-                },
+                provider_response=provider_response,
                 sent_at=timezone.now(),
             )
 
@@ -2408,7 +2524,7 @@ class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
+        
 class ExternalProviderProductSnapshotViewSet(TicketingPrivateViewSet):
     serializer_class = ExternalProviderProductSnapshotSerializer
     permission_classes = [CanManageTicketingIntegrations]
