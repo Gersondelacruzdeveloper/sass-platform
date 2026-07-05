@@ -1277,11 +1277,28 @@ class ProductPickupScheduleViewSet(
                     }
                 )
 
-        if commit_import:
-            with transaction.atomic():
+        try:
+            if commit_import:
+                with transaction.atomic():
+                    process_rows()
+            else:
                 process_rows()
-        else:
-            process_rows()
+        except Exception as exc:
+            logger.exception("Pickup schedule CSV import failed.")
+            print("=" * 80)
+            print("PICKUP SCHEDULE CSV IMPORT FAILED")
+            traceback.print_exc()
+            print("=" * 80)
+
+            return Response(
+                {
+                    "detail": "Pickup schedule import failed.",
+                    "error": str(exc),
+                    "error_type": exc.__class__.__name__,
+                    "traceback": traceback.format_exc(),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
             {
