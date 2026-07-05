@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    TicketingEmailSettings,
     TicketingPaymentProviderSettings,
     TicketingSettings,
     TicketingPublicSiteSettings,
@@ -1007,6 +1008,109 @@ class TicketingPaymentProviderSettingsAdmin(admin.ModelAdmin):
                 "fields": (
                     "payment_success_message",
                     "payment_pending_message",
+                )
+            },
+        ),
+        (
+            "Dates",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
+
+
+
+@admin.register(TicketingEmailSettings)
+class TicketingEmailSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        "organisation",
+        "provider",
+        "is_active",
+        "smtp_username",
+        "sender_email",
+        "connection_status",
+        "updated_at",
+    )
+
+    list_filter = (
+        "provider",
+        "connection_status",
+        "is_active",
+    )
+
+    search_fields = (
+        "organisation__name",
+        "smtp_username",
+        "sender_email",
+    )
+
+    readonly_fields = (
+        "connection_status",
+        "last_test_email",
+        "last_test_at",
+        "last_error_message",
+        "created_at",
+        "updated_at",
+    )
+
+    fieldsets = (
+        (
+            "General",
+            {
+                "fields": (
+                    "organisation",
+                    "provider",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "SMTP",
+            {
+                "fields": (
+                    "smtp_host",
+                    "smtp_port",
+                    "smtp_encryption",
+                    "smtp_username",
+                    "smtp_password",
+                )
+            },
+        ),
+        (
+            "Sender",
+            {
+                "fields": (
+                    "sender_name",
+                    "sender_email",
+                    "reply_to_email",
+                )
+            },
+        ),
+        (
+            "Booking Emails",
+            {
+                "fields": (
+                    "send_customer_confirmation",
+                    "send_owner_notification",
+                    "send_receipt_email",
+                    "send_cancellation_email",
+                    "send_review_request_email",
+                    "send_reminder_email",
+                )
+            },
+        ),
+        (
+            "Connection Status",
+            {
+                "fields": (
+                    "connection_status",
+                    "last_test_email",
+                    "last_test_at",
+                    "last_error_message",
                 )
             },
         ),

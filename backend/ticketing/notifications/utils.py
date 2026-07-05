@@ -1,0 +1,88 @@
+from django.conf import settings
+from django.core.mail import get_connection
+
+from ticketing.models import TicketingEmailSettings, TicketingPublicSiteSettings
+
+
+def get_site_settings(organisation):
+    return TicketingPublicSiteSettings.objects.filter(
+        organisation=organisation
+    ).first()
+
+
+def get_email_settings(organisation):
+    email_settings, _ = TicketingEmailSettings.objects.get_or_create(
+        organisation=organisation,
+        defaults={
+            "provider": "gmail",
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_encryption": "tls",
+        },
+    )
+
+    return email_settings
+
+
+def get_email_connection(email_settings):
+    if not email_settings or not email_settings.has_credentials:
+        return None
+
+    return get_connection(
+        backend="django.core.mail.backends.smtp.EmailBackend",
+        host=email_settings.smtp_host,
+        port=email_settings.smtp_port,
+        username=email_settings.smtp_username,
+        password=email_settings.smtp_password,
+        use_tls=email_settings.smtp_encryption == "tls",
+        use_ssl=email_settings.smtp_encryption == "ssl",
+        fail_silently=False,
+    )
+
+
+def get_owner_email(booking):
+    site = get_site_settings(booking.organisation)
+
+    if site and site.public_email:
+        return site.public_email
+
+    return getattr(booking.organisation, "email", "") or ""
+
+
+def get_brand_name(booking):
+    site = get_site_settings(booking.organisation)
+
+    if site and site.display_title:
+        return site.display_title
+
+    return booking.organisation.name
+
+
+def get_public_base_url(booking):
+    site = get_site_settings(booking.organisation)
+
+    if site and site.custom_domain:
+        return f"https://{site.custom_domain}"
+
+    return getattr(settings, "FRONTEND_URL", "").rstrip("/")
+
+
+def get_currency_symbol(booking):
+    settings_obj = getattr(booking.organisation, "ticketing_settings", None)
+
+    if settings_obj:
+        return settings_obj.currency_symbol or "US$"
+
+    return "US$"
+
+
+def build_booking_context(booking):
+    return {
+        "booking": booking,
+        "brand_name": get_brand_name(booking),
+        "public_base_url": get_public_base_url(booking),
+        "currency_symbol": get_currency_symbol(booking),
+        "items": booking.items.all(),
+        "payments": booking.payments.all(),
+        "pickup_info": getattr(booking, "pickup_info", None),
+    }

@@ -14,23 +14,28 @@ import {
   Download,
   ExternalLink,
   Globe2,
-  Image,
   Info,
   Loader2,
-  Palette,
   Percent,
   Save,
-  Search,
   Settings,
   ShieldCheck,
   Smartphone,
   Sparkles,
   Ticket,
-  Upload,
-  Video,
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import BrandingSettings from "../components/settings/BrandingSettings";
+import HomePageSettings from "../components/settings/HomePageSettings";
+import PublicWebsiteSettings from "../components/settings/PublicWebsiteSettings";
+import PublicSiteThemeSettings from "../components/settings/PublicSiteThemeSettings";
+import SeoSettings from "../components/settings/SeoSettings";
+import PaymentProvidersSettings from "../components/settings/PaymentProvidersSettings";
+import TicketingEmailSettingsPanel, {
+  initialEmailSettings,
+  type TicketingEmailSettings,
+} from "../components/settings/TicketingEmailSettingsPanel";
 
 type OrganisationBranding = {
   id?: number;
@@ -90,7 +95,6 @@ type TicketingSettings = {
   is_active: boolean;
 };
 
-
 type TicketingPaymentProviderSettings = {
   id?: number;
   organisation_name?: string;
@@ -100,7 +104,8 @@ type TicketingPaymentProviderSettings = {
   stripe_secret_key?: string;
   stripe_webhook_secret?: string;
   stripe_connect_account_id: string;
-  stripe_connect_status: "not_connected" | "pending" | "connected" | "restricted";
+  stripe_connect_status:
+    "not_connected" | "pending" | "connected" | "restricted";
   stripe_configured?: boolean;
   paypal_enabled: boolean;
   paypal_mode: "sandbox" | "live";
@@ -257,7 +262,6 @@ const initialSettings: TicketingSettings = {
   is_active: true,
 };
 
-
 const initialPaymentProviders: TicketingPaymentProviderSettings = {
   default_provider: "none",
   stripe_enabled: false,
@@ -275,7 +279,8 @@ const initialPaymentProviders: TicketingPaymentProviderSettings = {
   paypal_webhook_id: "",
   paypal_configured: false,
   payment_success_message: "Payment received. Your booking is confirmed.",
-  payment_pending_message: "Your booking was created. Payment is pending confirmation.",
+  payment_pending_message:
+    "Your booking was created. Payment is pending confirmation.",
   is_active: true,
 };
 
@@ -292,7 +297,8 @@ const initialPublicSite: TicketingPublicSiteSettings = {
   favicon: null,
   favicon_url: null,
   hero_title: "Discover Punta Cana Experiences",
-  hero_subtitle: "Book excursions, transfers, tickets, events and unforgettable local experiences.",
+  hero_subtitle:
+    "Book excursions, transfers, tickets, events and unforgettable local experiences.",
   hero_media_type: "image",
   hero_image: null,
   hero_image_url: null,
@@ -335,19 +341,26 @@ const initialPublicSite: TicketingPublicSiteSettings = {
   excursions_section_title: "Top Experiences in Punta Cana",
   excursions_section_subtitle: "Handpicked adventures you’ll never forget.",
   transfers_section_title: "Transfers",
-  transfers_section_subtitle: "Private, reliable rides — airport, hotels and long distance.",
+  transfers_section_subtitle:
+    "Private, reliable rides — airport, hotels and long distance.",
   tickets_section_title: "Tickets & Attractions",
-  tickets_section_subtitle: "Book tickets and attractions with secure reservation options.",
+  tickets_section_subtitle:
+    "Book tickets and attractions with secure reservation options.",
   events_section_title: "Events",
-  events_section_subtitle: "Discover local events, shows and limited-date experiences.",
+  events_section_subtitle:
+    "Discover local events, shows and limited-date experiences.",
   nightlife_section_title: "Nightlife",
-  nightlife_section_subtitle: "Nightlife tickets, premium experiences and evening activities.",
+  nightlife_section_subtitle:
+    "Nightlife tickets, premium experiences and evening activities.",
   packages_section_title: "Packages & Deals",
-  packages_section_subtitle: "Bundles with better prices — VIP, family and adventure packages.",
+  packages_section_subtitle:
+    "Bundles with better prices — VIP, family and adventure packages.",
   ai_assistant_title: "Meet Your Travel Assistant 🌴",
-  ai_assistant_subtitle: "Ask anything — best experiences, pickup from your hotel, or quick recommendations.",
+  ai_assistant_subtitle:
+    "Ask anything — best experiences, pickup from your hotel, or quick recommendations.",
   final_cta_title: "Ready to Start Your Adventure?",
-  final_cta_subtitle: "Punta Cana Discovery makes booking simple, fast, and secure.",
+  final_cta_subtitle:
+    "Punta Cana Discovery makes booking simple, fast, and secure.",
 
   primary_cta_label: "Explore Experiences",
   secondary_cta_label: "Book Transfers",
@@ -399,10 +412,6 @@ function parseTextLines(value: string) {
     .filter(Boolean);
 }
 
-function isVideoFile(file: File) {
-  return file.type.startsWith("video/");
-}
-
 function formatPercent(value: string) {
   const number = Number(value || 0);
   if (Number.isNaN(number)) return "0%";
@@ -418,12 +427,6 @@ function formatExampleAmount(symbol: string, amount: number) {
 
 function isImageFile(file: File) {
   return file.type.startsWith("image/");
-}
-
-function formatFileSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function compressImageFile(file: File, maxWidth = 1600, quality = 0.86) {
@@ -503,7 +506,10 @@ function getStripeWebhookEndpoint() {
   return `${apiBaseUrl}/ticketing/payments/stripe/webhook/`;
 }
 
-function getDetectedPublicDomain(publicSite: TicketingPublicSiteSettings, organisationSlug?: string) {
+function getDetectedPublicDomain(
+  publicSite: TicketingPublicSiteSettings,
+  organisationSlug?: string,
+) {
   const customDomain = normalizeText(publicSite.custom_domain).trim();
 
   if (customDomain) {
@@ -520,8 +526,10 @@ function getDetectedPublicDomain(publicSite: TicketingPublicSiteSettings, organi
 }
 
 function getStripeKeyModeLabel(value: string) {
-  if (value.startsWith("pk_live_") || value.startsWith("sk_live_")) return "Live mode";
-  if (value.startsWith("pk_test_") || value.startsWith("sk_test_")) return "Test mode";
+  if (value.startsWith("pk_live_") || value.startsWith("sk_live_"))
+    return "Live mode";
+  if (value.startsWith("pk_test_") || value.startsWith("sk_test_"))
+    return "Test mode";
   return "Not detected";
 }
 
@@ -534,21 +542,27 @@ export default function TicketingSettingsPage() {
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
 
-  const [branding, setBranding] = useState<OrganisationBranding>(initialBranding);
+  const [branding, setBranding] =
+    useState<OrganisationBranding>(initialBranding);
   const [settings, setSettings] = useState<TicketingSettings>(initialSettings);
-  const [paymentProviders, setPaymentProviders] = useState<TicketingPaymentProviderSettings>(initialPaymentProviders);
+  const [paymentProviders, setPaymentProviders] =
+    useState<TicketingPaymentProviderSettings>(initialPaymentProviders);
+  const [emailSettings, setEmailSettings] =
+    useState<TicketingEmailSettings>(initialEmailSettings);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
   const [publicSite, setPublicSite] =
     useState<TicketingPublicSiteSettings>(initialPublicSite);
 
   const [supportedCurrenciesText, setSupportedCurrenciesText] = useState("");
   const [trustBadgesText, setTrustBadgesText] = useState(
-    normalizeArray(initialPublicSite.trust_badges).join("\n")
+    normalizeArray(initialPublicSite.trust_badges).join("\n"),
   );
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [heroImageFile, setHeroImageFile] = useState<File | null>(null);
   const [heroVideoFile, setHeroVideoFile] = useState<File | null>(null);
   const [heroVideoPosterFile, setHeroVideoPosterFile] = useState<File | null>(
-    null
+    null,
   );
   const [ogImageFile, setOgImageFile] = useState<File | null>(null);
 
@@ -556,12 +570,12 @@ export default function TicketingSettingsPage() {
     () => ({
       organisation_slug: organisationSlug,
     }),
-    [organisationSlug]
+    [organisationSlug],
   );
 
   const manifestUrl = useMemo(
     () => buildManifestUrl(organisationSlug),
-    [organisationSlug]
+    [organisationSlug],
   );
 
   useEffect(() => {
@@ -570,31 +584,43 @@ export default function TicketingSettingsPage() {
         setLoading(true);
         setError("");
 
-        const [brandingResponse, settingsResponse, paymentProvidersResponse, publicSiteResponse] =
-          await Promise.all([
-            api.get<OrganisationBranding>(
-              `/organisations/branding/ticketing/${organisationSlug}/`
-            ),
-            api.get<TicketingSettings>("/ticketing/settings/mine/", {
+        const [
+          brandingResponse,
+          settingsResponse,
+          paymentProvidersResponse,
+          emailSettingsResponse,
+          publicSiteResponse,
+        ] = await Promise.all([
+          api.get<OrganisationBranding>(
+            `/organisations/branding/ticketing/${organisationSlug}/`,
+          ),
+          api.get<TicketingSettings>("/ticketing/settings/mine/", {
+            params: requestParams,
+          }),
+          api.get<TicketingPaymentProviderSettings>(
+            "/ticketing/payment-provider-settings/mine/",
+            {
               params: requestParams,
-            }),
-            api.get<TicketingPaymentProviderSettings>(
-              "/ticketing/payment-provider-settings/mine/",
-              {
-                params: requestParams,
-              }
-            ),
-            api.get<TicketingPublicSiteSettings>(
-              "/ticketing/public-site-settings/mine/",
-              {
-                params: requestParams,
-              }
-            ),
-          ]);
+            },
+          ),
+          api.get<TicketingEmailSettings>(
+            "/ticketing/email-settings/mine/",
+            {
+              params: requestParams,
+            },
+          ),
+          api.get<TicketingPublicSiteSettings>(
+            "/ticketing/public-site-settings/mine/",
+            {
+              params: requestParams,
+            },
+          ),
+        ]);
 
         const brandingData = brandingResponse.data;
         const settingsData = settingsResponse.data;
         const paymentProvidersData = paymentProvidersResponse.data;
+        const emailSettingsData = emailSettingsResponse.data;
         const publicSiteData = publicSiteResponse.data;
 
         setBranding({
@@ -606,23 +632,23 @@ export default function TicketingSettingsPage() {
           app_description: normalizeText(brandingData.app_description),
           primary_color: normalizeText(
             brandingData.primary_color,
-            initialBranding.primary_color
+            initialBranding.primary_color,
           ),
           secondary_color: normalizeText(
             brandingData.secondary_color,
-            initialBranding.secondary_color
+            initialBranding.secondary_color,
           ),
           accent_color: normalizeText(
             brandingData.accent_color,
-            initialBranding.accent_color
+            initialBranding.accent_color,
           ),
           theme_color: normalizeText(
             brandingData.theme_color,
-            initialBranding.theme_color
+            initialBranding.theme_color,
           ),
           background_color: normalizeText(
             brandingData.background_color,
-            initialBranding.background_color
+            initialBranding.background_color,
           ),
           login_title: normalizeText(brandingData.login_title),
           login_subtitle: normalizeText(brandingData.login_subtitle),
@@ -633,126 +659,211 @@ export default function TicketingSettingsPage() {
           ...settingsData,
           module_name: normalizeText(
             settingsData.module_name,
-            initialSettings.module_name
+            initialSettings.module_name,
           ),
           public_brand_name: normalizeText(
             settingsData.public_brand_name,
-            initialSettings.public_brand_name
+            initialSettings.public_brand_name,
           ),
           currency_symbol: normalizeText(
             settingsData.currency_symbol,
-            initialSettings.currency_symbol
+            initialSettings.currency_symbol,
           ),
           default_currency: normalizeText(
             settingsData.default_currency,
-            initialSettings.default_currency
+            initialSettings.default_currency,
           ),
           supported_currencies: normalizeArray(
-            settingsData.supported_currencies
+            settingsData.supported_currencies,
           ),
           tax_percentage: normalizeText(
             settingsData.tax_percentage,
-            initialSettings.tax_percentage
+            initialSettings.tax_percentage,
           ),
           default_deposit_percentage: normalizeText(
             settingsData.default_deposit_percentage,
-            initialSettings.default_deposit_percentage
+            initialSettings.default_deposit_percentage,
           ),
           allow_public_bookings: normalizeBoolean(
             settingsData.allow_public_bookings,
-            true
+            true,
           ),
           allow_seller_bookings: normalizeBoolean(
             settingsData.allow_seller_bookings,
-            true
+            true,
           ),
           allow_full_payment: normalizeBoolean(
             settingsData.allow_full_payment,
-            true
+            true,
           ),
           allow_deposit_payment: normalizeBoolean(
             settingsData.allow_deposit_payment,
-            true
+            true,
           ),
           allow_pending_payment: normalizeBoolean(
             settingsData.allow_pending_payment,
-            true
+            true,
           ),
           allow_cash_to_seller: normalizeBoolean(
             settingsData.allow_cash_to_seller,
-            true
+            true,
           ),
           allow_manual_bank_transfer: normalizeBoolean(
             settingsData.allow_manual_bank_transfer,
-            true
+            true,
           ),
           allow_mixed_payments: normalizeBoolean(
             settingsData.allow_mixed_payments,
-            true
+            true,
           ),
           send_customer_email: normalizeBoolean(
             settingsData.send_customer_email,
-            false
+            false,
           ),
           send_customer_whatsapp: normalizeBoolean(
             settingsData.send_customer_whatsapp,
-            false
+            false,
           ),
           notify_owner_on_booking: normalizeBoolean(
             settingsData.notify_owner_on_booking,
-            true
+            true,
           ),
           require_supervisor_approval_for_unpaid_tickets: normalizeBoolean(
             settingsData.require_supervisor_approval_for_unpaid_tickets,
-            false
+            false,
           ),
           wellet_enabled: normalizeBoolean(settingsData.wellet_enabled, false),
           is_active: normalizeBoolean(settingsData.is_active, true),
         });
 
         setSupportedCurrenciesText(
-          normalizeArray(settingsData.supported_currencies).join(", ")
+          normalizeArray(settingsData.supported_currencies).join(", "),
         );
 
         setPaymentProviders({
           ...initialPaymentProviders,
           ...paymentProvidersData,
           default_provider:
-            paymentProvidersData.default_provider || initialPaymentProviders.default_provider,
-          stripe_enabled: normalizeBoolean(paymentProvidersData.stripe_enabled, false),
-          stripe_publishable_key: normalizeText(paymentProvidersData.stripe_publishable_key),
+            paymentProvidersData.default_provider ||
+            initialPaymentProviders.default_provider,
+          stripe_enabled: normalizeBoolean(
+            paymentProvidersData.stripe_enabled,
+            false,
+          ),
+          stripe_publishable_key: normalizeText(
+            paymentProvidersData.stripe_publishable_key,
+          ),
           stripe_secret_key: "",
           stripe_webhook_secret: "",
-          stripe_connect_account_id: normalizeText(paymentProvidersData.stripe_connect_account_id),
+          stripe_connect_account_id: normalizeText(
+            paymentProvidersData.stripe_connect_account_id,
+          ),
           stripe_connect_status:
             paymentProvidersData.stripe_connect_status || "not_connected",
-          stripe_configured: normalizeBoolean(paymentProvidersData.stripe_configured, false),
-          paypal_enabled: normalizeBoolean(paymentProvidersData.paypal_enabled, false),
-          paypal_mode: paymentProvidersData.paypal_mode === "live" ? "live" : "sandbox",
-          paypal_client_id: normalizeText(paymentProvidersData.paypal_client_id),
+          stripe_configured: normalizeBoolean(
+            paymentProvidersData.stripe_configured,
+            false,
+          ),
+          paypal_enabled: normalizeBoolean(
+            paymentProvidersData.paypal_enabled,
+            false,
+          ),
+          paypal_mode:
+            paymentProvidersData.paypal_mode === "live" ? "live" : "sandbox",
+          paypal_client_id: normalizeText(
+            paymentProvidersData.paypal_client_id,
+          ),
           paypal_client_secret: "",
-          paypal_merchant_id: normalizeText(paymentProvidersData.paypal_merchant_id),
+          paypal_merchant_id: normalizeText(
+            paymentProvidersData.paypal_merchant_id,
+          ),
           paypal_webhook_id: "",
-          paypal_configured: normalizeBoolean(paymentProvidersData.paypal_configured, false),
+          paypal_configured: normalizeBoolean(
+            paymentProvidersData.paypal_configured,
+            false,
+          ),
           payment_success_message: normalizeText(
             paymentProvidersData.payment_success_message,
-            initialPaymentProviders.payment_success_message
+            initialPaymentProviders.payment_success_message,
           ),
           payment_pending_message: normalizeText(
             paymentProvidersData.payment_pending_message,
-            initialPaymentProviders.payment_pending_message
+            initialPaymentProviders.payment_pending_message,
           ),
           is_active: normalizeBoolean(paymentProvidersData.is_active, true),
         });
 
+        setEmailSettings({
+          ...initialEmailSettings,
+          ...emailSettingsData,
+          provider: emailSettingsData.provider || initialEmailSettings.provider,
+          is_active: normalizeBoolean(emailSettingsData.is_active, false),
+          smtp_host: normalizeText(
+            emailSettingsData.smtp_host,
+            initialEmailSettings.smtp_host,
+          ),
+          smtp_port: Number(
+            emailSettingsData.smtp_port || initialEmailSettings.smtp_port,
+          ),
+          smtp_encryption:
+            emailSettingsData.smtp_encryption ||
+            initialEmailSettings.smtp_encryption,
+          smtp_username: normalizeText(emailSettingsData.smtp_username),
+          smtp_password: "",
+          sender_name: normalizeText(emailSettingsData.sender_name),
+          sender_email: normalizeText(emailSettingsData.sender_email),
+          reply_to_email: normalizeText(emailSettingsData.reply_to_email),
+          send_customer_confirmation: normalizeBoolean(
+            emailSettingsData.send_customer_confirmation,
+            true,
+          ),
+          send_owner_notification: normalizeBoolean(
+            emailSettingsData.send_owner_notification,
+            true,
+          ),
+          send_receipt_email: normalizeBoolean(
+            emailSettingsData.send_receipt_email,
+            true,
+          ),
+          send_cancellation_email: normalizeBoolean(
+            emailSettingsData.send_cancellation_email,
+            true,
+          ),
+          send_review_request_email: normalizeBoolean(
+            emailSettingsData.send_review_request_email,
+            false,
+          ),
+          send_reminder_email: normalizeBoolean(
+            emailSettingsData.send_reminder_email,
+            false,
+          ),
+          connection_status:
+            emailSettingsData.connection_status ||
+            initialEmailSettings.connection_status,
+          configured: normalizeBoolean(emailSettingsData.configured, false),
+          last_test_email: normalizeText(emailSettingsData.last_test_email),
+          last_test_at: emailSettingsData.last_test_at || null,
+          last_error_message: normalizeText(
+            emailSettingsData.last_error_message,
+          ),
+        });
+
+        setTestRecipient(
+          normalizeText(
+            emailSettingsData.last_test_email ||
+              emailSettingsData.sender_email ||
+              emailSettingsData.smtp_username,
+          ),
+        );
+
         const normalizedTrustBadges = normalizeArray(
-          publicSiteData.trust_badges
+          publicSiteData.trust_badges,
         );
 
         setTrustBadgesText(
           normalizedTrustBadges.length
             ? normalizedTrustBadges.join("\n")
-            : normalizeArray(initialPublicSite.trust_badges).join("\n")
+            : normalizeArray(initialPublicSite.trust_badges).join("\n"),
         );
 
         setPublicSite({
@@ -766,169 +877,170 @@ export default function TicketingSettingsPage() {
           custom_domain: normalizeText(publicSiteData.custom_domain),
           hero_title: normalizeText(
             publicSiteData.hero_title,
-            initialPublicSite.hero_title
+            initialPublicSite.hero_title,
           ),
           hero_subtitle: normalizeText(
             publicSiteData.hero_subtitle,
-            initialPublicSite.hero_subtitle
+            initialPublicSite.hero_subtitle,
           ),
           hero_media_type:
             publicSiteData.hero_media_type === "video" ? "video" : "image",
           hero_video_url: normalizeText(publicSiteData.hero_video_url),
           hero_overlay_opacity: normalizeText(
             publicSiteData.hero_overlay_opacity,
-            initialPublicSite.hero_overlay_opacity
+            initialPublicSite.hero_overlay_opacity,
           ),
           primary_cta_label: normalizeText(
             publicSiteData.primary_cta_label,
-            initialPublicSite.primary_cta_label
+            initialPublicSite.primary_cta_label,
           ),
           secondary_cta_label: normalizeText(
             publicSiteData.secondary_cta_label,
-            initialPublicSite.secondary_cta_label
+            initialPublicSite.secondary_cta_label,
           ),
           whatsapp_cta_label: normalizeText(
             publicSiteData.whatsapp_cta_label,
-            initialPublicSite.whatsapp_cta_label
+            initialPublicSite.whatsapp_cta_label,
           ),
           primary_color: normalizeText(
             publicSiteData.primary_color,
-            initialPublicSite.primary_color
+            initialPublicSite.primary_color,
           ),
           secondary_color: normalizeText(
             publicSiteData.secondary_color,
-            initialPublicSite.secondary_color
+            initialPublicSite.secondary_color,
           ),
           accent_color: normalizeText(
             publicSiteData.accent_color,
-            initialPublicSite.accent_color
+            initialPublicSite.accent_color,
           ),
           background_color: normalizeText(
             publicSiteData.background_color,
-            initialPublicSite.background_color
+            initialPublicSite.background_color,
           ),
           button_color: normalizeText(
             publicSiteData.button_color,
-            initialPublicSite.button_color
+            initialPublicSite.button_color,
           ),
           text_color: normalizeText(
             publicSiteData.text_color,
-            initialPublicSite.text_color
+            initialPublicSite.text_color,
           ),
           muted_text_color: normalizeText(
             publicSiteData.muted_text_color,
-            initialPublicSite.muted_text_color
+            initialPublicSite.muted_text_color,
           ),
           card_background_color: normalizeText(
             publicSiteData.card_background_color,
-            initialPublicSite.card_background_color
+            initialPublicSite.card_background_color,
           ),
           homepage_layout_style:
-            publicSiteData.homepage_layout_style || initialPublicSite.homepage_layout_style,
+            publicSiteData.homepage_layout_style ||
+            initialPublicSite.homepage_layout_style,
           trust_badges: normalizeArray(publicSiteData.trust_badges),
           show_category_grid: normalizeBoolean(
             publicSiteData.show_category_grid,
-            true
+            true,
           ),
           show_trust_badges: normalizeBoolean(
             publicSiteData.show_trust_badges,
-            true
+            true,
           ),
           show_excursions_section: normalizeBoolean(
             publicSiteData.show_excursions_section,
-            true
+            true,
           ),
           show_transfers_section: normalizeBoolean(
             publicSiteData.show_transfers_section,
-            true
+            true,
           ),
           show_tickets_section: normalizeBoolean(
             publicSiteData.show_tickets_section,
-            true
+            true,
           ),
           show_events_section: normalizeBoolean(
             publicSiteData.show_events_section,
-            true
+            true,
           ),
           show_nightlife_section: normalizeBoolean(
             publicSiteData.show_nightlife_section,
-            true
+            true,
           ),
           show_packages_section: normalizeBoolean(
             publicSiteData.show_packages_section,
-            true
+            true,
           ),
           show_ai_assistant_section: normalizeBoolean(
             publicSiteData.show_ai_assistant_section,
-            true
+            true,
           ),
           show_final_cta_section: normalizeBoolean(
             publicSiteData.show_final_cta_section,
-            true
+            true,
           ),
           excursions_section_title: normalizeText(
             publicSiteData.excursions_section_title,
-            initialPublicSite.excursions_section_title
+            initialPublicSite.excursions_section_title,
           ),
           excursions_section_subtitle: normalizeText(
             publicSiteData.excursions_section_subtitle,
-            initialPublicSite.excursions_section_subtitle
+            initialPublicSite.excursions_section_subtitle,
           ),
           transfers_section_title: normalizeText(
             publicSiteData.transfers_section_title,
-            initialPublicSite.transfers_section_title
+            initialPublicSite.transfers_section_title,
           ),
           transfers_section_subtitle: normalizeText(
             publicSiteData.transfers_section_subtitle,
-            initialPublicSite.transfers_section_subtitle
+            initialPublicSite.transfers_section_subtitle,
           ),
           tickets_section_title: normalizeText(
             publicSiteData.tickets_section_title,
-            initialPublicSite.tickets_section_title
+            initialPublicSite.tickets_section_title,
           ),
           tickets_section_subtitle: normalizeText(
             publicSiteData.tickets_section_subtitle,
-            initialPublicSite.tickets_section_subtitle
+            initialPublicSite.tickets_section_subtitle,
           ),
           events_section_title: normalizeText(
             publicSiteData.events_section_title,
-            initialPublicSite.events_section_title
+            initialPublicSite.events_section_title,
           ),
           events_section_subtitle: normalizeText(
             publicSiteData.events_section_subtitle,
-            initialPublicSite.events_section_subtitle
+            initialPublicSite.events_section_subtitle,
           ),
           nightlife_section_title: normalizeText(
             publicSiteData.nightlife_section_title,
-            initialPublicSite.nightlife_section_title
+            initialPublicSite.nightlife_section_title,
           ),
           nightlife_section_subtitle: normalizeText(
             publicSiteData.nightlife_section_subtitle,
-            initialPublicSite.nightlife_section_subtitle
+            initialPublicSite.nightlife_section_subtitle,
           ),
           packages_section_title: normalizeText(
             publicSiteData.packages_section_title,
-            initialPublicSite.packages_section_title
+            initialPublicSite.packages_section_title,
           ),
           packages_section_subtitle: normalizeText(
             publicSiteData.packages_section_subtitle,
-            initialPublicSite.packages_section_subtitle
+            initialPublicSite.packages_section_subtitle,
           ),
           ai_assistant_title: normalizeText(
             publicSiteData.ai_assistant_title,
-            initialPublicSite.ai_assistant_title
+            initialPublicSite.ai_assistant_title,
           ),
           ai_assistant_subtitle: normalizeText(
             publicSiteData.ai_assistant_subtitle,
-            initialPublicSite.ai_assistant_subtitle
+            initialPublicSite.ai_assistant_subtitle,
           ),
           final_cta_title: normalizeText(
             publicSiteData.final_cta_title,
-            initialPublicSite.final_cta_title
+            initialPublicSite.final_cta_title,
           ),
           final_cta_subtitle: normalizeText(
             publicSiteData.final_cta_subtitle,
-            initialPublicSite.final_cta_subtitle
+            initialPublicSite.final_cta_subtitle,
           ),
           seo_title: normalizeText(publicSiteData.seo_title),
           meta_description: normalizeText(publicSiteData.meta_description),
@@ -937,24 +1049,24 @@ export default function TicketingSettingsPage() {
           og_description: normalizeText(publicSiteData.og_description),
           robots_allow_indexing: normalizeBoolean(
             publicSiteData.robots_allow_indexing,
-            true
+            true,
           ),
           robots_allow_ai_crawlers: normalizeBoolean(
             publicSiteData.robots_allow_ai_crawlers,
-            true
+            true,
           ),
           allow_gptbot: normalizeBoolean(publicSiteData.allow_gptbot, true),
           allow_oai_searchbot: normalizeBoolean(
             publicSiteData.allow_oai_searchbot,
-            true
+            true,
           ),
           show_public_rankings: normalizeBoolean(
             publicSiteData.show_public_rankings,
-            true
+            true,
           ),
           show_seller_public_pages: normalizeBoolean(
             publicSiteData.show_seller_public_pages,
-            true
+            true,
           ),
           show_reviews: normalizeBoolean(publicSiteData.show_reviews, true),
           is_published: normalizeBoolean(publicSiteData.is_published, false),
@@ -966,7 +1078,7 @@ export default function TicketingSettingsPage() {
           err?.response?.data?.detail ||
             err?.response?.data?.error ||
             err?.response?.data?.message ||
-            "No se pudo cargar la configuración de Ticketing."
+            "No se pudo cargar la configuración de Ticketing.",
         );
       } finally {
         setLoading(false);
@@ -980,7 +1092,7 @@ export default function TicketingSettingsPage() {
 
   function updateBrandingField<K extends keyof OrganisationBranding>(
     field: K,
-    value: OrganisationBranding[K]
+    value: OrganisationBranding[K],
   ) {
     setBranding((current) => ({
       ...current,
@@ -990,7 +1102,7 @@ export default function TicketingSettingsPage() {
 
   function updateSettingsField<K extends keyof TicketingSettings>(
     field: K,
-    value: TicketingSettings[K]
+    value: TicketingSettings[K],
   ) {
     setSettings((current) => ({
       ...current,
@@ -998,11 +1110,20 @@ export default function TicketingSettingsPage() {
     }));
   }
 
-  function updatePaymentProviderField<K extends keyof TicketingPaymentProviderSettings>(
-    field: K,
-    value: TicketingPaymentProviderSettings[K]
-  ) {
+  function updatePaymentProviderField<
+    K extends keyof TicketingPaymentProviderSettings,
+  >(field: K, value: TicketingPaymentProviderSettings[K]) {
     setPaymentProviders((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateEmailSettingsField<K extends keyof TicketingEmailSettings>(
+    field: K,
+    value: TicketingEmailSettings[K],
+  ) {
+    setEmailSettings((current) => ({
       ...current,
       [field]: value,
     }));
@@ -1010,7 +1131,7 @@ export default function TicketingSettingsPage() {
 
   function updatePublicSiteField<K extends keyof TicketingPublicSiteSettings>(
     field: K,
-    value: TicketingPublicSiteSettings[K]
+    value: TicketingPublicSiteSettings[K],
   ) {
     setPublicSite((current) => ({
       ...current,
@@ -1030,11 +1151,7 @@ export default function TicketingSettingsPage() {
       appendText(brandingFormData, "company_name", branding.company_name);
       appendText(brandingFormData, "platform_name", branding.platform_name);
       appendText(brandingFormData, "app_short_name", branding.app_short_name);
-      appendText(
-        brandingFormData,
-        "app_description",
-        branding.app_description
-      );
+      appendText(brandingFormData, "app_description", branding.app_description);
 
       appendText(brandingFormData, "primary_color", branding.primary_color);
       appendText(brandingFormData, "secondary_color", branding.secondary_color);
@@ -1043,7 +1160,7 @@ export default function TicketingSettingsPage() {
       appendText(
         brandingFormData,
         "background_color",
-        branding.background_color
+        branding.background_color,
       );
 
       appendText(brandingFormData, "login_title", branding.login_title);
@@ -1099,170 +1216,304 @@ export default function TicketingSettingsPage() {
         is_active: paymentProviders.is_active,
       };
 
+      const emailSettingsPayload: Partial<TicketingEmailSettings> = {
+        provider: emailSettings.provider,
+        is_active: emailSettings.is_active,
+        smtp_host: emailSettings.smtp_host,
+        smtp_port: Number(emailSettings.smtp_port || 587),
+        smtp_encryption: emailSettings.smtp_encryption,
+        smtp_username: emailSettings.smtp_username,
+        sender_name: emailSettings.sender_name,
+        sender_email: emailSettings.sender_email,
+        reply_to_email: emailSettings.reply_to_email,
+        send_customer_confirmation: emailSettings.send_customer_confirmation,
+        send_owner_notification: emailSettings.send_owner_notification,
+        send_receipt_email: emailSettings.send_receipt_email,
+        send_cancellation_email: emailSettings.send_cancellation_email,
+        send_review_request_email: emailSettings.send_review_request_email,
+        send_reminder_email: emailSettings.send_reminder_email,
+      };
+
+      if (emailSettings.smtp_password) {
+        emailSettingsPayload.smtp_password = emailSettings.smtp_password;
+      }
+
       const publicSiteFormData = new FormData();
 
       appendText(publicSiteFormData, "site_title", publicSite.site_title);
       appendText(
         publicSiteFormData,
         "public_description",
-        publicSite.public_description
+        publicSite.public_description,
       );
       appendText(publicSiteFormData, "public_email", publicSite.public_email);
       appendText(
         publicSiteFormData,
         "public_whatsapp",
-        publicSite.public_whatsapp
+        publicSite.public_whatsapp,
       );
       appendText(publicSiteFormData, "subdomain", publicSite.subdomain);
       appendText(publicSiteFormData, "custom_domain", publicSite.custom_domain);
 
       appendText(publicSiteFormData, "hero_title", publicSite.hero_title);
       appendText(publicSiteFormData, "hero_subtitle", publicSite.hero_subtitle);
-      appendText(publicSiteFormData, "hero_media_type", publicSite.hero_media_type);
-      appendText(publicSiteFormData, "hero_video_url", publicSite.hero_video_url);
+      appendText(
+        publicSiteFormData,
+        "hero_media_type",
+        publicSite.hero_media_type,
+      );
+      appendText(
+        publicSiteFormData,
+        "hero_video_url",
+        publicSite.hero_video_url,
+      );
       appendText(
         publicSiteFormData,
         "hero_overlay_opacity",
-        publicSite.hero_overlay_opacity || "0.45"
+        publicSite.hero_overlay_opacity || "0.45",
       );
       appendText(
         publicSiteFormData,
         "primary_cta_label",
-        publicSite.primary_cta_label
+        publicSite.primary_cta_label,
       );
       appendText(
         publicSiteFormData,
         "secondary_cta_label",
-        publicSite.secondary_cta_label
+        publicSite.secondary_cta_label,
       );
       appendText(
         publicSiteFormData,
         "whatsapp_cta_label",
-        publicSite.whatsapp_cta_label
+        publicSite.whatsapp_cta_label,
       );
 
-      appendText(
-        publicSiteFormData,
-        "primary_color",
-        publicSite.primary_color
-      );
+      appendText(publicSiteFormData, "primary_color", publicSite.primary_color);
       appendText(
         publicSiteFormData,
         "secondary_color",
-        publicSite.secondary_color
+        publicSite.secondary_color,
       );
       appendText(publicSiteFormData, "accent_color", publicSite.accent_color);
       appendText(
         publicSiteFormData,
         "background_color",
-        publicSite.background_color
+        publicSite.background_color,
       );
       appendText(publicSiteFormData, "button_color", publicSite.button_color);
       appendText(publicSiteFormData, "text_color", publicSite.text_color);
       appendText(
         publicSiteFormData,
         "muted_text_color",
-        publicSite.muted_text_color
+        publicSite.muted_text_color,
       );
       appendText(
         publicSiteFormData,
         "card_background_color",
-        publicSite.card_background_color
+        publicSite.card_background_color,
       );
       appendText(
         publicSiteFormData,
         "homepage_layout_style",
-        publicSite.homepage_layout_style
+        publicSite.homepage_layout_style,
       );
       appendText(
         publicSiteFormData,
         "trust_badges",
-        JSON.stringify(parseTextLines(trustBadgesText))
+        JSON.stringify(parseTextLines(trustBadgesText)),
       );
 
-      appendText(publicSiteFormData, "excursions_section_title", publicSite.excursions_section_title);
-      appendText(publicSiteFormData, "excursions_section_subtitle", publicSite.excursions_section_subtitle);
-      appendText(publicSiteFormData, "transfers_section_title", publicSite.transfers_section_title);
-      appendText(publicSiteFormData, "transfers_section_subtitle", publicSite.transfers_section_subtitle);
-      appendText(publicSiteFormData, "tickets_section_title", publicSite.tickets_section_title);
-      appendText(publicSiteFormData, "tickets_section_subtitle", publicSite.tickets_section_subtitle);
-      appendText(publicSiteFormData, "events_section_title", publicSite.events_section_title);
-      appendText(publicSiteFormData, "events_section_subtitle", publicSite.events_section_subtitle);
-      appendText(publicSiteFormData, "nightlife_section_title", publicSite.nightlife_section_title);
-      appendText(publicSiteFormData, "nightlife_section_subtitle", publicSite.nightlife_section_subtitle);
-      appendText(publicSiteFormData, "packages_section_title", publicSite.packages_section_title);
-      appendText(publicSiteFormData, "packages_section_subtitle", publicSite.packages_section_subtitle);
-      appendText(publicSiteFormData, "ai_assistant_title", publicSite.ai_assistant_title);
-      appendText(publicSiteFormData, "ai_assistant_subtitle", publicSite.ai_assistant_subtitle);
-      appendText(publicSiteFormData, "final_cta_title", publicSite.final_cta_title);
-      appendText(publicSiteFormData, "final_cta_subtitle", publicSite.final_cta_subtitle);
+      appendText(
+        publicSiteFormData,
+        "excursions_section_title",
+        publicSite.excursions_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "excursions_section_subtitle",
+        publicSite.excursions_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "transfers_section_title",
+        publicSite.transfers_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "transfers_section_subtitle",
+        publicSite.transfers_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "tickets_section_title",
+        publicSite.tickets_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "tickets_section_subtitle",
+        publicSite.tickets_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "events_section_title",
+        publicSite.events_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "events_section_subtitle",
+        publicSite.events_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "nightlife_section_title",
+        publicSite.nightlife_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "nightlife_section_subtitle",
+        publicSite.nightlife_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "packages_section_title",
+        publicSite.packages_section_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "packages_section_subtitle",
+        publicSite.packages_section_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "ai_assistant_title",
+        publicSite.ai_assistant_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "ai_assistant_subtitle",
+        publicSite.ai_assistant_subtitle,
+      );
+      appendText(
+        publicSiteFormData,
+        "final_cta_title",
+        publicSite.final_cta_title,
+      );
+      appendText(
+        publicSiteFormData,
+        "final_cta_subtitle",
+        publicSite.final_cta_subtitle,
+      );
 
       appendText(publicSiteFormData, "seo_title", publicSite.seo_title);
       appendText(
         publicSiteFormData,
         "meta_description",
-        publicSite.meta_description
+        publicSite.meta_description,
       );
-      appendText(
-        publicSiteFormData,
-        "canonical_url",
-        publicSite.canonical_url
-      );
+      appendText(publicSiteFormData, "canonical_url", publicSite.canonical_url);
       appendText(publicSiteFormData, "og_title", publicSite.og_title);
       appendText(
         publicSiteFormData,
         "og_description",
-        publicSite.og_description
+        publicSite.og_description,
       );
 
       appendBoolean(
         publicSiteFormData,
         "robots_allow_indexing",
-        publicSite.robots_allow_indexing
+        publicSite.robots_allow_indexing,
       );
       appendBoolean(
         publicSiteFormData,
         "robots_allow_ai_crawlers",
-        publicSite.robots_allow_ai_crawlers
+        publicSite.robots_allow_ai_crawlers,
       );
-      appendBoolean(publicSiteFormData, "allow_gptbot", publicSite.allow_gptbot);
+      appendBoolean(
+        publicSiteFormData,
+        "allow_gptbot",
+        publicSite.allow_gptbot,
+      );
       appendBoolean(
         publicSiteFormData,
         "allow_oai_searchbot",
-        publicSite.allow_oai_searchbot
+        publicSite.allow_oai_searchbot,
       );
       appendBoolean(
         publicSiteFormData,
         "show_public_rankings",
-        publicSite.show_public_rankings
+        publicSite.show_public_rankings,
       );
       appendBoolean(
         publicSiteFormData,
         "show_seller_public_pages",
-        publicSite.show_seller_public_pages
+        publicSite.show_seller_public_pages,
       );
-      appendBoolean(publicSiteFormData, "show_category_grid", publicSite.show_category_grid);
-      appendBoolean(publicSiteFormData, "show_trust_badges", publicSite.show_trust_badges);
-      appendBoolean(publicSiteFormData, "show_excursions_section", publicSite.show_excursions_section);
-      appendBoolean(publicSiteFormData, "show_transfers_section", publicSite.show_transfers_section);
-      appendBoolean(publicSiteFormData, "show_tickets_section", publicSite.show_tickets_section);
-      appendBoolean(publicSiteFormData, "show_events_section", publicSite.show_events_section);
-      appendBoolean(publicSiteFormData, "show_nightlife_section", publicSite.show_nightlife_section);
-      appendBoolean(publicSiteFormData, "show_packages_section", publicSite.show_packages_section);
-      appendBoolean(publicSiteFormData, "show_ai_assistant_section", publicSite.show_ai_assistant_section);
-      appendBoolean(publicSiteFormData, "show_final_cta_section", publicSite.show_final_cta_section);
-      appendBoolean(publicSiteFormData, "show_reviews", publicSite.show_reviews);
+      appendBoolean(
+        publicSiteFormData,
+        "show_category_grid",
+        publicSite.show_category_grid,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_trust_badges",
+        publicSite.show_trust_badges,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_excursions_section",
+        publicSite.show_excursions_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_transfers_section",
+        publicSite.show_transfers_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_tickets_section",
+        publicSite.show_tickets_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_events_section",
+        publicSite.show_events_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_nightlife_section",
+        publicSite.show_nightlife_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_packages_section",
+        publicSite.show_packages_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_ai_assistant_section",
+        publicSite.show_ai_assistant_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_final_cta_section",
+        publicSite.show_final_cta_section,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "show_reviews",
+        publicSite.show_reviews,
+      );
       appendBoolean(
         publicSiteFormData,
         "is_published",
-        publicSite.is_published
+        publicSite.is_published,
       );
 
       if (heroImageFile) {
         setCompressing(true);
         publicSiteFormData.append(
           "hero_image",
-          await compressImageFile(heroImageFile, 1800, 0.82)
+          await compressImageFile(heroImageFile, 1800, 0.82),
         );
       }
 
@@ -1274,7 +1525,7 @@ export default function TicketingSettingsPage() {
         setCompressing(true);
         publicSiteFormData.append(
           "hero_video_poster",
-          await compressImageFile(heroVideoPosterFile, 1800, 0.82)
+          await compressImageFile(heroVideoPosterFile, 1800, 0.82),
         );
       }
 
@@ -1282,38 +1533,50 @@ export default function TicketingSettingsPage() {
         setCompressing(true);
         publicSiteFormData.append(
           "og_image",
-          await compressImageFile(ogImageFile, 1200, 0.82)
+          await compressImageFile(ogImageFile, 1200, 0.82),
         );
       }
 
-      const [brandingResponse, settingsResponse, paymentProvidersResponse, publicSiteResponse] =
-        await Promise.all([
-          api.patch<OrganisationBranding>(
-            `/organisations/branding/ticketing/${organisationSlug}/`,
-            brandingFormData
-          ),
-          api.patch<TicketingSettings>(
-            "/ticketing/settings/mine/",
-            settingsPayload,
-            {
-              params: requestParams,
-            }
-          ),
-          api.patch<TicketingPaymentProviderSettings>(
-            "/ticketing/payment-provider-settings/mine/",
-            paymentProviderPayload,
-            {
-              params: requestParams,
-            }
-          ),
-          api.patch<TicketingPublicSiteSettings>(
-            "/ticketing/public-site-settings/mine/",
-            publicSiteFormData,
-            {
-              params: requestParams,
-            }
-          ),
-        ]);
+      const [
+        brandingResponse,
+        settingsResponse,
+        paymentProvidersResponse,
+        emailSettingsResponse,
+        publicSiteResponse,
+      ] = await Promise.all([
+        api.patch<OrganisationBranding>(
+          `/organisations/branding/ticketing/${organisationSlug}/`,
+          brandingFormData,
+        ),
+        api.patch<TicketingSettings>(
+          "/ticketing/settings/mine/",
+          settingsPayload,
+          {
+            params: requestParams,
+          },
+        ),
+        api.patch<TicketingPaymentProviderSettings>(
+          "/ticketing/payment-provider-settings/mine/",
+          paymentProviderPayload,
+          {
+            params: requestParams,
+          },
+        ),
+        api.patch<TicketingEmailSettings>(
+          "/ticketing/email-settings/mine/",
+          emailSettingsPayload,
+          {
+            params: requestParams,
+          },
+        ),
+        api.patch<TicketingPublicSiteSettings>(
+          "/ticketing/public-site-settings/mine/",
+          publicSiteFormData,
+          {
+            params: requestParams,
+          },
+        ),
+      ]);
 
       setBranding((current) => ({
         ...current,
@@ -1324,12 +1587,12 @@ export default function TicketingSettingsPage() {
         ...current,
         ...settingsResponse.data,
         supported_currencies: normalizeArray(
-          settingsResponse.data.supported_currencies
+          settingsResponse.data.supported_currencies,
         ),
       }));
 
       setSupportedCurrenciesText(
-        normalizeArray(settingsResponse.data.supported_currencies).join(", ")
+        normalizeArray(settingsResponse.data.supported_currencies).join(", "),
       );
 
       setPaymentProviders((current) => ({
@@ -1339,6 +1602,12 @@ export default function TicketingSettingsPage() {
         stripe_webhook_secret: "",
         paypal_client_secret: "",
         paypal_webhook_id: "",
+      }));
+
+      setEmailSettings((current) => ({
+        ...current,
+        ...emailSettingsResponse.data,
+        smtp_password: "",
       }));
 
       setPublicSite((current) => ({
@@ -1353,7 +1622,7 @@ export default function TicketingSettingsPage() {
       setOgImageFile(null);
 
       setSavedMessage(
-        "Configuración guardada. Si subiste un logo, el favicon y los app icons fueron regenerados desde ese logo."
+        "Configuración guardada. Si subiste un logo, el favicon y los app icons fueron regenerados desde ese logo.",
       );
     } catch (err: any) {
       console.error("Could not save ticketing settings:", err);
@@ -1362,11 +1631,80 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "No se pudo guardar la configuración de Ticketing."
+          "No se pudo guardar la configuración de Ticketing.",
       );
     } finally {
       setSaving(false);
       setCompressing(false);
+    }
+  }
+
+  async function handleTestEmail() {
+    try {
+      setTestingEmail(true);
+      setError("");
+      setSavedMessage("");
+
+      const response = await api.post<{
+        ok: boolean;
+        detail?: string;
+        email_settings: TicketingEmailSettings;
+      }>(
+        "/ticketing/email-settings/test/",
+        {
+          provider: emailSettings.provider,
+          is_active: emailSettings.is_active,
+          smtp_host: emailSettings.smtp_host,
+          smtp_port: Number(emailSettings.smtp_port || 587),
+          smtp_encryption: emailSettings.smtp_encryption,
+          smtp_username: emailSettings.smtp_username,
+          ...(emailSettings.smtp_password
+            ? { smtp_password: emailSettings.smtp_password }
+            : {}),
+          sender_name: emailSettings.sender_name,
+          sender_email: emailSettings.sender_email,
+          reply_to_email: emailSettings.reply_to_email,
+          send_customer_confirmation: emailSettings.send_customer_confirmation,
+          send_owner_notification: emailSettings.send_owner_notification,
+          send_receipt_email: emailSettings.send_receipt_email,
+          send_cancellation_email: emailSettings.send_cancellation_email,
+          send_review_request_email: emailSettings.send_review_request_email,
+          send_reminder_email: emailSettings.send_reminder_email,
+          test_recipient: testRecipient,
+        },
+        {
+          params: requestParams,
+        },
+      );
+
+      setEmailSettings((current) => ({
+        ...current,
+        ...response.data.email_settings,
+        smtp_password: "",
+      }));
+
+      setSavedMessage(response.data.detail || "Test email sent successfully.");
+    } catch (err: any) {
+      console.error("Could not send test email:", err);
+
+      const returnedEmailSettings = err?.response?.data?.email_settings;
+
+      if (returnedEmailSettings) {
+        setEmailSettings((current) => ({
+          ...current,
+          ...returnedEmailSettings,
+          smtp_password: "",
+        }));
+      }
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "No se pudo enviar el correo de prueba.",
+      );
+    } finally {
+      setTestingEmail(false);
     }
   }
 
@@ -1377,9 +1715,9 @@ export default function TicketingSettingsPage() {
 
   const appIconsReady = Boolean(
     branding.favicon_url &&
-      branding.app_icon_192_url &&
-      branding.app_icon_512_url &&
-      branding.maskable_icon_url
+    branding.app_icon_192_url &&
+    branding.app_icon_512_url &&
+    branding.maskable_icon_url,
   );
 
   if (loading) {
@@ -1480,150 +1818,12 @@ export default function TicketingSettingsPage() {
       )}
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <Panel
-          title="App, login and dashboard branding"
-          description="This controls the logo, generated favicon, installable app icons, login text and dashboard branding. Upload the logo only once; the backend generates the favicon and PWA icons."
-          icon={Smartphone}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Input
-              label="Company name"
-              value={branding.company_name}
-              onChange={(value) => updateBrandingField("company_name", value)}
-              placeholder="Punta Cana Discovery"
-            />
-
-            <Input
-              label="Platform name"
-              value={branding.platform_name}
-              onChange={(value) => updateBrandingField("platform_name", value)}
-              placeholder="PCD Experiences"
-            />
-
-            <Input
-              label="App short name"
-              value={branding.app_short_name}
-              onChange={(value) =>
-                updateBrandingField("app_short_name", value)
-              }
-              placeholder="PCD"
-            />
-
-            <Textarea
-              label="App description"
-              value={branding.app_description}
-              onChange={(value) =>
-                updateBrandingField("app_description", value)
-              }
-              placeholder="Book and manage tours, tickets and transfers."
-            />
-
-            <Input
-              label="Login title"
-              value={branding.login_title}
-              onChange={(value) => updateBrandingField("login_title", value)}
-              placeholder="Welcome back"
-            />
-
-            <Textarea
-              label="Login subtitle"
-              value={branding.login_subtitle}
-              onChange={(value) =>
-                updateBrandingField("login_subtitle", value)
-              }
-              placeholder="Access your bookings, sellers, products and reports."
-            />
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <ColorInput
-              label="Primary color"
-              value={branding.primary_color}
-              onChange={(value) =>
-                updateBrandingField("primary_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Secondary color"
-              value={branding.secondary_color}
-              onChange={(value) =>
-                updateBrandingField("secondary_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Accent color"
-              value={branding.accent_color}
-              onChange={(value) =>
-                updateBrandingField("accent_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Theme color"
-              value={branding.theme_color}
-              onChange={(value) => updateBrandingField("theme_color", value)}
-            />
-
-            <ColorInput
-              label="Background color"
-              value={branding.background_color}
-              onChange={(value) =>
-                updateBrandingField("background_color", value)
-              }
-            />
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-            <FileInput
-              label="Main logo"
-              description="Master image used to generate favicon, app icons, login logo and dashboard branding."
-              currentUrl={branding.logo_url || branding.logo}
-              selectedFile={logoFile}
-              onChange={setLogoFile}
-            />
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900">
-              Do not upload favicon manually. This app uses the same working
-              flow as Disco: upload the logo, then the backend creates favicon,
-              192x192 icon, 512x512 icon and maskable icon automatically.
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <AssetPreview
-              title="Logo"
-              helper="Uploaded master image"
-              url={branding.logo_url || branding.logo}
-            />
-
-            <AssetPreview
-              title="Generated favicon"
-              helper="Browser tab icon"
-              url={branding.favicon_url || branding.favicon}
-            />
-
-            <AssetPreview
-              title="App icon 192"
-              helper="Small install icon"
-              url={branding.app_icon_192_url || branding.app_icon_192}
-            />
-
-            <AssetPreview
-              title="App icon 512"
-              helper="Large install icon"
-              url={branding.app_icon_512_url || branding.app_icon_512}
-            />
-
-            <AssetPreview
-              title="Maskable icon"
-              helper="Android adaptive icon"
-              url={branding.maskable_icon_url || branding.maskable_icon}
-            />
-          </div>
-        </Panel>
+        <BrandingSettings
+          branding={branding}
+          logoFile={logoFile}
+          onChange={updateBrandingField}
+          onLogoFileChange={setLogoFile}
+        />
 
         <Panel
           title="Installable app / manifest"
@@ -1633,9 +1833,7 @@ export default function TicketingSettingsPage() {
         >
           <div className="grid gap-4 lg:grid-cols-[1fr_0.7fr]">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-black text-slate-900">
-                Manifest URL
-              </p>
+              <p className="text-sm font-black text-slate-900">Manifest URL</p>
 
               <p className="mt-2 break-all text-sm font-semibold text-slate-600">
                 {manifestUrl || "Organisation slug missing"}
@@ -1746,9 +1944,7 @@ export default function TicketingSettingsPage() {
               min="0"
               step="0.01"
               value={settings.tax_percentage}
-              onChange={(value) =>
-                updateSettingsField("tax_percentage", value)
-              }
+              onChange={(value) => updateSettingsField("tax_percentage", value)}
               placeholder="18.00"
             />
 
@@ -1767,11 +1963,17 @@ export default function TicketingSettingsPage() {
 
           <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
             Example: subtotal{" "}
-            <strong>{formatExampleAmount(settings.currency_symbol, 1000)}</strong>{" "}
+            <strong>
+              {formatExampleAmount(settings.currency_symbol, 1000)}
+            </strong>{" "}
             + tax{" "}
-            <strong>{formatExampleAmount(settings.currency_symbol, taxExample)}</strong>{" "}
+            <strong>
+              {formatExampleAmount(settings.currency_symbol, taxExample)}
+            </strong>{" "}
             = total{" "}
-            <strong>{formatExampleAmount(settings.currency_symbol, totalExample)}</strong>
+            <strong>
+              {formatExampleAmount(settings.currency_symbol, totalExample)}
+            </strong>
           </div>
         </Panel>
 
@@ -1847,7 +2049,7 @@ export default function TicketingSettingsPage() {
               onChange={(value) =>
                 updateSettingsField(
                   "require_supervisor_approval_for_unpaid_tickets",
-                  value
+                  value,
                 )
               }
             />
@@ -1889,820 +2091,58 @@ export default function TicketingSettingsPage() {
           </div>
         </Panel>
 
-        <Panel
-          title="Public booking website"
-          description="This is the customer-facing booking site. It controls the company page, not the individual product pages."
-          icon={Globe2}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Input
-              label="Public site title"
-              value={publicSite.site_title}
-              onChange={(value) =>
-                updatePublicSiteField("site_title", value)
-              }
-              placeholder="Punta Cana Experiences"
-            />
-
-            <Input
-              label="Public email"
-              value={publicSite.public_email}
-              onChange={(value) =>
-                updatePublicSiteField("public_email", value)
-              }
-              placeholder="sales@example.com"
-            />
-
-            <Input
-              label="Public WhatsApp"
-              value={publicSite.public_whatsapp}
-              onChange={(value) =>
-                updatePublicSiteField("public_whatsapp", value)
-              }
-              placeholder="+1 829 000 0000"
-            />
-
-            <Input
-              label="Subdomain"
-              value={publicSite.subdomain}
-              onChange={(value) =>
-                updatePublicSiteField("subdomain", value)
-              }
-              placeholder="my-company"
-            />
-
-            <Input
-              label="Custom domain"
-              value={publicSite.custom_domain}
-              onChange={(value) =>
-                updatePublicSiteField("custom_domain", value)
-              }
-              placeholder="experiences.example.com"
-            />
-
-            <Textarea
-              label="Public business description"
-              value={publicSite.public_description}
-              onChange={(value) =>
-                updatePublicSiteField("public_description", value)
-              }
-              placeholder="Describe the company and the kind of experiences it sells..."
-            />
-
-            <Input
-              label="Hero title"
-              value={publicSite.hero_title}
-              onChange={(value) => updatePublicSiteField("hero_title", value)}
-              placeholder="Discover Punta Cana Experiences"
-            />
-
-            <Textarea
-              label="Hero subtitle"
-              value={publicSite.hero_subtitle}
-              onChange={(value) => updatePublicSiteField("hero_subtitle", value)}
-              placeholder="Book excursions, transfers, tickets and events..."
-            />
-
-            <Input
-              label="Primary CTA label"
-              value={publicSite.primary_cta_label}
-              onChange={(value) =>
-                updatePublicSiteField("primary_cta_label", value)
-              }
-              placeholder="Explore Experiences"
-            />
-
-            <Input
-              label="Secondary CTA label"
-              value={publicSite.secondary_cta_label}
-              onChange={(value) =>
-                updatePublicSiteField("secondary_cta_label", value)
-              }
-              placeholder="Book Transfers"
-            />
-
-            <Input
-              label="WhatsApp CTA label"
-              value={publicSite.whatsapp_cta_label}
-              onChange={(value) =>
-                updatePublicSiteField("whatsapp_cta_label", value)
-              }
-              placeholder="Chat via WhatsApp"
-            />
-
-            <Toggle
-              label="Publish public site"
-              description="Make the customer-facing booking website visible online."
-              checked={publicSite.is_published}
-              onChange={(value) =>
-                updatePublicSiteField("is_published", value)
-              }
-            />
-
-            <Toggle
-              label="Show reviews"
-              description="Show approved product reviews publicly."
-              checked={publicSite.show_reviews}
-              onChange={(value) =>
-                updatePublicSiteField("show_reviews", value)
-              }
-            />
-
-            <Toggle
-              label="Show public rankings"
-              description="Show featured, top excursions, best sellers or recommended experiences."
-              checked={publicSite.show_public_rankings}
-              onChange={(value) =>
-                updatePublicSiteField("show_public_rankings", value)
-              }
-            />
-
-            <Toggle
-              label="Show seller public pages"
-              description="Allow public seller links/pages when the seller module is configured."
-              checked={publicSite.show_seller_public_pages}
-              onChange={(value) =>
-                updatePublicSiteField("show_seller_public_pages", value)
-              }
-            />
-          </div>
-        </Panel>
-
-        <Panel
-          title="Homepage video, layout and sections"
-          description="Customize the public home page like a real travel marketplace: hero video/image, layout style, badges and visible sections."
-          icon={Video}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Select
-              label="Hero media"
-              value={publicSite.hero_media_type}
-              onChange={(value) =>
-                updatePublicSiteField(
-                  "hero_media_type",
-                  value === "video" ? "video" : "image"
-                )
-              }
-              options={[
-                { value: "image", label: "Hero image" },
-                { value: "video", label: "Hero video" },
-              ]}
-            />
-
-            <Select
-              label="Homepage layout"
-              value={publicSite.homepage_layout_style}
-              onChange={(value) =>
-                updatePublicSiteField(
-                  "homepage_layout_style",
-                  value as TicketingPublicSiteSettings["homepage_layout_style"]
-                )
-              }
-              options={[
-                { value: "marketplace", label: "Marketplace" },
-                { value: "luxury", label: "Luxury" },
-                { value: "minimal", label: "Minimal" },
-                { value: "adventure", label: "Adventure" },
-              ]}
-            />
-
-            <Input
-              label="External hero video URL"
-              value={publicSite.hero_video_url}
-              onChange={(value) =>
-                updatePublicSiteField("hero_video_url", value)
-              }
-              placeholder="https://cdn.example.com/hero.mp4"
-            />
-
-            <Input
-              label="Hero overlay opacity"
-              type="number"
-              min="0"
-              step="0.05"
-              value={publicSite.hero_overlay_opacity}
-              onChange={(value) =>
-                updatePublicSiteField("hero_overlay_opacity", value)
-              }
-              placeholder="0.45"
-            />
-
-            <Textarea
-              label="Trust badges"
-              value={trustBadgesText}
-              onChange={setTrustBadgesText}
-              placeholder={"Trusted local operators\nHotel pickup available\nSecure reservations"}
-            />
-
-            <div className="grid gap-3">
-              <VideoFileInput
-                label="Hero video upload"
-                description="Optional MP4/WebM video shown in the home hero."
-                currentUrl={publicSite.hero_video_file_url || publicSite.hero_video}
-                selectedFile={heroVideoFile}
-                onChange={setHeroVideoFile}
-              />
-
-              <FileInput
-                label="Hero video poster"
-                description="Image shown before the video loads."
-                currentUrl={
-                  publicSite.hero_video_poster_url || publicSite.hero_video_poster
-                }
-                selectedFile={heroVideoPosterFile}
-                onChange={setHeroVideoPosterFile}
-              />
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Toggle
-              label="Category grid"
-              checked={publicSite.show_category_grid}
-              onChange={(value) =>
-                updatePublicSiteField("show_category_grid", value)
-              }
-            />
-            <Toggle
-              label="Trust badges"
-              checked={publicSite.show_trust_badges}
-              onChange={(value) =>
-                updatePublicSiteField("show_trust_badges", value)
-              }
-            />
-            <Toggle
-              label="Excursions section"
-              checked={publicSite.show_excursions_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_excursions_section", value)
-              }
-            />
-            <Toggle
-              label="Transfers section"
-              checked={publicSite.show_transfers_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_transfers_section", value)
-              }
-            />
-            <Toggle
-              label="Tickets section"
-              checked={publicSite.show_tickets_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_tickets_section", value)
-              }
-            />
-            <Toggle
-              label="Events section"
-              checked={publicSite.show_events_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_events_section", value)
-              }
-            />
-            <Toggle
-              label="Nightlife section"
-              checked={publicSite.show_nightlife_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_nightlife_section", value)
-              }
-            />
-            <Toggle
-              label="Packages section"
-              checked={publicSite.show_packages_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_packages_section", value)
-              }
-            />
-            <Toggle
-              label="AI assistant section"
-              checked={publicSite.show_ai_assistant_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_ai_assistant_section", value)
-              }
-            />
-            <Toggle
-              label="Final CTA section"
-              checked={publicSite.show_final_cta_section}
-              onChange={(value) =>
-                updatePublicSiteField("show_final_cta_section", value)
-              }
-            />
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <Input
-              label="Excursions title"
-              value={publicSite.excursions_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("excursions_section_title", value)
-              }
-            />
-            <Input
-              label="Excursions subtitle"
-              value={publicSite.excursions_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("excursions_section_subtitle", value)
-              }
-            />
-            <Input
-              label="Transfers title"
-              value={publicSite.transfers_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("transfers_section_title", value)
-              }
-            />
-            <Input
-              label="Transfers subtitle"
-              value={publicSite.transfers_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("transfers_section_subtitle", value)
-              }
-            />
-            <Input
-              label="Tickets title"
-              value={publicSite.tickets_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("tickets_section_title", value)
-              }
-            />
-            <Input
-              label="Tickets subtitle"
-              value={publicSite.tickets_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("tickets_section_subtitle", value)
-              }
-            />
-            <Input
-              label="Events title"
-              value={publicSite.events_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("events_section_title", value)
-              }
-            />
-            <Input
-              label="Events subtitle"
-              value={publicSite.events_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("events_section_subtitle", value)
-              }
-            />
-            <Input
-              label="Nightlife title"
-              value={publicSite.nightlife_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("nightlife_section_title", value)
-              }
-            />
-            <Input
-              label="Nightlife subtitle"
-              value={publicSite.nightlife_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("nightlife_section_subtitle", value)
-              }
-            />
-            <Input
-              label="Packages title"
-              value={publicSite.packages_section_title}
-              onChange={(value) =>
-                updatePublicSiteField("packages_section_title", value)
-              }
-            />
-            <Input
-              label="Packages subtitle"
-              value={publicSite.packages_section_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("packages_section_subtitle", value)
-              }
-            />
-            <Input
-              label="AI assistant title"
-              value={publicSite.ai_assistant_title}
-              onChange={(value) =>
-                updatePublicSiteField("ai_assistant_title", value)
-              }
-            />
-            <Input
-              label="AI assistant subtitle"
-              value={publicSite.ai_assistant_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("ai_assistant_subtitle", value)
-              }
-            />
-            <Input
-              label="Final CTA title"
-              value={publicSite.final_cta_title}
-              onChange={(value) =>
-                updatePublicSiteField("final_cta_title", value)
-              }
-            />
-            <Input
-              label="Final CTA subtitle"
-              value={publicSite.final_cta_subtitle}
-              onChange={(value) =>
-                updatePublicSiteField("final_cta_subtitle", value)
-              }
-            />
-          </div>
-        </Panel>
-
-        <Panel
-          title="Public site images and theme"
-          description="These are for the public booking website. The main logo and favicon stay in App Branding above."
-          icon={Palette}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <ColorInput
-              label="Site primary color"
-              value={publicSite.primary_color}
-              onChange={(value) =>
-                updatePublicSiteField("primary_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Site secondary color"
-              value={publicSite.secondary_color}
-              onChange={(value) =>
-                updatePublicSiteField("secondary_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Site accent color"
-              value={publicSite.accent_color}
-              onChange={(value) =>
-                updatePublicSiteField("accent_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Site background"
-              value={publicSite.background_color}
-              onChange={(value) =>
-                updatePublicSiteField("background_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Button color"
-              value={publicSite.button_color}
-              onChange={(value) =>
-                updatePublicSiteField("button_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Text color"
-              value={publicSite.text_color}
-              onChange={(value) => updatePublicSiteField("text_color", value)}
-            />
-
-            <ColorInput
-              label="Muted text"
-              value={publicSite.muted_text_color}
-              onChange={(value) =>
-                updatePublicSiteField("muted_text_color", value)
-              }
-            />
-
-            <ColorInput
-              label="Card background"
-              value={publicSite.card_background_color}
-              onChange={(value) =>
-                updatePublicSiteField("card_background_color", value)
-              }
-            />
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <FileInput
-              label="Hero image"
-              description="Large image used on the public landing page."
-              currentUrl={publicSite.hero_image_url || publicSite.hero_image}
-              selectedFile={heroImageFile}
-              onChange={setHeroImageFile}
-            />
-
-            <FileInput
-              label="Open Graph image"
-              description="Image used when sharing the public site on social media."
-              currentUrl={publicSite.og_image_url || publicSite.og_image}
-              selectedFile={ogImageFile}
-              onChange={setOgImageFile}
-            />
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <AssetPreview
-              title="Hero"
-              helper="Landing page image"
-              url={publicSite.hero_image_url || publicSite.hero_image}
-            />
-
-            <AssetPreview
-              title="Social image"
-              helper="Open Graph preview"
-              url={publicSite.og_image_url || publicSite.og_image}
-            />
-          </div>
-        </Panel>
-
-        <Panel
-          title="SEO and AI discoverability"
-          description="This controls the main public site. Individual products such as Saona, Catalina, transfers, events and tickets will have their own SEO fields in Products."
-          icon={Search}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Input
-              label="SEO title"
-              value={publicSite.seo_title}
-              onChange={(value) => updatePublicSiteField("seo_title", value)}
-              placeholder="Best Tours, Tickets and Transfers in Punta Cana"
-            />
-
-            <Input
-              label="Canonical URL"
-              value={publicSite.canonical_url}
-              onChange={(value) =>
-                updatePublicSiteField("canonical_url", value)
-              }
-              placeholder="https://experiences.example.com"
-            />
-
-            <Textarea
-              label="Meta description"
-              value={publicSite.meta_description}
-              onChange={(value) =>
-                updatePublicSiteField("meta_description", value)
-              }
-              placeholder="Book excursions, transfers, events and tickets..."
-            />
-
-            <Textarea
-              label="Open Graph description"
-              value={publicSite.og_description}
-              onChange={(value) =>
-                updatePublicSiteField("og_description", value)
-              }
-              placeholder="Description used when the site is shared."
-            />
-
-            <Input
-              label="Open Graph title"
-              value={publicSite.og_title}
-              onChange={(value) => updatePublicSiteField("og_title", value)}
-              placeholder="PCD Experiences"
-            />
-
-            <div className="grid gap-3">
-              <Toggle
-                label="Allow public indexing"
-                description="Allow public pages to appear in Google and other search engines."
-                checked={publicSite.robots_allow_indexing}
-                onChange={(value) =>
-                  updatePublicSiteField("robots_allow_indexing", value)
-                }
-              />
-
-              <Toggle
-                label="Allow AI crawlers"
-                description="Allow AI search/answer crawlers when the owner wants AI discoverability."
-                checked={publicSite.robots_allow_ai_crawlers}
-                onChange={(value) =>
-                  updatePublicSiteField("robots_allow_ai_crawlers", value)
-                }
-              />
-
-              <Toggle
-                label="Allow GPTBot"
-                description="Allow OpenAI GPTBot if AI crawlers are enabled."
-                checked={publicSite.allow_gptbot}
-                onChange={(value) =>
-                  updatePublicSiteField("allow_gptbot", value)
-                }
-              />
-
-              <Toggle
-                label="Allow OAI-SearchBot"
-                description="Allow OpenAI search crawler if AI crawlers are enabled."
-                checked={publicSite.allow_oai_searchbot}
-                onChange={(value) =>
-                  updatePublicSiteField("allow_oai_searchbot", value)
-                }
-              />
-            </div>
-          </div>
-        </Panel>
-
-
-        <Panel
-          title="Online payment gateways"
-          description="Allow each organisation to receive online customer payments through its own Stripe or PayPal credentials. Secret keys are write-only and will not be shown again after saving."
-          icon={CreditCard}
-          className="xl:col-span-2"
-        >
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Select
-              label="Default online gateway"
-              value={paymentProviders.default_provider}
-              onChange={(value) =>
-                updatePaymentProviderField(
-                  "default_provider",
-                  value as TicketingPaymentProviderSettings["default_provider"]
-                )
-              }
-              options={[
-                { value: "none", label: "None" },
-                { value: "stripe", label: "Stripe" },
-                { value: "paypal", label: "PayPal" },
-              ]}
-            />
-
-            <Toggle
-              label="Payment settings active"
-              description="Allow online payment gateways for this organisation."
-              checked={paymentProviders.is_active}
-              onChange={(value) => updatePaymentProviderField("is_active", value)}
-            />
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
-              <div className="flex items-center justify-between gap-3">
-                <span>Stripe</span>
-                <strong className={paymentProviders.stripe_configured ? "text-emerald-700" : "text-slate-700"}>
-                  {paymentProviders.stripe_configured ? "Ready" : "Not configured"}
-                </strong>
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-3">
-                <span>PayPal</span>
-                <strong className={paymentProviders.paypal_configured ? "text-emerald-700" : "text-slate-700"}>
-                  {paymentProviders.paypal_configured ? "Ready" : "Not configured"}
-                </strong>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-slate-500">
-                Detected public site: <strong>{getDetectedPublicDomain(publicSite, organisationSlug)}</strong>
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-black text-slate-950">Stripe Checkout</h3>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                    Paste the organisation Stripe API keys. The webhook endpoint below is detected automatically from this SaaS API URL.
-                  </p>
-                </div>
-
-                <Toggle
-                  label="Enable Stripe"
-                  checked={paymentProviders.stripe_enabled}
-                  onChange={(value) => updatePaymentProviderField("stripe_enabled", value)}
-                />
-              </div>
-
-              <PaymentHelpCard
-                title="Stripe setup guide"
-                tone="blue"
-                steps={[
-                  "Open Stripe Dashboard and switch Test mode on while testing.",
-                  "Go to Developers → API keys and copy the Publishable key and Secret key.",
-                  "Go to Developers → Webhooks and create an endpoint using the URL shown below.",
-                  "Select checkout.session.completed as the event to send.",
-                  "Copy the webhook Signing secret and paste it in Stripe webhook secret.",
-                ]}
-                links={[
-                  { label: "Open Stripe API keys", href: "https://dashboard.stripe.com/apikeys" },
-                  { label: "Open Stripe webhooks", href: "https://dashboard.stripe.com/webhooks" },
-                ]}
-              >
-                <CopyValue label="Webhook endpoint to paste in Stripe" value={getStripeWebhookEndpoint()} />
-              </PaymentHelpCard>
-
-              <div className="mt-4 grid gap-4">
-                <Input
-                  label="Stripe publishable key"
-                  help="Found in Stripe Dashboard → Developers → API keys. Starts with pk_test_ or pk_live_."
-                  value={paymentProviders.stripe_publishable_key}
-                  onChange={(value) => updatePaymentProviderField("stripe_publishable_key", value)}
-                  placeholder="pk_test_..."
-                />
-
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-600">
-                  Key mode: <span className="text-slate-950">{getStripeKeyModeLabel(paymentProviders.stripe_publishable_key)}</span>
-                </div>
-
-                <Input
-                  label="Stripe secret key"
-                  help="Found in Stripe Dashboard → Developers → API keys. Starts with sk_test_ or sk_live_. Leave blank after saving to keep the saved key."
-                  value={paymentProviders.stripe_secret_key || ""}
-                  onChange={(value) => updatePaymentProviderField("stripe_secret_key", value)}
-                  placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current key" : "sk_test_..."}
-                />
-
-                <Input
-                  label="Stripe webhook secret"
-                  help="After creating the webhook endpoint, click Reveal signing secret in Stripe. It starts with whsec_."
-                  value={paymentProviders.stripe_webhook_secret || ""}
-                  onChange={(value) => updatePaymentProviderField("stripe_webhook_secret", value)}
-                  placeholder={paymentProviders.stripe_configured ? "Saved — leave blank to keep current webhook secret" : "whsec_..."}
-                />
-
-                <Input
-                  label="Stripe Connect account ID (optional)"
-                  help="Only needed later if you use Stripe Connect marketplace payouts. Normal checkout does not require this."
-                  value={paymentProviders.stripe_connect_account_id}
-                  onChange={(value) => updatePaymentProviderField("stripe_connect_account_id", value)}
-                  placeholder="acct_..."
-                />
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-black text-slate-950">PayPal Checkout</h3>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                    Paste the PayPal REST app Client ID and Client Secret. Merchant ID is not required.
-                  </p>
-                </div>
-
-                <Toggle
-                  label="Enable PayPal"
-                  checked={paymentProviders.paypal_enabled}
-                  onChange={(value) => updatePaymentProviderField("paypal_enabled", value)}
-                />
-              </div>
-
-              <PaymentHelpCard
-                title="PayPal setup guide"
-                tone="amber"
-                steps={[
-                  "Open PayPal Developer Dashboard and go to Apps & Credentials.",
-                  "Use Sandbox while testing, then switch to Live when ready for real payments.",
-                  "Create or open a REST API app for the business merchant account.",
-                  "Copy the Client ID and Secret into the fields below.",
-                  "For testing, create or use a Sandbox Personal account as the buyer. Do not pay with the same merchant account.",
-                ]}
-                links={[
-                  { label: "Open PayPal Apps", href: "https://developer.paypal.com/dashboard/applications" },
-                  { label: "Open Sandbox Accounts", href: "https://developer.paypal.com/dashboard/accounts" },
-                ]}
-              />
-
-              <div className="mt-4 grid gap-4">
-                <Select
-                  label="PayPal mode"
-                  help="Use Sandbox for testing. Switch to Live only when the organisation is ready to accept real payments."
-                  value={paymentProviders.paypal_mode}
-                  onChange={(value) =>
-                    updatePaymentProviderField(
-                      "paypal_mode",
-                      value === "live" ? "live" : "sandbox"
-                    )
-                  }
-                  options={[
-                    { value: "sandbox", label: "Sandbox" },
-                    { value: "live", label: "Live" },
-                  ]}
-                />
-
-                <Input
-                  label="PayPal client ID"
-                  help="Found inside the PayPal REST API app under Apps & Credentials."
-                  value={paymentProviders.paypal_client_id}
-                  onChange={(value) => updatePaymentProviderField("paypal_client_id", value)}
-                  placeholder="PayPal client ID"
-                />
-
-                <Input
-                  label="PayPal client secret"
-                  help="Click Show beside Secret inside the same PayPal REST API app. Leave blank after saving to keep the saved secret."
-                  value={paymentProviders.paypal_client_secret || ""}
-                  onChange={(value) => updatePaymentProviderField("paypal_client_secret", value)}
-                  placeholder={paymentProviders.paypal_configured ? "Saved — leave blank to keep current secret" : "PayPal client secret"}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <Textarea
-              label="Payment success message"
-              value={paymentProviders.payment_success_message}
-              onChange={(value) => updatePaymentProviderField("payment_success_message", value)}
-            />
-
-            <Textarea
-              label="Payment pending message"
-              value={paymentProviders.payment_pending_message}
-              onChange={(value) => updatePaymentProviderField("payment_pending_message", value)}
-            />
-          </div>
-        </Panel>
+        <TicketingEmailSettingsPanel
+          emailSettings={emailSettings}
+          testRecipient={testRecipient}
+          testingEmail={testingEmail}
+          onChange={updateEmailSettingsField}
+          onTestRecipientChange={setTestRecipient}
+          onTestEmail={handleTestEmail}
+        />
+
+        <PublicWebsiteSettings
+          publicSite={publicSite}
+          onChange={updatePublicSiteField}
+        />
+
+        <HomePageSettings
+          publicSite={publicSite}
+          trustBadgesText={trustBadgesText}
+          heroVideoFile={heroVideoFile}
+          heroVideoPosterFile={heroVideoPosterFile}
+          onChange={updatePublicSiteField}
+          onTrustBadgesTextChange={setTrustBadgesText}
+          onHeroVideoFileChange={setHeroVideoFile}
+          onHeroVideoPosterFileChange={setHeroVideoPosterFile}
+        />
+
+        <PublicSiteThemeSettings
+          publicSite={publicSite}
+          heroImageFile={heroImageFile}
+          ogImageFile={ogImageFile}
+          onChange={updatePublicSiteField}
+          onHeroImageFileChange={setHeroImageFile}
+          onOgImageFileChange={setOgImageFile}
+        />
+
+        <SeoSettings publicSite={publicSite} onChange={updatePublicSiteField} />
+
+        <PaymentProvidersSettings
+          paymentProviders={paymentProviders}
+          publicSite={publicSite}
+          organisationSlug={organisationSlug}
+          onChange={updatePaymentProviderField}
+          Panel={Panel}
+          Input={Input}
+          Textarea={Textarea}
+          Select={Select}
+          Toggle={Toggle}
+          PaymentHelpCard={PaymentHelpCard}
+          CopyValue={CopyValue}
+          getDetectedPublicDomain={getDetectedPublicDomain}
+          getStripeWebhookEndpoint={getStripeWebhookEndpoint}
+          getStripeKeyModeLabel={getStripeKeyModeLabel}
+        />
 
         <Panel
           title="Platform-controlled integrations"
@@ -2846,6 +2286,51 @@ function Panel({
   );
 }
 
+
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50"
+    >
+      <div>
+        <p className="text-sm font-black text-slate-900">{label}</p>
+
+        {description && (
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            {description}
+          </p>
+        )}
+      </div>
+
+      <span
+        className={[
+          "mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full p-1 transition",
+          checked ? "bg-blue-600" : "bg-slate-300",
+        ].join(" ")}
+      >
+        <span
+          className={[
+            "h-4 w-4 rounded-full bg-white transition",
+            checked ? "translate-x-5" : "translate-x-0",
+          ].join(" ")}
+        />
+      </span>
+    </button>
+  );
+}
+
 function InfoCard({ title, text }: { title: string; text: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -2857,13 +2342,7 @@ function InfoCard({ title, text }: { title: string; text: string }) {
   );
 }
 
-function HelpLabel({
-  label,
-  help,
-}: {
-  label: string;
-  help?: ReactNode;
-}) {
+function HelpLabel({ label, help }: { label: string; help?: ReactNode }) {
   return (
     <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
       {label}
@@ -2879,13 +2358,7 @@ function HelpLabel({
   );
 }
 
-function CopyValue({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function CopyValue({ label, value }: { label: string; value: string }) {
   async function copyValue() {
     try {
       await navigator.clipboard.writeText(value);
@@ -2896,7 +2369,9 @@ function CopyValue({
 
   return (
     <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 break-all rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800">
           {value}
@@ -2947,7 +2422,9 @@ function PaymentHelpCard({
             <button
               key={link.href}
               type="button"
-              onClick={() => window.open(link.href, "_blank", "noopener,noreferrer")}
+              onClick={() =>
+                window.open(link.href, "_blank", "noopener,noreferrer")
+              }
               className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               {link.label}
@@ -3021,7 +2498,6 @@ function Textarea({
   );
 }
 
-
 function Select({
   label,
   value,
@@ -3051,223 +2527,5 @@ function Select({
         ))}
       </select>
     </label>
-  );
-}
-
-function ColorInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-
-      <div className="mt-2 flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3">
-        <input
-          type="color"
-          value={value || "#111827"}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-8 w-12 cursor-pointer rounded-lg border-0 bg-transparent p-0"
-        />
-
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-full flex-1 bg-transparent text-sm font-semibold outline-none"
-        />
-      </div>
-    </label>
-  );
-}
-
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-slate-100">
-      <span>
-        <span className="block text-sm font-black text-slate-800">{label}</span>
-
-        {description && (
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
-            {description}
-          </span>
-        )}
-      </span>
-
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-5 w-5 shrink-0 accent-amber-500"
-      />
-    </label>
-  );
-}
-
-function FileInput({
-  label,
-  description,
-  currentUrl,
-  selectedFile,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  currentUrl?: string | null;
-  selectedFile?: File | null;
-  onChange: (file: File | null) => void;
-}) {
-  const previewUrl = selectedFile
-    ? URL.createObjectURL(selectedFile)
-    : currentUrl || null;
-
-  return (
-    <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-
-      {description && (
-        <p className="mt-1 text-xs font-semibold text-slate-500">
-          {description}
-        </p>
-      )}
-
-      <div className="mt-2 flex flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:flex-row sm:items-center">
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={label}
-            className="h-16 w-16 rounded-xl border border-slate-200 bg-white object-contain"
-          />
-        ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white text-slate-400">
-            <Upload className="h-5 w-5" />
-          </div>
-        )}
-
-        <div className="flex-1">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => {
-              const file = event.target.files?.[0] || null;
-
-              if (file && !isImageFile(file)) {
-                onChange(null);
-                return;
-              }
-
-              onChange(file);
-            }}
-            className="w-full text-sm font-semibold text-slate-600"
-          />
-
-          {selectedFile && (
-            <p className="mt-2 text-xs font-bold text-slate-500">
-              Selected: {selectedFile.name} ·{" "}
-              {formatFileSize(selectedFile.size)} · It will be compressed before
-              upload.
-            </p>
-          )}
-        </div>
-      </div>
-    </label>
-  );
-}
-
-function VideoFileInput({
-  label,
-  description,
-  currentUrl,
-  selectedFile,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  currentUrl?: string | null;
-  selectedFile?: File | null;
-  onChange: (file: File | null) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-
-      {description && (
-        <p className="mt-1 text-xs font-semibold text-slate-500">
-          {description}
-        </p>
-      )}
-
-      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
-        {currentUrl && !selectedFile && (
-          <video
-            src={currentUrl}
-            controls
-            muted
-            className="mb-3 h-32 w-full rounded-xl bg-slate-950 object-cover"
-          />
-        )}
-
-        <input
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime,video/*"
-          onChange={(event) => {
-            const file = event.target.files?.[0] || null;
-
-            if (file && !isVideoFile(file)) {
-              onChange(null);
-              return;
-            }
-
-            onChange(file);
-          }}
-          className="w-full text-sm font-semibold text-slate-600"
-        />
-
-        {selectedFile && (
-          <p className="mt-2 text-xs font-bold text-slate-500">
-            Selected: {selectedFile.name} · {formatFileSize(selectedFile.size)}
-          </p>
-        )}
-      </div>
-    </label>
-  );
-}
-
-function AssetPreview({
-  title,
-  helper,
-  url,
-}: {
-  title: string;
-  helper: string;
-  url?: string | null;
-}) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex h-20 items-center justify-center rounded-2xl bg-white">
-        {url ? (
-          <img src={url} alt={title} className="h-14 w-14 object-contain" />
-        ) : (
-          <Image className="h-6 w-6 text-slate-300" />
-        )}
-      </div>
-
-      <p className="mt-3 text-sm font-black text-slate-950">{title}</p>
-      <p className="mt-1 text-xs font-semibold text-slate-500">{helper}</p>
-    </div>
   );
 }

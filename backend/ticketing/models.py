@@ -1534,6 +1534,149 @@ class TicketingPaymentProviderSettings(models.Model):
         verbose_name_plural = "Ticketing Payment Provider Settings"
 
 
+class TicketingEmailSettings(models.Model):
+    EMAIL_PROVIDER_CHOICES = (
+        ("gmail", "Gmail"),
+        ("outlook", "Outlook / Microsoft 365"),
+        ("zoho", "Zoho Mail"),
+        ("amazon_ses", "Amazon SES"),
+        ("sendgrid", "SendGrid"),
+        ("mailgun", "Mailtrap / Mailgun"),
+        ("custom", "Custom SMTP"),
+    )
+
+    ENCRYPTION_CHOICES = (
+        ("tls", "TLS"),
+        ("ssl", "SSL"),
+        ("none", "None"),
+    )
+
+    CONNECTION_STATUS_CHOICES = (
+        ("not_configured", "Not Configured"),
+        ("untested", "Untested"),
+        ("connected", "Connected"),
+        ("failed", "Failed"),
+    )
+
+    organisation = models.OneToOneField(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_email_settings",
+    )
+
+    provider = models.CharField(
+        max_length=30,
+        choices=EMAIL_PROVIDER_CHOICES,
+        default="gmail",
+    )
+
+    is_active = models.BooleanField(default=False)
+
+    smtp_host = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    smtp_port = models.PositiveIntegerField(
+        default=587,
+    )
+
+    smtp_encryption = models.CharField(
+        max_length=10,
+        choices=ENCRYPTION_CHOICES,
+        default="tls",
+    )
+
+    smtp_username = models.EmailField(blank=True)
+
+    smtp_password = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="For Gmail use a Google App Password.",
+    )
+
+    sender_name = models.CharField(
+        max_length=150,
+        blank=True,
+    )
+
+    sender_email = models.EmailField(blank=True)
+
+    reply_to_email = models.EmailField(blank=True)
+
+    send_customer_confirmation = models.BooleanField(default=True)
+    send_owner_notification = models.BooleanField(default=True)
+    send_receipt_email = models.BooleanField(default=True)
+    send_cancellation_email = models.BooleanField(default=True)
+    send_review_request_email = models.BooleanField(default=False)
+    send_reminder_email = models.BooleanField(default=False)
+
+    connection_status = models.CharField(
+        max_length=30,
+        choices=CONNECTION_STATUS_CHOICES,
+        default="not_configured",
+    )
+
+    last_test_email = models.EmailField(blank=True)
+
+    last_test_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    last_error_message = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def has_credentials(self):
+        return (
+            self.is_active
+            and bool(self.smtp_host)
+            and bool(self.smtp_username)
+            and bool(self.smtp_password)
+        )
+
+    @property
+    def from_email(self):
+        if self.sender_name:
+            return f"{self.sender_name} <{self.sender_email}>"
+        return self.sender_email
+
+    def apply_provider_defaults(self):
+        defaults = {
+            "gmail": ("smtp.gmail.com", 587, "tls"),
+            "outlook": ("smtp.office365.com", 587, "tls"),
+            "zoho": ("smtp.zoho.com", 587, "tls"),
+            "amazon_ses": ("email-smtp.us-east-1.amazonaws.com", 587, "tls"),
+            "sendgrid": ("smtp.sendgrid.net", 587, "tls"),
+            "mailgun": ("smtp.mailgun.org", 587, "tls"),
+        }
+
+        if self.provider in defaults:
+            host, port, encryption = defaults[self.provider]
+
+            if not self.smtp_host:
+                self.smtp_host = host
+
+            if not self.smtp_port:
+                self.smtp_port = port
+
+            if not self.smtp_encryption:
+                self.smtp_encryption = encryption
+
+    def save(self, *args, **kwargs):
+        self.apply_provider_defaults()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Email Settings - {self.organisation.name}"
+
+    class Meta:
+        verbose_name = "Ticketing Email Settings"
+        verbose_name_plural = "Ticketing Email Settings"
+        
 class ExternalProviderProductSnapshot(models.Model):
     organisation = models.ForeignKey(
         Organisation,
@@ -2227,3 +2370,5 @@ class ProductReview(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+

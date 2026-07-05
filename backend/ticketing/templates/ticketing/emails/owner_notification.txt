@@ -1,0 +1,23 @@
+New booking received.
+
+Booking code: {{ booking.booking_code }}
+Customer: {{ booking.customer_name }}
+Customer email: {{ booking.customer_email }}
+Customer WhatsApp: {{ booking.customer_whatsapp }}
+Hotel: {{ booking.customer_hotel }}
+
+{% if booking.seller %}Seller: {{ booking.seller.full_name }}{% endif %}
+
+{% if booking.service_date %}Service date: {{ booking.service_date }}{% endif %}
+{% if booking.service_time %}Service time: {{ booking.service_time }}{% endif %}
+
+Items:
+{% for item in items %}
+- {{ item.product_name }} x {{ item.quantity }} — {{ currency_symbol }}{{ item.total }}
+{% endfor %}
+
+Total: {{ currency_symbol }}{{ booking.total_amount }}
+Deposit paid: {{ currency_symbol }}{{ booking.deposit_paid }}
+Balance due: {{ currency_symbol }}{{ booking.balance_due }}
+Payment status: {{ booking.payment_status }}
+Booking status: {{ booking.status }}

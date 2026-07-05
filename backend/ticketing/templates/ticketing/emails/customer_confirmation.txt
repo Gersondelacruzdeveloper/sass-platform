@@ -1,0 +1,30 @@
+Hi {{ booking.customer_name }},
+
+Your booking is confirmed.
+
+Booking code: {{ booking.booking_code }}
+Brand: {{ brand_name }}
+
+{% if booking.service_date %}Service date: {{ booking.service_date }}{% endif %}
+{% if booking.service_time %}Service time: {{ booking.service_time }}{% endif %}
+
+Items:
+{% for item in items %}
+- {{ item.product_name }} x {{ item.quantity }} — {{ currency_symbol }}{{ item.total }}
+{% endfor %}
+
+Total: {{ currency_symbol }}{{ booking.total_amount }}
+Deposit paid: {{ currency_symbol }}{{ booking.deposit_paid }}
+Balance due: {{ currency_symbol }}{{ booking.balance_due }}
+Payment status: {{ booking.payment_status }}
+
+{% if pickup_info %}
+Pickup:
+{{ pickup_info.hotel_or_location_name }}
+{% if pickup_info.pickup_time %}Pickup time: {{ pickup_info.pickup_time }}{% endif %}
+{% if pickup_info.pickup_point %}Pickup point: {{ pickup_info.pickup_point }}{% endif %}
+{% if pickup_info.instructions %}Instructions: {{ pickup_info.instructions }}{% endif %}
+{% endif %}
+
+Thank you,
+{{ brand_name }}

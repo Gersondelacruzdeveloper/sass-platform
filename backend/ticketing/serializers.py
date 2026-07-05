@@ -3,8 +3,10 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework import serializers
+from .notifications import BookingNotificationService
 
 from .models import (
+    TicketingEmailSettings,
     TicketingSettings,
     TicketingPublicSiteSettings,
     TicketingPaymentProviderSettings,
@@ -838,6 +840,89 @@ class TicketingPaymentProviderSettingsSerializer(serializers.ModelSerializer):
 
         return super().update(instance, validated_data)
 
+class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+
+    configured = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketingEmailSettings
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+
+            "provider",
+            "is_active",
+
+            "smtp_host",
+            "smtp_port",
+            "smtp_encryption",
+
+            "smtp_username",
+            "smtp_password",
+
+            "sender_name",
+            "sender_email",
+            "reply_to_email",
+
+            "send_customer_confirmation",
+            "send_owner_notification",
+            "send_receipt_email",
+            "send_cancellation_email",
+            "send_review_request_email",
+            "send_reminder_email",
+
+            "connection_status",
+            "last_test_email",
+            "last_test_at",
+            "last_error_message",
+
+            "configured",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+
+            "connection_status",
+            "last_test_email",
+            "last_test_at",
+            "last_error_message",
+
+            "configured",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        extra_kwargs = {
+            "smtp_password": {
+                "write_only": True,
+                "required": False,
+            }
+        }
+
+    def get_configured(self, obj):
+        return obj.has_credentials
+
+    def update(self, instance, validated_data):
+        # Don't overwrite the saved password if frontend sends ""
+        if (
+            "smtp_password" in validated_data
+            and not validated_data["smtp_password"]
+        ):
+            validated_data.pop("smtp_password")
+
+        return super().update(instance, validated_data)
+    
 
 class ExternalProviderProductSnapshotSerializer(MediaURLMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(
@@ -2344,8 +2429,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         self.create_receipt_snapshot(booking)
 
-        return booking
+        try:
+            BookingNotificationService.send(booking)
+        except Exception:
+            pass
 
+        return booking
+    
     def update(self, instance, validated_data):
         validated_data.pop("items_payload", None)
         validated_data.pop("payments_payload", None)

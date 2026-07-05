@@ -22,6 +22,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils.dateparse import parse_date
 from django.utils.text import slugify
+from django.core.mail import EmailMessage
+from .notifications.utils import get_email_connection
+from .notifications.templates import test_email_subject, test_email_body
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,7 @@ from .models import (
     TransferRoute,
     EventTicketType,
     ProductReview,
+    TicketingEmailSettings,
 )
 
 from .serializers import (
@@ -81,6 +85,7 @@ from .serializers import (
     TransferRouteSerializer,
     EventTicketTypeSerializer,
     ProductReviewSerializer,
+    TicketingEmailSettingsSerializer,
 )
 from .services import (
     fetch_wellet_products,
@@ -2219,6 +2224,190 @@ class TicketingPaymentProviderSettingsViewSet(TicketingPrivateViewSet):
         serializer = self.get_serializer(provider_settings)
         return Response(serializer.data)
 
+class TicketingEmailSettingsViewSet(TicketingPrivateViewSet):
+    serializer_class = TicketingEmailSettingsSerializer
+    permission_classes = [CanManageTicketingIntegrations]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TicketingEmailSettings.objects.none()
+
+        return TicketingEmailSettings.objects.filter(organisation=organisation)
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+
+        email_settings, created = TicketingEmailSettings.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "provider": "gmail",
+                "smtp_host": "smtp.gmail.com",
+                "smtp_port": 587,
+                "smtp_encryption": "tls",
+            },
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                email_settings,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        serializer = self.get_serializer(email_settings)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"], url_path="test")
+    def test(self, request):
+        organisation = self.require_organisation()
+
+        email_settings, created = TicketingEmailSettings.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "provider": "gmail",
+                "smtp_host": "smtp.gmail.com",
+                "smtp_port": 587,
+                "smtp_encryption": "tls",
+            },
+        )
+
+        serializer = self.get_serializer(
+            email_settings,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        email_settings = serializer.save()
+
+        test_recipient = (
+            request.data.get("test_recipient")
+            or email_settings.sender_email
+            or email_settings.smtp_username
+        )
+
+        if not test_recipient:
+            return Response(
+                {"detail": "Enter a test recipient email."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not email_settings.has_credentials:
+            email_settings.connection_status = "failed"
+            email_settings.last_test_email = test_recipient
+            email_settings.last_test_at = timezone.now()
+            email_settings.last_error_message = "Email settings are incomplete."
+            email_settings.save(
+                update_fields=[
+                    "connection_status",
+                    "last_test_email",
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "detail": "Email settings are incomplete.",
+                    "email_settings": self.get_serializer(email_settings).data,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            connection = get_email_connection(email_settings)
+
+            message = EmailMessage(
+                subject=test_email_subject(organisation),
+                body=test_email_body(organisation),
+                from_email=email_settings.from_email,
+                to=[test_recipient],
+                reply_to=[email_settings.reply_to_email]
+                if email_settings.reply_to_email
+                else None,
+                connection=connection,
+            )
+            message.send(fail_silently=False)
+
+            email_settings.connection_status = "connected"
+            email_settings.last_test_email = test_recipient
+            email_settings.last_test_at = timezone.now()
+            email_settings.last_error_message = ""
+            email_settings.save(
+                update_fields=[
+                    "connection_status",
+                    "last_test_email",
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            NotificationLog.objects.create(
+                organisation=organisation,
+                channel="email",
+                recipient=test_recipient,
+                subject=message.subject,
+                message=message.body,
+                status="sent",
+                provider_response={
+                    "type": "test_email",
+                    "provider": email_settings.provider,
+                },
+                sent_at=timezone.now(),
+            )
+
+            return Response(
+                {
+                    "ok": True,
+                    "detail": f"Test email sent to {test_recipient}.",
+                    "email_settings": self.get_serializer(email_settings).data,
+                }
+            )
+
+        except Exception as exc:
+            email_settings.connection_status = "failed"
+            email_settings.last_test_email = test_recipient
+            email_settings.last_test_at = timezone.now()
+            email_settings.last_error_message = str(exc)
+            email_settings.save(
+                update_fields=[
+                    "connection_status",
+                    "last_test_email",
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            NotificationLog.objects.create(
+                organisation=organisation,
+                channel="email",
+                recipient=test_recipient,
+                subject=test_email_subject(organisation),
+                message="Test email failed.",
+                status="failed",
+                provider_response={
+                    "type": "test_email",
+                    "provider": email_settings.provider,
+                    "error": str(exc),
+                },
+            )
+
+            return Response(
+                {
+                    "ok": False,
+                    "detail": str(exc),
+                    "email_settings": self.get_serializer(email_settings).data,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 class ExternalProviderProductSnapshotViewSet(TicketingPrivateViewSet):
     serializer_class = ExternalProviderProductSnapshotSerializer

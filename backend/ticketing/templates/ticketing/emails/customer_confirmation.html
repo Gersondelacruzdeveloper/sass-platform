@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <body style="font-family: Arial, sans-serif; color: #111827;">
+    <h2>Your booking is confirmed</h2>
+
+    <p>Hi {{ booking.customer_name }},</p>
+
+    <p>
+      Thank you for booking with <strong>{{ brand_name }}</strong>.
+    </p>
+
+    <p>
+      <strong>Booking code:</strong> {{ booking.booking_code }}
+    </p>
+
+    {% if booking.service_date %}
+      <p><strong>Service date:</strong> {{ booking.service_date }}</p>
+    {% endif %}
+
+    {% if booking.service_time %}
+      <p><strong>Service time:</strong> {{ booking.service_time }}</p>
+    {% endif %}
+
+    <h3>Booking items</h3>
+    <ul>
+      {% for item in items %}
+        <li>{{ item.product_name }} x {{ item.quantity }} — {{ currency_symbol }}{{ item.total }}</li>
+      {% endfor %}
+    </ul>
+
+    <h3>Payment summary</h3>
+    <p><strong>Total:</strong> {{ currency_symbol }}{{ booking.total_amount }}</p>
+    <p><strong>Deposit paid:</strong> {{ currency_symbol }}{{ booking.deposit_paid }}</p>
+    <p><strong>Balance due:</strong> {{ currency_symbol }}{{ booking.balance_due }}</p>
+    <p><strong>Payment status:</strong> {{ booking.payment_status }}</p>
+
+    {% if pickup_info %}
+      <h3>Pickup</h3>
+      <p><strong>Location:</strong> {{ pickup_info.hotel_or_location_name }}</p>
+      {% if pickup_info.pickup_time %}
+        <p><strong>Pickup time:</strong> {{ pickup_info.pickup_time }}</p>
+      {% endif %}
+      {% if pickup_info.pickup_point %}
+        <p><strong>Pickup point:</strong> {{ pickup_info.pickup_point }}</p>
+      {% endif %}
+      {% if pickup_info.instructions %}
+        <p><strong>Instructions:</strong> {{ pickup_info.instructions }}</p>
+      {% endif %}
+    {% endif %}
+
+    <p>Thank you,<br>{{ brand_name }}</p>
+  </body>
+</html>
