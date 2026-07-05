@@ -4,6 +4,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from ticketing.google_oauth import send_gmail_email
 from ticketing.models import NotificationLog
 
 from .utils import (
@@ -83,11 +84,35 @@ class BookingEmailService:
             log.status = "skipped"
             log.provider_response = {
                 "reason": "Ticketing email settings are not configured.",
+                "provider": email_settings.provider,
             }
             log.save(update_fields=["status", "provider_response"])
             return log
 
         try:
+            if email_settings.provider == "google_oauth":
+                gmail_response = send_gmail_email(
+                    email_settings=email_settings,
+                    to_email=recipient,
+                    subject=subject,
+                    body=text_body,
+                )
+
+                log.status = "sent"
+                log.sent_at = timezone.now()
+                log.provider_response = {
+                    "backend": "gmail_api",
+                    "provider": email_settings.provider,
+                    "from_email": (
+                        email_settings.sender_email
+                        or email_settings.oauth_provider_account
+                    ),
+                    "gmail_response": gmail_response,
+                }
+                log.save(update_fields=["status", "sent_at", "provider_response"])
+
+                return log
+
             connection = get_email_connection(email_settings)
 
             email = EmailMultiAlternatives(

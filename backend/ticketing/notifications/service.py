@@ -32,12 +32,9 @@ class BookingNotificationService:
 
         email_settings, _ = TicketingEmailSettings.objects.get_or_create(
             organisation=booking.organisation,
-            defaults={
-                "provider": "gmail",
-                "smtp_host": "smtp.gmail.com",
-                "smtp_port": 587,
-                "smtp_encryption": "tls",
-            },
+        defaults={
+        "provider": "google_oauth",
+        },
         )
 
         logs = []
