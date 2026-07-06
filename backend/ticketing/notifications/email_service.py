@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from ticketing.google_oauth import send_gmail_email
 from ticketing.models import NotificationLog
+from ticketing.notifications.pdf_tickets import build_ticket_attachment
 
 from .utils import (
     build_booking_context,
@@ -26,6 +27,7 @@ class BookingEmailService:
         subject = f"Booking confirmation {booking.booking_code}"
         recipient = booking.customer_email
         context = build_booking_context(booking)
+        attachments = [build_ticket_attachment(booking)]
 
         return cls._send_email(
             booking=booking,
@@ -34,6 +36,7 @@ class BookingEmailService:
             text_template="ticketing/emails/customer_confirmation.txt",
             html_template="ticketing/emails/customer_confirmation.html",
             context=context,
+            attachments=attachments,
         )
 
     @classmethod
@@ -64,7 +67,9 @@ class BookingEmailService:
         text_template,
         html_template,
         context,
+        attachments=None,
     ):
+        attachments = attachments or []
         text_body = render_to_string(text_template, context)
         html_body = render_to_string(html_template, context)
 
@@ -96,6 +101,8 @@ class BookingEmailService:
                     to_email=recipient,
                     subject=subject,
                     body=text_body,
+                    html_body=html_body,
+                    attachments=attachments,
                 )
 
                 log.status = "sent"
@@ -107,6 +114,7 @@ class BookingEmailService:
                         email_settings.sender_email
                         or email_settings.oauth_provider_account
                     ),
+                    "attachments": [attachment["filename"] for attachment in attachments],
                     "gmail_response": gmail_response,
                 }
                 log.save(update_fields=["status", "sent_at", "provider_response"])
@@ -126,6 +134,14 @@ class BookingEmailService:
                 connection=connection,
             )
             email.attach_alternative(html_body, "text/html")
+
+            for attachment in attachments:
+                email.attach(
+                    attachment["filename"],
+                    attachment["content"],
+                    attachment.get("mime_type") or "application/octet-stream",
+                )
+
             email.send(fail_silently=False)
 
             log.status = "sent"
@@ -134,6 +150,7 @@ class BookingEmailService:
                 "backend": "tenant_smtp",
                 "provider": email_settings.provider,
                 "from_email": email_settings.from_email,
+                "attachments": [attachment["filename"] for attachment in attachments],
             }
             log.save(update_fields=["status", "sent_at", "provider_response"])
 
