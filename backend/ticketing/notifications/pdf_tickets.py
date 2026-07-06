@@ -79,6 +79,50 @@ def _get_ticketing_settings(booking: Any) -> Any:
     return getattr(organisation, "ticketing_settings", None)
 
 
+def _get_logo_reader(public_settings: Any) -> ImageReader | None:
+    """
+    Works with local media storage and remote storage such as S3/DigitalOcean Spaces.
+
+    The previous version only used logo.path + os.path.exists().
+    That fails on cloud storage because ImageField.path may not exist.
+    """
+    if not public_settings:
+        return None
+
+    logo = getattr(public_settings, "logo", None)
+    if not logo:
+        return None
+
+    # Local filesystem storage
+    try:
+        logo_path = getattr(logo, "path", None)
+        if logo_path and os.path.exists(logo_path):
+            return ImageReader(logo_path)
+    except Exception:
+        pass
+
+    # Remote/custom storage: read file bytes through Django storage backend
+    try:
+        logo.open("rb")
+        logo_bytes = logo.read()
+        logo.close()
+
+        if logo_bytes:
+            return ImageReader(io.BytesIO(logo_bytes))
+    except Exception:
+        pass
+
+    # Fallback: sometimes ReportLab can read a URL directly, but this depends on storage/public access
+    try:
+        logo_url = getattr(logo, "url", None)
+        if logo_url:
+            return ImageReader(logo_url)
+    except Exception:
+        pass
+
+    return None
+
+
 def _get_product_name(booking: Any) -> str:
     product = (
         getattr(booking, "primary_product", None)
@@ -261,7 +305,6 @@ def _get_branding(booking: Any) -> dict[str, Any]:
     brand_name = "Ticket"
     contact_email = ""
     whatsapp = ""
-    logo_path = ""
     custom_domain = ""
 
     primary_color = "#111827"
@@ -298,19 +341,11 @@ def _get_branding(booking: Any) -> dict[str, Any]:
         text_color = _first_attr(public_settings, ["text_color"], text_color)
         muted_text_color = _first_attr(public_settings, ["muted_text_color"], muted_text_color)
 
-        logo = getattr(public_settings, "logo", None)
-        if logo:
-            try:
-                if getattr(logo, "path", None) and os.path.exists(logo.path):
-                    logo_path = logo.path
-            except Exception:
-                logo_path = ""
-
     return {
         "brand_name": brand_name,
         "contact_email": contact_email,
         "whatsapp": whatsapp,
-        "logo_path": logo_path,
+        "logo_reader": _get_logo_reader(public_settings),
         "custom_domain": custom_domain,
         "primary_color": _valid_hex(primary_color, "#111827"),
         "secondary_color": _valid_hex(secondary_color, "#6B7280"),
@@ -368,20 +403,23 @@ def _draw_label_value(
 
 
 def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, y: float) -> None:
-    logo_path = branding.get("logo_path")
+    logo_reader = branding.get("logo_reader")
 
-    if logo_path:
+    if logo_reader:
         try:
-            logo_reader = ImageReader(logo_path)
+            # White logo panel so dark/colored logos show clearly on any header color.
+            pdf.setFillColor(colors.white)
+            pdf.roundRect(x - 2 * mm, y - 21 * mm, 52 * mm, 21 * mm, 3 * mm, fill=1, stroke=0)
+
             pdf.drawImage(
                 logo_reader,
                 x,
                 y - 18 * mm,
-                width=44 * mm,
-                height=18 * mm,
+                width=48 * mm,
+                height=15 * mm,
                 preserveAspectRatio=True,
                 mask="auto",
-                anchor="w",
+                anchor="c",
             )
             return
         except Exception:
@@ -432,16 +470,13 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     muted = branding["muted_text_color"]
     currency_symbol = branding["currency_symbol"]
 
-    # Page background
     pdf.setFillColor(_hex("#F3F4F6"))
     pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
 
-    # Main ticket card
     pdf.setFillColor(colors.white)
     pdf.setStrokeColor(_hex("#E5E7EB"))
     pdf.roundRect(ticket_x, ticket_y, ticket_w, ticket_h, 7 * mm, fill=1, stroke=1)
 
-    # Header
     header_h = 42 * mm
     header_y = top - header_h
     pdf.setFillColor(_hex(primary))
@@ -460,7 +495,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.setFont("Helvetica", 8)
     pdf.drawRightString(ticket_x + ticket_w - 9 * mm, top - 18 * mm, "BOOKING CODE")
 
-    # QR panel
     qr_panel_x = ticket_x + ticket_w - 55 * mm
     qr_panel_y = header_y - 46 * mm
     qr_panel_w = 43 * mm
@@ -486,12 +520,10 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.setFont("Helvetica-Bold", 6.5)
     pdf.drawCentredString(qr_panel_x + qr_panel_w / 2, qr_panel_y + 6 * mm, "SCAN TO VERIFY")
 
-    # Main content
     content_x = ticket_x + 9 * mm
     content_w = ticket_w - 18 * mm
     y = header_y - 12 * mm
 
-    # Payment badge
     status = _get_payment_status(booking)
     pdf.setFillColor(_hex(accent))
     pdf.roundRect(content_x, y - 8 * mm, 38 * mm, 8 * mm, 4 * mm, fill=1, stroke=0)
@@ -499,7 +531,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.setFont("Helvetica-Bold", 8)
     pdf.drawCentredString(content_x + 19 * mm, y - 5.3 * mm, status.upper()[:20])
 
-    # Product title
     y -= 18 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 21)
@@ -523,7 +554,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         max_chars=52,
     )
 
-    # Details grid
     grid_top = y - 18 * mm
     col_gap = 7 * mm
     col_w = (content_w - (2 * col_gap)) / 3
@@ -541,7 +571,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     third_row_y = second_row_y - 26 * mm
     _draw_label_value(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x, third_row_y, content_w, muted, text_color)
 
-    # Payment summary
     payment_y = third_row_y - 30 * mm
     pdf.setFillColor(_hex("#F9FAFB"))
     pdf.setStrokeColor(_hex("#E5E7EB"))
@@ -561,7 +590,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.drawString(content_x + 55 * mm, payment_y - 15 * mm, f"Paid: {_money(deposit_paid, currency_symbol)}")
     pdf.drawString(content_x + 100 * mm, payment_y - 15 * mm, f"Balance: {_money(balance_due, currency_symbol)}")
 
-    # Important information
     info_y = payment_y - 39 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 12)
@@ -576,7 +604,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     )
     _draw_wrapped_text(pdf, info_text, content_x, info_y, max_chars=92, line_height=5 * mm)
 
-    # Footer
     footer_h = 18 * mm
     footer_y = ticket_y
     pdf.setFillColor(_hex("#F9FAFB"))
@@ -611,4 +638,3 @@ def build_ticket_attachment(booking: Any) -> dict[str, Any]:
         "content": generate_ticket_pdf(booking),
         "mime_type": "application/pdf",
     }
-
