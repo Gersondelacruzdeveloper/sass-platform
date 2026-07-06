@@ -29,32 +29,36 @@ import type {
 
 type SellerDashboardResponse = {
   seller: Seller;
-  permissions: SellerPermissions;
+  permissions?: Partial<SellerPermissions>;
   summary: {
-    today_bookings: number;
-    week_bookings: number;
-    month_bookings: number;
-    total_bookings: number;
+    today_bookings?: number;
+    week_bookings?: number;
+    month_bookings?: number;
+    total_bookings?: number;
 
-    today_sales: string | number;
-    today_deposits: string | number;
-    money_collected: string | number;
-    money_owed_to_company: string | number;
-    outstanding_balance: string | number;
+    today_sales?: string | number;
+    today_deposits?: string | number;
+    money_collected?: string | number;
+    money_owed_to_company?: string | number;
+    outstanding_balance?: string | number;
 
-    pending_payments: number;
-    confirmed_bookings: number;
-    tickets_generated: number;
+    pending_payments?: number;
+    confirmed_bookings?: number;
+    tickets_generated?: number;
 
-    commission_today: string | number;
-    commission_week: string | number;
-    commission_month: string | number;
-    commission_pending: string | number;
-    commission_paid: string | number;
-    commission_lifetime: string | number;
+    commission_today?: string | number;
+    commission_week?: string | number;
+    commission_month?: string | number;
+    commission_pending?: string | number;
+    commission_paid?: string | number;
+    commission_lifetime?: string | number;
+
+    // Backward compatibility with older SellerDashboard response shape.
+    my_bookings?: number;
+    commission_generated?: string | number;
   };
-  recent_bookings: Booking[];
-  available_products: ExperienceProduct[];
+  recent_bookings?: Booking[];
+  available_products?: ExperienceProduct[];
 };
 
 type StatCardProps = {
@@ -80,6 +84,27 @@ function formatNumber(value: unknown) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function getPermission(
+  dashboard: SellerDashboardResponse | null,
+  permission: keyof SellerPermissions
+) {
+  if (!dashboard) return false;
+
+  if (typeof dashboard.permissions?.[permission] === "boolean") {
+    return Boolean(dashboard.permissions[permission]);
+  }
+
+  if (typeof dashboard.seller?.permissions?.[permission] === "boolean") {
+    return Boolean(dashboard.seller.permissions[permission]);
+  }
+
+  if (typeof dashboard.seller?.[permission] === "boolean") {
+    return Boolean(dashboard.seller[permission]);
+  }
+
+  return false;
 }
 
 function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
@@ -118,7 +143,7 @@ function LoadingState() {
   );
 }
 
-function EmptyState({ slug }: { slug?: string }) {
+function EmptyState({ slug, canCreateBookings }: { slug?: string; canCreateBookings: boolean }) {
   return (
     <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-50 text-amber-600">
@@ -134,13 +159,15 @@ function EmptyState({ slug }: { slug?: string }) {
         sales and commission summary will appear here.
       </p>
 
-      <Link
-        to={`/ticketing/${slug}/new-booking`}
-        className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-slate-800"
-      >
-        <Plus className="h-4 w-4" />
-        Create first booking
-      </Link>
+      {canCreateBookings && (
+        <Link
+          to={`/ticketing/${slug}/new-booking`}
+          className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-slate-800"
+        >
+          <Plus className="h-4 w-4" />
+          Create first booking
+        </Link>
+      )}
     </div>
   );
 }
@@ -322,15 +349,16 @@ export default function TicketingSellerDashboardPage() {
   }, [slug]);
 
   const summary = dashboard?.summary;
+  const canCreateBookings = getPermission(dashboard, "can_create_bookings");
 
   const hasAnyData = useMemo(() => {
     if (!summary) return false;
 
     return (
-      Number(summary.total_bookings || 0) > 0 ||
+      Number(summary.total_bookings || summary.my_bookings || 0) > 0 ||
       Number(summary.today_sales || 0) > 0 ||
       Number(summary.money_collected || 0) > 0 ||
-      Number(summary.commission_lifetime || 0) > 0
+      Number(summary.commission_lifetime || summary.commission_generated || 0) > 0
     );
   }, [summary]);
 
@@ -368,7 +396,7 @@ export default function TicketingSellerDashboardPage() {
   }
 
   if (!dashboard || !summary) {
-    return <EmptyState slug={slug} />;
+    return <EmptyState slug={slug} canCreateBookings={canCreateBookings} />;
   }
 
   return (
@@ -380,7 +408,7 @@ export default function TicketingSellerDashboardPage() {
           </p>
 
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Welcome, {dashboard.seller.full_name}
+            Welcome, {dashboard.seller?.full_name || "Seller"}
           </h1>
 
           <p className="mt-2 max-w-3xl text-sm font-semibold text-slate-500">
@@ -399,7 +427,7 @@ export default function TicketingSellerDashboardPage() {
             Refresh
           </button>
 
-          {dashboard.permissions.can_create_bookings && (
+          {canCreateBookings && (
             <Link
               to={`/ticketing/${slug}/new-booking`}
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-slate-800"
@@ -411,7 +439,9 @@ export default function TicketingSellerDashboardPage() {
         </div>
       </div>
 
-      {!hasAnyData && <EmptyState slug={slug} />}
+      {!hasAnyData && (
+        <EmptyState slug={slug} canCreateBookings={canCreateBookings} />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
