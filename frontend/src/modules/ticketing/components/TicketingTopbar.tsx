@@ -1,6 +1,6 @@
 // src/modules/ticketing/components/TicketingTopbar.tsx
 
-import { LogOut, Menu, UserCircle } from "lucide-react";
+import { LogOut, Menu, Ticket, UserCircle } from "lucide-react";
 
 type TicketingTopbarProps = {
   user: any;
@@ -8,6 +8,8 @@ type TicketingTopbarProps = {
   userEmail: string;
   userAvatarUrl?: string | null;
   organisationName: string;
+  organisationLogoUrl?: string | null;
+  portalLabel?: string;
   onMenuClick: () => void;
   onLogout: () => void;
 };
@@ -17,13 +19,15 @@ export default function TicketingTopbar({
   userEmail,
   userAvatarUrl,
   organisationName,
+  organisationLogoUrl,
+  portalLabel = "Tours, Tickets & Transfers",
   onMenuClick,
   onLogout,
 }: TicketingTopbarProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onMenuClick}
@@ -32,20 +36,38 @@ export default function TicketingTopbar({
             <Menu className="h-5 w-5" />
           </button>
 
-          <div>
-            <p className="text-sm font-black text-slate-950">
+          {organisationLogoUrl ? (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <img
+                src={organisationLogoUrl}
+                alt={organisationName}
+                className="h-full w-full object-contain p-1"
+              />
+            </div>
+          ) : (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+              <Ticket className="h-6 w-6" />
+            </div>
+          )}
+
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black text-slate-950">
               {organisationName}
             </p>
-            <p className="text-xs font-semibold text-slate-500">
-              Tours, Tickets & Transfers
+            <p className="truncate text-xs font-semibold text-slate-500">
+              {portalLabel}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-black text-slate-950">{userName}</p>
-            <p className="text-xs font-semibold text-slate-500">{userEmail}</p>
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="hidden max-w-[220px] text-right sm:block">
+            <p className="truncate text-sm font-black text-slate-950">
+              {userName}
+            </p>
+            <p className="truncate text-xs font-semibold text-slate-500">
+              {userEmail}
+            </p>
           </div>
 
           {userAvatarUrl ? (

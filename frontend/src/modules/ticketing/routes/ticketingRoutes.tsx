@@ -13,6 +13,7 @@ import TicketingSubscriptionSuccessPage from "../pages/TicketingSubscriptionSucc
 import TicketingSubscriptionCancelPage from "../pages/TicketingSubscriptionCancelPage";
 
 import TicketingDashboardPage from "../pages/TicketingDashboardPage";
+import TicketingSellerDashboardPage from "../pages/TicketingSellerDashboardPage";
 import TicketingBookingsPage from "../pages/TicketingBookingsPage";
 import TicketingNewBookingPage from "../pages/TicketingNewBookingPage";
 import TicketingProductsPage from "../pages/TicketingProductsPage";
@@ -175,7 +176,15 @@ export const ticketingRoutes = (
       >
         <Route index element={<Navigate to="dashboard" replace />} />
 
+        {/* Owner/admin dashboard */}
         <Route path="dashboard" element={<TicketingDashboardPage />} />
+
+        {/* Seller dashboard */}
+        <Route
+          path="seller-dashboard"
+          element={<TicketingSellerDashboardPage />}
+        />
+
         <Route path="bookings" element={<TicketingBookingsPage />} />
         <Route path="new-booking" element={<TicketingNewBookingPage />} />
         <Route path="products" element={<TicketingProductsPage />} />

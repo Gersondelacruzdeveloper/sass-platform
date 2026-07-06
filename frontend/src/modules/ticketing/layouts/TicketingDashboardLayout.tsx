@@ -1,7 +1,7 @@
 // src/modules/ticketing/layouts/TicketingDashboardLayout.tsx
 
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Download } from "lucide-react";
 
 import api from "../../../api/axios";
@@ -10,6 +10,8 @@ import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 
 import TicketingSidebar from "../components/TicketingSidebar";
 import TicketingTopbar from "../components/TicketingTopbar";
+import ticketingApi from "../api/ticketingApi";
+import type { Seller } from "../types/ticketingTypes";
 
 type OrganisationBranding = {
   id?: number;
@@ -139,9 +141,31 @@ function getUserAvatarUrl(user: any) {
   );
 }
 
+function isAdminLikeUser(user: any) {
+  const role = String(
+    user?.role ||
+      user?.membership?.role ||
+      user?.organisation_role ||
+      user?.user_type ||
+      ""
+  ).toLowerCase();
+
+  if (user?.is_staff || user?.is_superuser) {
+    return true;
+  }
+
+  if (["owner", "admin", "manager"].includes(role)) {
+    return true;
+  }
+
+  return false;
+}
+
 export default function TicketingDashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [branding, setBranding] = useState<OrganisationBranding | null>(null);
+  const [currentSeller, setCurrentSeller] = useState<Seller | null>(null);
+  const [currentSellerLoading, setCurrentSellerLoading] = useState(true);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -149,6 +173,7 @@ export default function TicketingDashboardLayout() {
 
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
 
   const { user } = useAppSelector((state) => state.auth);
@@ -159,6 +184,79 @@ export default function TicketingDashboardLayout() {
     authUser?.organisation?.slug ||
     authUser?.seller?.organisation_slug ||
     "";
+
+  const isOwnerOrAdmin = useMemo(() => {
+    if (isAdminLikeUser(authUser)) {
+      return true;
+    }
+
+    const sellerRole = String(currentSeller?.role || "").toLowerCase();
+
+    return ["owner", "admin", "manager"].includes(sellerRole);
+  }, [authUser, currentSeller]);
+
+  useEffect(() => {
+    async function loadCurrentSeller() {
+      if (!slug) {
+        setCurrentSeller(null);
+        setCurrentSellerLoading(false);
+        return;
+      }
+
+      try {
+        setCurrentSellerLoading(true);
+
+        const seller = await ticketingApi.getSellerMe(slug);
+        setCurrentSeller(seller);
+      } catch (error) {
+        // Owners/admins may not have a seller profile.
+        // That is okay. Backend permissions still protect admin-only routes.
+        setCurrentSeller(null);
+      } finally {
+        setCurrentSellerLoading(false);
+      }
+    }
+
+    loadCurrentSeller();
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug || currentSellerLoading) return;
+
+    const isSellerOnly = Boolean(currentSeller) && !isOwnerOrAdmin;
+
+    if (!isSellerOnly) return;
+
+    const basePath = `/ticketing/${slug}`;
+    const ownerOnlyPaths = [
+      `${basePath}/dashboard`,
+      `${basePath}/sellers`,
+      `${basePath}/reports`,
+      `${basePath}/settings`,
+      `${basePath}/branding`,
+      `${basePath}/domain`,
+      `${basePath}/integrations`,
+      `${basePath}/seo`,
+      `${basePath}/availability`,
+      `${basePath}/pickup-schedules`,
+    ];
+
+    const isOnBasePath = location.pathname === basePath;
+    const isOnOwnerOnlyPath = ownerOnlyPaths.some(
+      (path) => location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
+
+    if (isOnBasePath || isOnOwnerOnlyPath) {
+      navigate(`${basePath}/seller-dashboard`, { replace: true });
+    }
+  }, [
+    slug,
+    currentSeller,
+    currentSellerLoading,
+    isOwnerOrAdmin,
+    location.pathname,
+    navigate,
+  ]);
 
   useEffect(() => {
     async function loadBranding() {
@@ -215,9 +313,10 @@ export default function TicketingDashboardLayout() {
     slug ||
     "PCD Experiences";
 
-  const userName = getUserDisplayName(authUser);
-  const userEmail = authUser?.email || "";
-  const userAvatarUrl = getUserAvatarUrl(authUser);
+  const userName = currentSeller?.full_name || getUserDisplayName(authUser);
+  const userEmail = currentSeller?.email || authUser?.email || "";
+  const userAvatarUrl =
+    currentSeller?.photo_url || getUserAvatarUrl(authUser);
 
   useEffect(() => {
     if (!manifestUrl) return;
@@ -342,6 +441,10 @@ export default function TicketingDashboardLayout() {
       <TicketingSidebar
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
+        slug={slug}
+        currentSeller={currentSeller}
+        currentSellerLoading={currentSellerLoading}
+        isOwnerOrAdmin={isOwnerOrAdmin}
       />
 
       <div className="min-h-screen lg:pl-72">

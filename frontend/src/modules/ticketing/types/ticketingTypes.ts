@@ -748,16 +748,31 @@ export interface TicketingReports {
 
 export interface SellerDashboard {
   seller: Seller;
+  permissions: SellerPermissions;
   summary: {
-    my_bookings: number;
-    confirmed_bookings: number;
-    pending_payments: number;
-    tickets_generated: number;
+    today_bookings: number;
+    week_bookings: number;
+    month_bookings: number;
+    total_bookings: number;
+
+    today_sales: Money;
+    today_deposits: Money;
     money_collected: Money;
     money_owed_to_company: Money;
-    commission_generated: Money;
+    outstanding_balance: Money;
+
+    pending_payments: number;
+    confirmed_bookings: number;
+    tickets_generated: number;
+
+    commission_today: Money;
+    commission_week: Money;
+    commission_month: Money;
+    commission_pending: Money;
     commission_paid: Money;
+    commission_lifetime: Money;
   };
+  recent_bookings: Booking[];
   available_products: ExperienceProduct[];
 }
 
@@ -929,3 +944,5 @@ export interface ProductReview {
 
 export type CreatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 export type UpdatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
+
+
