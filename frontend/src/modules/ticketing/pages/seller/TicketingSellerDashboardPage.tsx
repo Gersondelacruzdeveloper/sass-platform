@@ -1,6 +1,6 @@
 // src/modules/ticketing/pages/seller/TicketingSellerDashboardPage.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   BadgeDollarSign,
@@ -11,53 +11,14 @@ import {
   Wallet,
 } from "lucide-react";
 
-import ticketingApi from "../api/ticketingApi";
-import type {
-  SellerDashboard,
-  SellerPermissions,
-} from "../types/ticketingTypes";
-import SellerStatCard from "../components/seller/SellerStatCard";
-import SellerBookingCard from "../components/seller/SellerBookingCard";
+import ticketingApi from "../../api/ticketingApi";
+import type { SellerDashboard } from "../../types/ticketingTypes";
+import SellerStatCard from "../../components/seller/SellerStatCard";
+import SellerBookingCard from "../../components/seller/SellerBookingCard";
 
 function money(value: string | number | null | undefined) {
   const amount = Number(value || 0);
   return `$${amount.toFixed(2)}`;
-}
-
-function emptyPermissions(): SellerPermissions {
-  return {
-    can_access_dashboard: false,
-    can_sell_cocobongo: false,
-    can_sell_excursions: false,
-    can_sell_transfers: false,
-    can_sell_events: false,
-    can_sell_custom_tours: false,
-    can_create_bookings: false,
-    can_take_deposits: false,
-    can_take_full_payments: false,
-    can_collect_cash_payment: false,
-    can_generate_ticket_without_customer_online_payment: false,
-    can_mark_customer_deposit_paid: false,
-    can_mark_customer_full_paid: false,
-    can_pay_full_amount_as_seller: false,
-    can_pay_deposit_as_seller: false,
-    can_pay_commission_only: false,
-    can_create_pending_payment_booking: false,
-    can_request_supervisor_approval: false,
-    can_send_receipt_before_full_payment: false,
-    can_view_own_sales: false,
-    can_view_own_commissions: false,
-    can_apply_discounts: false,
-    can_cancel_bookings: false,
-    can_send_whatsapp: false,
-    can_send_email: false,
-    can_override_pickup_time: false,
-    can_view_reports: false,
-    can_manage_products: false,
-    can_manage_sellers: false,
-    can_manage_settings: false,
-    can_manage_integrations: false,
-  };
 }
 
 export default function TicketingSellerDashboardPage() {
@@ -87,17 +48,6 @@ export default function TicketingSellerDashboardPage() {
 
     loadDashboard();
   }, [slug]);
-
-  const permissions = useMemo(() => {
-    if (!dashboard) return emptyPermissions();
-
-    return {
-      ...emptyPermissions(),
-      ...(dashboard.seller || {}),
-      ...(dashboard.seller?.permissions || {}),
-      ...(dashboard.permissions || {}),
-    };
-  }, [dashboard]);
 
   if (loading) {
     return (
@@ -182,7 +132,7 @@ export default function TicketingSellerDashboardPage() {
         />
         <SellerStatCard
           label="Available Products"
-          value={dashboard.available_products?.length || 0}
+          value={dashboard.available_products.length}
           icon={Package}
         />
         <SellerStatCard
@@ -210,7 +160,7 @@ export default function TicketingSellerDashboardPage() {
         </div>
 
         <div className="mt-5 space-y-3">
-          {dashboard.recent_bookings?.length > 0 ? (
+          {dashboard.recent_bookings.length > 0 ? (
             dashboard.recent_bookings.map((booking) => (
               <SellerBookingCard key={booking.id} booking={booking} />
             ))

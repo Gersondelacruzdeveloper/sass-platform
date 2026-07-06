@@ -1,9 +1,12 @@
+// src/modules/ticketing/routes/ticketingRoutes.tsx
+
 import type { ReactElement } from "react";
 import { Navigate, Route } from "react-router-dom";
 
 import ProtectedRoute from "../../../components/ProtectedRoute";
 
 import TicketingDashboardLayout from "../layouts/TicketingDashboardLayout";
+import TicketingSellerLayout from "../layouts/TicketingSellerLayout";
 
 import TicketingLandingPage from "../pages/TicketingLandingPage";
 import TicketingLoginPage from "../pages/TicketingLoginPage";
@@ -13,7 +16,6 @@ import TicketingSubscriptionSuccessPage from "../pages/TicketingSubscriptionSucc
 import TicketingSubscriptionCancelPage from "../pages/TicketingSubscriptionCancelPage";
 
 import TicketingDashboardPage from "../pages/TicketingDashboardPage";
-import TicketingSellerDashboardPage from "../pages/TicketingSellerDashboardPage";
 import TicketingBookingsPage from "../pages/TicketingBookingsPage";
 import TicketingNewBookingPage from "../pages/TicketingNewBookingPage";
 import TicketingProductsPage from "../pages/TicketingProductsPage";
@@ -30,6 +32,14 @@ import TicketingBrandingPage from "../pages/TicketingBrandingPage";
 import TicketingDomainPage from "../pages/TicketingDomainPage";
 import TicketingIntegrationsPage from "../pages/TicketingIntegrationsPage";
 import TicketingSEOPage from "../pages/TicketingSEOPage";
+
+import TicketingSellerDashboardPage from "../pages/seller/TicketingSellerDashboardPage";
+import TicketingSellerProductsPage from "../pages/seller/TicketingSellerProductsPage";
+import TicketingSellerNewBookingPage from "../pages/seller/TicketingSellerNewBookingPage";
+import TicketingSellerBookingsPage from "../pages/seller/TicketingSellerBookingsPage";
+import TicketingSellerCustomersPage from "../pages/seller/TicketingSellerCustomersPage";
+import TicketingSellerCommissionsPage from "../pages/seller/TicketingSellerCommissionsPage";
+import TicketingSellerProfilePage from "../pages/seller/TicketingSellerProfilePage";
 
 import PublicExperienceHomePage from "../pages/PublicExperienceHomePage";
 import PublicProductDetailPage from "../pages/PublicProductDetailPage";
@@ -170,21 +180,14 @@ export const ticketingRoutes = (
 
     {/* Protected Ticketing Module */}
     <Route element={<ProtectedRoute />}>
+      {/* Owner/Admin Portal */}
       <Route
         path="/ticketing/:organisationSlug"
         element={<TicketingDashboardLayout />}
       >
         <Route index element={<Navigate to="dashboard" replace />} />
 
-        {/* Owner/admin dashboard */}
         <Route path="dashboard" element={<TicketingDashboardPage />} />
-
-        {/* Seller dashboard */}
-        <Route
-          path="seller-dashboard"
-          element={<TicketingSellerDashboardPage />}
-        />
-
         <Route path="bookings" element={<TicketingBookingsPage />} />
         <Route path="new-booking" element={<TicketingNewBookingPage />} />
         <Route path="products" element={<TicketingProductsPage />} />
@@ -202,6 +205,27 @@ export const ticketingRoutes = (
         <Route path="integrations" element={<TicketingIntegrationsPage />} />
         <Route path="seo" element={<TicketingSEOPage />} />
       </Route>
+
+      {/* Seller Portal */}
+      <Route
+        path="/ticketing/:organisationSlug/seller"
+        element={<TicketingSellerLayout />}
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<TicketingSellerDashboardPage />} />
+        <Route path="products" element={<TicketingSellerProductsPage />} />
+        <Route path="new-booking" element={<TicketingSellerNewBookingPage />} />
+        <Route path="bookings" element={<TicketingSellerBookingsPage />} />
+        <Route path="customers" element={<TicketingSellerCustomersPage />} />
+        <Route path="commissions" element={<TicketingSellerCommissionsPage />} />
+        <Route path="profile" element={<TicketingSellerProfilePage />} />
+      </Route>
+
+      {/* Old seller dashboard fallback */}
+    <Route
+      path="/ticketing/:organisationSlug/seller-dashboard"
+      element={<Navigate to="/ticketing/:organisationSlug/seller/dashboard" replace />}
+    />
     </Route>
   </>
 );

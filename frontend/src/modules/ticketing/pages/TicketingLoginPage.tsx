@@ -68,6 +68,52 @@ function resolveImageUrl(url?: string | null) {
   return `${apiOrigin}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+function isAdminLikeUser(user: any) {
+  const role = String(
+    user?.role ||
+      user?.membership?.role ||
+      user?.organisation_role ||
+      user?.user_type ||
+      ""
+  ).toLowerCase();
+
+  if (user?.is_staff || user?.is_superuser) {
+    return true;
+  }
+
+  return ["owner", "admin", "manager"].includes(role);
+}
+
+async function userHasSellerPortalAccess(slug: string, user: any) {
+  if (isAdminLikeUser(user)) {
+    return false;
+  }
+
+  try {
+    const response = await api.get("/ticketing/sellers/me/", {
+      params: { slug },
+    });
+
+    const seller = response.data;
+    const sellerRole = String(seller?.role || "").toLowerCase();
+
+    if (["owner", "admin", "manager"].includes(sellerRole)) {
+      return false;
+    }
+
+    return Boolean(seller?.id && seller?.is_active !== false);
+  } catch (error: any) {
+    const statusCode = error?.response?.status;
+
+    if (statusCode === 403 || statusCode === 404) {
+      return false;
+    }
+
+    console.error("Could not check seller portal access:", error);
+    return false;
+  }
+}
+
 export default function TicketingLoginPage() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
@@ -131,12 +177,6 @@ export default function TicketingLoginPage() {
     try {
       setSubmitting(true);
 
-      console.log("✅ TICKETING LOGIN SUBMIT USED", {
-        login: form.email,
-        password: form.password,
-        organisation_slug: organisationSlug,
-      });
-
       const user = await dispatch(
         loginUser({
           login: form.email,
@@ -154,6 +194,13 @@ export default function TicketingLoginPage() {
 
       if (organisation?.is_active === false) {
         navigate(`/ticketing/${slug}/billing-locked`, { replace: true });
+        return;
+      }
+
+      const shouldUseSellerPortal = await userHasSellerPortalAccess(slug, user);
+
+      if (shouldUseSellerPortal) {
+        navigate(`/ticketing/${slug}/seller/dashboard`, { replace: true });
         return;
       }
 

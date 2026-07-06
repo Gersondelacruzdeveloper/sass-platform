@@ -1,15 +1,17 @@
-// src/modules/ticketing/layouts/TicketingDashboardLayout.tsx
+// src/modules/ticketing/layouts/TicketingSellerLayout.tsx
 
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import { Navigate, Outlet, useNavigate, useParams } from "react-router-dom";
 import { Download } from "lucide-react";
 
 import api from "../../../api/axios";
 import { logoutUser } from "../../../features/auth/authSlice";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 
-import TicketingSidebar from "../components/TicketingSidebar";
+import TicketingSellerSidebar from "../components/TicketingSellerSidebar";
 import TicketingTopbar from "../components/TicketingTopbar";
+import ticketingApi from "../api/ticketingApi";
+import type { Seller } from "../types/ticketingTypes";
 
 type OrganisationBranding = {
   id?: number;
@@ -139,9 +141,31 @@ function getUserAvatarUrl(user: any) {
   );
 }
 
-export default function TicketingDashboardLayout() {
+function isAdminLikeUser(user: any) {
+  const role = String(
+    user?.role ||
+      user?.membership?.role ||
+      user?.organisation_role ||
+      user?.user_type ||
+      ""
+  ).toLowerCase();
+
+  if (user?.is_staff || user?.is_superuser) {
+    return true;
+  }
+
+  if (["owner", "admin", "manager"].includes(role)) {
+    return true;
+  }
+
+  return false;
+}
+
+export default function TicketingSellerLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [branding, setBranding] = useState<OrganisationBranding | null>(null);
+  const [currentSeller, setCurrentSeller] = useState<Seller | null>(null);
+  const [currentSellerLoading, setCurrentSellerLoading] = useState(true);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -160,6 +184,39 @@ export default function TicketingDashboardLayout() {
     authUser?.seller?.organisation_slug ||
     "";
 
+  const isOwnerOrAdmin = useMemo(() => {
+    if (isAdminLikeUser(authUser)) {
+      return true;
+    }
+
+    const sellerRole = String(currentSeller?.role || "").toLowerCase();
+
+    return ["owner", "admin", "manager"].includes(sellerRole);
+  }, [authUser, currentSeller]);
+
+  useEffect(() => {
+    async function loadCurrentSeller() {
+      if (!slug) {
+        setCurrentSeller(null);
+        setCurrentSellerLoading(false);
+        return;
+      }
+
+      try {
+        setCurrentSellerLoading(true);
+
+        const seller = await ticketingApi.getSellerMe(slug);
+        setCurrentSeller(seller);
+      } catch (error) {
+        setCurrentSeller(null);
+      } finally {
+        setCurrentSellerLoading(false);
+      }
+    }
+
+    loadCurrentSeller();
+  }, [slug]);
+
   useEffect(() => {
     async function loadBranding() {
       if (!slug) return;
@@ -171,7 +228,7 @@ export default function TicketingDashboardLayout() {
 
         setBranding(response.data);
       } catch (error) {
-        console.error("Could not load ticketing branding in owner layout:", error);
+        console.error("Could not load ticketing branding in seller layout:", error);
       }
     }
 
@@ -215,13 +272,12 @@ export default function TicketingDashboardLayout() {
     slug ||
     "PCD Experiences";
 
-  const organisationLogoUrl = resolveAssetUrl(
-    branding?.logo_url || branding?.logo || ""
-  );
+  const organisationLogoUrl = resolveAssetUrl(branding?.logo_url || branding?.logo || "");
 
-  const userName = getUserDisplayName(authUser);
-  const userEmail = authUser?.email || "";
-  const userAvatarUrl = getUserAvatarUrl(authUser);
+  const userName = currentSeller?.full_name || getUserDisplayName(authUser);
+  const userEmail = currentSeller?.email || authUser?.email || "";
+  const userAvatarUrl =
+    currentSeller?.photo_url || getUserAvatarUrl(authUser);
 
   useEffect(() => {
     if (!manifestUrl) return;
@@ -243,7 +299,7 @@ export default function TicketingDashboardLayout() {
       organisationName ||
       "PCD Experiences";
 
-    document.title = appName;
+    document.title = `${appName} Seller Portal`;
 
     if (faviconUrl) {
       updateOrCreateLinkById("app-favicon", "icon", faviconUrl, "image/png");
@@ -335,13 +391,19 @@ export default function TicketingDashboardLayout() {
 
   const showInstallButton = Boolean(installPrompt && !isInstalled);
 
+  if (!currentSellerLoading && !currentSeller && !isOwnerOrAdmin) {
+    return <Navigate to={`/ticketing/${slug}/dashboard`} replace />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <TicketingSidebar
+      <TicketingSellerSidebar
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
+        onLogout={handleLogout}
         slug={slug}
-        isOwnerOrAdmin
+        currentSeller={currentSeller}
+        currentSellerLoading={currentSellerLoading}
       />
 
       <div className="min-h-screen lg:pl-72">
@@ -352,7 +414,7 @@ export default function TicketingDashboardLayout() {
           userAvatarUrl={userAvatarUrl}
           organisationName={organisationName}
           organisationLogoUrl={organisationLogoUrl}
-          portalLabel="Owner Portal"
+          portalLabel="Seller Portal"
           onMenuClick={() => setMobileOpen(true)}
           onLogout={handleLogout}
         />
