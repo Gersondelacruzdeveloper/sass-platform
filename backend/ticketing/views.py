@@ -3515,8 +3515,6 @@ class PublicPickupScheduleResolveAPIView(PublicOrganisationMixin, APIView):
             }
         )
 
-
-
 class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
     serializer_class = BookingSerializer
     permission_classes = [permissions.AllowAny]
@@ -3597,7 +3595,6 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
-
 def get_booking_payment_amount(booking, payment_type):
     if payment_type == "full":
         return booking.total_amount
@@ -3611,6 +3608,7 @@ def get_booking_payment_amount(booking, payment_type):
         return booking.balance_due
 
     return booking.balance_due or booking.total_amount
+
 
 def sync_seller_commission_for_booking(booking):
     if not booking.seller:
@@ -3658,6 +3656,7 @@ def sync_seller_commission_for_booking(booking):
         )
 
     return commission
+
 
 def recalculate_booking_payment_totals(booking):
     confirmed_payments = booking.payments.filter(status="confirmed")
@@ -3720,11 +3719,13 @@ def recalculate_booking_payment_totals(booking):
 
     return booking
 
+
 def make_json_safe(value):
     try:
         return json.loads(json.dumps(value, default=str))
     except Exception:
         return {"raw": str(value)}
+
 
 def mark_booking_payment_confirmed(
     booking,
