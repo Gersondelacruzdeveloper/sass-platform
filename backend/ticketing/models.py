@@ -580,6 +580,12 @@ class ExperienceProduct(models.Model):
         default=False,
         help_text="If enabled, this product margin overrides the seller default margin.",
     )
+    seller_allowed_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Maximum discount/margin allowance seller can use for this product.",
+    )
 
     deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     deposit_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
