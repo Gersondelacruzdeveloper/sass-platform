@@ -613,20 +613,14 @@ export default function TicketingSellerNewBookingPage() {
             instructions: form.customerNotes.trim(),
           },
         ],
-        payments_payload: [],
+        payments_payload: paymentPayload ? [paymentPayload] : [],
       };
 
       let booking = await ticketingApi.createSellerBooking(payload, slug);
 
-      if (paymentPayload) {
-        const paymentResponse = await ticketingApi.addSellerBookingPayment(booking.id, paymentPayload, slug);
-        booking = paymentResponse.booking;
-      }
-
       if (form.paymentAction === "generate_ticket") {
         booking = await ticketingApi.markSellerTicketGenerated(booking.id, slug);
       }
-
       setCreatedBooking(booking);
       setSuccessMessage(`Booking created${booking.booking_code ? `: ${booking.booking_code}` : ""}.`);
     } catch (error: any) {
