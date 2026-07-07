@@ -1,204 +1,105 @@
-from decimal import Decimal
+"""
+Compatibility layer for the new Ticketing finance engine.
+
+Legacy code imports this module as:
+
+    from . import booking_finance_service as booking_finance
+
+So we keep the old public function names here, but delegate all real work to:
+
+    ticketing.finance
+
+This allows views, serializers, Stripe/PayPal webhooks, seller dashboards,
+and reports to migrate safely without breaking all at once.
+"""
 
 from django.db import transaction
-from django.db.models import Sum
-from django.utils import timezone
 
-from ticketing.models import (
-    Booking,
-    BookingPayment,
-    Seller,
-    SellerCommission,
+from ticketing.finance.calculator import (
+    calculate_booking,
+    recalculate_booking,
+    calculate_booking_financial_snapshot,
+    apply_booking_financial_snapshot,
+)
+from ticketing.finance.commissions import (
+    sync_commission_for_booking,
+    sync_all_commissions_for_seller,
+    recompute_seller_totals,
+    cancel_commissions_for_booking,
+    mark_commission_paid,
+)
+from ticketing.finance.payments import (
+    record_payment,
+    record_customer_payment,
+    record_customer_deposit,
+    record_customer_full_payment,
+    record_customer_balance_payment,
+    record_refund,
+    record_seller_settlement_payment,
+    mark_provider_payment_confirmed,
+)
+from ticketing.finance.settlements import (
+    calculate_seller_due_to_company,
+    calculate_owner_remaining_amount,
+    resolve_settlement_status,
+    apply_settlement_status,
+    record_seller_settlement,
+    settle_booking_fully,
+    settle_booking_partially,
+)
+from ticketing.finance.pricing import (
+    calculate_pricing,
+    calculate_pricing_from_booking_values,
+    calculate_pricing_from_product,
+)
+from ticketing.finance.reports import (
+    owner_finance_summary,
+    seller_finance_summary,
+    seller_leaderboard,
+    receivables_report,
+    seller_receivables_report,
+)
+from ticketing.finance.utils import money
+from ticketing.finance.constants import (
+    ZERO,
+    PAYMENT_TYPE_FULL,
 )
 
 
-ZERO = Decimal("0.00")
-
-
-def money(value):
-    if value in [None, ""]:
-        return ZERO
-
-    try:
-        return Decimal(str(value))
-    except Exception:
-        return ZERO
-
-
-def recompute_seller_totals(seller):
-    if not seller:
-        return None
-
-    seller.total_sales_amount = (
-        Booking.objects.filter(seller=seller)
-        .exclude(status__in=["cancelled", "refunded", "no_show"])
-        .aggregate(total=Sum("total_amount"))["total"]
-        or ZERO
-    )
-
-    seller.total_commission_amount = (
-        SellerCommission.objects.filter(seller=seller)
-        .exclude(status="cancelled")
-        .aggregate(total=Sum("amount"))["total"]
-        or ZERO
-    )
-
-    seller.total_collected_amount = (
-        Booking.objects.filter(seller=seller)
-        .exclude(status__in=["cancelled", "refunded", "no_show"])
-        .aggregate(total=Sum("seller_collected_amount"))["total"]
-        or ZERO
-    )
-
-    seller.total_owed_to_company = (
-        Booking.objects.filter(seller=seller)
-        .exclude(status__in=["cancelled", "refunded", "no_show"])
-        .aggregate(total=Sum("seller_due_to_company"))["total"]
-        or ZERO
-    )
-
-    seller.save(
-        update_fields=[
-            "total_sales_amount",
-            "total_commission_amount",
-            "total_collected_amount",
-            "total_owed_to_company",
-            "updated_at",
-        ]
-    )
-
-    return seller
-
-
-def sync_seller_commission_for_booking(booking):
-    previous_seller_ids = set(
-        SellerCommission.objects.filter(booking=booking).values_list(
-            "seller_id",
-            flat=True,
-        )
-    )
-
-    if not booking.seller:
-        SellerCommission.objects.filter(booking=booking).update(
-            status="cancelled",
-        )
-
-        for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
-
-        return None
-
-    previous_seller_ids.add(booking.seller_id)
-
-    if booking.status in ["cancelled", "refunded", "no_show"]:
-        SellerCommission.objects.filter(
-            booking=booking,
-            seller=booking.seller,
-        ).update(status="cancelled")
-
-        for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
-
-        return None
-
-    if money(booking.seller_commission_amount) <= ZERO:
-        SellerCommission.objects.filter(
-            booking=booking,
-            seller=booking.seller,
-        ).update(status="cancelled")
-
-        for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
-
-        return None
-
-    commission, _ = SellerCommission.objects.update_or_create(
-        organisation=booking.organisation,
-        seller=booking.seller,
-        booking=booking,
-        defaults={
-            "amount": money(booking.seller_commission_amount),
-            "rate_used": money(booking.seller.commission_rate),
-            "status": "pending",
-            "note": "Automatically generated from booking.",
-        },
-    )
-
-    for seller_id in previous_seller_ids:
-        recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
-
-    return commission
-
+# ==========================================================
+# Legacy-compatible names
+# ==========================================================
 
 @transaction.atomic
 def recalculate_booking_payment_totals(booking):
-    confirmed_payments = booking.payments.filter(status="confirmed")
+    """
+    Legacy entry point used by existing views/serializers.
 
-    paid_amount = ZERO
-    seller_collected_amount = ZERO
+    Old behavior:
+        - looked at confirmed payments
+        - recalculated deposit_paid, balance_due, seller collected, commission
 
-    for payment in confirmed_payments:
-        amount = money(payment.amount)
+    New behavior:
+        - delegates to finance.calculator.recalculate_booking()
+        - syncs commission
+        - recomputes seller totals
+    """
 
-        if payment.payment_type == "refund":
-            paid_amount -= amount
-        else:
-            paid_amount += amount
-
-        if payment.seller:
-            seller_collected_amount += amount
-
-    booking.deposit_paid = max(paid_amount, ZERO)
-    booking.seller_collected_amount = seller_collected_amount
-    booking.balance_due = max(
-        money(booking.total_amount) - money(booking.deposit_paid),
-        ZERO,
-    )
-
-    booking.seller_commission_amount = ZERO
+    booking = recalculate_booking(booking)
+    sync_commission_for_booking(booking)
 
     if booking.seller:
-        if money(booking.seller.fixed_commission_amount) > ZERO:
-            booking.seller_commission_amount = money(
-                booking.seller.fixed_commission_amount
-            )
-        elif money(booking.seller.commission_rate) > ZERO:
-            booking.seller_commission_amount = (
-                money(booking.subtotal_amount) * money(booking.seller.commission_rate)
-            ) / Decimal("100.00")
-
-    booking.seller_due_to_company = max(
-        money(booking.seller_collected_amount)
-        - money(booking.seller_commission_amount),
-        ZERO,
-    )
-
-    if booking.deposit_paid >= booking.total_amount and booking.total_amount > ZERO:
-        booking.payment_status = "paid"
-        booking.status = "confirmed"
-    elif (
-        booking.deposit_required > ZERO
-        and booking.deposit_paid >= booking.deposit_required
-    ):
-        booking.payment_status = "deposit_paid"
-
-        if booking.status in ["draft", "pending_payment"]:
-            booking.status = "confirmed"
-    elif booking.deposit_paid > ZERO:
-        booking.payment_status = "partially_paid"
-
-        if booking.status in ["draft", "pending_payment"]:
-            booking.status = "confirmed"
-    else:
-        booking.payment_status = "unpaid"
-
-    if booking.status == "confirmed" and not booking.confirmed_at:
-        booking.confirmed_at = timezone.now()
-
-    booking.save()
-    sync_seller_commission_for_booking(booking)
+        recompute_seller_totals(booking.seller)
 
     return booking
+
+
+def sync_seller_commission_for_booking(booking):
+    """
+    Legacy alias.
+    """
+
+    return sync_commission_for_booking(booking)
 
 
 @transaction.atomic
@@ -214,66 +115,273 @@ def mark_booking_payment_confirmed(
     provider_status="",
     provider_response=None,
 ):
-    lookup = {
-        "booking": booking,
-        "provider": provider,
+    """
+    Legacy online payment confirmation entry point.
+
+    Used by Stripe/PayPal confirmation flows.
+
+    This is now delegated to finance.payments.mark_provider_payment_confirmed().
+    """
+
+    return mark_provider_payment_confirmed(
+        booking=booking,
+        amount=amount,
+        provider=provider,
+        payment_type=payment_type,
+        provider_payment_id=provider_payment_id,
+        provider_checkout_id=provider_checkout_id,
+        provider_order_id=provider_order_id,
+        provider_capture_id=provider_capture_id,
+        provider_status=provider_status,
+        provider_response=provider_response or {},
+    )
+
+
+# ==========================================================
+# Convenience wrappers for new code
+# ==========================================================
+
+def recalculate_booking_finance(booking):
+    booking = recalculate_booking(booking)
+    sync_commission_for_booking(booking)
+
+    if booking.seller:
+        recompute_seller_totals(booking.seller)
+
+    return booking
+
+
+def calculate_booking_snapshot(booking):
+    return calculate_booking_financial_snapshot(booking)
+
+
+def apply_booking_snapshot(booking, snapshot):
+    booking = apply_booking_financial_snapshot(booking, snapshot)
+    sync_commission_for_booking(booking)
+
+    if booking.seller:
+        recompute_seller_totals(booking.seller)
+
+    return booking
+
+
+def record_customer_cash_to_seller(
+    booking,
+    amount,
+    payment_type=PAYMENT_TYPE_FULL,
+    seller=None,
+    collected_by=None,
+    reference="",
+    note="Customer cash collected by seller.",
+):
+    """
+    Customer pays seller directly in cash.
+
+    This increases:
+        - seller_collected_amount
+        - seller_due_to_company
+
+    It does NOT mean owner has received the money.
+    """
+
+    seller = seller or booking.seller
+
+    return record_customer_payment(
+        booking=booking,
+        amount=amount,
+        payment_type=payment_type,
+        method="cash",
+        seller=seller,
+        collected_by=collected_by,
+        reference=reference,
+        note=note,
+        collected_by_party="seller",
+    )
+
+
+def record_customer_cash_to_owner(
+    booking,
+    amount,
+    payment_type=PAYMENT_TYPE_FULL,
+    collected_by=None,
+    reference="",
+    note="Customer cash received by owner.",
+):
+    """
+    Customer pays owner/company directly in cash.
+
+    This increases owner_received_amount.
+    """
+
+    return record_customer_payment(
+        booking=booking,
+        amount=amount,
+        payment_type=payment_type,
+        method="cash",
+        seller=None,
+        collected_by=collected_by,
+        reference=reference,
+        note=note,
+        collected_by_party="owner",
+    )
+
+
+def record_customer_online_payment(
+    booking,
+    amount,
+    provider,
+    payment_type=PAYMENT_TYPE_FULL,
+    provider_payment_id="",
+    provider_checkout_id="",
+    provider_order_id="",
+    provider_capture_id="",
+    provider_status="",
+    provider_response=None,
+):
+    """
+    Customer pays online through Stripe/PayPal.
+    """
+
+    return mark_provider_payment_confirmed(
+        booking=booking,
+        amount=amount,
+        provider=provider,
+        payment_type=payment_type,
+        provider_payment_id=provider_payment_id,
+        provider_checkout_id=provider_checkout_id,
+        provider_order_id=provider_order_id,
+        provider_capture_id=provider_capture_id,
+        provider_status=provider_status,
+        provider_response=provider_response or {},
+    )
+
+
+def record_seller_company_settlement(
+    booking,
+    amount,
+    collected_by=None,
+    method="bank_transfer",
+    reference="",
+    note="Seller settled amount owed to company.",
+):
+    """
+    Seller pays the company what they owe.
+    """
+
+    return record_seller_settlement_payment(
+        booking=booking,
+        amount=amount,
+        collected_by=collected_by,
+        method=method,
+        reference=reference,
+        note=note,
+    )
+
+
+def settle_seller_booking_balance(
+    booking,
+    collected_by=None,
+    method="bank_transfer",
+    reference="",
+):
+    """
+    Fully settle the seller/company balance for this booking.
+    """
+
+    return settle_booking_fully(
+        booking=booking,
+        collected_by=collected_by,
+        method=method,
+        reference=reference,
+    )
+
+
+# ==========================================================
+# Backwards-compatible finance debug helper
+# ==========================================================
+
+def debug_booking_finance(booking):
+    """
+    Useful in Django shell:
+
+        from ticketing import booking_finance_service as f
+        f.debug_booking_finance(booking)
+    """
+
+    snapshot = calculate_booking_financial_snapshot(booking)
+
+    return {
+        "booking_code": booking.booking_code,
+        "status": booking.status,
+        "payment_status": booking.payment_status,
+        "settlement_status": getattr(booking, "settlement_status", ""),
+        "snapshot": snapshot,
+        "seller": booking.seller.full_name if booking.seller else "",
+        "seller_due_to_company": getattr(booking, "seller_due_to_company", ZERO),
+        "owner_net_amount": getattr(booking, "owner_net_amount", ZERO),
+        "owner_received_amount": getattr(booking, "owner_received_amount", ZERO),
     }
 
-    if provider_checkout_id:
-        lookup["provider_checkout_id"] = provider_checkout_id
-    elif provider_order_id:
-        lookup["provider_order_id"] = provider_order_id
-    elif provider_payment_id:
-        lookup["provider_payment_id"] = provider_payment_id
-    elif provider_capture_id:
-        lookup["provider_capture_id"] = provider_capture_id
 
-    payment, _ = BookingPayment.objects.get_or_create(
-        **lookup,
-        defaults={
-            "amount": amount,
-            "payment_type": payment_type,
-            "payer_type": "customer",
-            "method": provider,
-            "status": "confirmed",
-            "reference": (
-                provider_payment_id
-                or provider_order_id
-                or provider_capture_id
-                or provider_checkout_id
-            ),
-            "note": f"{provider.title()} payment confirmed.",
-            "provider_payment_id": provider_payment_id,
-            "provider_checkout_id": provider_checkout_id,
-            "provider_order_id": provider_order_id,
-            "provider_capture_id": provider_capture_id,
-            "provider_status": provider_status,
-            "provider_response": provider_response or {},
-            "paid_at": timezone.now(),
-        },
-    )
+__all__ = [
+    # legacy
+    "money",
+    "ZERO",
+    "recompute_seller_totals",
+    "sync_seller_commission_for_booking",
+    "recalculate_booking_payment_totals",
+    "mark_booking_payment_confirmed",
 
-    payment.amount = amount
-    payment.payment_type = payment_type
-    payment.payer_type = "customer"
-    payment.method = provider
-    payment.status = "confirmed"
-    payment.reference = (
-        provider_payment_id
-        or provider_order_id
-        or provider_capture_id
-        or provider_checkout_id
-    )
-    payment.note = f"{provider.title()} payment confirmed."
-    payment.provider_payment_id = provider_payment_id or payment.provider_payment_id
-    payment.provider_checkout_id = provider_checkout_id or payment.provider_checkout_id
-    payment.provider_order_id = provider_order_id or payment.provider_order_id
-    payment.provider_capture_id = provider_capture_id or payment.provider_capture_id
-    payment.provider_status = provider_status
-    payment.provider_response = provider_response or {}
-    payment.paid_at = timezone.now()
-    payment.save()
+    # calculator
+    "calculate_booking",
+    "recalculate_booking",
+    "calculate_booking_financial_snapshot",
+    "apply_booking_financial_snapshot",
+    "recalculate_booking_finance",
+    "calculate_booking_snapshot",
+    "apply_booking_snapshot",
 
-    booking = recalculate_booking_payment_totals(booking)
+    # pricing
+    "calculate_pricing",
+    "calculate_pricing_from_booking_values",
+    "calculate_pricing_from_product",
 
-    return payment, booking
+    # payments
+    "record_payment",
+    "record_customer_payment",
+    "record_customer_deposit",
+    "record_customer_full_payment",
+    "record_customer_balance_payment",
+    "record_refund",
+    "record_customer_cash_to_seller",
+    "record_customer_cash_to_owner",
+    "record_customer_online_payment",
+
+    # settlements
+    "record_seller_settlement",
+    "record_seller_settlement_payment",
+    "record_seller_company_settlement",
+    "settle_booking_fully",
+    "settle_booking_partially",
+    "settle_seller_booking_balance",
+    "calculate_seller_due_to_company",
+    "calculate_owner_remaining_amount",
+    "resolve_settlement_status",
+    "apply_settlement_status",
+
+    # commissions
+    "sync_commission_for_booking",
+    "sync_all_commissions_for_seller",
+    "cancel_commissions_for_booking",
+    "mark_commission_paid",
+
+    # reports
+    "owner_finance_summary",
+    "seller_finance_summary",
+    "seller_leaderboard",
+    "receivables_report",
+    "seller_receivables_report",
+
+    # debug
+    "debug_booking_finance",
+]

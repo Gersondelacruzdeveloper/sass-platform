@@ -1599,7 +1599,9 @@ class BookingViewSet(TicketingPrivateViewSet):
     ticketing_permission_by_action = {
         "create": "can_create_bookings",
         "confirm": "can_create_bookings",
+        "approve": "can_create_bookings",
         "add_payment": "can_create_bookings",
+        "settle": "can_create_bookings",
         "mark_ticket_generated": "can_generate_ticket_without_customer_online_payment",
         "cancel": "can_cancel_bookings",
         "override_pickup": "can_override_pickup_time",
@@ -1631,15 +1633,17 @@ class BookingViewSet(TicketingPrivateViewSet):
         )
 
         if not self.is_admin_user():
-            seller = self.get_current_seller()
+            current_seller = self.get_current_seller()
 
-            if not seller or not seller.can_view_own_sales:
+            if not current_seller or not current_seller.can_view_own_sales:
                 return Booking.objects.none()
 
-            queryset = queryset.filter(seller=seller)
+            queryset = queryset.filter(seller=current_seller)
 
         status_filter = self.request.query_params.get("status")
         payment_status = self.request.query_params.get("payment_status")
+        settlement_status = self.request.query_params.get("settlement_status")
+        payment_receiver = self.request.query_params.get("payment_receiver")
         source = self.request.query_params.get("source")
         seller = self.request.query_params.get("seller")
         product = self.request.query_params.get("product")
@@ -1647,12 +1651,26 @@ class BookingViewSet(TicketingPrivateViewSet):
         date_from = self.request.query_params.get("date_from")
         date_to = self.request.query_params.get("date_to")
         search = self.request.query_params.get("search")
+        owed_only = str(self.request.query_params.get("owed_only") or "").lower()
+        unsettled_only = str(self.request.query_params.get("unsettled_only") or "").lower()
 
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
         if payment_status:
             queryset = queryset.filter(payment_status=payment_status)
+
+        if settlement_status:
+            queryset = queryset.filter(settlement_status=settlement_status)
+
+        if payment_receiver:
+            queryset = queryset.filter(payment_receiver=payment_receiver)
+
+        if owed_only in ["true", "1", "yes"]:
+            queryset = queryset.filter(seller_due_to_company__gt=Decimal("0.00"))
+
+        if unsettled_only in ["true", "1", "yes"]:
+            queryset = queryset.exclude(settlement_status="settled")
 
         if source:
             queryset = queryset.filter(source=source)
@@ -1698,21 +1716,47 @@ class BookingViewSet(TicketingPrivateViewSet):
                 seller=seller,
                 source="seller_dashboard",
             )
-            booking_finance.recalculate_booking_payment_totals(booking)
-            return
+        else:
+            booking = serializer.save(organisation=organisation)
 
-        booking = serializer.save(organisation=organisation)
         booking_finance.recalculate_booking_payment_totals(booking)
-        
+
     def recalculate_booking_after_payment(self, booking):
         return booking_finance.recalculate_booking_payment_totals(booking)
+
+    def validate_seller_payment_permission(
+        self,
+        seller,
+        payment_type,
+        method,
+        payer_type,
+    ):
+        """
+        Compatibility wrapper.
+
+        Real seller payment rules now live in ticketing.finance.permissions.
+        """
+
+        if not seller:
+            return None
+
+        from ticketing.finance.permissions import validate_payment_permission
+
+        return validate_payment_permission(
+            seller=seller,
+            payment_type=payment_type,
+            method=method,
+            payer_type=payer_type,
+        )
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
         booking = self.get_object()
         booking.status = "confirmed"
-        booking.confirmed_at = timezone.now()
+        booking.confirmed_at = booking.confirmed_at or timezone.now()
         booking.save(update_fields=["status", "confirmed_at", "updated_at"])
+
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
@@ -1727,6 +1771,7 @@ class BookingViewSet(TicketingPrivateViewSet):
 
         if booking.status == "pending_approval":
             booking.status = "confirmed"
+            booking.confirmed_at = booking.confirmed_at or timezone.now()
 
         booking.save(
             update_fields=[
@@ -1734,9 +1779,12 @@ class BookingViewSet(TicketingPrivateViewSet):
                 "supervisor_approved_by",
                 "supervisor_approved_at",
                 "status",
+                "confirmed_at",
                 "updated_at",
             ]
         )
+
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
@@ -1747,6 +1795,8 @@ class BookingViewSet(TicketingPrivateViewSet):
         booking.status = "ticket_generated"
         booking.save(update_fields=["status", "updated_at"])
 
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
 
@@ -1756,6 +1806,8 @@ class BookingViewSet(TicketingPrivateViewSet):
         booking.status = "completed"
         booking.completed_at = timezone.now()
         booking.save(update_fields=["status", "completed_at", "updated_at"])
+
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
@@ -1775,41 +1827,11 @@ class BookingViewSet(TicketingPrivateViewSet):
             ]
         )
 
+        booking_finance.recalculate_booking_payment_totals(booking)
         booking_finance.sync_seller_commission_for_booking(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
-
-    def validate_seller_payment_permission(
-        self,
-        seller,
-        payment_type,
-        method,
-        payer_type,
-    ):
-        if not seller:
-            return None
-
-        if payment_type == "deposit" and not seller.can_take_deposits:
-            return "You do not have permission to take deposits."
-
-        if payment_type in ["full", "balance"] and not seller.can_take_full_payments:
-            return "You do not have permission to take full payments."
-
-        if payment_type == "commission_only" and not seller.can_pay_commission_only:
-            return "You do not have permission to pay commission only."
-
-        if method == "cash" and not seller.can_collect_cash_payment:
-            return "You do not have permission to collect cash payments."
-
-        if payer_type == "seller":
-            if payment_type == "full" and not seller.can_pay_full_amount_as_seller:
-                return "You do not have permission to pay the full amount as seller."
-
-            if payment_type == "deposit" and not seller.can_pay_deposit_as_seller:
-                return "You do not have permission to pay the deposit as seller."
-
-        return None
 
     @action(detail=True, methods=["post"], url_path="add-payment")
     def add_payment(self, request, pk=None):
@@ -1821,9 +1843,16 @@ class BookingViewSet(TicketingPrivateViewSet):
         payer_type = request.data.get("payer_type", "customer")
         method = request.data.get("method", "cash")
         payment_status_value = request.data.get("status", "confirmed")
-        seller_id = request.data.get("seller")
+        seller_id = request.data.get("seller") or request.data.get("seller_id")
         reference = request.data.get("reference", "")
         note = request.data.get("note", "")
+        provider = request.data.get("provider", "")
+        collected_by_party = (
+            request.data.get("collected_by_party")
+            or request.data.get("payment_receiver")
+            or request.data.get("receiver")
+            or None
+        )
 
         if amount in [None, ""]:
             return Response(
@@ -1842,7 +1871,7 @@ class BookingViewSet(TicketingPrivateViewSet):
 
         if not seller and not self.is_admin_user():
             seller = self.get_current_seller()
-        
+
         if not self.is_admin_user():
             permission_error = self.validate_seller_payment_permission(
                 seller=seller,
@@ -1857,21 +1886,27 @@ class BookingViewSet(TicketingPrivateViewSet):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+        try:
+            payment, booking = booking_finance.record_payment(
+                booking=booking,
+                seller=seller,
+                collected_by=request.user,
+                amount=amount,
+                payment_type=payment_type,
+                payer_type=payer_type,
+                method=method,
+                status=payment_status_value,
+                provider=provider,
+                reference=reference,
+                note=note,
+                collected_by_party=collected_by_party,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        payment = BookingPayment.objects.create(
-            booking=booking,
-            seller=seller,
-            collected_by=request.user,
-            amount=Decimal(str(amount)),
-            payment_type=payment_type,
-            payer_type=payer_type,
-            method=method,
-            status=payment_status_value,
-            reference=reference,
-            note=note,
-        )
-
-        booking = self.recalculate_booking_after_payment(booking)
         if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
             try:
                 BookingNotificationService.payment_confirmed(booking)
@@ -1881,7 +1916,10 @@ class BookingViewSet(TicketingPrivateViewSet):
                     booking.booking_code,
                 )
 
-        payment_serializer = BookingPaymentSerializer(payment, context=self.get_serializer_context())
+        payment_serializer = BookingPaymentSerializer(
+            payment,
+            context=self.get_serializer_context(),
+        )
         booking_serializer = self.get_serializer(booking)
 
         return Response(
@@ -1890,6 +1928,55 @@ class BookingViewSet(TicketingPrivateViewSet):
                 "booking": booking_serializer.data,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="settle")
+    def settle(self, request, pk=None):
+        booking = self.get_object()
+
+        if not self.is_admin_user():
+            return Response(
+                {"detail": "Only organisation admins can record seller settlements."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        amount = request.data.get("amount")
+        method = request.data.get("method", "bank_transfer")
+        reference = request.data.get("reference", "")
+        note = request.data.get("note", "Seller settled amount owed to company.")
+        settle_full = str(request.data.get("settle_full") or "false").lower() in ["true", "1", "yes"]
+
+        try:
+            if settle_full or amount in [None, ""]:
+                payment, booking = booking_finance.settle_seller_booking_balance(
+                    booking=booking,
+                    collected_by=request.user,
+                    method=method,
+                    reference=reference,
+                )
+            else:
+                payment, booking = booking_finance.record_seller_company_settlement(
+                    booking=booking,
+                    amount=amount,
+                    collected_by=request.user,
+                    method=method,
+                    reference=reference,
+                    note=note,
+                )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "payment": BookingPaymentSerializer(
+                    payment,
+                    context=self.get_serializer_context(),
+                ).data if payment else None,
+                "booking": self.get_serializer(booking).data,
+            }
         )
 
     @action(detail=True, methods=["post"], url_path="override-pickup")
@@ -2063,16 +2150,10 @@ class SellerCommissionViewSet(TicketingPrivateViewSet):
     @action(detail=True, methods=["post"], url_path="mark-paid")
     def mark_paid(self, request, pk=None):
         commission = self.get_object()
-        commission.status = "paid"
-        commission.paid_at = timezone.now()
-        commission.paid_by = request.user
-        commission.save(update_fields=["status", "paid_at", "paid_by"])
-
-        booking = commission.booking
-        booking.commission_paid_amount = commission.amount
-        booking.save(update_fields=["commission_paid_amount", "updated_at"])
-
-        booking_finance.recompute_seller_totals(commission.seller)
+        commission = booking_finance.mark_commission_paid(
+            commission,
+            paid_by=request.user,
+        )
 
         serializer = self.get_serializer(commission)
         return Response(serializer.data)
@@ -2677,16 +2758,13 @@ class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
         bookings = Booking.objects.filter(
             organisation=organisation,
             seller=seller,
-        ).exclude(status__in=["cancelled", "refunded"])
+        ).exclude(status__in=["cancelled", "refunded", "no_show"])
 
         today_bookings = bookings.filter(created_at__date=today)
         week_bookings = bookings.filter(created_at__date__gte=week_start)
         month_bookings = bookings.filter(created_at__date__gte=month_start)
 
-        commissions = SellerCommission.objects.filter(
-            organisation=organisation,
-            seller=seller,
-        )
+        finance_summary = booking_finance.seller_finance_summary(seller)
 
         allowed_product_types = self.get_allowed_seller_product_types(seller)
 
@@ -2706,69 +2784,33 @@ class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
             "primary_product",
         ).order_by("-created_at")[:10]
 
+        summary = {
+            **finance_summary,
+            "today_bookings": today_bookings.count(),
+            "week_bookings": week_bookings.count(),
+            "month_bookings": month_bookings.count(),
+            "total_bookings": bookings.count(),
+            "today_sales": today_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
+            "today_deposits": today_bookings.aggregate(total=Sum("deposit_paid"))["total"] or Decimal("0.00"),
+            "week_sales": week_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
+            "month_sales": month_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
+
+            # Backwards-compatible frontend keys.
+            "money_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+            "money_owed_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+            "outstanding_balance": finance_summary.get("balance_due", Decimal("0.00")),
+            "commission_pending": finance_summary.get("commission_pending", Decimal("0.00")),
+            "commission_paid": finance_summary.get("commission_paid", Decimal("0.00")),
+            "commission_lifetime": finance_summary.get("commission_total", Decimal("0.00")),
+        }
+
         return Response(
             {
                 "seller": SellerSerializer(
                     seller,
                     context=self.get_serializer_context(),
                 ).data,
-                "summary": {
-                    "today_bookings": today_bookings.count(),
-                    "week_bookings": week_bookings.count(),
-                    "month_bookings": month_bookings.count(),
-                    "total_bookings": bookings.count(),
-
-                    "today_sales": today_bookings.aggregate(
-                        total=Sum("total_amount")
-                    )["total"] or Decimal("0.00"),
-
-                    "today_deposits": today_bookings.aggregate(
-                        total=Sum("deposit_paid")
-                    )["total"] or Decimal("0.00"),
-
-                    "money_collected": bookings.aggregate(
-                        total=Sum("seller_collected_amount")
-                    )["total"] or Decimal("0.00"),
-
-                    "money_owed_to_company": bookings.aggregate(
-                        total=Sum("seller_due_to_company")
-                    )["total"] or Decimal("0.00"),
-
-                    "outstanding_balance": bookings.aggregate(
-                        total=Sum("balance_due")
-                    )["total"] or Decimal("0.00"),
-
-                    "pending_payments": bookings.filter(
-                        payment_status__in=["unpaid", "pending", "partially_paid"]
-                    ).count(),
-
-                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
-                    "tickets_generated": bookings.filter(status="ticket_generated").count(),
-
-                    "commission_today": commissions.filter(
-                        created_at__date=today
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
-
-                    "commission_week": commissions.filter(
-                        created_at__date__gte=week_start
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
-
-                    "commission_month": commissions.filter(
-                        created_at__date__gte=month_start
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
-
-                    "commission_pending": commissions.filter(
-                        status__in=["pending", "approved"]
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
-
-                    "commission_paid": commissions.filter(
-                        status="paid"
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
-
-                    "commission_lifetime": commissions.aggregate(
-                        total=Sum("amount")
-                    )["total"] or Decimal("0.00"),
-                },
+                "summary": summary,
                 "recent_bookings": BookingSerializer(
                     recent_bookings,
                     many=True,
@@ -2782,7 +2824,7 @@ class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
                 "permissions": seller.get_permissions_dict(),
             }
         )
-    
+
 
 class TicketingDashboardAPIView(TicketingOrganisationMixin, APIView):
     permission_classes = [CanViewTicketingReports]
@@ -2796,31 +2838,9 @@ class TicketingDashboardAPIView(TicketingOrganisationMixin, APIView):
         today_bookings = bookings.filter(created_at__date=today)
         upcoming_bookings = bookings.filter(
             service_date__gte=today,
-        ).exclude(status__in=["cancelled", "refunded"])
+        ).exclude(status__in=["cancelled", "refunded", "no_show"])
 
-        total_sales = bookings.exclude(
-            status__in=["cancelled", "refunded"]
-        ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
-
-        deposit_paid = bookings.aggregate(
-            total=Sum("deposit_paid")
-        )["total"] or Decimal("0.00")
-
-        balance_due = bookings.aggregate(
-            total=Sum("balance_due")
-        )["total"] or Decimal("0.00")
-
-        seller_due_to_company = bookings.aggregate(
-            total=Sum("seller_due_to_company")
-        )["total"] or Decimal("0.00")
-
-        commission_generated = bookings.aggregate(
-            total=Sum("seller_commission_amount")
-        )["total"] or Decimal("0.00")
-
-        commission_paid = bookings.aggregate(
-            total=Sum("commission_paid_amount")
-        )["total"] or Decimal("0.00")
+        finance_summary = booking_finance.owner_finance_summary(organisation)
 
         top_products = (
             BookingItem.objects
@@ -2833,47 +2853,32 @@ class TicketingDashboardAPIView(TicketingOrganisationMixin, APIView):
             .order_by("-quantity_sold")[:10]
         )
 
-        top_sellers = (
-            Seller.objects
-            .filter(organisation=organisation)
-            .annotate(
-                bookings_count=Count("bookings"),
-                sales_total=Sum("bookings__total_amount"),
-                commission_total=Sum("bookings__seller_commission_amount"),
-            )
-            .order_by("-sales_total")[:10]
-        )
+        top_sellers = booking_finance.seller_leaderboard(organisation, limit=10)
+
+        summary = {
+            **finance_summary,
+            "total_bookings": bookings.count(),
+            "today_bookings": today_bookings.count(),
+            "upcoming_bookings": upcoming_bookings.count(),
+            "pending_approvals": bookings.filter(requires_supervisor_approval=True).count(),
+            "confirmed_bookings": bookings.filter(status="confirmed").count(),
+            "cancelled_bookings": bookings.filter(status="cancelled").count(),
+
+            # Backwards-compatible frontend keys.
+            "total_sales": finance_summary.get("customer_revenue", Decimal("0.00")),
+            "deposit_paid": finance_summary.get("deposit_paid", Decimal("0.00")),
+            "balance_due": finance_summary.get("balance_due", Decimal("0.00")),
+            "seller_due_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+            "commission_generated": finance_summary.get("seller_commissions", Decimal("0.00")),
+            "commission_paid": finance_summary.get("commission_paid", Decimal("0.00")),
+            "commission_pending": finance_summary.get("commission_pending", Decimal("0.00")),
+        }
 
         return Response(
             {
-                "summary": {
-                    "total_bookings": bookings.count(),
-                    "today_bookings": today_bookings.count(),
-                    "upcoming_bookings": upcoming_bookings.count(),
-                    "pending_payments": bookings.filter(payment_status__in=["unpaid", "pending", "partially_paid"]).count(),
-                    "pending_approvals": bookings.filter(requires_supervisor_approval=True).count(),
-                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
-                    "cancelled_bookings": bookings.filter(status="cancelled").count(),
-                    "total_sales": total_sales,
-                    "deposit_paid": deposit_paid,
-                    "balance_due": balance_due,
-                    "seller_due_to_company": seller_due_to_company,
-                    "commission_generated": commission_generated,
-                    "commission_paid": commission_paid,
-                    "commission_pending": max(commission_generated - commission_paid, Decimal("0.00")),
-                },
+                "summary": summary,
                 "top_products": list(top_products),
-                "top_sellers": [
-                    {
-                        "id": seller.id,
-                        "full_name": seller.full_name,
-                        "seller_slug": seller.seller_slug,
-                        "bookings_count": seller.bookings_count or 0,
-                        "sales_total": seller.sales_total or Decimal("0.00"),
-                        "commission_total": seller.commission_total or Decimal("0.00"),
-                    }
-                    for seller in top_sellers
-                ],
+                "top_sellers": top_sellers,
             }
         )
 
@@ -2900,13 +2905,16 @@ class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
             .values("seller__id", "seller__full_name")
             .annotate(
                 bookings_count=Count("id"),
-                total_sales=Sum("total_amount"),
+                gross_sales=Sum("original_price"),
+                customer_revenue=Sum("total_amount"),
+                owner_net=Sum("owner_net_amount"),
+                owner_received=Sum("owner_received_amount"),
                 collected=Sum("seller_collected_amount"),
                 due_to_company=Sum("seller_due_to_company"),
                 commission=Sum("seller_commission_amount"),
                 commission_paid=Sum("commission_paid_amount"),
             )
-            .order_by("-total_sales")
+            .order_by("-customer_revenue")
         )
 
         sales_by_product = (
@@ -2927,6 +2935,13 @@ class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
             .order_by("payment_status")
         )
 
+        settlement_statuses = (
+            bookings
+            .values("settlement_status")
+            .annotate(count=Count("id"), owner_net=Sum("owner_net_amount"), owner_received=Sum("owner_received_amount"), due_to_company=Sum("seller_due_to_company"))
+            .order_by("settlement_status")
+        )
+
         booking_statuses = (
             bookings
             .values("status")
@@ -2936,9 +2951,11 @@ class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
 
         return Response(
             {
+                "finance_summary": booking_finance.owner_finance_summary(organisation),
                 "sales_by_seller": list(sales_by_seller),
                 "sales_by_product": list(sales_by_product),
                 "payment_statuses": list(payment_statuses),
+                "settlement_statuses": list(settlement_statuses),
                 "booking_statuses": list(booking_statuses),
             }
         )
@@ -2947,76 +2964,107 @@ class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
 class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
     permission_classes = [CanAccessSellerDashboard]
 
+    def get_allowed_seller_product_types(self, seller):
+        allowed = []
+
+        if seller.can_sell_excursions:
+            allowed.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed.append("transfer")
+
+        if seller.can_sell_events:
+            allowed.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed.extend(["ticket", "nightlife"])
+
+        return allowed
+
     def get(self, request):
         organisation = self.require_organisation()
+        seller = self.get_current_seller()
 
-        seller = Seller.objects.filter(
-            organisation=organisation,
-            user=request.user,
-            is_active=True,
-        ).first()
-
-        if not seller:
+        if not seller and not self.is_admin_user():
             return Response(
-                {"detail": "No active seller profile found for this user."},
+                {"detail": "No active seller profile found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        today = timezone.localdate()
+        week_start = today - timezone.timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
 
         bookings = Booking.objects.filter(
             organisation=organisation,
             seller=seller,
-        )
+        ).exclude(status__in=["cancelled", "refunded", "no_show"])
 
-        products = ExperienceProduct.objects.filter(
+        today_bookings = bookings.filter(created_at__date=today)
+        week_bookings = bookings.filter(created_at__date__gte=week_start)
+        month_bookings = bookings.filter(created_at__date__gte=month_start)
+
+        finance_summary = booking_finance.seller_finance_summary(seller)
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        available_products = ExperienceProduct.objects.filter(
             organisation=organisation,
             seller_enabled=True,
             is_active=True,
             status="active",
+            product_type__in=allowed_product_types,
         )
 
         if not seller.can_sell_cocobongo:
-            products = products.exclude(is_cocobongo_product=True)
+            available_products = available_products.exclude(is_cocobongo_product=True)
 
-        allowed_product_types = []
+        recent_bookings = bookings.select_related(
+            "customer",
+            "primary_product",
+        ).order_by("-created_at")[:10]
 
-        if seller.can_sell_excursions:
-            allowed_product_types.append("excursion")
+        summary = {
+            **finance_summary,
+            "today_bookings": today_bookings.count(),
+            "week_bookings": week_bookings.count(),
+            "month_bookings": month_bookings.count(),
+            "total_bookings": bookings.count(),
+            "today_sales": today_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
+            "today_deposits": today_bookings.aggregate(total=Sum("deposit_paid"))["total"] or Decimal("0.00"),
+            "week_sales": week_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
+            "month_sales": month_bookings.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00"),
 
-        if seller.can_sell_transfers:
-            allowed_product_types.append("transfer")
-
-        if seller.can_sell_events:
-            allowed_product_types.append("event")
-
-        if seller.can_sell_custom_tours:
-            allowed_product_types.append("custom")
-
-        if seller.can_sell_cocobongo:
-            allowed_product_types.extend(["ticket", "nightlife"])
-
-        if allowed_product_types:
-            products = products.filter(product_type__in=allowed_product_types)
-        else:
-            products = products.none()
+            # Backwards-compatible frontend keys.
+            "money_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+            "money_owed_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+            "outstanding_balance": finance_summary.get("balance_due", Decimal("0.00")),
+            "commission_pending": finance_summary.get("commission_pending", Decimal("0.00")),
+            "commission_paid": finance_summary.get("commission_paid", Decimal("0.00")),
+            "commission_lifetime": finance_summary.get("commission_total", Decimal("0.00")),
+        }
 
         return Response(
             {
-                "seller": SellerSerializer(seller, context={"request": request}).data,
-                "summary": {
-                    "my_bookings": bookings.count(),
-                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
-                    "pending_payments": bookings.filter(payment_status__in=["unpaid", "pending", "partially_paid"]).count(),
-                    "tickets_generated": bookings.filter(status="ticket_generated").count(),
-                    "money_collected": bookings.aggregate(total=Sum("seller_collected_amount"))["total"] or Decimal("0.00"),
-                    "money_owed_to_company": bookings.aggregate(total=Sum("seller_due_to_company"))["total"] or Decimal("0.00"),
-                    "commission_generated": bookings.aggregate(total=Sum("seller_commission_amount"))["total"] or Decimal("0.00"),
-                    "commission_paid": bookings.aggregate(total=Sum("commission_paid_amount"))["total"] or Decimal("0.00"),
-                },
-                "available_products": ExperienceProductSerializer(
-                    products[:50],
-                    many=True,
-                    context={"request": request, "organisation": organisation},
+                "seller": SellerSerializer(
+                    seller,
+                    context=self.get_serializer_context(),
                 ).data,
+                "summary": summary,
+                "recent_bookings": BookingSerializer(
+                    recent_bookings,
+                    many=True,
+                    context=self.get_serializer_context(),
+                ).data,
+                "available_products": ExperienceProductSerializer(
+                    available_products[:20],
+                    many=True,
+                    context=self.get_serializer_context(),
+                ).data,
+                "permissions": seller.get_permissions_dict(),
             }
         )
 

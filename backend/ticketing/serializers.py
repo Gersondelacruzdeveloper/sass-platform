@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.db.models import Q, Sum
+from django.db.models import Q
 from rest_framework import serializers
 from .notifications import BookingNotificationService
 
@@ -39,6 +39,8 @@ from .services import (
     create_wellet_snapshot_from_option,
     create_external_booking_order_if_possible,
 )
+
+from . import booking_finance_service as booking_finance
 
 User = get_user_model()
 
@@ -1084,6 +1086,8 @@ class ExperienceProductSerializer(
             "gallery_images",
             "base_price",
             "cost_price",
+            "seller_margin_percent",
+            "seller_allowed_discount_percent",
             "profit_per_unit",
             "deposit_amount",
             "deposit_percentage",
@@ -1274,6 +1278,8 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "photo_url",
             "commission_rate",
             "fixed_commission_amount",
+            "default_margin_percent",
+            "max_customer_discount_percent",
             "can_access_dashboard",
             "can_sell_cocobongo",
             "can_sell_excursions",
@@ -1281,6 +1287,11 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_sell_events",
             "can_sell_custom_tours",
             "can_create_bookings",
+            "can_send_payment_links",
+            "can_apply_customer_discount",
+            "can_collect_cash",
+            "can_mark_cash_collected",
+            "can_keep_commission_first",
             "can_take_deposits",
             "can_take_full_payments",
             "can_collect_cash_payment",
@@ -1581,6 +1592,10 @@ class BookingPaymentSerializer(serializers.ModelSerializer):
             "payer_type",
             "method",
             "status",
+            "collected_by_party",
+            "affects_owner_received",
+            "affects_seller_collected",
+            "settlement_status",
             "provider",
             "provider_payment_id",
             "provider_checkout_id",
@@ -1617,6 +1632,10 @@ class BookingPaymentWriteSerializer(serializers.Serializer):
         required=False,
         default="confirmed",
     )
+    collected_by_party = serializers.CharField(required=False, allow_blank=True)
+    affects_owner_received = serializers.BooleanField(required=False)
+    affects_seller_collected = serializers.BooleanField(required=False)
+    settlement_status = serializers.CharField(required=False, allow_blank=True)
     reference = serializers.CharField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True)
     provider = serializers.CharField(required=False, allow_blank=True)
@@ -1829,10 +1848,18 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "children",
             "infants",
             "total_guests",
+            "original_price",
             "subtotal_amount",
+            "customer_discount_percent",
+            "customer_discount_amount",
             "discount_amount",
             "tax_amount",
             "total_amount",
+            "seller_margin_percent",
+            "owner_net_amount",
+            "owner_received_amount",
+            "settlement_status",
+            "payment_receiver",
             "deposit_required",
             "deposit_paid",
             "balance_due",
@@ -1892,6 +1919,14 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "seller_detail",
             "primary_product_detail",
             "total_guests",
+            "original_price",
+            "customer_discount_amount",
+            "owner_net_amount",
+            "owner_received_amount",
+            "seller_collected_amount",
+            "seller_due_to_company",
+            "seller_commission_amount",
+            "settlement_status",
             "commission_pending_amount",
             "is_fully_paid",
             "created_by",
@@ -2165,8 +2200,28 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
         return subtotal, total_cost
 
     def create_booking_payments(self, booking, organisation, payments_payload):
-        confirmed_paid_amount = Decimal("0.00")
-        seller_collected_amount = Decimal("0.00")
+        """
+        Create payments using the finance engine.
+
+        The serializer no longer calculates:
+        - seller_collected_amount
+        - owner_received_amount
+        - seller_due_to_company
+        - payment_status
+
+        Those values are recalculated by booking_finance_service.
+        """
+
+        created_payments = []
+
+        request = self.context.get("request")
+        collected_by = (
+            request.user
+            if request
+            and request.user
+            and request.user.is_authenticated
+            else None
+        )
 
         for payment_data in payments_payload:
             seller = None
@@ -2178,111 +2233,40 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     organisation=organisation,
                 )
 
-            payment = BookingPayment.objects.create(
+            payment, booking = booking_finance.record_payment(
                 booking=booking,
                 seller=seller,
-                collected_by=self.context.get("request").user
-                if self.context.get("request")
-                and self.context.get("request").user.is_authenticated
-                else None,
+                collected_by=collected_by,
                 amount=payment_data["amount"],
                 payment_type=payment_data["payment_type"],
                 payer_type=payment_data.get("payer_type", "customer"),
                 method=payment_data["method"],
                 status=payment_data.get("status", "confirmed"),
+                provider=payment_data.get("provider", ""),
+                provider_payment_id=payment_data.get("provider_payment_id", ""),
+                provider_checkout_id=payment_data.get("provider_checkout_id", ""),
+                provider_order_id=payment_data.get("provider_order_id", ""),
+                provider_capture_id=payment_data.get("provider_capture_id", ""),
+                provider_status=payment_data.get("provider_status", ""),
+                provider_response=payment_data.get("provider_response", {}),
                 reference=payment_data.get("reference", ""),
                 note=payment_data.get("note", ""),
+                collected_by_party=payment_data.get("collected_by_party", ""),
             )
 
-            if payment.status == "confirmed":
-                if payment.payment_type == "refund":
-                    confirmed_paid_amount -= payment.amount
-                else:
-                    confirmed_paid_amount += payment.amount
+            if hasattr(payment, "affects_owner_received") and "affects_owner_received" in payment_data:
+                payment.affects_owner_received = payment_data["affects_owner_received"]
 
-                if payment.seller:
-                    seller_collected_amount += payment.amount
+            if hasattr(payment, "affects_seller_collected") and "affects_seller_collected" in payment_data:
+                payment.affects_seller_collected = payment_data["affects_seller_collected"]
 
-        return confirmed_paid_amount, seller_collected_amount
+            if hasattr(payment, "settlement_status") and payment_data.get("settlement_status"):
+                payment.settlement_status = payment_data["settlement_status"]
 
-    def calculate_seller_commission(self, booking):
-        if not booking.seller:
-            return Decimal("0.00")
+            payment.save()
+            created_payments.append(payment)
 
-        if booking.seller.fixed_commission_amount > Decimal("0.00"):
-            return booking.seller.fixed_commission_amount
-
-        if booking.seller.commission_rate > Decimal("0.00"):
-            return (
-                booking.subtotal_amount * booking.seller.commission_rate
-            ) / Decimal("100.00")
-
-        return Decimal("0.00")
-
-    def update_booking_financials(
-        self,
-        booking,
-        subtotal_from_items,
-        paid_amount_from_payments,
-        seller_collected_amount,
-    ):
-        if subtotal_from_items > Decimal("0.00"):
-            booking.subtotal_amount = subtotal_from_items
-
-        booking.total_amount = (
-            booking.subtotal_amount
-            - booking.discount_amount
-            + booking.tax_amount
-        )
-
-        if booking.total_amount < Decimal("0.00"):
-            booking.total_amount = Decimal("0.00")
-
-        if booking.deposit_required <= Decimal("0.00"):
-            product = booking.primary_product
-
-            if product:
-                if product.deposit_amount > Decimal("0.00"):
-                    booking.deposit_required = product.deposit_amount
-                elif product.deposit_percentage > Decimal("0.00"):
-                    booking.deposit_required = (
-                        booking.total_amount * product.deposit_percentage
-                    ) / Decimal("100.00")
-
-        if paid_amount_from_payments > Decimal("0.00"):
-            booking.deposit_paid = paid_amount_from_payments
-
-        booking.balance_due = max(
-            booking.total_amount - booking.deposit_paid,
-            Decimal("0.00"),
-        )
-
-        booking.seller_collected_amount = seller_collected_amount
-
-        if booking.seller:
-            booking.seller_commission_amount = self.calculate_seller_commission(booking)
-
-        booking.seller_due_to_company = max(
-            booking.seller_collected_amount - booking.seller_commission_amount,
-            Decimal("0.00"),
-        )
-
-        if booking.deposit_paid >= booking.total_amount and booking.total_amount > Decimal("0.00"):
-            booking.payment_status = "paid"
-        elif booking.deposit_paid >= booking.deposit_required and booking.deposit_required > Decimal("0.00"):
-            booking.payment_status = "deposit_paid"
-        elif booking.deposit_paid > Decimal("0.00"):
-            booking.payment_status = "partially_paid"
-        elif booking.payment_mode == "pending_payment":
-            booking.payment_status = "pending"
-        else:
-            booking.payment_status = "unpaid"
-
-        if booking.payment_status in ["paid", "deposit_paid", "partially_paid"]:
-            if booking.status in ["draft", "pending_payment"]:
-                booking.status = "confirmed"
-
-        booking.save()
+        return created_payments
 
     def create_pickup_info(self, booking, organisation, pickup_location_id):
         if not pickup_location_id:
@@ -2371,75 +2355,6 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             defaults={"receipt_data": receipt_data},
         )
 
-    def create_seller_commission(self, booking):
-        if not booking.seller:
-            return None
-
-        if booking.seller_commission_amount <= Decimal("0.00"):
-            SellerCommission.objects.filter(
-                booking=booking,
-                seller=booking.seller,
-            ).delete()
-            return None
-
-        commission, created = SellerCommission.objects.update_or_create(
-            organisation=booking.organisation,
-            seller=booking.seller,
-            booking=booking,
-            defaults={
-                "amount": booking.seller_commission_amount,
-                "rate_used": booking.seller.commission_rate,
-                "status": "pending",
-                "note": "Automatically generated from booking.",
-            },
-        )
-
-        seller = booking.seller
-
-        seller.total_sales_amount = (
-            Booking.objects.filter(
-                organisation=booking.organisation,
-                seller=seller,
-                status__in=["confirmed", "completed"],
-            ).aggregate(total=Sum("total_amount"))["total"]
-            or Decimal("0.00")
-        )
-
-        seller.total_commission_amount = (
-            SellerCommission.objects.filter(
-                organisation=booking.organisation,
-                seller=seller,
-            ).exclude(status="cancelled").aggregate(total=Sum("amount"))["total"]
-            or Decimal("0.00")
-        )
-
-        seller.total_collected_amount = (
-            Booking.objects.filter(
-                organisation=booking.organisation,
-                seller=seller,
-            ).aggregate(total=Sum("seller_collected_amount"))["total"]
-            or Decimal("0.00")
-        )
-
-        seller.total_owed_to_company = (
-            Booking.objects.filter(
-                organisation=booking.organisation,
-                seller=seller,
-            ).aggregate(total=Sum("seller_due_to_company"))["total"]
-            or Decimal("0.00")
-        )
-
-        seller.save(
-            update_fields=[
-                "total_sales_amount",
-                "total_commission_amount",
-                "total_collected_amount",
-                "total_owed_to_company",
-            ]
-        )
-
-        return commission
-
     def create(self, validated_data):
         items_payload = validated_data.pop("items_payload", [])
         payments_payload = validated_data.pop("payments_payload", [])
@@ -2455,31 +2370,24 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         self.get_or_create_customer(organisation, booking)
 
-        subtotal_from_items = Decimal("0.00")
-
         if items_payload:
-            subtotal_from_items, total_cost = self.create_booking_items(
+            self.create_booking_items(
                 booking=booking,
                 organisation=organisation,
                 items_payload=items_payload,
             )
 
-        paid_amount_from_payments = Decimal("0.00")
-        seller_collected_amount = Decimal("0.00")
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         if payments_payload:
-            paid_amount_from_payments, seller_collected_amount = self.create_booking_payments(
+            self.create_booking_payments(
                 booking=booking,
                 organisation=organisation,
                 payments_payload=payments_payload,
             )
 
-        self.update_booking_financials(
-            booking=booking,
-            subtotal_from_items=subtotal_from_items,
-            paid_amount_from_payments=paid_amount_from_payments,
-            seller_collected_amount=seller_collected_amount,
-        )
+            booking.refresh_from_db()
+            booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         if pickup_location_id:
             self.create_pickup_info(
@@ -2487,8 +2395,6 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 organisation=organisation,
                 pickup_location_id=pickup_location_id,
             )
-
-        self.create_seller_commission(booking)
 
         if booking.external_provider == "wellet":
             create_external_booking_order_if_possible(booking)
@@ -2501,7 +2407,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             pass
 
         return booking
-    
+
     def update(self, instance, validated_data):
         validated_data.pop("items_payload", None)
         validated_data.pop("payments_payload", None)
@@ -2510,7 +2416,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
         for field, value in validated_data.items():
             setattr(instance, field, value)
 
-        instance.recalculate_balance_due()
         instance.save()
+        instance = booking_finance.recalculate_booking_payment_totals(instance)
 
         return instance

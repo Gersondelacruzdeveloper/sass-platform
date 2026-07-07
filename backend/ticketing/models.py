@@ -567,6 +567,20 @@ class ExperienceProduct(models.Model):
     base_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
+    seller_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Maximum seller margin/discount allowance for this product. "
+            "If 0, the seller default margin may be used."
+        ),
+    )
+    seller_margin_is_active = models.BooleanField(
+        default=False,
+        help_text="If enabled, this product margin overrides the seller default margin.",
+    )
+
     deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     deposit_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
 
@@ -1000,6 +1014,7 @@ class Seller(models.Model):
         "can_sell_events",
         "can_sell_custom_tours",
         "can_create_bookings",
+        "can_send_payment_links",
         "can_take_deposits",
         "can_take_full_payments",
         "can_collect_cash_payment",
@@ -1015,6 +1030,9 @@ class Seller(models.Model):
         "can_view_own_sales",
         "can_view_own_commissions",
         "can_apply_discounts",
+        "can_apply_customer_discount",
+        "can_keep_commission_first",
+        "can_mark_cash_collected",
         "can_cancel_bookings",
         "can_send_whatsapp",
         "can_send_email",
@@ -1036,6 +1054,7 @@ class Seller(models.Model):
             "can_sell_events": True,
             "can_sell_custom_tours": True,
             "can_create_bookings": True,
+            "can_send_payment_links": True,
             "can_take_deposits": True,
             "can_take_full_payments": True,
             "can_collect_cash_payment": True,
@@ -1051,6 +1070,9 @@ class Seller(models.Model):
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
             "can_apply_discounts": True,
+            "can_apply_customer_discount": True,
+            "can_keep_commission_first": True,
+            "can_mark_cash_collected": True,
             "can_cancel_bookings": True,
             "can_send_whatsapp": True,
             "can_send_email": True,
@@ -1069,6 +1091,7 @@ class Seller(models.Model):
             "can_sell_events": True,
             "can_sell_custom_tours": True,
             "can_create_bookings": True,
+            "can_send_payment_links": True,
             "can_take_deposits": True,
             "can_take_full_payments": True,
             "can_collect_cash_payment": True,
@@ -1084,6 +1107,9 @@ class Seller(models.Model):
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
             "can_apply_discounts": True,
+            "can_apply_customer_discount": True,
+            "can_keep_commission_first": True,
+            "can_mark_cash_collected": True,
             "can_cancel_bookings": True,
             "can_send_whatsapp": True,
             "can_send_email": True,
@@ -1102,6 +1128,7 @@ class Seller(models.Model):
             "can_sell_events": True,
             "can_sell_custom_tours": True,
             "can_create_bookings": True,
+            "can_send_payment_links": True,
             "can_take_deposits": True,
             "can_take_full_payments": True,
             "can_collect_cash_payment": True,
@@ -1117,6 +1144,9 @@ class Seller(models.Model):
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
             "can_apply_discounts": False,
+            "can_apply_customer_discount": False,
+            "can_keep_commission_first": False,
+            "can_mark_cash_collected": False,
             "can_cancel_bookings": False,
             "can_send_whatsapp": True,
             "can_send_email": True,
@@ -1150,6 +1180,9 @@ class Seller(models.Model):
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
             "can_apply_discounts": False,
+            "can_apply_customer_discount": False,
+            "can_keep_commission_first": False,
+            "can_mark_cash_collected": False,
             "can_cancel_bookings": False,
             "can_send_whatsapp": True,
             "can_send_email": False,
@@ -1168,6 +1201,7 @@ class Seller(models.Model):
             "can_sell_events": False,
             "can_sell_custom_tours": False,
             "can_create_bookings": False,
+            "can_send_payment_links": False,
             "can_take_deposits": False,
             "can_take_full_payments": False,
             "can_collect_cash_payment": False,
@@ -1183,6 +1217,9 @@ class Seller(models.Model):
             "can_view_own_sales": False,
             "can_view_own_commissions": False,
             "can_apply_discounts": False,
+            "can_apply_customer_discount": False,
+            "can_keep_commission_first": False,
+            "can_mark_cash_collected": False,
             "can_cancel_bookings": False,
             "can_send_whatsapp": False,
             "can_send_email": False,
@@ -1238,6 +1275,25 @@ class Seller(models.Model):
         default=Decimal("0.00"),
     )
 
+    default_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Default seller margin/discount allowance. "
+            "Example: 15.00 means seller can use up to 15% as customer discount and/or commission."
+        ),
+    )
+    max_customer_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Maximum customer discount this seller may apply. "
+            "If 0, the seller margin percent is used as the cap."
+        ),
+    )
+
     can_access_dashboard = models.BooleanField(default=False)
     can_sell_cocobongo = models.BooleanField(default=False)
     can_sell_excursions = models.BooleanField(default=False)
@@ -1245,6 +1301,7 @@ class Seller(models.Model):
     can_sell_events = models.BooleanField(default=False)
     can_sell_custom_tours = models.BooleanField(default=False)
     can_create_bookings = models.BooleanField(default=False)
+    can_send_payment_links = models.BooleanField(default=False)
     can_take_deposits = models.BooleanField(default=False)
     can_take_full_payments = models.BooleanField(default=False)
     can_collect_cash_payment = models.BooleanField(default=False)
@@ -1260,6 +1317,9 @@ class Seller(models.Model):
     can_view_own_sales = models.BooleanField(default=True)
     can_view_own_commissions = models.BooleanField(default=True)
     can_apply_discounts = models.BooleanField(default=False)
+    can_apply_customer_discount = models.BooleanField(default=False)
+    can_keep_commission_first = models.BooleanField(default=False)
+    can_mark_cash_collected = models.BooleanField(default=False)
     can_cancel_bookings = models.BooleanField(default=False)
     can_send_whatsapp = models.BooleanField(default=False)
     can_send_email = models.BooleanField(default=False)
@@ -1767,6 +1827,21 @@ class Booking(models.Model):
         ("none", "None"),
     )
 
+    SETTLEMENT_STATUS_CHOICES = (
+        ("not_required", "Not Required"),
+        ("pending", "Pending"),
+        ("partially_settled", "Partially Settled"),
+        ("settled", "Settled"),
+    )
+
+    PAYMENT_RECEIVER_CHOICES = (
+        ("owner", "Owner"),
+        ("seller", "Seller"),
+        ("online_provider", "Online Provider"),
+        ("mixed", "Mixed"),
+        ("none", "None"),
+    )
+
     TRANSFER_STATUS_CHOICES = (
         ("not_applicable", "Not Applicable"),
         ("pending_assignment", "Pending Assignment"),
@@ -1864,6 +1939,41 @@ class Booking(models.Model):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
+    original_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Original owner/product price before seller discount.",
+    )
+    customer_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    customer_discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    seller_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Seller margin/discount allowance used for this booking.",
+    )
+    owner_net_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Expected company/owner revenue after seller commission.",
+    )
+    owner_received_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Money actually received by the company/owner.",
+    )
+
     deposit_required = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     deposit_paid = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
@@ -1872,6 +1982,19 @@ class Booking(models.Model):
     seller_due_to_company = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     seller_commission_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     commission_paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    settlement_status = models.CharField(
+        max_length=30,
+        choices=SETTLEMENT_STATUS_CHOICES,
+        default="not_required",
+        db_index=True,
+    )
+    payment_receiver = models.CharField(
+        max_length=30,
+        choices=PAYMENT_RECEIVER_CHOICES,
+        default="none",
+        db_index=True,
+    )
 
     requires_supervisor_approval = models.BooleanField(default=False)
     supervisor_approved_by = models.ForeignKey(
@@ -1941,6 +2064,11 @@ class Booking(models.Model):
         pending = self.seller_commission_amount - self.commission_paid_amount
         return max(pending, Decimal("0.00"))
 
+    @property
+    def owner_outstanding_amount(self):
+        pending = self.owner_net_amount - self.owner_received_amount
+        return max(pending, Decimal("0.00"))
+
     def generate_booking_code(self):
         return f"PCD-{uuid.uuid4().hex[:8].upper()}"
 
@@ -1964,6 +2092,8 @@ class Booking(models.Model):
         indexes = [
             models.Index(fields=["organisation", "status"]),
             models.Index(fields=["organisation", "payment_status"]),
+            models.Index(fields=["organisation", "settlement_status"]),
+            models.Index(fields=["organisation", "payment_receiver"]),
             models.Index(fields=["organisation", "service_date"]),
             models.Index(fields=["organisation", "booking_code"]),
         ]
@@ -2140,6 +2270,22 @@ class BookingPayment(models.Model):
         ("cancelled", "Cancelled"),
     )
 
+    COLLECTED_BY_PARTY_CHOICES = (
+        ("owner", "Owner"),
+        ("seller", "Seller"),
+        ("stripe", "Stripe"),
+        ("paypal", "PayPal"),
+        ("bank", "Bank"),
+        ("other", "Other"),
+    )
+
+    SETTLEMENT_STATUS_CHOICES = (
+        ("not_required", "Not Required"),
+        ("pending", "Pending"),
+        ("partially_settled", "Partially Settled"),
+        ("settled", "Settled"),
+    )
+
     booking = models.ForeignKey(
         Booking,
         on_delete=models.CASCADE,
@@ -2168,6 +2314,28 @@ class BookingPayment(models.Model):
     method = models.CharField(max_length=30, choices=METHOD_CHOICES)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="confirmed")
 
+    collected_by_party = models.CharField(
+        max_length=30,
+        choices=COLLECTED_BY_PARTY_CHOICES,
+        default="owner",
+        db_index=True,
+        help_text="Who actually received the money for this payment.",
+    )
+    affects_owner_received = models.BooleanField(
+        default=True,
+        help_text="If true, this payment increases booking.owner_received_amount.",
+    )
+    affects_seller_collected = models.BooleanField(
+        default=False,
+        help_text="If true, this payment increases booking.seller_collected_amount.",
+    )
+    settlement_status = models.CharField(
+        max_length=30,
+        choices=SETTLEMENT_STATUS_CHOICES,
+        default="not_required",
+        db_index=True,
+    )
+
     provider = models.CharField(max_length=30, blank=True, db_index=True)
     provider_payment_id = models.CharField(max_length=255, blank=True)
     provider_checkout_id = models.CharField(max_length=255, blank=True, db_index=True)
@@ -2187,6 +2355,10 @@ class BookingPayment(models.Model):
 
     class Meta:
         ordering = ["-paid_at"]
+        indexes = [
+            models.Index(fields=["collected_by_party", "status"]),
+            models.Index(fields=["settlement_status", "status"]),
+        ]
 
 
 class SellerCommission(models.Model):
@@ -2217,6 +2389,9 @@ class SellerCommission(models.Model):
 
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     rate_used = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    margin_percent_used = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    customer_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    owner_net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="pending", db_index=True)
 
