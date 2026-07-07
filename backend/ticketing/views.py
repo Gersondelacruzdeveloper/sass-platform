@@ -2846,52 +2846,36 @@ class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
 
         return queryset.distinct()
 
-
 class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
-    """
-    Seller-only bookings endpoint.
-
-    Sellers can only see/create/update their own bookings.
-    """
-
     serializer_class = BookingSerializer
 
     def get_queryset(self):
         organisation = self.get_organisation()
-
         if not organisation:
             return Booking.objects.none()
 
         seller = get_user_seller(self.request.user, organisation)
-
         if not seller or not seller.is_active:
             return Booking.objects.none()
 
-        # Only block listing if seller cannot view own sales.
-        # Do NOT block detail/actions like add-payment after booking creation.
         if self.action == "list" and not seller.can_view_own_sales:
             return Booking.objects.none()
 
-        queryset = (
-            Booking.objects
-            .filter(
-                organisation=organisation,
-                seller=seller,
-            )
-            .select_related(
-                "organisation",
-                "customer",
-                "seller",
-                "primary_product",
-                "created_by",
-                "supervisor_approved_by",
-            )
-            .prefetch_related(
-                "items",
-                "payments",
-                "commissions",
-                "notification_logs",
-            )
+        queryset = Booking.objects.filter(
+            organisation=organisation,
+            seller=seller,
+        ).select_related(
+            "organisation",
+            "customer",
+            "seller",
+            "primary_product",
+            "created_by",
+            "supervisor_approved_by",
+        ).prefetch_related(
+            "items",
+            "payments",
+            "commissions",
+            "notification_logs",
         )
 
         status_filter = self.request.query_params.get("status")
@@ -2922,8 +2906,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
 
         if product:
             queryset = queryset.filter(
-                Q(primary_product_id=product)
-                | Q(items__product_id=product)
+                Q(primary_product_id=product) | Q(items__product_id=product)
             ).distinct()
 
         if service_date:
@@ -2947,6 +2930,34 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
 
         return queryset.distinct()
 
+    def get_seller_booking_or_404(self, pk):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            return None, None
+
+        booking = get_object_or_404(
+            Booking.objects.select_related(
+                "organisation",
+                "customer",
+                "seller",
+                "primary_product",
+                "created_by",
+                "supervisor_approved_by",
+            ).prefetch_related(
+                "items",
+                "payments",
+                "commissions",
+                "notification_logs",
+            ),
+            pk=pk,
+            organisation=organisation,
+            seller=seller,
+        )
+
+        return seller, booking
+
     def perform_create(self, serializer):
         organisation = self.require_organisation()
         seller = self.require_seller()
@@ -2964,13 +2975,26 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
             created_by=self.request.user,
         )
 
+        booking.seller = seller
+        booking.organisation = organisation
+        booking.created_by = self.request.user
+        booking.source = "seller_dashboard"
+        booking.save(
+            update_fields=[
+                "seller",
+                "organisation",
+                "created_by",
+                "source",
+                "updated_at",
+            ]
+        )
+
         booking_finance.recalculate_booking_payment_totals(booking)
         booking_finance.sync_seller_commission_for_booking(booking)
 
     @action(detail=True, methods=["post"], url_path="add-payment")
     def add_payment(self, request, pk=None):
-        booking = self.get_object()
-        seller = self.require_seller()
+        seller, booking = self.get_seller_booking_or_404(pk)
 
         if not seller:
             return self.seller_not_found_response()
@@ -3054,7 +3078,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="mark-ticket-generated")
     def mark_ticket_generated(self, request, pk=None):
-        seller = self.require_seller()
+        seller, booking = self.get_seller_booking_or_404(pk)
 
         if not seller:
             return self.seller_not_found_response()
@@ -3065,7 +3089,6 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        booking = self.get_object()
         booking.status = "ticket_generated"
         booking.save(update_fields=["status", "updated_at"])
 
@@ -3076,7 +3099,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request, pk=None):
-        seller = self.require_seller()
+        seller, booking = self.get_seller_booking_or_404(pk)
 
         if not seller:
             return self.seller_not_found_response()
@@ -3087,7 +3110,6 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        booking = self.get_object()
         booking.status = "cancelled"
         booking.cancelled_at = timezone.now()
         booking.cancellation_reason = request.data.get("reason", "")
@@ -3104,7 +3126,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
         booking_finance.sync_seller_commission_for_booking(booking)
 
         return Response(self.get_serializer(booking).data)
-
+    
 class SellerPaymentsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
     """
     Seller-only payments endpoint.
