@@ -28,6 +28,7 @@ from .notifications.templates import test_email_subject, test_email_body
 import secrets
 from django.shortcuts import redirect
 from .notifications.service import BookingNotificationService
+from . import booking_finance_service as booking_finance
 
 from .google_oauth import (
     build_google_authorization_url,
@@ -1697,14 +1698,14 @@ class BookingViewSet(TicketingPrivateViewSet):
                 seller=seller,
                 source="seller_dashboard",
             )
-            recalculate_booking_payment_totals(booking)
+            booking_finance.recalculate_booking_payment_totals(booking)
             return
 
         booking = serializer.save(organisation=organisation)
-        recalculate_booking_payment_totals(booking)
+        booking_finance.recalculate_booking_payment_totals(booking)
         
     def recalculate_booking_after_payment(self, booking):
-        return recalculate_booking_payment_totals(booking)
+        return booking_finance.recalculate_booking_payment_totals(booking)
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
@@ -1774,7 +1775,7 @@ class BookingViewSet(TicketingPrivateViewSet):
             ]
         )
 
-        sync_seller_commission_for_booking(booking)
+        booking_finance.sync_seller_commission_for_booking(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
@@ -2071,7 +2072,7 @@ class SellerCommissionViewSet(TicketingPrivateViewSet):
         booking.commission_paid_amount = commission.amount
         booking.save(update_fields=["commission_paid_amount", "updated_at"])
 
-        recompute_seller_totals(commission.seller)
+        booking_finance.recompute_seller_totals(commission.seller)
 
         serializer = self.get_serializer(commission)
         return Response(serializer.data)
@@ -3537,7 +3538,7 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         booking = serializer.save(organisation=organisation)
-        recalculate_booking_payment_totals(booking)
+        booking_finance.recalculate_booking_payment_totals(booking)
 
         response_serializer = self.get_serializer(
             booking,
@@ -3626,7 +3627,7 @@ def sync_seller_commission_for_booking(booking):
     if not booking.seller:
         SellerCommission.objects.filter(booking=booking).update(status="cancelled")
         for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
+            booking_finance.recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
 
     previous_seller_ids.add(booking.seller_id)
@@ -3637,7 +3638,7 @@ def sync_seller_commission_for_booking(booking):
             seller=booking.seller,
         ).update(status="cancelled")
         for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
+            booking_finance.recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
 
     if booking.seller_commission_amount <= Decimal("0.00"):
@@ -3646,7 +3647,7 @@ def sync_seller_commission_for_booking(booking):
             seller=booking.seller,
         ).delete()
         for seller_id in previous_seller_ids:
-            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
+            booking_finance.recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
 
     commission, created = SellerCommission.objects.update_or_create(
@@ -3662,7 +3663,7 @@ def sync_seller_commission_for_booking(booking):
     )
 
     for seller_id in previous_seller_ids:
-        recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
+        booking_finance.recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
 
     return commission
 
@@ -3724,7 +3725,7 @@ def recalculate_booking_payment_totals(booking):
 
     booking.save()
 
-    sync_seller_commission_for_booking(booking)
+    booking_finance.sync_seller_commission_for_booking(booking)
 
     return booking
 
@@ -3798,7 +3799,7 @@ def mark_booking_payment_confirmed(
     payment.paid_at = timezone.now()
     payment.save()
 
-    booking = recalculate_booking_payment_totals(booking)
+    booking = booking_finance.recalculate_booking_payment_totals(booking)
 
     return payment, booking
 
@@ -4362,7 +4363,7 @@ class StripeWebhookAPIView(APIView):
         )
 
         try:
-            payment, updated_booking = mark_booking_payment_confirmed(
+            payment, updated_booking = booking_finance.mark_booking_payment_confirmed(
                 booking=booking,
                 amount=amount,
                 provider="stripe",
@@ -4583,7 +4584,7 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
         else:
             provider_payment_id = str(payment_intent or "")
 
-        confirmed_payment, booking = mark_booking_payment_confirmed(
+        confirmed_payment, booking = booking_finance.mark_booking_payment_confirmed(
             booking=booking,
             amount=amount,
             provider="stripe",
@@ -4839,7 +4840,7 @@ class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
 
         booking = payment.booking
 
-        confirmed_payment, booking = mark_booking_payment_confirmed(
+        confirmed_payment, booking = booking_finance.mark_booking_payment_confirmed(
             booking=booking,
             amount=payment.amount,
             provider="paypal",
