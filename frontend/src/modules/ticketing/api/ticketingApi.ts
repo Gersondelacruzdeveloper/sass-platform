@@ -110,7 +110,7 @@ export const ticketingApi = {
   },
 
   getSellerDashboard: async (slug?: string): Promise<SellerDashboard> => {
-    const response = await api.get<SellerDashboard>("/ticketing/seller-dashboard/", {
+    const response = await api.get<SellerDashboard>("/ticketing/seller/dashboard/", {
       params: withSlug(undefined, slug),
     });
     return response.data;
@@ -228,14 +228,8 @@ export const ticketingApi = {
   },
 
   getSellerProducts: async (slug?: string, params?: QueryParams): Promise<ExperienceProduct[]> => {
-    const response = await api.get<ExperienceProduct[]>("/ticketing/products/", {
-      params: withSlug(
-        {
-          ...params,
-          seller_enabled: true,
-        },
-        slug
-      ),
+    const response = await api.get<ExperienceProduct[]>("/ticketing/seller/products/", {
+      params: withSlug(params, slug),
     });
     return response.data;
   },
@@ -682,14 +676,8 @@ export const ticketingApi = {
   },
 
   getSellerBookings: async (slug?: string, params?: QueryParams): Promise<Booking[]> => {
-    const response = await api.get<Booking[]>("/ticketing/bookings/", {
-      params: withSlug(
-        {
-          ...params,
-          mine: true,
-        },
-        slug
-      ),
+    const response = await api.get<Booking[]>("/ticketing/seller/bookings/", {
+      params: withSlug(params, slug),
     });
     return response.data;
   },
@@ -773,6 +761,57 @@ export const ticketingApi = {
     return response.data;
   },
 
+  createSellerBooking: async (
+    payload: BookingCreatePayload,
+    slug?: string
+  ): Promise<Booking> => {
+    const response = await api.post<Booking>("/ticketing/seller/bookings/", payload, {
+      params: withSlug(undefined, slug),
+    });
+    return response.data;
+  },
+
+  addSellerBookingPayment: async (
+    bookingId: number,
+    payload: BookingPaymentPayload,
+    slug?: string
+  ): Promise<{ payment: BookingPayment; booking: Booking }> => {
+    const response = await api.post<{ payment: BookingPayment; booking: Booking }>(
+      `/ticketing/seller/bookings/${bookingId}/add-payment/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  markSellerTicketGenerated: async (id: number, slug?: string): Promise<Booking> => {
+    const response = await api.post<Booking>(
+      `/ticketing/seller/bookings/${id}/mark-ticket-generated/`,
+      {},
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  cancelSellerBooking: async (
+    id: number,
+    reason = "",
+    slug?: string
+  ): Promise<Booking> => {
+    const response = await api.post<Booking>(
+      `/ticketing/seller/bookings/${id}/cancel/`,
+      { reason },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
   overridePickup: async (
     bookingId: number,
     payload: {
@@ -804,15 +843,16 @@ export const ticketingApi = {
     return response.data;
   },
 
+  getSellerPayments: async (slug?: string, params?: QueryParams): Promise<BookingPayment[]> => {
+    const response = await api.get<BookingPayment[]>("/ticketing/seller/payments/", {
+      params: withSlug(params, slug),
+    });
+    return response.data;
+  },
+
   getSellerCommissions: async (slug?: string, params?: QueryParams): Promise<SellerCommission[]> => {
-    const response = await api.get<SellerCommission[]>("/ticketing/commissions/", {
-      params: withSlug(
-        {
-          ...params,
-          mine: true,
-        },
-        slug
-      ),
+    const response = await api.get<SellerCommission[]>("/ticketing/seller/commissions/", {
+      params: withSlug(params, slug),
     });
     return response.data;
   },

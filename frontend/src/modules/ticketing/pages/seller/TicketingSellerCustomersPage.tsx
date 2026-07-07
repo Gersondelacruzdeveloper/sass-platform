@@ -5,16 +5,80 @@ import { Search } from "lucide-react";
 import { useParams } from "react-router-dom";
 
 import ticketingApi from "../../api/ticketingApi";
-import type { Customer } from "../../types/ticketingTypes";
+import type { Booking } from "../../types/ticketingTypes";
+
+type SellerCustomerRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  whatsapp: string;
+  hotel_name: string;
+  total_bookings: number;
+  total_spent: number;
+};
 
 function money(value: string | number | null | undefined) {
   const amount = Number(value || 0);
   return `$${amount.toFixed(2)}`;
 }
 
+function numberValue(value: string | number | null | undefined) {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function normalizeCustomerKey(booking: Booking) {
+  const email = String(booking.customer_email || "").trim().toLowerCase();
+  const whatsapp = String(booking.customer_whatsapp || "").trim().toLowerCase();
+  const name = String(booking.customer_name || "Guest").trim().toLowerCase();
+
+  return email || whatsapp || name || `booking-${booking.id}`;
+}
+
+function buildSellerCustomers(bookings: Booking[]): SellerCustomerRow[] {
+  const map = new Map<string, SellerCustomerRow>();
+
+  bookings.forEach((booking) => {
+    const key = normalizeCustomerKey(booking);
+    const existing = map.get(key);
+    const totalAmount = numberValue(
+      (booking as any).total_amount ||
+        (booking as any).customer_total_amount ||
+        (booking as any).amount_total
+    );
+
+    if (!existing) {
+      map.set(key, {
+        id: key,
+        full_name: booking.customer_name || "Guest",
+        email: booking.customer_email || "",
+        phone: (booking as any).customer_phone || "",
+        whatsapp: booking.customer_whatsapp || "",
+        hotel_name: booking.customer_hotel || "",
+        total_bookings: 1,
+        total_spent: totalAmount,
+      });
+      return;
+    }
+
+    existing.total_bookings += 1;
+    existing.total_spent += totalAmount;
+
+    if (!existing.email && booking.customer_email) existing.email = booking.customer_email;
+    if (!existing.whatsapp && booking.customer_whatsapp) existing.whatsapp = booking.customer_whatsapp;
+    if (!existing.phone && (booking as any).customer_phone) existing.phone = (booking as any).customer_phone;
+    if (!existing.hotel_name && booking.customer_hotel) existing.hotel_name = booking.customer_hotel;
+  });
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.full_name.localeCompare(b.full_name)
+  );
+}
+
 export default function TicketingSellerCustomersPage() {
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [search, setSearch] = useState("");
@@ -23,12 +87,18 @@ export default function TicketingSellerCustomersPage() {
 
   useEffect(() => {
     async function loadCustomers() {
+      if (!slug) {
+        setErrorMessage("Organisation slug is missing.");
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setErrorMessage("");
 
-        const data = await ticketingApi.getCustomers(slug);
-        setCustomers(data);
+        const data = await ticketingApi.getSellerBookings(slug);
+        setBookings(data);
       } catch (error) {
         console.error(error);
         setErrorMessage("Could not load seller customers.");
@@ -39,6 +109,8 @@ export default function TicketingSellerCustomersPage() {
 
     loadCustomers();
   }, [slug]);
+
+  const customers = useMemo(() => buildSellerCustomers(bookings), [bookings]);
 
   const filteredCustomers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -70,7 +142,7 @@ export default function TicketingSellerCustomersPage() {
             Your customers
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            Only customers from your seller bookings are shown.
+            Built only from your seller bookings. No owner customer list is used.
           </p>
         </div>
 

@@ -8,6 +8,18 @@ import ticketingApi from "../../api/ticketingApi";
 import type { ExperienceProduct } from "../../types/ticketingTypes";
 import SellerProductCard from "../../components/seller/SellerProductCard";
 
+function getErrorMessage(error: any) {
+  const data = error?.response?.data;
+
+  if (!data) return "Could not load seller products.";
+  if (typeof data === "string") return data;
+  if (data.detail) return String(data.detail);
+  if (data.message) return String(data.message);
+  if (data.error) return String(data.error);
+
+  return "Could not load seller products.";
+}
+
 export default function TicketingSellerProductsPage() {
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
@@ -19,26 +31,41 @@ export default function TicketingSellerProductsPage() {
   const bookingPath = `/ticketing/${slug}/seller/new-booking`;
 
   useEffect(() => {
+    let active = true;
+
     async function loadProducts() {
+      if (!slug) {
+        setProducts([]);
+        setErrorMessage("Organisation slug is missing.");
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setErrorMessage("");
 
-        const data = await ticketingApi.getProducts(slug, {
+        const data = await ticketingApi.getSellerProducts(slug, {
           is_active: true,
-          seller_enabled: true,
         });
 
-        setProducts(data);
+        if (!active) return;
+        setProducts(Array.isArray(data) ? data : []);
       } catch (error) {
-        console.error(error);
-        setErrorMessage("Could not load seller products.");
+        console.error("Could not load seller products:", error);
+        if (!active) return;
+        setProducts([]);
+        setErrorMessage(getErrorMessage(error));
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     loadProducts();
+
+    return () => {
+      active = false;
+    };
   }, [slug]);
 
   const filteredProducts = useMemo(() => {
@@ -53,6 +80,7 @@ export default function TicketingSellerProductsPage() {
         product.location,
         product.product_type,
       ]
+        .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(query);
@@ -70,7 +98,7 @@ export default function TicketingSellerProductsPage() {
             Products you can sell
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            These products are already filtered by your seller permissions.
+            These products come from the seller-only API and are filtered by your permissions.
           </p>
         </div>
 
@@ -91,7 +119,7 @@ export default function TicketingSellerProductsPage() {
         </div>
       )}
 
-      {errorMessage && (
+      {!loading && errorMessage && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center font-bold text-red-700">
           {errorMessage}
         </div>

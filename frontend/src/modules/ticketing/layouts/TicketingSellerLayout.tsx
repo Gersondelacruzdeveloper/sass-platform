@@ -1,8 +1,8 @@
 // src/modules/ticketing/layouts/TicketingSellerLayout.tsx
 
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, Outlet, useNavigate, useParams } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
+import { AlertCircle, Download, LogOut } from "lucide-react";
 
 import api from "../../../api/axios";
 import { logoutUser } from "../../../features/auth/authSlice";
@@ -141,24 +141,16 @@ function getUserAvatarUrl(user: any) {
   );
 }
 
-function isAdminLikeUser(user: any) {
-  const role = String(
-    user?.role ||
-      user?.membership?.role ||
-      user?.organisation_role ||
-      user?.user_type ||
-      ""
-  ).toLowerCase();
+function getErrorMessage(error: any) {
+  const data = error?.response?.data;
 
-  if (user?.is_staff || user?.is_superuser) {
-    return true;
-  }
+  if (!data) return "You do not have access to the Seller Portal.";
+  if (typeof data === "string") return data;
+  if (data.detail) return String(data.detail);
+  if (data.message) return String(data.message);
+  if (data.error) return String(data.error);
 
-  if (["owner", "admin", "manager"].includes(role)) {
-    return true;
-  }
-
-  return false;
+  return "You do not have access to the Seller Portal.";
 }
 
 export default function TicketingSellerLayout() {
@@ -166,6 +158,7 @@ export default function TicketingSellerLayout() {
   const [branding, setBranding] = useState<OrganisationBranding | null>(null);
   const [currentSeller, setCurrentSeller] = useState<Seller | null>(null);
   const [currentSellerLoading, setCurrentSellerLoading] = useState(true);
+  const [sellerAccessError, setSellerAccessError] = useState("");
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -184,31 +177,32 @@ export default function TicketingSellerLayout() {
     authUser?.seller?.organisation_slug ||
     "";
 
-  const isOwnerOrAdmin = useMemo(() => {
-    if (isAdminLikeUser(authUser)) {
-      return true;
-    }
-
-    const sellerRole = String(currentSeller?.role || "").toLowerCase();
-
-    return ["owner", "admin", "manager"].includes(sellerRole);
-  }, [authUser, currentSeller]);
-
   useEffect(() => {
     async function loadCurrentSeller() {
       if (!slug) {
         setCurrentSeller(null);
+        setSellerAccessError("Organisation slug is missing.");
         setCurrentSellerLoading(false);
         return;
       }
 
       try {
         setCurrentSellerLoading(true);
+        setSellerAccessError("");
 
         const seller = await ticketingApi.getSellerMe(slug);
+
+        if (!seller || seller.is_active === false) {
+          setCurrentSeller(null);
+          setSellerAccessError("Your seller profile is not active.");
+          return;
+        }
+
         setCurrentSeller(seller);
       } catch (error) {
+        console.error("Seller portal access denied:", error);
         setCurrentSeller(null);
+        setSellerAccessError(getErrorMessage(error));
       } finally {
         setCurrentSellerLoading(false);
       }
@@ -391,8 +385,60 @@ export default function TicketingSellerLayout() {
 
   const showInstallButton = Boolean(installPrompt && !isInstalled);
 
-  if (!currentSellerLoading && !currentSeller && !isOwnerOrAdmin) {
-    return <Navigate to={`/ticketing/${slug}/dashboard`} replace />;
+  if (currentSellerLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-950" />
+          <p className="mt-4 text-sm font-black text-slate-600">
+            Loading seller portal...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentSeller) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <section className="w-full max-w-lg rounded-[2rem] border border-red-200 bg-white p-6 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+            <AlertCircle className="h-7 w-7" />
+          </div>
+
+          <p className="mt-4 text-sm font-black uppercase tracking-wide text-red-600">
+            Seller access denied
+          </p>
+
+          <h1 className="mt-2 text-2xl font-black text-slate-950">
+            This account cannot access the Seller Portal
+          </h1>
+
+          <p className="mx-auto mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-500">
+            {sellerAccessError ||
+              "You need an active seller profile for this organisation."}
+          </p>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <Link
+              to={`/ticketing/${slug}/login`}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
+            >
+              Go to login
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (

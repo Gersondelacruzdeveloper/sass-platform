@@ -23,7 +23,7 @@ export default function TicketingSellerBookingsPage() {
         setLoading(true);
         setErrorMessage("");
 
-        const data = await ticketingApi.getBookings(slug);
+      const data = await ticketingApi.getSellerBookings(slug);
         setBookings(data);
       } catch (error) {
         console.error(error);

@@ -24,7 +24,6 @@ import {
   Users,
 } from "lucide-react";
 
-import api from "../../../../api/axios";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   Booking,
@@ -333,8 +332,6 @@ export default function TicketingSellerNewBookingPage() {
   const slug = params.organisationSlug || params.slug || "";
   const productIdFromUrl = searchParams.get("product") || "";
 
-  const requestParams = useMemo(() => ({ slug, organisation_slug: slug }), [slug]);
-
   const [form, setForm] = useState<FormState>({ ...initialForm, productId: productIdFromUrl });
   const [seller, setSeller] = useState<Seller | null>(null);
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
@@ -359,15 +356,14 @@ export default function TicketingSellerNewBookingPage() {
       setLoading(true);
       setErrorMessage("");
 
-      const [sellerResponse, productsResponse, pickupLocationsResponse, pickupSchedulesResponse] = await Promise.all([
-        api.get("/ticketing/sellers/me/", { params: requestParams }),
-        api.get("/ticketing/products/", { params: requestParams }),
-        api.get("/ticketing/pickup-locations/", { params: requestParams }),
-        api.get("/ticketing/pickup-schedules/", { params: requestParams }),
+      const [sellerData, productsData, pickupLocationsResponse, pickupSchedulesResponse] = await Promise.all([
+        ticketingApi.getSellerMe(slug),
+        ticketingApi.getSellerProducts(slug, { is_active: true }),
+        ticketingApi.getPickupLocations(slug, { is_active: true }),
+        ticketingApi.getPickupSchedules(slug),
       ]);
 
-      const sellerData = sellerResponse.data as Seller;
-      const productsData = normalizeList<ExperienceProduct>(productsResponse.data);
+      const normalizedProductsData = normalizeList<ExperienceProduct>(productsData);
       let publicProductsData: ExperienceProduct[] = [];
 
       try {
@@ -377,7 +373,7 @@ export default function TicketingSellerNewBookingPage() {
       }
 
       const publicProductById = new Map(publicProductsData.map((product) => [String(product.id), product]));
-      const availableProducts = productsData
+      const availableProducts = normalizedProductsData
         .filter((product) => product.is_active !== false && product.status !== "archived" && product.seller_enabled !== false)
         .map((product) => {
           const publicProduct = publicProductById.get(String(product.id));
@@ -396,8 +392,8 @@ export default function TicketingSellerNewBookingPage() {
 
       setSeller(sellerData);
       setProducts(availableProducts);
-      setPickupLocations(normalizeList<PickupLocation>(pickupLocationsResponse.data).filter((location) => location.is_active !== false));
-      setPickupSchedules(normalizeList<ProductPickupSchedule>(pickupSchedulesResponse.data));
+      setPickupLocations(normalizeList<PickupLocation>(pickupLocationsResponse).filter((location) => location.is_active !== false));
+      setPickupSchedules(normalizeList<ProductPickupSchedule>(pickupSchedulesResponse));
 
       const initialProductId =
         productIdFromUrl && availableProducts.some((product) => String(product.id) === String(productIdFromUrl))
@@ -620,15 +616,15 @@ export default function TicketingSellerNewBookingPage() {
         payments_payload: [],
       };
 
-      let booking = await ticketingApi.createBooking(payload, slug);
+      let booking = await ticketingApi.createSellerBooking(payload, slug);
 
       if (paymentPayload) {
-        const paymentResponse = await ticketingApi.addBookingPayment(booking.id, paymentPayload, slug);
+        const paymentResponse = await ticketingApi.addSellerBookingPayment(booking.id, paymentPayload, slug);
         booking = paymentResponse.booking;
       }
 
       if (form.paymentAction === "generate_ticket") {
-        booking = await ticketingApi.markTicketGenerated(booking.id, slug);
+        booking = await ticketingApi.markSellerTicketGenerated(booking.id, slug);
       }
 
       setCreatedBooking(booking);

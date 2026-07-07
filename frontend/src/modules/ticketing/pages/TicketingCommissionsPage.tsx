@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import ticketingApi from "../api/ticketingApi";
 import TicketingPageShell from "../components/TicketingPageShell";
 
 type CommissionStatus = "pending" | "approved" | "paid" | "cancelled" | string;
@@ -253,17 +254,13 @@ export default function TicketingCommissionsPage() {
       setLoading(true);
       setError("");
 
-      const [commissionsResponse, sellersResponse] = await Promise.all([
-        api.get("/ticketing/commissions/", {
-          params: requestParams,
-        }),
-        api.get("/ticketing/sellers/", {
-          params: requestParams,
-        }),
+      const [commissionsData, sellersData] = await Promise.all([
+        ticketingApi.getCommissions(organisationSlug),
+        ticketingApi.getSellers(organisationSlug),
       ]);
 
-      setCommissions(normalizeList<SellerCommission>(commissionsResponse.data));
-      setSellers(normalizeList<Seller>(sellersResponse.data));
+      setCommissions(normalizeList<SellerCommission>(commissionsData));
+      setSellers(normalizeList<Seller>(sellersData));
     } catch (err: any) {
       console.error("Could not load commissions:", err);
       setError(getErrorMessage(err, "Could not load commissions."));
@@ -398,15 +395,10 @@ export default function TicketingCommissionsPage() {
       setError("");
       setSavedMessage("");
 
-      const response = await api.post(
-        `/ticketing/commissions/${commission.id}/mark-paid/`,
-        {},
-        {
-          params: requestParams,
-        }
-      );
-
-      const updatedCommission = response.data as SellerCommission;
+      const updatedCommission = (await ticketingApi.markCommissionPaid(
+        commission.id,
+        organisationSlug
+      )) as SellerCommission;
 
       setCommissions((current) =>
         current.map((item) =>
@@ -418,7 +410,7 @@ export default function TicketingCommissionsPage() {
         current?.id === commission.id ? updatedCommission : current
       );
 
-      setSavedMessage("Commission marked as paid.");
+      setSavedMessage("Seller commission payout marked as paid.");
     } catch (err: any) {
       console.error("Could not mark commission as paid:", err);
       setError(getErrorMessage(err, "Could not mark commission as paid."));
@@ -439,7 +431,7 @@ export default function TicketingCommissionsPage() {
     return (
       <TicketingPageShell
         title="Commissions"
-        subtitle="Track seller commissions, paid commissions and pending commissions."
+        subtitle="Owner view for seller commissions, payouts, and pending commission settlements."
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
           Loading commissions...
@@ -451,7 +443,7 @@ export default function TicketingCommissionsPage() {
   return (
     <TicketingPageShell
       title="Commissions"
-      subtitle="Track seller commissions, paid commissions and pending commissions."
+      subtitle="Owner view for seller commissions, payouts, and pending commission settlements."
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -508,7 +500,7 @@ export default function TicketingCommissionsPage() {
                 Seller commissions
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Review commissions generated from seller bookings and mark them as paid when settled.
+                Review seller commissions generated from seller bookings. Mark them as paid only after the company has actually settled the seller payout.
               </p>
             </div>
 
@@ -857,7 +849,7 @@ function CommissionDetailModal({
                   ) : (
                     <CheckCircle2 className="h-4 w-4" />
                   )}
-                  Mark commission as paid
+                  Mark seller payout paid
                 </button>
               )}
             </div>

@@ -94,6 +94,20 @@ type Seller = {
   photo_url?: string | null;
   commission_rate?: string | number;
   fixed_commission_amount?: string | number;
+  seller_margin_percent?: string | number;
+  seller_allowed_discount_percent?: string | number;
+  max_customer_discount_percent?: string | number;
+  default_margin_percent?: string | number;
+  owner_net_amount?: string | number;
+  owner_received_amount?: string | number;
+  owner_remaining_amount?: string | number;
+  seller_collected_amount?: string | number;
+  seller_due_to_company?: string | number;
+  total_owner_net_amount?: string | number;
+  total_owner_received_amount?: string | number;
+  total_owner_remaining_amount?: string | number;
+  total_seller_collected_amount?: string | number;
+  pending_settlement_amount?: string | number;
   permissions?: Partial<Record<PermissionKey, boolean>>;
   is_active: boolean;
   total_sales_amount?: string | number;
@@ -373,6 +387,62 @@ function formatPercent(value?: string | number | null) {
   })}%`;
 }
 
+
+function numberValue(value?: string | number | null) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function firstMoneyValue(...values: Array<string | number | null | undefined>) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value) !== "") {
+      return numberValue(value);
+    }
+  }
+
+  return 0;
+}
+
+function getSellerMarginPercent(seller: Seller) {
+  return firstMoneyValue(
+    seller.seller_margin_percent,
+    seller.seller_allowed_discount_percent,
+    seller.max_customer_discount_percent,
+    seller.default_margin_percent,
+    seller.commission_rate
+  );
+}
+
+function getSellerCollectedAmount(seller: Seller) {
+  return firstMoneyValue(
+    seller.total_seller_collected_amount,
+    seller.seller_collected_amount,
+    seller.total_collected_amount
+  );
+}
+
+function getSellerOwedToCompany(seller: Seller) {
+  return firstMoneyValue(
+    seller.seller_due_to_company,
+    seller.pending_settlement_amount,
+    seller.total_owed_to_company
+  );
+}
+
+function getSellerOwnerNet(seller: Seller) {
+  return firstMoneyValue(
+    seller.total_owner_net_amount,
+    seller.owner_net_amount
+  );
+}
+
+function getSellerOwnerReceived(seller: Seller) {
+  return firstMoneyValue(
+    seller.total_owner_received_amount,
+    seller.owner_received_amount
+  );
+}
+
 function roleLabel(value?: string | null) {
   const option = roleOptions.find((item) => item.value === value);
 
@@ -575,8 +645,20 @@ export default function TicketingSellersPage() {
         (sum, seller) => sum + Number(seller.total_commission_amount || 0),
         0
       ),
+      sellerCollected: sellers.reduce(
+        (sum, seller) => sum + getSellerCollectedAmount(seller),
+        0
+      ),
+      ownerNet: sellers.reduce(
+        (sum, seller) => sum + getSellerOwnerNet(seller),
+        0
+      ),
+      ownerReceived: sellers.reduce(
+        (sum, seller) => sum + getSellerOwnerReceived(seller),
+        0
+      ),
       owedToCompany: sellers.reduce(
-        (sum, seller) => sum + Number(seller.total_owed_to_company || 0),
+        (sum, seller) => sum + getSellerOwedToCompany(seller),
         0
       ),
     };
@@ -781,7 +863,7 @@ export default function TicketingSellersPage() {
     return (
       <TicketingPageShell
         title="Sellers"
-        subtitle="Create sellers, manage permissions, public links and sales access."
+        subtitle="Create sellers, manage seller margins, permissions, settlement balances and sales access."
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
           Loading sellers...
@@ -793,7 +875,7 @@ export default function TicketingSellersPage() {
   return (
     <TicketingPageShell
       title="Sellers"
-      subtitle="Create sellers, manage permissions, public links and sales access."
+      subtitle="Create sellers, manage seller margins, permissions, settlement balances and sales access."
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -812,25 +894,25 @@ export default function TicketingSellersPage() {
           <StatCard
             title="Dashboard access"
             value={String(stats.withDashboard)}
-            helper="Seller dashboard users"
+            helper="Seller portal users"
             icon={<ShieldCheck className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Sales"
+            title="Gross sales"
             value={formatMoney(stats.totalSales)}
             helper="Tracked seller sales"
             icon={<BadgeDollarSign className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Commission"
+            title="Seller earned"
             value={formatMoney(stats.totalCommission)}
-            helper="Generated commission"
+            helper="Commission generated"
             icon={<Wallet className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
             title="Owed to company"
             value={formatMoney(stats.owedToCompany)}
-            helper="Seller balance due"
+            helper="Pending settlement"
             icon={<BadgeDollarSign className="h-6 w-6 text-red-600" />}
           />
         </section>
@@ -856,7 +938,7 @@ export default function TicketingSellersPage() {
                 Seller management
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Create sellers, configure commission, seller login and payment permissions.
+                Create sellers, configure seller margin, login access, payment permissions and settlement control.
               </p>
             </div>
 
@@ -925,10 +1007,10 @@ export default function TicketingSellersPage() {
                   <thead className="bg-slate-50">
                     <tr>
                       <Th>Seller</Th>
-                      <Th>Role / Access</Th>
-                      <Th>Commission</Th>
-                      <Th>Sales</Th>
-                      <Th>Public link</Th>
+                      <Th>Access</Th>
+                      <Th>Gross sales</Th>
+                      <Th>Seller earned</Th>
+                      <Th>Owed to company</Th>
                       <Th>Status</Th>
                       <Th>Actions</Th>
                     </tr>
@@ -958,19 +1040,8 @@ export default function TicketingSellersPage() {
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               {seller.can_access_dashboard
-                                ? "Dashboard access"
-                                : "No dashboard access"}
-                            </p>
-                          </div>
-                        </Td>
-
-                        <Td>
-                          <div>
-                            <p className="font-black text-slate-950">
-                              {formatPercent(seller.commission_rate)}
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">
-                              Fixed: {formatMoney(seller.fixed_commission_amount)}
+                                ? "Seller portal access"
+                                : "No seller portal access"}
                             </p>
                           </div>
                         </Td>
@@ -981,24 +1052,33 @@ export default function TicketingSellersPage() {
                               {formatMoney(seller.total_sales_amount)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Commission: {formatMoney(seller.total_commission_amount)}
+                              Collected: {formatMoney(getSellerCollectedAmount(seller))}
                             </p>
                           </div>
                         </Td>
 
                         <Td>
                           <div>
-                            <p className="max-w-48 truncate font-black text-slate-950">
-                              {seller.seller_slug}
+                            <p className="font-black text-slate-950">
+                              {formatMoney(seller.total_commission_amount)}
                             </p>
-                            <button
-                              type="button"
-                              onClick={() => copySellerLink(seller)}
-                              className="mt-1 inline-flex items-center gap-1 text-xs font-black text-amber-700"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                              Copy link
-                            </button>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Margin allowance: {formatPercent(getSellerMarginPercent(seller))}
+                            </p>
+                          </div>
+                        </Td>
+
+                        <Td>
+                          <div>
+                            <p className={[
+                              "font-black",
+                              getSellerOwedToCompany(seller) > 0 ? "text-red-700" : "text-slate-950",
+                            ].join(" ")}>
+                              {formatMoney(getSellerOwedToCompany(seller))}
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Pending settlement
+                            </p>
                           </div>
                         </Td>
 
@@ -1236,21 +1316,21 @@ function SellerFormModal({
 
               <section className="rounded-3xl border border-slate-200 p-4">
                 <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                  Commission
+                  Seller margin / commission
                 </h3>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <Input
-                    label="Commission rate (%)"
+                    label="Seller margin allowance (%)"
                     type="number"
                     value={form.commission_rate}
                     onChange={(value) => onChange("commission_rate", value)}
-                    placeholder="10.00"
+                    placeholder="15.00"
                     icon={<BadgeDollarSign className="h-4 w-4" />}
                   />
 
                   <Input
-                    label="Fixed commission amount"
+                    label="Fixed commission override"
                     type="number"
                     value={form.fixed_commission_amount}
                     onChange={(value) => onChange("fixed_commission_amount", value)}
@@ -1258,6 +1338,9 @@ function SellerFormModal({
                     icon={<Wallet className="h-4 w-4" />}
                   />
                 </div>
+                <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+                  Use the percentage as the seller margin allowance. The seller can give part of this allowance as a customer discount and keep the rest as commission. The backend finance engine remains the source of truth.
+                </p>
               </section>
 
               <section className="rounded-3xl border border-slate-200 p-4">
@@ -1520,27 +1603,27 @@ function SellerDetailModal({
           <section className="mt-5 grid gap-4 lg:grid-cols-4">
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
-              label="Sales"
+              label="Gross sales"
               value={formatMoney(seller.total_sales_amount)}
-              helper="Total sales amount"
+              helper="Total seller sales"
             />
             <InfoCard
               icon={<Wallet className="h-5 w-5" />}
-              label="Commission"
+              label="Seller earned"
               value={formatMoney(seller.total_commission_amount)}
-              helper={`${formatPercent(seller.commission_rate)} rate`}
+              helper={`${formatPercent(getSellerMarginPercent(seller))} margin allowance`}
             />
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
               label="Collected"
-              value={formatMoney(seller.total_collected_amount)}
-              helper="Money collected"
+              value={formatMoney(getSellerCollectedAmount(seller))}
+              helper="Money collected by seller"
             />
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
               label="Owed to company"
-              value={formatMoney(seller.total_owed_to_company)}
-              helper="Seller balance due"
+              value={formatMoney(getSellerOwedToCompany(seller))}
+              helper="Pending settlement balance"
             />
           </section>
 
@@ -1563,6 +1646,23 @@ function SellerDetailModal({
                 </p>
               </div>
             </div>
+          </section>
+
+          <section className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+            <h3 className="text-sm font-black uppercase tracking-wide text-amber-800">
+              Settlement summary
+            </h3>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-4">
+              <InfoLine label="Gross sales" value={formatMoney(seller.total_sales_amount)} />
+              <InfoLine label="Seller collected" value={formatMoney(getSellerCollectedAmount(seller))} />
+              <InfoLine label="Seller earned" value={formatMoney(seller.total_commission_amount)} />
+              <InfoLine label="Owed to company" value={formatMoney(getSellerOwedToCompany(seller))} />
+            </div>
+
+            <p className="mt-3 text-sm font-semibold leading-6 text-amber-800">
+              If the seller collected cash or offline payments, this balance shows what still needs to be settled with the company.
+            </p>
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">

@@ -89,7 +89,7 @@ export default function TicketingSellerCommissionsPage() {
 
       setErrorMessage("");
 
-      const response = await ticketingApi.getCommissions(slug);
+      const response = await ticketingApi.getSellerCommissions(slug);
       const normalized = normalizeCommissionsResponse(response);
 
       setCommissions(normalized);
@@ -169,7 +169,7 @@ export default function TicketingSellerCommissionsPage() {
             Your commission
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            Only your own commission records are shown.
+              These commissions are loaded from your dedicated seller portal and only include your own sales.
           </p>
         </div>
 

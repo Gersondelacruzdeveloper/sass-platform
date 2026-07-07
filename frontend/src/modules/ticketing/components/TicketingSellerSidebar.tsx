@@ -47,10 +47,6 @@ function getPermissionValue(
 ) {
   if (!seller) return false;
 
-  const role = String(seller.role || "").toLowerCase();
-
-  if (["owner", "admin", "manager"].includes(role)) return true;
-
   if (typeof seller.permissions?.[permission] === "boolean") {
     return Boolean(seller.permissions[permission]);
   }
@@ -69,9 +65,7 @@ function hasAnyPermission(
   if (!permissions || permissions.length === 0) return true;
   if (!seller) return false;
 
-  return permissions.some((permission) =>
-    getPermissionValue(seller, permission)
-  );
+  return permissions.some((permission) => getPermissionValue(seller, permission));
 }
 
 export default function TicketingSellerSidebar({
@@ -140,7 +134,9 @@ export default function TicketingSellerSidebar({
   ];
 
   const visibleItems = currentSeller
-    ? navItems.filter((item) => item.alwaysShow || hasAnyPermission(currentSeller, item.permissions))
+    ? navItems.filter((item) =>
+        item.alwaysShow || hasAnyPermission(currentSeller, item.permissions)
+      )
     : [];
 
   const sellerName =
@@ -156,11 +152,7 @@ export default function TicketingSellerSidebar({
   const sidebarContent = (
     <div className="flex h-full flex-col bg-slate-950 text-white">
       <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
-        <Link
-          to={homePath}
-          className="flex items-center gap-3"
-          onClick={onClose}
-        >
+        <Link to={homePath} className="flex items-center gap-3" onClick={onClose}>
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-400 text-slate-950">
             <BookOpen className="h-6 w-6" />
           </div>
@@ -187,7 +179,7 @@ export default function TicketingSellerSidebar({
           <div className="rounded-2xl px-4 py-3 text-sm font-bold text-white/60">
             Loading permissions...
           </div>
-        ) : (
+        ) : visibleItems.length > 0 ? (
           visibleItems.map((item) => {
             const Icon = item.icon;
             const active =
@@ -210,6 +202,10 @@ export default function TicketingSellerSidebar({
               </Link>
             );
           })
+        ) : (
+          <div className="rounded-2xl px-4 py-3 text-sm font-bold leading-6 text-white/60">
+            No seller permissions are enabled yet.
+          </div>
         )}
       </nav>
 
