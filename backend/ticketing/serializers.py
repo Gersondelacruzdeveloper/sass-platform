@@ -1289,7 +1289,6 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_create_bookings",
             "can_send_payment_links",
             "can_apply_customer_discount",
-            "can_collect_cash",
             "can_mark_cash_collected",
             "can_keep_commission_first",
             "can_take_deposits",
