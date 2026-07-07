@@ -29,6 +29,7 @@ import secrets
 from django.shortcuts import redirect
 from .notifications.service import BookingNotificationService
 from . import booking_finance_service as booking_finance
+from rest_framework.exceptions import PermissionDenied
 
 from .google_oauth import (
     build_google_authorization_url,
@@ -2863,7 +2864,12 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
 
         seller = get_user_seller(self.request.user, organisation)
 
-        if not seller or not seller.is_active or not seller.can_view_own_sales:
+        if not seller or not seller.is_active:
+            return Booking.objects.none()
+
+        # Only block listing if seller cannot view own sales.
+        # Do NOT block detail/actions like add-payment after booking creation.
+        if self.action == "list" and not seller.can_view_own_sales:
             return Booking.objects.none()
 
         queryset = (
@@ -2948,6 +2954,9 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
         if not seller:
             raise ValueError("No active seller profile found for this user.")
 
+        if not seller.can_create_bookings:
+            raise PermissionDenied("You do not have permission to create bookings.")
+
         booking = serializer.save(
             organisation=organisation,
             seller=seller,
@@ -2956,6 +2965,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
         )
 
         booking_finance.recalculate_booking_payment_totals(booking)
+        booking_finance.sync_seller_commission_for_booking(booking)
 
     @action(detail=True, methods=["post"], url_path="add-payment")
     def add_payment(self, request, pk=None):
@@ -3060,6 +3070,7 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
         booking.save(update_fields=["status", "updated_at"])
 
         booking = booking_finance.recalculate_booking_payment_totals(booking)
+        booking_finance.sync_seller_commission_for_booking(booking)
 
         return Response(self.get_serializer(booking).data)
 
@@ -3093,7 +3104,6 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
         booking_finance.sync_seller_commission_for_booking(booking)
 
         return Response(self.get_serializer(booking).data)
-
 
 class SellerPaymentsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
     """
