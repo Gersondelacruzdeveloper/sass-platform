@@ -1,6 +1,6 @@
 // src/modules/ticketing/pages/seller/TicketingSellerDashboardPage.tsx
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   BadgeDollarSign,
@@ -49,6 +49,14 @@ export default function TicketingSellerDashboardPage() {
     loadDashboard();
   }, [slug]);
 
+  const permissions = useMemo(() => {
+    return {
+      ...(dashboard?.seller || {}),
+      ...(dashboard?.seller?.permissions || {}),
+      ...(dashboard?.permissions || {}),
+    };
+  }, [dashboard]);
+
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
@@ -82,7 +90,7 @@ export default function TicketingSellerDashboardPage() {
           </p>
         </div>
 
-        {permissions.can_create_bookings && (
+        {Boolean(permissions.can_create_bookings) && (
           <Link
             to={`${sellerBasePath}/new-booking`}
             className="inline-flex h-12 items-center justify-center rounded-2xl bg-amber-400 px-5 text-sm font-black text-slate-950 transition hover:bg-amber-300"
@@ -93,53 +101,17 @@ export default function TicketingSellerDashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SellerStatCard
-          label="Today Sales"
-          value={money(summary.today_sales)}
-          helper={`${summary.today_bookings} bookings today`}
-          icon={Wallet}
-        />
-        <SellerStatCard
-          label="Collected"
-          value={money(summary.money_collected)}
-          helper="Money collected by you"
-          icon={Receipt}
-        />
-        <SellerStatCard
-          label="Owed to Company"
-          value={money(summary.money_owed_to_company)}
-          helper="Amount to settle"
-          icon={Clock}
-        />
-        <SellerStatCard
-          label="Pending Commission"
-          value={money(summary.commission_pending)}
-          helper="Not paid yet"
-          icon={BadgeDollarSign}
-        />
+        <SellerStatCard label="Today Sales" value={money(summary.today_sales)} helper={`${summary.today_bookings} bookings today`} icon={Wallet} />
+        <SellerStatCard label="Collected" value={money(summary.money_collected)} helper="Money collected by you" icon={Receipt} />
+        <SellerStatCard label="Owed to Company" value={money(summary.money_owed_to_company)} helper="Amount to settle" icon={Clock} />
+        <SellerStatCard label="Pending Commission" value={money(summary.commission_pending)} helper="Not paid yet" icon={BadgeDollarSign} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SellerStatCard
-          label="Week Bookings"
-          value={summary.week_bookings}
-          icon={CalendarCheck}
-        />
-        <SellerStatCard
-          label="Month Bookings"
-          value={summary.month_bookings}
-          icon={CalendarCheck}
-        />
-        <SellerStatCard
-          label="Available Products"
-          value={dashboard.available_products.length}
-          icon={Package}
-        />
-        <SellerStatCard
-          label="Lifetime Commission"
-          value={money(summary.commission_lifetime)}
-          icon={BadgeDollarSign}
-        />
+        <SellerStatCard label="Week Bookings" value={summary.week_bookings} icon={CalendarCheck} />
+        <SellerStatCard label="Month Bookings" value={summary.month_bookings} icon={CalendarCheck} />
+        <SellerStatCard label="Available Products" value={dashboard.available_products?.length || 0} icon={Package} />
+        <SellerStatCard label="Lifetime Commission" value={money(summary.commission_lifetime)} icon={BadgeDollarSign} />
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -160,7 +132,7 @@ export default function TicketingSellerDashboardPage() {
         </div>
 
         <div className="mt-5 space-y-3">
-          {dashboard.recent_bookings.length > 0 ? (
+          {dashboard.recent_bookings?.length > 0 ? (
             dashboard.recent_bookings.map((booking) => (
               <SellerBookingCard key={booking.id} booking={booking} />
             ))
