@@ -1704,58 +1704,7 @@ class BookingViewSet(TicketingPrivateViewSet):
         recalculate_booking_payment_totals(booking)
         
     def recalculate_booking_after_payment(self, booking):
-        confirmed_payments = booking.payments.filter(status="confirmed")
-
-        paid_amount = Decimal("0.00")
-        seller_collected_amount = Decimal("0.00")
-
-        for payment in confirmed_payments:
-            if payment.payment_type == "refund":
-                paid_amount -= payment.amount
-            else:
-                paid_amount += payment.amount
-
-            if payment.seller:
-                seller_collected_amount += payment.amount
-
-        booking.deposit_paid = max(paid_amount, Decimal("0.00"))
-        booking.seller_collected_amount = seller_collected_amount
-
-        booking.balance_due = max(
-            booking.total_amount - booking.deposit_paid,
-            Decimal("0.00"),
-        )
-
-        if booking.seller:
-            if booking.seller.fixed_commission_amount > Decimal("0.00"):
-                booking.seller_commission_amount = booking.seller.fixed_commission_amount
-            elif booking.seller.commission_rate > Decimal("0.00"):
-                booking.seller_commission_amount = (
-                    booking.subtotal_amount * booking.seller.commission_rate
-                ) / Decimal("100.00")
-
-        booking.seller_due_to_company = max(
-            booking.seller_collected_amount - booking.seller_commission_amount,
-            Decimal("0.00"),
-        )
-
-        if booking.deposit_paid >= booking.total_amount and booking.total_amount > Decimal("0.00"):
-            booking.payment_status = "paid"
-            booking.status = "confirmed"
-        elif booking.deposit_paid >= booking.deposit_required and booking.deposit_required > Decimal("0.00"):
-            booking.payment_status = "deposit_paid"
-            if booking.status == "pending_payment":
-                booking.status = "confirmed"
-        elif booking.deposit_paid > Decimal("0.00"):
-            booking.payment_status = "partially_paid"
-            if booking.status == "pending_payment":
-                booking.status = "confirmed"
-        else:
-            booking.payment_status = "unpaid"
-
-        booking.save()
-
-        return booking
+        return recalculate_booking_payment_totals(booking)
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
@@ -1825,10 +1774,11 @@ class BookingViewSet(TicketingPrivateViewSet):
             ]
         )
 
+        sync_seller_commission_for_booking(booking)
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
 
-    
     def validate_seller_payment_permission(
         self,
         seller,
@@ -2120,6 +2070,8 @@ class SellerCommissionViewSet(TicketingPrivateViewSet):
         booking = commission.booking
         booking.commission_paid_amount = commission.amount
         booking.save(update_fields=["commission_paid_amount", "updated_at"])
+
+        recompute_seller_totals(commission.seller)
 
         serializer = self.get_serializer(commission)
         return Response(serializer.data)
@@ -3585,6 +3537,7 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         booking = serializer.save(organisation=organisation)
+        recalculate_booking_payment_totals(booking)
 
         response_serializer = self.get_serializer(
             booking,
@@ -3612,16 +3565,79 @@ def get_booking_payment_amount(booking, payment_type):
     return booking.balance_due or booking.total_amount
 
 
+def recompute_seller_totals(seller):
+    if not seller:
+        return None
+
+    seller.total_sales_amount = (
+        Booking.objects.filter(
+            seller=seller,
+        ).exclude(status__in=["cancelled", "refunded", "no_show"]).aggregate(
+            total=Sum("total_amount")
+        )["total"]
+        or Decimal("0.00")
+    )
+
+    seller.total_commission_amount = (
+        SellerCommission.objects.filter(
+            seller=seller,
+        ).exclude(status="cancelled").aggregate(
+            total=Sum("amount")
+        )["total"]
+        or Decimal("0.00")
+    )
+
+    seller.total_collected_amount = (
+        Booking.objects.filter(
+            seller=seller,
+        ).exclude(status__in=["cancelled", "refunded", "no_show"]).aggregate(
+            total=Sum("seller_collected_amount")
+        )["total"]
+        or Decimal("0.00")
+    )
+
+    seller.total_owed_to_company = (
+        Booking.objects.filter(
+            seller=seller,
+        ).exclude(status__in=["cancelled", "refunded", "no_show"]).aggregate(
+            total=Sum("seller_due_to_company")
+        )["total"]
+        or Decimal("0.00")
+    )
+
+    seller.save(
+        update_fields=[
+            "total_sales_amount",
+            "total_commission_amount",
+            "total_collected_amount",
+            "total_owed_to_company",
+            "updated_at",
+        ]
+    )
+
+    return seller
+
+
 def sync_seller_commission_for_booking(booking):
+    previous_seller_ids = set(
+        SellerCommission.objects.filter(booking=booking).values_list("seller_id", flat=True)
+    )
+
     if not booking.seller:
         SellerCommission.objects.filter(booking=booking).update(status="cancelled")
+        for seller_id in previous_seller_ids:
+            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
+
+    previous_seller_ids.add(booking.seller_id)
 
     if booking.status in ["cancelled", "refunded", "no_show"]:
         SellerCommission.objects.filter(
             booking=booking,
             seller=booking.seller,
         ).update(status="cancelled")
+        for seller_id in previous_seller_ids:
+            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
 
     if booking.seller_commission_amount <= Decimal("0.00"):
@@ -3629,9 +3645,11 @@ def sync_seller_commission_for_booking(booking):
             booking=booking,
             seller=booking.seller,
         ).delete()
+        for seller_id in previous_seller_ids:
+            recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
         return None
 
-    commission, created = SellerCommission.objects.get_or_create(
+    commission, created = SellerCommission.objects.update_or_create(
         organisation=booking.organisation,
         seller=booking.seller,
         booking=booking,
@@ -3639,23 +3657,12 @@ def sync_seller_commission_for_booking(booking):
             "amount": booking.seller_commission_amount,
             "rate_used": booking.seller.commission_rate,
             "status": "pending",
-            "note": "Automatically generated from booking payment.",
+            "note": "Automatically generated from booking.",
         },
     )
 
-    if commission.status != "paid":
-        commission.amount = booking.seller_commission_amount
-        commission.rate_used = booking.seller.commission_rate
-        commission.status = "pending"
-        commission.note = commission.note or "Automatically generated from booking payment."
-        commission.save(
-            update_fields=[
-                "amount",
-                "rate_used",
-                "status",
-                "note",
-            ]
-        )
+    for seller_id in previous_seller_ids:
+        recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
 
     return commission
 

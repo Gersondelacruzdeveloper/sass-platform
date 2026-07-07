@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Q, Sum
 from rest_framework import serializers
 from .notifications import BookingNotificationService
 
@@ -2376,9 +2376,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             return None
 
         if booking.seller_commission_amount <= Decimal("0.00"):
+            SellerCommission.objects.filter(
+                booking=booking,
+                seller=booking.seller,
+            ).delete()
             return None
 
-        commission, created = SellerCommission.objects.get_or_create(
+        commission, created = SellerCommission.objects.update_or_create(
             organisation=booking.organisation,
             seller=booking.seller,
             booking=booking,
@@ -2386,7 +2390,52 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 "amount": booking.seller_commission_amount,
                 "rate_used": booking.seller.commission_rate,
                 "status": "pending",
+                "note": "Automatically generated from booking.",
             },
+        )
+
+        seller = booking.seller
+
+        seller.total_sales_amount = (
+            Booking.objects.filter(
+                organisation=booking.organisation,
+                seller=seller,
+                status__in=["confirmed", "completed"],
+            ).aggregate(total=Sum("total_amount"))["total"]
+            or Decimal("0.00")
+        )
+
+        seller.total_commission_amount = (
+            SellerCommission.objects.filter(
+                organisation=booking.organisation,
+                seller=seller,
+            ).exclude(status="cancelled").aggregate(total=Sum("amount"))["total"]
+            or Decimal("0.00")
+        )
+
+        seller.total_collected_amount = (
+            Booking.objects.filter(
+                organisation=booking.organisation,
+                seller=seller,
+            ).aggregate(total=Sum("seller_collected_amount"))["total"]
+            or Decimal("0.00")
+        )
+
+        seller.total_owed_to_company = (
+            Booking.objects.filter(
+                organisation=booking.organisation,
+                seller=seller,
+            ).aggregate(total=Sum("seller_due_to_company"))["total"]
+            or Decimal("0.00")
+        )
+
+        seller.save(
+            update_fields=[
+                "total_sales_amount",
+                "total_commission_amount",
+                "total_collected_amount",
+                "total_owed_to_company",
+            ]
         )
 
         return commission
