@@ -3612,6 +3612,52 @@ def get_booking_payment_amount(booking, payment_type):
 
     return booking.balance_due or booking.total_amount
 
+def sync_seller_commission_for_booking(booking):
+    if not booking.seller:
+        SellerCommission.objects.filter(booking=booking).update(status="cancelled")
+        return None
+
+    if booking.status in ["cancelled", "refunded", "no_show"]:
+        SellerCommission.objects.filter(
+            booking=booking,
+            seller=booking.seller,
+        ).update(status="cancelled")
+        return None
+
+    if booking.seller_commission_amount <= Decimal("0.00"):
+        SellerCommission.objects.filter(
+            booking=booking,
+            seller=booking.seller,
+        ).delete()
+        return None
+
+    commission, created = SellerCommission.objects.get_or_create(
+        organisation=booking.organisation,
+        seller=booking.seller,
+        booking=booking,
+        defaults={
+            "amount": booking.seller_commission_amount,
+            "rate_used": booking.seller.commission_rate,
+            "status": "pending",
+            "note": "Automatically generated from booking payment.",
+        },
+    )
+
+    if commission.status != "paid":
+        commission.amount = booking.seller_commission_amount
+        commission.rate_used = booking.seller.commission_rate
+        commission.status = "pending"
+        commission.note = commission.note or "Automatically generated from booking payment."
+        commission.save(
+            update_fields=[
+                "amount",
+                "rate_used",
+                "status",
+                "note",
+            ]
+        )
+
+    return commission
 
 def recalculate_booking_payment_totals(booking):
     confirmed_payments = booking.payments.filter(status="confirmed")
@@ -3630,10 +3676,13 @@ def recalculate_booking_payment_totals(booking):
 
     booking.deposit_paid = max(paid_amount, Decimal("0.00"))
     booking.seller_collected_amount = seller_collected_amount
+
     booking.balance_due = max(
         booking.total_amount - booking.deposit_paid,
         Decimal("0.00"),
     )
+
+    booking.seller_commission_amount = Decimal("0.00")
 
     if booking.seller:
         if booking.seller.fixed_commission_amount > Decimal("0.00"):
@@ -3666,8 +3715,10 @@ def recalculate_booking_payment_totals(booking):
         booking.confirmed_at = timezone.now()
 
     booking.save()
-    return booking
 
+    sync_seller_commission_for_booking(booking)
+
+    return booking
 
 def make_json_safe(value):
     try:
