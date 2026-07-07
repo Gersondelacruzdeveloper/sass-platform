@@ -28,6 +28,14 @@ from .views import (
     ExternalProviderConfigViewSet,
     ExternalProviderProductSnapshotViewSet,
     ProductReviewViewSet,
+
+    # Seller-only API
+    SellerProductsViewSet,
+    SellerBookingsViewSet,
+    SellerPaymentsViewSet,
+    SellerCommissionsViewSet,
+    SellerDashboardView,
+
     TicketingDashboardAPIView,
     TicketingReportsAPIView,
     SellerDashboardAPIView,
@@ -83,6 +91,12 @@ router.register("integrations", ExternalProviderConfigViewSet, basename="ticketi
 router.register("external-snapshots", ExternalProviderProductSnapshotViewSet, basename="ticketing-external-snapshots")
 router.register("reviews", ProductReviewViewSet, basename="ticketing-reviews")
 
+# Seller-only routes
+router.register("seller/products", SellerProductsViewSet, basename="ticketing-seller-products")
+router.register("seller/bookings", SellerBookingsViewSet, basename="ticketing-seller-bookings")
+router.register("seller/payments", SellerPaymentsViewSet, basename="ticketing-seller-payments")
+router.register("seller/commissions", SellerCommissionsViewSet, basename="ticketing-seller-commissions")
+
 # Public white-label routes.
 # These support ?slug=organisation-slug or ?organisation_slug=organisation-slug.
 router.register("public/products", PublicProductViewSet, basename="ticketing-public-products")
@@ -95,7 +109,12 @@ urlpatterns = [
     # Private dashboard / reports
     path("dashboard/", TicketingDashboardAPIView.as_view(), name="ticketing-dashboard"),
     path("reports/", TicketingReportsAPIView.as_view(), name="ticketing-reports"),
-    path("seller-dashboard/", SellerDashboardAPIView.as_view(), name="ticketing-seller-dashboard"),
+
+    # Legacy seller dashboard route kept for backwards compatibility
+    path("seller-dashboard/", SellerDashboardAPIView.as_view(), name="ticketing-seller-dashboard-legacy"),
+
+    # New seller-only dashboard route
+    path("seller/dashboard/", SellerDashboardView.as_view(), name="ticketing-seller-dashboard"),
 
     # Public domain resolver:
     # /api/ticketing/public/resolve-domain/?domain=www.example.com

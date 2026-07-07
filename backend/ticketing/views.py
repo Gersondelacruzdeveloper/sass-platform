@@ -2718,6 +2718,631 @@ class ProductReviewViewSet(TicketingPrivateViewSet):
         serializer.save(organisation=organisation)
 
 
+
+# ==========================================================
+# Seller-only API
+# ==========================================================
+#
+# These endpoints intentionally do NOT reuse owner/admin endpoints.
+# They are designed for the seller portal only:
+#
+#   /api/ticketing/seller/products/
+#   /api/ticketing/seller/bookings/
+#   /api/ticketing/seller/payments/
+#   /api/ticketing/seller/commissions/
+#   /api/ticketing/seller/dashboard/
+#
+# API access permissions still live in ticketing.permissions.
+# Finance/payment business rules live in ticketing.finance.permissions.
+# ==========================================================
+
+
+class SellerOnlyMixin(TicketingOrganisationMixin):
+    permission_classes = [CanAccessSellerDashboard]
+
+    def require_seller(self):
+        organisation = self.require_organisation()
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return None
+
+        return seller
+
+    def get_allowed_seller_product_types(self, seller):
+        allowed = []
+
+        if seller.can_sell_excursions:
+            allowed.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed.append("transfer")
+
+        if seller.can_sell_events:
+            allowed.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed.extend(["ticket", "nightlife"])
+
+        return allowed
+
+    def seller_not_found_response(self):
+        return Response(
+            {"detail": "No active seller profile found for this user."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+
+class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only products endpoint.
+
+    Sellers only see products:
+    - in their organisation
+    - active
+    - seller_enabled
+    - matching their seller permissions/product types
+    """
+
+    serializer_class = ExperienceProductSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperienceProduct.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return ExperienceProduct.objects.none()
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        if not allowed_product_types:
+            return ExperienceProduct.objects.none()
+
+        queryset = (
+            ExperienceProduct.objects
+            .filter(
+                organisation=organisation,
+                seller_enabled=True,
+                is_active=True,
+                status="active",
+                product_type__in=allowed_product_types,
+            )
+            .select_related("organisation", "category", "created_by")
+            .prefetch_related(
+                "gallery_images",
+                "packages",
+                "availability",
+                "pickup_schedules",
+                "pickup_schedules__pickup_location",
+                "transfer_routes",
+                "event_ticket_types",
+            )
+        )
+
+        if not seller.can_sell_cocobongo:
+            queryset = queryset.exclude(is_cocobongo_product=True)
+
+        product_type = self.request.query_params.get("product_type")
+        search = self.request.query_params.get("search")
+
+        if product_type:
+            queryset = queryset.filter(product_type=product_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(location__icontains=search)
+                | Q(keywords_tags__icontains=search)
+            )
+
+        return queryset.distinct()
+
+
+class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
+    """
+    Seller-only bookings endpoint.
+
+    Sellers can only see/create/update their own bookings.
+    """
+
+    serializer_class = BookingSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Booking.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active or not seller.can_view_own_sales:
+            return Booking.objects.none()
+
+        queryset = (
+            Booking.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .select_related(
+                "organisation",
+                "customer",
+                "seller",
+                "primary_product",
+                "created_by",
+                "supervisor_approved_by",
+            )
+            .prefetch_related(
+                "items",
+                "payments",
+                "commissions",
+                "notification_logs",
+            )
+        )
+
+        status_filter = self.request.query_params.get("status")
+        payment_status = self.request.query_params.get("payment_status")
+        settlement_status = self.request.query_params.get("settlement_status")
+        product = self.request.query_params.get("product")
+        service_date = self.request.query_params.get("service_date")
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+        search = self.request.query_params.get("search")
+        owed_only = str(self.request.query_params.get("owed_only") or "").lower()
+        unsettled_only = str(self.request.query_params.get("unsettled_only") or "").lower()
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if payment_status:
+            queryset = queryset.filter(payment_status=payment_status)
+
+        if settlement_status:
+            queryset = queryset.filter(settlement_status=settlement_status)
+
+        if owed_only in ["true", "1", "yes"]:
+            queryset = queryset.filter(seller_due_to_company__gt=Decimal("0.00"))
+
+        if unsettled_only in ["true", "1", "yes"]:
+            queryset = queryset.exclude(settlement_status="settled")
+
+        if product:
+            queryset = queryset.filter(
+                Q(primary_product_id=product)
+                | Q(items__product_id=product)
+            ).distinct()
+
+        if service_date:
+            queryset = queryset.filter(service_date=service_date)
+
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+
+        if search:
+            queryset = queryset.filter(
+                Q(booking_code__icontains=search)
+                | Q(customer_name__icontains=search)
+                | Q(customer_whatsapp__icontains=search)
+                | Q(customer_email__icontains=search)
+                | Q(customer_hotel__icontains=search)
+                | Q(primary_product__name__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            raise ValueError("No active seller profile found for this user.")
+
+        booking = serializer.save(
+            organisation=organisation,
+            seller=seller,
+            source="seller_dashboard",
+            created_by=self.request.user,
+        )
+
+        booking_finance.recalculate_booking_payment_totals(booking)
+
+    @action(detail=True, methods=["post"], url_path="add-payment")
+    def add_payment(self, request, pk=None):
+        booking = self.get_object()
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        amount = request.data.get("amount")
+        payment_type = request.data.get("payment_type", "partial")
+        payer_type = request.data.get("payer_type", "customer")
+        method = request.data.get("method", "cash")
+        payment_status_value = request.data.get("status", "confirmed")
+        reference = request.data.get("reference", "")
+        note = request.data.get("note", "")
+        provider = request.data.get("provider", "")
+        collected_by_party = (
+            request.data.get("collected_by_party")
+            or request.data.get("payment_receiver")
+            or request.data.get("receiver")
+            or None
+        )
+
+        if amount in [None, ""]:
+            return Response(
+                {"amount": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from ticketing.finance.permissions import validate_payment_permission
+
+        permission_error = validate_payment_permission(
+            seller=seller,
+            payment_type=payment_type,
+            method=method,
+            payer_type=payer_type,
+        )
+
+        if permission_error:
+            return Response(
+                {"detail": permission_error},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            payment, booking = booking_finance.record_payment(
+                booking=booking,
+                seller=seller,
+                collected_by=request.user,
+                amount=amount,
+                payment_type=payment_type,
+                payer_type=payer_type,
+                method=method,
+                status=payment_status_value,
+                provider=provider,
+                reference=reference,
+                note=note,
+                collected_by_party=collected_by_party,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
+            try:
+                BookingNotificationService.payment_confirmed(booking)
+            except Exception:
+                logger.exception(
+                    "Failed sending payment confirmation notifications for booking %s",
+                    booking.booking_code,
+                )
+
+        return Response(
+            {
+                "payment": BookingPaymentSerializer(
+                    payment,
+                    context=self.get_serializer_context(),
+                ).data,
+                "booking": self.get_serializer(booking).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="mark-ticket-generated")
+    def mark_ticket_generated(self, request, pk=None):
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        if not seller.can_generate_ticket_without_customer_online_payment:
+            return Response(
+                {"detail": "You do not have permission to generate tickets without online payment."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        booking = self.get_object()
+        booking.status = "ticket_generated"
+        booking.save(update_fields=["status", "updated_at"])
+
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
+
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        if not seller.can_cancel_bookings:
+            return Response(
+                {"detail": "You do not have permission to cancel bookings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        booking = self.get_object()
+        booking.status = "cancelled"
+        booking.cancelled_at = timezone.now()
+        booking.cancellation_reason = request.data.get("reason", "")
+        booking.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancellation_reason",
+                "updated_at",
+            ]
+        )
+
+        booking_finance.recalculate_booking_payment_totals(booking)
+        booking_finance.sync_seller_commission_for_booking(booking)
+
+        return Response(self.get_serializer(booking).data)
+
+
+class SellerPaymentsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only payments endpoint.
+
+    Sellers only see payments connected to their own bookings.
+    """
+
+    serializer_class = BookingPaymentSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BookingPayment.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return BookingPayment.objects.none()
+
+        queryset = (
+            BookingPayment.objects
+            .filter(
+                booking__organisation=organisation,
+                booking__seller=seller,
+            )
+            .select_related("booking", "seller", "collected_by")
+        )
+
+        booking = self.request.query_params.get("booking")
+        payment_status = self.request.query_params.get("status")
+        payment_type = self.request.query_params.get("payment_type")
+        collected_by_party = self.request.query_params.get("collected_by_party")
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        if payment_status:
+            queryset = queryset.filter(status=payment_status)
+
+        if payment_type:
+            queryset = queryset.filter(payment_type=payment_type)
+
+        if collected_by_party:
+            queryset = queryset.filter(collected_by_party=collected_by_party)
+
+        return queryset.distinct()
+
+
+class SellerCommissionsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only commissions endpoint.
+
+    Sellers only see their own commission rows.
+    """
+
+    serializer_class = SellerCommissionSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return SellerCommission.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active or not seller.can_view_own_commissions:
+            return SellerCommission.objects.none()
+
+        queryset = (
+            SellerCommission.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .select_related("seller", "booking", "paid_by")
+        )
+
+        commission_status = self.request.query_params.get("status")
+        booking = self.request.query_params.get("booking")
+
+        if commission_status:
+            queryset = queryset.filter(status=commission_status)
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        return queryset.order_by("-created_at")
+
+
+class SellerDashboardView(APIView, TicketingOrganisationMixin):
+    """
+    Seller-only dashboard endpoint.
+
+    This endpoint returns one seller's data only.
+    """
+
+    permission_classes = [CanAccessSellerDashboard]
+
+    def get_allowed_seller_product_types(self, seller):
+        allowed = []
+
+        if seller.can_sell_excursions:
+            allowed.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed.append("transfer")
+
+        if seller.can_sell_events:
+            allowed.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed.extend(["ticket", "nightlife"])
+
+        return allowed
+
+    def get(self, request):
+        organisation = self.require_organisation()
+        seller = get_user_seller(request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return Response(
+                {"detail": "No active seller profile found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        today = timezone.localdate()
+        week_start = today - timezone.timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
+
+        bookings = (
+            Booking.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .exclude(status__in=["cancelled", "refunded", "no_show"])
+        )
+
+        today_bookings = bookings.filter(created_at__date=today)
+        week_bookings = bookings.filter(created_at__date__gte=week_start)
+        month_bookings = bookings.filter(created_at__date__gte=month_start)
+
+        finance_summary = booking_finance.seller_finance_summary(seller)
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        available_products = ExperienceProduct.objects.filter(
+            organisation=organisation,
+            seller_enabled=True,
+            is_active=True,
+            status="active",
+            product_type__in=allowed_product_types,
+        )
+
+        if not seller.can_sell_cocobongo:
+            available_products = available_products.exclude(is_cocobongo_product=True)
+
+        recent_bookings = (
+            bookings
+            .select_related("customer", "primary_product", "seller")
+            .order_by("-created_at")[:10]
+        )
+
+        commissions = SellerCommission.objects.filter(
+            organisation=organisation,
+            seller=seller,
+        )
+
+        return Response(
+            {
+                "seller": SellerSerializer(
+                    seller,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+                "permissions": SellerSerializer(
+                    seller,
+                    context={"request": request, "organisation": organisation},
+                ).data.get("permissions", {}),
+                "summary": {
+                    "today_bookings": today_bookings.count(),
+                    "week_bookings": week_bookings.count(),
+                    "month_bookings": month_bookings.count(),
+                    "total_bookings": bookings.count(),
+
+                    "today_sales": today_bookings.aggregate(
+                        total=Sum("total_amount")
+                    )["total"] or Decimal("0.00"),
+
+                    "today_deposits": today_bookings.aggregate(
+                        total=Sum("deposit_paid")
+                    )["total"] or Decimal("0.00"),
+
+                    "money_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+                    "money_owed_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+                    "outstanding_balance": finance_summary.get("balance_due", Decimal("0.00")),
+
+                    "pending_payments": bookings.filter(
+                        payment_status__in=["unpaid", "pending", "partially_paid", "partial"]
+                    ).count(),
+
+                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
+                    "tickets_generated": bookings.filter(status="ticket_generated").count(),
+
+                    "commission_today": commissions.filter(
+                        created_at__date=today
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_week": commissions.filter(
+                        created_at__date__gte=week_start
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_month": commissions.filter(
+                        created_at__date__gte=month_start
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_pending": finance_summary.get("commission_pending", Decimal("0.00")),
+                    "commission_paid": finance_summary.get("commission_paid", Decimal("0.00")),
+                    "commission_lifetime": finance_summary.get("commission_total", Decimal("0.00")),
+
+                    # New finance summary fields.
+                    "gross_sales": finance_summary.get("gross_sales", Decimal("0.00")),
+                    "customer_revenue": finance_summary.get("customer_revenue", Decimal("0.00")),
+                    "customer_discounts": finance_summary.get("customer_discounts", Decimal("0.00")),
+                    "seller_commissions": finance_summary.get("seller_commissions", Decimal("0.00")),
+                    "owner_net": finance_summary.get("owner_net", Decimal("0.00")),
+                    "owner_received": finance_summary.get("owner_received", Decimal("0.00")),
+                    "owner_pending": finance_summary.get("owner_pending", Decimal("0.00")),
+                    "seller_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+                    "seller_due_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+                    "balance_due": finance_summary.get("balance_due", Decimal("0.00")),
+                },
+                "recent_bookings": BookingSerializer(
+                    recent_bookings,
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+                "available_products": ExperienceProductSerializer(
+                    available_products[:12],
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+            }
+        )
+
 class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
     permission_classes = [CanAccessSellerDashboard]
 
@@ -2960,6 +3585,631 @@ class TicketingReportsAPIView(TicketingOrganisationMixin, APIView):
             }
         )
 
+
+
+# ==========================================================
+# Seller-only API
+# ==========================================================
+#
+# These endpoints intentionally do NOT reuse owner/admin endpoints.
+# They are designed for the seller portal only:
+#
+#   /api/ticketing/seller/products/
+#   /api/ticketing/seller/bookings/
+#   /api/ticketing/seller/payments/
+#   /api/ticketing/seller/commissions/
+#   /api/ticketing/seller/dashboard/
+#
+# API access permissions still live in ticketing.permissions.
+# Finance/payment business rules live in ticketing.finance.permissions.
+# ==========================================================
+
+
+class SellerOnlyMixin(TicketingOrganisationMixin):
+    permission_classes = [CanAccessSellerDashboard]
+
+    def require_seller(self):
+        organisation = self.require_organisation()
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return None
+
+        return seller
+
+    def get_allowed_seller_product_types(self, seller):
+        allowed = []
+
+        if seller.can_sell_excursions:
+            allowed.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed.append("transfer")
+
+        if seller.can_sell_events:
+            allowed.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed.extend(["ticket", "nightlife"])
+
+        return allowed
+
+    def seller_not_found_response(self):
+        return Response(
+            {"detail": "No active seller profile found for this user."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+
+class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only products endpoint.
+
+    Sellers only see products:
+    - in their organisation
+    - active
+    - seller_enabled
+    - matching their seller permissions/product types
+    """
+
+    serializer_class = ExperienceProductSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperienceProduct.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return ExperienceProduct.objects.none()
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        if not allowed_product_types:
+            return ExperienceProduct.objects.none()
+
+        queryset = (
+            ExperienceProduct.objects
+            .filter(
+                organisation=organisation,
+                seller_enabled=True,
+                is_active=True,
+                status="active",
+                product_type__in=allowed_product_types,
+            )
+            .select_related("organisation", "category", "created_by")
+            .prefetch_related(
+                "gallery_images",
+                "packages",
+                "availability",
+                "pickup_schedules",
+                "pickup_schedules__pickup_location",
+                "transfer_routes",
+                "event_ticket_types",
+            )
+        )
+
+        if not seller.can_sell_cocobongo:
+            queryset = queryset.exclude(is_cocobongo_product=True)
+
+        product_type = self.request.query_params.get("product_type")
+        search = self.request.query_params.get("search")
+
+        if product_type:
+            queryset = queryset.filter(product_type=product_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(location__icontains=search)
+                | Q(keywords_tags__icontains=search)
+            )
+
+        return queryset.distinct()
+
+
+class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
+    """
+    Seller-only bookings endpoint.
+
+    Sellers can only see/create/update their own bookings.
+    """
+
+    serializer_class = BookingSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return Booking.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active or not seller.can_view_own_sales:
+            return Booking.objects.none()
+
+        queryset = (
+            Booking.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .select_related(
+                "organisation",
+                "customer",
+                "seller",
+                "primary_product",
+                "created_by",
+                "supervisor_approved_by",
+            )
+            .prefetch_related(
+                "items",
+                "payments",
+                "commissions",
+                "notification_logs",
+            )
+        )
+
+        status_filter = self.request.query_params.get("status")
+        payment_status = self.request.query_params.get("payment_status")
+        settlement_status = self.request.query_params.get("settlement_status")
+        product = self.request.query_params.get("product")
+        service_date = self.request.query_params.get("service_date")
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+        search = self.request.query_params.get("search")
+        owed_only = str(self.request.query_params.get("owed_only") or "").lower()
+        unsettled_only = str(self.request.query_params.get("unsettled_only") or "").lower()
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if payment_status:
+            queryset = queryset.filter(payment_status=payment_status)
+
+        if settlement_status:
+            queryset = queryset.filter(settlement_status=settlement_status)
+
+        if owed_only in ["true", "1", "yes"]:
+            queryset = queryset.filter(seller_due_to_company__gt=Decimal("0.00"))
+
+        if unsettled_only in ["true", "1", "yes"]:
+            queryset = queryset.exclude(settlement_status="settled")
+
+        if product:
+            queryset = queryset.filter(
+                Q(primary_product_id=product)
+                | Q(items__product_id=product)
+            ).distinct()
+
+        if service_date:
+            queryset = queryset.filter(service_date=service_date)
+
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+
+        if search:
+            queryset = queryset.filter(
+                Q(booking_code__icontains=search)
+                | Q(customer_name__icontains=search)
+                | Q(customer_whatsapp__icontains=search)
+                | Q(customer_email__icontains=search)
+                | Q(customer_hotel__icontains=search)
+                | Q(primary_product__name__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            raise ValueError("No active seller profile found for this user.")
+
+        booking = serializer.save(
+            organisation=organisation,
+            seller=seller,
+            source="seller_dashboard",
+            created_by=self.request.user,
+        )
+
+        booking_finance.recalculate_booking_payment_totals(booking)
+
+    @action(detail=True, methods=["post"], url_path="add-payment")
+    def add_payment(self, request, pk=None):
+        booking = self.get_object()
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        amount = request.data.get("amount")
+        payment_type = request.data.get("payment_type", "partial")
+        payer_type = request.data.get("payer_type", "customer")
+        method = request.data.get("method", "cash")
+        payment_status_value = request.data.get("status", "confirmed")
+        reference = request.data.get("reference", "")
+        note = request.data.get("note", "")
+        provider = request.data.get("provider", "")
+        collected_by_party = (
+            request.data.get("collected_by_party")
+            or request.data.get("payment_receiver")
+            or request.data.get("receiver")
+            or None
+        )
+
+        if amount in [None, ""]:
+            return Response(
+                {"amount": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from ticketing.finance.permissions import validate_payment_permission
+
+        permission_error = validate_payment_permission(
+            seller=seller,
+            payment_type=payment_type,
+            method=method,
+            payer_type=payer_type,
+        )
+
+        if permission_error:
+            return Response(
+                {"detail": permission_error},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            payment, booking = booking_finance.record_payment(
+                booking=booking,
+                seller=seller,
+                collected_by=request.user,
+                amount=amount,
+                payment_type=payment_type,
+                payer_type=payer_type,
+                method=method,
+                status=payment_status_value,
+                provider=provider,
+                reference=reference,
+                note=note,
+                collected_by_party=collected_by_party,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
+            try:
+                BookingNotificationService.payment_confirmed(booking)
+            except Exception:
+                logger.exception(
+                    "Failed sending payment confirmation notifications for booking %s",
+                    booking.booking_code,
+                )
+
+        return Response(
+            {
+                "payment": BookingPaymentSerializer(
+                    payment,
+                    context=self.get_serializer_context(),
+                ).data,
+                "booking": self.get_serializer(booking).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="mark-ticket-generated")
+    def mark_ticket_generated(self, request, pk=None):
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        if not seller.can_generate_ticket_without_customer_online_payment:
+            return Response(
+                {"detail": "You do not have permission to generate tickets without online payment."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        booking = self.get_object()
+        booking.status = "ticket_generated"
+        booking.save(update_fields=["status", "updated_at"])
+
+        booking = booking_finance.recalculate_booking_payment_totals(booking)
+
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        if not seller.can_cancel_bookings:
+            return Response(
+                {"detail": "You do not have permission to cancel bookings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        booking = self.get_object()
+        booking.status = "cancelled"
+        booking.cancelled_at = timezone.now()
+        booking.cancellation_reason = request.data.get("reason", "")
+        booking.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancellation_reason",
+                "updated_at",
+            ]
+        )
+
+        booking_finance.recalculate_booking_payment_totals(booking)
+        booking_finance.sync_seller_commission_for_booking(booking)
+
+        return Response(self.get_serializer(booking).data)
+
+
+class SellerPaymentsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only payments endpoint.
+
+    Sellers only see payments connected to their own bookings.
+    """
+
+    serializer_class = BookingPaymentSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BookingPayment.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return BookingPayment.objects.none()
+
+        queryset = (
+            BookingPayment.objects
+            .filter(
+                booking__organisation=organisation,
+                booking__seller=seller,
+            )
+            .select_related("booking", "seller", "collected_by")
+        )
+
+        booking = self.request.query_params.get("booking")
+        payment_status = self.request.query_params.get("status")
+        payment_type = self.request.query_params.get("payment_type")
+        collected_by_party = self.request.query_params.get("collected_by_party")
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        if payment_status:
+            queryset = queryset.filter(status=payment_status)
+
+        if payment_type:
+            queryset = queryset.filter(payment_type=payment_type)
+
+        if collected_by_party:
+            queryset = queryset.filter(collected_by_party=collected_by_party)
+
+        return queryset.distinct()
+
+
+class SellerCommissionsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only commissions endpoint.
+
+    Sellers only see their own commission rows.
+    """
+
+    serializer_class = SellerCommissionSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return SellerCommission.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active or not seller.can_view_own_commissions:
+            return SellerCommission.objects.none()
+
+        queryset = (
+            SellerCommission.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .select_related("seller", "booking", "paid_by")
+        )
+
+        commission_status = self.request.query_params.get("status")
+        booking = self.request.query_params.get("booking")
+
+        if commission_status:
+            queryset = queryset.filter(status=commission_status)
+
+        if booking:
+            queryset = queryset.filter(booking_id=booking)
+
+        return queryset.order_by("-created_at")
+
+
+class SellerDashboardView(APIView, TicketingOrganisationMixin):
+    """
+    Seller-only dashboard endpoint.
+
+    This endpoint returns one seller's data only.
+    """
+
+    permission_classes = [CanAccessSellerDashboard]
+
+    def get_allowed_seller_product_types(self, seller):
+        allowed = []
+
+        if seller.can_sell_excursions:
+            allowed.append("excursion")
+
+        if seller.can_sell_transfers:
+            allowed.append("transfer")
+
+        if seller.can_sell_events:
+            allowed.append("event")
+
+        if seller.can_sell_custom_tours:
+            allowed.append("custom")
+
+        if seller.can_sell_cocobongo:
+            allowed.extend(["ticket", "nightlife"])
+
+        return allowed
+
+    def get(self, request):
+        organisation = self.require_organisation()
+        seller = get_user_seller(request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return Response(
+                {"detail": "No active seller profile found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        today = timezone.localdate()
+        week_start = today - timezone.timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
+
+        bookings = (
+            Booking.objects
+            .filter(
+                organisation=organisation,
+                seller=seller,
+            )
+            .exclude(status__in=["cancelled", "refunded", "no_show"])
+        )
+
+        today_bookings = bookings.filter(created_at__date=today)
+        week_bookings = bookings.filter(created_at__date__gte=week_start)
+        month_bookings = bookings.filter(created_at__date__gte=month_start)
+
+        finance_summary = booking_finance.seller_finance_summary(seller)
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        available_products = ExperienceProduct.objects.filter(
+            organisation=organisation,
+            seller_enabled=True,
+            is_active=True,
+            status="active",
+            product_type__in=allowed_product_types,
+        )
+
+        if not seller.can_sell_cocobongo:
+            available_products = available_products.exclude(is_cocobongo_product=True)
+
+        recent_bookings = (
+            bookings
+            .select_related("customer", "primary_product", "seller")
+            .order_by("-created_at")[:10]
+        )
+
+        commissions = SellerCommission.objects.filter(
+            organisation=organisation,
+            seller=seller,
+        )
+
+        return Response(
+            {
+                "seller": SellerSerializer(
+                    seller,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+                "permissions": SellerSerializer(
+                    seller,
+                    context={"request": request, "organisation": organisation},
+                ).data.get("permissions", {}),
+                "summary": {
+                    "today_bookings": today_bookings.count(),
+                    "week_bookings": week_bookings.count(),
+                    "month_bookings": month_bookings.count(),
+                    "total_bookings": bookings.count(),
+
+                    "today_sales": today_bookings.aggregate(
+                        total=Sum("total_amount")
+                    )["total"] or Decimal("0.00"),
+
+                    "today_deposits": today_bookings.aggregate(
+                        total=Sum("deposit_paid")
+                    )["total"] or Decimal("0.00"),
+
+                    "money_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+                    "money_owed_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+                    "outstanding_balance": finance_summary.get("balance_due", Decimal("0.00")),
+
+                    "pending_payments": bookings.filter(
+                        payment_status__in=["unpaid", "pending", "partially_paid", "partial"]
+                    ).count(),
+
+                    "confirmed_bookings": bookings.filter(status="confirmed").count(),
+                    "tickets_generated": bookings.filter(status="ticket_generated").count(),
+
+                    "commission_today": commissions.filter(
+                        created_at__date=today
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_week": commissions.filter(
+                        created_at__date__gte=week_start
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_month": commissions.filter(
+                        created_at__date__gte=month_start
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+
+                    "commission_pending": finance_summary.get("commission_pending", Decimal("0.00")),
+                    "commission_paid": finance_summary.get("commission_paid", Decimal("0.00")),
+                    "commission_lifetime": finance_summary.get("commission_total", Decimal("0.00")),
+
+                    # New finance summary fields.
+                    "gross_sales": finance_summary.get("gross_sales", Decimal("0.00")),
+                    "customer_revenue": finance_summary.get("customer_revenue", Decimal("0.00")),
+                    "customer_discounts": finance_summary.get("customer_discounts", Decimal("0.00")),
+                    "seller_commissions": finance_summary.get("seller_commissions", Decimal("0.00")),
+                    "owner_net": finance_summary.get("owner_net", Decimal("0.00")),
+                    "owner_received": finance_summary.get("owner_received", Decimal("0.00")),
+                    "owner_pending": finance_summary.get("owner_pending", Decimal("0.00")),
+                    "seller_collected": finance_summary.get("seller_collected", Decimal("0.00")),
+                    "seller_due_to_company": finance_summary.get("seller_due_to_company", Decimal("0.00")),
+                    "balance_due": finance_summary.get("balance_due", Decimal("0.00")),
+                },
+                "recent_bookings": BookingSerializer(
+                    recent_bookings,
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+                "available_products": ExperienceProductSerializer(
+                    available_products[:12],
+                    many=True,
+                    context={"request": request, "organisation": organisation},
+                ).data,
+            }
+        )
 
 class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
     permission_classes = [CanAccessSellerDashboard]

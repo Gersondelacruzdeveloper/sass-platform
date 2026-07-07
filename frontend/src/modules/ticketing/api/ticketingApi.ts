@@ -89,6 +89,7 @@ const withSlug = (params?: QueryParams, slug?: string): QueryParams => {
   return cleanParams({
     ...params,
     slug,
+    organisation_slug: slug,
   });
 };
 
@@ -222,6 +223,19 @@ export const ticketingApi = {
   getProducts: async (slug?: string, params?: QueryParams): Promise<ExperienceProduct[]> => {
     const response = await api.get<ExperienceProduct[]>("/ticketing/products/", {
       params: withSlug(params, slug),
+    });
+    return response.data;
+  },
+
+  getSellerProducts: async (slug?: string, params?: QueryParams): Promise<ExperienceProduct[]> => {
+    const response = await api.get<ExperienceProduct[]>("/ticketing/products/", {
+      params: withSlug(
+        {
+          ...params,
+          seller_enabled: true,
+        },
+        slug
+      ),
     });
     return response.data;
   },
@@ -667,6 +681,19 @@ export const ticketingApi = {
     return response.data;
   },
 
+  getSellerBookings: async (slug?: string, params?: QueryParams): Promise<Booking[]> => {
+    const response = await api.get<Booking[]>("/ticketing/bookings/", {
+      params: withSlug(
+        {
+          ...params,
+          mine: true,
+        },
+        slug
+      ),
+    });
+    return response.data;
+  },
+
   getBooking: async (id: number, slug?: string): Promise<Booking> => {
     const response = await api.get<Booking>(`/ticketing/bookings/${id}/`, {
       params: withSlug(undefined, slug),
@@ -773,6 +800,19 @@ export const ticketingApi = {
   getCommissions: async (slug?: string, params?: QueryParams): Promise<SellerCommission[]> => {
     const response = await api.get<SellerCommission[]>("/ticketing/commissions/", {
       params: withSlug(params, slug),
+    });
+    return response.data;
+  },
+
+  getSellerCommissions: async (slug?: string, params?: QueryParams): Promise<SellerCommission[]> => {
+    const response = await api.get<SellerCommission[]>("/ticketing/commissions/", {
+      params: withSlug(
+        {
+          ...params,
+          mine: true,
+        },
+        slug
+      ),
     });
     return response.data;
   },
