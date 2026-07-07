@@ -1692,15 +1692,17 @@ class BookingViewSet(TicketingPrivateViewSet):
         seller = self.get_current_seller()
 
         if seller and not self.is_admin_user():
-            serializer.save(
+            booking = serializer.save(
                 organisation=organisation,
                 seller=seller,
                 source="seller_dashboard",
             )
+            recalculate_booking_payment_totals(booking)
             return
 
-        serializer.save(organisation=organisation)
-
+        booking = serializer.save(organisation=organisation)
+        recalculate_booking_payment_totals(booking)
+        
     def recalculate_booking_after_payment(self, booking):
         confirmed_payments = booking.payments.filter(status="confirmed")
 
