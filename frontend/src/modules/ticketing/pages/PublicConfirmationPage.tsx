@@ -35,6 +35,16 @@ type PublicTicketingDomainResolution = {
   domain_status?: string;
 };
 
+type BookingItemLike = {
+  product_name?: string | null;
+  external_option_name?: string | null;
+  external_provider?: string | null;
+  external_product_id?: string | null;
+  external_variant_id?: string | null;
+  external_availability_id?: string | null;
+  external_raw_data?: any;
+};
+
 const PLATFORM_HOSTS = ["localhost", "127.0.0.1", "app.puntacanadiscovery.com"];
 
 function getApiBaseUrl() {
@@ -183,6 +193,58 @@ function getPaymentBanner(booking?: Booking | null, queryStatus?: string | null)
     message: "Your booking request has been created. Save this booking code.",
     className: "border-amber-200 bg-amber-50 text-amber-800",
   };
+}
+
+function getBookingItems(booking?: Booking | null): BookingItemLike[] {
+  const items = (booking as any)?.items;
+  return Array.isArray(items) ? items : [];
+}
+
+function getFirstBookingItem(booking?: Booking | null): BookingItemLike | null {
+  return getBookingItems(booking)[0] || null;
+}
+
+function cleanText(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function getTicketOptionName(booking?: Booking | null) {
+  const item = getFirstBookingItem(booking);
+
+  return (
+    cleanText(item?.external_option_name) ||
+    cleanText(item?.product_name) ||
+    ""
+  );
+}
+
+function getMainProductName(
+  booking?: Booking | null,
+  product?: ExperienceProduct | null,
+) {
+  return (
+    cleanText(product?.name) ||
+    cleanText(booking?.primary_product_detail?.name) ||
+    "Experience"
+  );
+}
+
+function getDisplayProductName(
+  booking?: Booking | null,
+  product?: ExperienceProduct | null,
+) {
+  return getTicketOptionName(booking) || getMainProductName(booking, product);
+}
+
+function getTicketDescription(booking?: Booking | null) {
+  const item = getFirstBookingItem(booking);
+  const raw = item?.external_raw_data || {};
+
+  return (
+    cleanText(raw?.product?.description) ||
+    cleanText(raw?.description) ||
+    ""
+  );
 }
 
 export default function PublicConfirmationPage() {
@@ -341,6 +403,10 @@ export default function PublicConfirmationPage() {
 
   const pickup = booking?.pickup_info;
   const banner = getPaymentBanner(booking, queryPaymentStatus);
+  const mainProductName = getMainProductName(booking, product);
+  const ticketOptionName = getTicketOptionName(booking);
+  const displayProductName = getDisplayProductName(booking, product);
+  const ticketDescription = getTicketDescription(booking);
 
   if (organisationLoading || loadingBooking) {
     return (
@@ -389,7 +455,13 @@ export default function PublicConfirmationPage() {
           <h2 className="text-lg font-black">Booking details</h2>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Info label="Product" value={product?.name || booking?.primary_product_detail?.name || "Experience"} icon={<Ticket className="h-4 w-4" />} />
+            <Info label={ticketOptionName ? "Ticket option" : "Product"} value={displayProductName} icon={<Ticket className="h-4 w-4" />} />
+            {ticketOptionName && (
+              <Info label="Experience" value={mainProductName} icon={<Ticket className="h-4 w-4" />} />
+            )}
+            {ticketDescription && (
+              <Info label="Includes" value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
+            )}
             <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
             <Info label="Guests" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
             <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
