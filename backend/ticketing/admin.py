@@ -210,14 +210,18 @@ class ExperienceProductAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    inlines = (
-        ExperiencePackageInline,
-        ProductAvailabilityInline,
-        ProductPickupScheduleInline,
-        TransferRouteInline,
-        EventTicketTypeInline,
-    )
 
+    def get_inlines(self, request, obj=None):
+        if obj and (obj.is_cocobongo_product or obj.external_provider == "wellet"):
+            return ()
+
+        return (
+            ExperiencePackageInline,
+            ProductAvailabilityInline,
+            ProductPickupScheduleInline,
+            TransferRouteInline,
+            EventTicketTypeInline,
+        )
 
 @admin.register(ExperiencePackage)
 class ExperiencePackageAdmin(admin.ModelAdmin):
