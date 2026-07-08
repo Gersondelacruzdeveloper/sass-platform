@@ -123,21 +123,32 @@ def _get_logo_reader(public_settings: Any) -> ImageReader | None:
     return None
 
 
-def _get_product_name(booking: Any) -> str:
+def _get_first_booking_item(booking: Any) -> Any:
+    """
+    Return the first stored booking item.
+
+    For external/Wellet products, this item is the snapshot of what the
+    customer actually selected, for example "Premium - Open Bar".
+    """
     try:
-        first_item = booking.items.first()
+        items_manager = getattr(booking, "items", None)
+        if not items_manager:
+            return None
+
+        first_item = items_manager.first()
+        if first_item:
+            return first_item
+
+        items = list(items_manager.all()[:1])
+        return items[0] if items else None
     except Exception:
-        first_item = None
+        return None
 
-    if first_item:
-        option_name = _first_attr(
-            first_item,
-            ["external_option_name", "product_name"],
-            "",
-        )
-        if option_name:
-            return option_name
 
+def _get_container_product_name(booking: Any) -> str:
+    """
+    Return the SaaS product/container name, for example "Coco Bongo Punta Cana".
+    """
     product = (
         getattr(booking, "primary_product", None)
         or getattr(booking, "product", None)
@@ -145,9 +156,32 @@ def _get_product_name(booking: Any) -> str:
     )
 
     if product:
-        return _first_attr(product, ["title", "name", "display_name"], "Tour / Product")
+        return _first_attr(product, ["title", "name", "display_name"], "")
 
-    return _first_attr(booking, ["product_name", "tour_name", "title"], "Tour / Product")
+    return _first_attr(booking, ["product_name", "tour_name", "title"], "")
+
+
+def _get_product_name(booking: Any) -> str:
+    """
+    Return the exact ticket/option purchased.
+
+    Important for Coco Bongo / Wellet:
+    booking.primary_product is only the container product ("Coco Bongo Punta Cana").
+    booking.items.first().external_option_name / product_name is the real ticket
+    selected by the customer ("Premium - Open Bar", "Gold Member - Open Bar", etc.).
+    """
+    first_item = _get_first_booking_item(booking)
+
+    if first_item:
+        option_name = (
+            _first_attr(first_item, ["external_option_name"], "")
+            or _first_attr(first_item, ["product_name"], "")
+        )
+        if option_name:
+            return option_name
+
+    container_name = _get_container_product_name(booking)
+    return container_name or "Tour / Product"
 
 def _get_customer_name(booking: Any) -> str:
     full_name = _first_attr(
@@ -540,14 +574,30 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     y -= 18 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 21)
+    ticket_name = _get_product_name(booking)
+    container_product_name = _get_container_product_name(booking)
+
     y = _draw_wrapped_text(
         pdf,
-        _get_product_name(booking),
+        ticket_name,
         content_x,
         y,
         max_chars=35,
         line_height=8 * mm,
     )
+
+    if container_product_name and container_product_name != ticket_name:
+        y -= 6 * mm
+        pdf.setFillColor(_hex(muted))
+        pdf.setFont("Helvetica-Bold", 8)
+        y = _draw_wrapped_text(
+            pdf,
+            container_product_name,
+            content_x,
+            y,
+            max_chars=52,
+            line_height=4 * mm,
+        )
 
     y -= 13 * mm
     pdf.setFillColor(_hex(muted))
