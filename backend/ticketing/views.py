@@ -932,15 +932,18 @@ class ProductPickupScheduleViewSet(
                     return str(value or "").strip()
         return ""
 
-    def normalize_import_time(self, value):
+    def normalize_import_time(self, value, product=None):
         raw = str(value or "").strip()
 
         if not raw:
             return ""
 
+        cleaned_for_flags = raw.lower().replace(" ", "")
+        is_pm = "pm" in cleaned_for_flags or "p.m" in cleaned_for_flags
+        is_am = "am" in cleaned_for_flags or "a.m" in cleaned_for_flags
+        has_explicit_meridiem = is_pm or is_am
+
         cleaned = raw.lower().replace(".", ":").replace(" ", "")
-        is_pm = "pm" in cleaned or "p.m" in cleaned
-        is_am = "am" in cleaned or "a.m" in cleaned
         cleaned = re.sub(r"[^0-9:]", "", cleaned)
 
         if not cleaned:
@@ -968,9 +971,23 @@ class ProductPickupScheduleViewSet(
         if is_am and hour == 12:
             hour = 0
 
+        is_nightlife_product = False
+
+        if product is not None:
+            is_nightlife_product = (
+                bool(getattr(product, "is_cocobongo_product", False))
+                or str(getattr(product, "product_type", "")).lower() == "nightlife"
+            )
+
+        # For Coco Bongo / nightlife CSV imports, owners often upload times like
+        # 6:30 or 7:20 without AM/PM. Those should be interpreted as evening
+        # pickup times. Explicit AM/PM values are respected exactly.
+        if is_nightlife_product and not has_explicit_meridiem and 1 <= hour < 12:
+            hour += 12
+
         return f"{hour:02d}:{minute:02d}"
 
-    def parse_import_csv_rows(self, uploaded_file):
+    def parse_import_csv_rows(self, uploaded_file, product=None):
         try:
             decoded = uploaded_file.read().decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -1003,7 +1020,8 @@ class ProductPickupScheduleViewSet(
                 "name",
             )
             pickup_time = self.normalize_import_time(
-                self.get_import_value(row, "pickup_time", "time", "hour")
+                self.get_import_value(row, "pickup_time", "time", "hour"),
+                product=product,
             )
             zone_name = self.get_import_value(row, "zone", "area", "pickup_zone")
             pickup_point = self.get_import_value(row, "pickup_point", "point", "meeting_point")
@@ -1098,7 +1116,7 @@ class ProductPickupScheduleViewSet(
         )
 
         try:
-            parsed_rows = self.parse_import_csv_rows(upload)
+            parsed_rows = self.parse_import_csv_rows(upload, product=product)
         except Exception as exc:
             return Response(
                 {"detail": str(exc)},
