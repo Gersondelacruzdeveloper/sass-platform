@@ -81,6 +81,9 @@ type ProductFormState = {
   twitter_title: string;
   twitter_description: string;
   image_alt_text: string;
+  external_provider: "local" | "wellet";
+  external_product_id: string;
+  is_cocobongo_product: boolean;
   is_active: boolean;
 };
 
@@ -145,6 +148,9 @@ const emptyForm: ProductFormState = {
   twitter_title: "",
   twitter_description: "",
   image_alt_text: "",
+  external_provider: "local",
+  external_product_id: "",
+  is_cocobongo_product: false,
   is_active: true,
 };
 
@@ -311,6 +317,15 @@ function getProductForm(product?: ExperienceProduct | null): ProductFormState {
     twitter_title: text(product.twitter_title),
     twitter_description: text(product.twitter_description),
     image_alt_text: text(product.image_alt_text),
+    external_provider:
+      (product as any).external_provider === "wellet" ||
+      bool((product as any).is_cocobongo_product)
+        ? "wellet"
+        : "local",
+    external_product_id: text((product as any).external_product_id),
+    is_cocobongo_product:
+      bool((product as any).is_cocobongo_product) ||
+      (product as any).external_provider === "wellet",
     is_active: bool(product.is_active, true),
   };
 }
@@ -337,7 +352,17 @@ function buildProductPayload(form: ProductFormState, imageFile: File | null) {
   appendText(formData, "name", form.name);
   appendText(formData, "slug", form.slug || slugify(form.name));
   appendText(formData, "product_type", form.product_type);
-  appendText(formData, "external_provider", "local");
+  appendText(
+    formData,
+    "external_provider",
+    form.is_cocobongo_product ? "wellet" : "local"
+  );
+  appendText(
+    formData,
+    "external_product_id",
+    form.is_cocobongo_product ? form.external_product_id.trim() : ""
+  );
+  appendBoolean(formData, "is_cocobongo_product", form.is_cocobongo_product);
   appendText(formData, "sku", form.sku);
   appendText(formData, "short_description", form.short_description);
   appendText(formData, "long_description", form.long_description);
@@ -679,6 +704,16 @@ export default function TicketingProductsPage() {
         return {
           ...next,
           slug: slugify(String(value)),
+        };
+      }
+
+      if (field === "is_cocobongo_product") {
+        const enabled = Boolean(value);
+
+        return {
+          ...next,
+          external_provider: enabled ? "wellet" : "local",
+          external_product_id: enabled ? current.external_product_id : "",
         };
       }
 
@@ -1125,6 +1160,11 @@ function ProductCard({
             {(product.supports_pickup || product.requires_pickup_location) && (
               <Badge label="Pickup" tone="orange" />
             )}
+
+            {((product as any).is_cocobongo_product ||
+              (product as any).external_provider === "wellet") && (
+              <Badge label="Coco Bongo" tone="pink" />
+            )}
           </div>
 
           <h2 className="mt-3 truncate text-xl font-black text-slate-950">
@@ -1523,6 +1563,35 @@ function ProductModal({
                 onChange={(value) => onChange("long_description", value)}
                 placeholder="Full description for the product page."
               />
+            </div>
+          </FormSection>
+
+          <FormSection
+            title="Coco Bongo / Wellet integration"
+            description="Enable this only for products that should use Coco Bongo/Wellet data and availability."
+            icon={Ticket}
+          >
+            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <Toggle
+                label="This is a Coco Bongo product"
+                description="When enabled, the backend treats this product as Wellet/Coco Bongo."
+                checked={form.is_cocobongo_product}
+                onChange={(value) => onChange("is_cocobongo_product", value)}
+              />
+
+              <Input
+                label="Coco Bongo / Wellet product ID"
+                value={form.external_product_id}
+                onChange={(value) => onChange("external_product_id", value)}
+                placeholder="Paste the external product ID from Wellet"
+              />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+              Provider sent to backend:{" "}
+              <span className="font-black">
+                {form.is_cocobongo_product ? "wellet" : "local"}
+              </span>
             </div>
           </FormSection>
 
@@ -1965,7 +2034,7 @@ function Badge({
   tone,
 }: {
   label: string;
-  tone: "amber" | "green" | "slate" | "blue" | "purple" | "orange";
+  tone: "amber" | "green" | "slate" | "blue" | "purple" | "orange" | "pink";
 }) {
   const tones = {
     amber: "bg-amber-100 text-amber-700",
@@ -1974,6 +2043,7 @@ function Badge({
     blue: "bg-blue-100 text-blue-700",
     purple: "bg-purple-100 text-purple-700",
     orange: "bg-orange-100 text-orange-700",
+    pink: "bg-pink-100 text-pink-700",
   };
 
   return (

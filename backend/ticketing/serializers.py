@@ -1774,8 +1774,6 @@ class ProductReviewSerializer(serializers.ModelSerializer):
             "customer_full_name",
             "created_at",
         ]
-
-
 class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
@@ -2059,10 +2057,15 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
             quantity = item_data.get("quantity", 1)
 
+            # For live Wellet/Coco Bongo bookings, do NOT fall back to
+            # product.external_product_id. The SaaS product represents the show,
+            # while the real bookable ticket is the customer-selected live option
+            # from the availability response.
             selected_external_product_id = (
                 item_data.get("selected_external_product_id")
+                or item_data.get("external_availability_id")
+                or item_data.get("external_variant_id")
                 or item_data.get("external_product_id")
-                or product.external_product_id
                 or ""
             )
 
@@ -2084,6 +2087,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             )
 
             if is_external_wellet:
+                if not selected_external_product_id:
+                    raise serializers.ValidationError(
+                        {
+                            "items_payload": "Please select a Coco Bongo ticket option before checkout."
+                        }
+                    )
+
                 validation = validate_external_product_before_booking(
                     organisation=organisation,
                     product=product,

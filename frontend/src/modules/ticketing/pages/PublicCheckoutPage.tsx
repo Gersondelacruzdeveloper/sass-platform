@@ -389,6 +389,16 @@ export default function PublicCheckoutPage() {
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
 
+  // Live external/Wellet option selected on the product detail page.
+  // Important: for Coco Bongo, the SaaS product is only the show/container.
+  // The real bookable product is the selected Wellet ticket option.
+  const selectedExternalProductId = searchParams.get("selected_external_product_id") || "";
+  const externalProductId = searchParams.get("external_product_id") || "";
+  const externalVariantId = searchParams.get("external_variant_id") || "";
+  const externalAvailabilityId = searchParams.get("external_availability_id") || "";
+  const externalOptionName = searchParams.get("external_option_name") || "";
+  const externalProvider = searchParams.get("external_provider") || "";
+
   const [form, setForm] = useState<CheckoutForm>({
     full_name: "",
     whatsapp: "",
@@ -580,12 +590,22 @@ export default function PublicCheckoutPage() {
 
       const itemPayload = {
         product_id: product.id,
-        product_name: product.name,
+        product_name: externalOptionName || product.name,
         service_date: serviceDate,
         service_time: pickupTime,
         quantity: guests,
         unit_price: unitPrice.toFixed(2),
         instructions: pickupPoint ? `Pickup point: ${pickupPoint}` : "",
+
+        // Coco Bongo / Wellet dynamic ticket option.
+        // These values come from PublicProductDetailPage.tsx via checkout URL.
+        // Backend must validate this selected option against live availability.
+        selected_external_product_id: selectedExternalProductId,
+        external_provider: externalProvider,
+        external_product_id: externalProductId,
+        external_variant_id: externalVariantId,
+        external_availability_id: externalAvailabilityId,
+        external_option_name: externalOptionName,
       };
 
       const paymentsPayload = shouldCreatePendingPayment(paymentChoice)
@@ -933,6 +953,9 @@ export default function PublicCheckoutPage() {
 
           <div className="mt-5 space-y-3">
             <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Product" value={product?.name || productSlug} theme={theme} />
+            {externalOptionName && (
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={externalOptionName} theme={theme} />
+            )}
             <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Date" value={formatDate(serviceDate)} theme={theme} />
             <SummaryRow icon={<Users className="h-4 w-4" />} label="Guests" value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
             {hotelFromQuery && (
