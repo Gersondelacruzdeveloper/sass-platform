@@ -124,24 +124,30 @@ def _get_logo_reader(public_settings: Any) -> ImageReader | None:
 
 
 def _get_product_name(booking: Any) -> str:
-    product = (
-        getattr(booking, "primary_product", None)
-        or getattr(booking, "product", None)
-        or getattr(booking, "tour", None)
-    )
-    if product:
-        return _first_attr(product, ["title", "name", "display_name"], "Tour / Product")
-
     try:
         first_item = booking.items.first()
     except Exception:
         first_item = None
 
     if first_item:
-        return _first_attr(first_item, ["product_name", "external_option_name"], "Tour / Product")
+        option_name = _first_attr(
+            first_item,
+            ["external_option_name", "product_name"],
+            "",
+        )
+        if option_name:
+            return option_name
+
+    product = (
+        getattr(booking, "primary_product", None)
+        or getattr(booking, "product", None)
+        or getattr(booking, "tour", None)
+    )
+
+    if product:
+        return _first_attr(product, ["title", "name", "display_name"], "Tour / Product")
 
     return _first_attr(booking, ["product_name", "tour_name", "title"], "Tour / Product")
-
 
 def _get_customer_name(booking: Any) -> str:
     full_name = _first_attr(

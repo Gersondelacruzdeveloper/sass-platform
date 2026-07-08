@@ -165,6 +165,25 @@ function parseNumber(value: string | null | undefined, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function parseStringList(value: string | null | undefined) {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall back to comma/newline separated values below.
+  }
+
+  return String(value)
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizeTime(value: string | null) {
   if (!value) return null;
 
@@ -397,6 +416,15 @@ export default function PublicCheckoutPage() {
   const externalVariantId = searchParams.get("external_variant_id") || "";
   const externalAvailabilityId = searchParams.get("external_availability_id") || "";
   const externalOptionName = searchParams.get("external_option_name") || "";
+  const externalOptionDescription = searchParams.get("external_option_description") || "";
+  const externalOptionFeatures = parseStringList(
+    searchParams.get("external_option_features")
+  );
+  const externalCurrency = searchParams.get("external_currency") || "";
+  const externalCheckinTime = normalizeTime(searchParams.get("external_checkin_time"));
+  const externalStartTime = normalizeTime(searchParams.get("external_start_time"));
+  const externalEndTime = normalizeTime(searchParams.get("external_end_time"));
+  const externalPerformanceId = searchParams.get("external_performance_id") || "";
   const externalProvider = searchParams.get("external_provider") || "";
 
   const [form, setForm] = useState<CheckoutForm>({
@@ -588,6 +616,20 @@ export default function PublicCheckoutPage() {
       setSubmitting(true);
       setError("");
 
+      const ticketInfoLines = [
+        externalOptionName ? `Ticket option: ${externalOptionName}` : "",
+        externalOptionDescription ? `Description: ${externalOptionDescription}` : "",
+        externalOptionFeatures.length
+          ? `Includes: ${externalOptionFeatures.join(", ")}`
+          : "",
+        externalCurrency ? `Currency: ${externalCurrency}` : "",
+        externalCheckinTime ? `Check-in time: ${externalCheckinTime}` : "",
+        externalStartTime ? `Show time: ${externalStartTime}` : "",
+        externalEndTime ? `End time: ${externalEndTime}` : "",
+        externalPerformanceId ? `Performance ID: ${externalPerformanceId}` : "",
+        pickupPoint ? `Pickup point: ${pickupPoint}` : "",
+      ].filter(Boolean);
+
       const itemPayload = {
         product_id: product.id,
         product_name: externalOptionName || product.name,
@@ -595,13 +637,14 @@ export default function PublicCheckoutPage() {
         service_time: pickupTime,
         quantity: guests,
         unit_price: unitPrice.toFixed(2),
-        instructions: pickupPoint ? `Pickup point: ${pickupPoint}` : "",
+        instructions: ticketInfoLines.join("\n"),
 
         // Coco Bongo / Wellet dynamic ticket option.
         // These values come from PublicProductDetailPage.tsx via checkout URL.
-        // Backend must validate this selected option against live availability.
+        // Backend validates this selected option against live availability and stores
+        // the official selected ticket snapshot on the BookingItem.
         selected_external_product_id: selectedExternalProductId,
-        external_provider: externalProvider,
+        external_provider: externalProvider || (externalOptionName ? "wellet" : ""),
         external_product_id: externalProductId,
         external_variant_id: externalVariantId,
         external_availability_id: externalAvailabilityId,
@@ -948,7 +991,7 @@ export default function PublicCheckoutPage() {
           </p>
 
           <h2 className="mt-2 text-xl font-black" style={{ color: theme.text }}>
-            {product?.name || productSlug || "Selected experience"}
+            {externalOptionName || product?.name || productSlug || "Selected experience"}
           </h2>
 
           <div className="mt-5 space-y-3">
@@ -956,7 +999,19 @@ export default function PublicCheckoutPage() {
             {externalOptionName && (
               <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={externalOptionName} theme={theme} />
             )}
+            {externalOptionDescription && (
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket details" value={externalOptionDescription} theme={theme} />
+            )}
+            {externalOptionFeatures.length > 0 && (
+              <SummaryRow icon={<CheckCircle2 className="h-4 w-4" />} label="Includes" value={externalOptionFeatures.join(", ")} theme={theme} />
+            )}
             <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Date" value={formatDate(serviceDate)} theme={theme} />
+            {externalCheckinTime && (
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Check-in time" value={formatTime(externalCheckinTime)} theme={theme} />
+            )}
+            {externalStartTime && (
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Show time" value={formatTime(externalStartTime)} theme={theme} />
+            )}
             <SummaryRow icon={<Users className="h-4 w-4" />} label="Guests" value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
             {hotelFromQuery && (
               <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup hotel" value={hotelFromQuery} theme={theme} />

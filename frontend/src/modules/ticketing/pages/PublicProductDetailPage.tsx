@@ -1055,12 +1055,23 @@ function buildCheckoutUrl({
 
   if (selectedLiveOption) {
     const selectedExternalProductId = getLiveOptionKey(selectedLiveOption);
+    const optionFeatures = Array.isArray(selectedLiveOption.features)
+      ? selectedLiveOption.features.filter(Boolean)
+      : [];
 
     params.set("selected_external_product_id", selectedExternalProductId);
     params.set("external_product_id", selectedLiveOption.external_product_id || "");
     params.set("external_variant_id", selectedLiveOption.external_variant_id || "");
     params.set("external_availability_id", selectedLiveOption.external_availability_id || "");
     params.set("external_option_name", getLiveOptionLabel(selectedLiveOption));
+    params.set("external_option_description", selectedLiveOption.description || "");
+    params.set("external_option_features", JSON.stringify(optionFeatures));
+    params.set("external_currency", selectedLiveOption.currency || "USD");
+    params.set("external_checkin_time", selectedLiveOption.checkin_time || "");
+    params.set("external_start_time", selectedLiveOption.start_time || "");
+    params.set("external_end_time", selectedLiveOption.end_time || "");
+    params.set("external_performance_id", selectedLiveOption.performance_id || "");
+    params.set("external_high_demand", selectedLiveOption.high_demand ? "true" : "false");
     params.set("unit_price", String(selectedLiveOption.price || "0"));
     params.set("external_provider", selectedLiveOption.provider || "wellet");
   }
