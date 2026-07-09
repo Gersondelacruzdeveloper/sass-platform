@@ -1224,6 +1224,12 @@ class ExperienceProductSerializer(
             "gallery_images",
             "base_price",
             "cost_price",
+            "adult_price",
+            "adult_cost_price",
+            "child_price",
+            "child_cost_price",
+            "infant_price",
+            "infant_cost_price",
             "seller_margin_percent",
             "seller_allowed_discount_percent",
             "profit_per_unit",
@@ -2373,13 +2379,42 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     elif external_snapshot:
                         unit_price = external_snapshot.price
                     else:
-                        unit_price = product.base_price
+                        # Local excursion/product pricing now supports passenger categories.
+                        # For normal products, calculate the booking item total from:
+                        # (adults × adult_price) + (children × child_price) + (infants × infant_price).
+                        # Keep unit_price as the adult price for display/backwards compatibility.
+                        unit_price = getattr(product, "adult_price", None) or product.base_price
 
                 if unit_cost is None:
                     if package:
                         unit_cost = package.cost_price
                     else:
-                        unit_cost = product.cost_price
+                        unit_cost = getattr(product, "adult_cost_price", None) or product.cost_price
+
+            item_total = unit_price * quantity
+            item_cost_total = unit_cost * quantity
+
+            if (
+                not is_external_wellet
+                and not package
+                and not event_ticket_type
+                and not external_snapshot
+                and not item_data.get("unit_price")
+            ):
+                adults = Decimal(str(getattr(booking, "adults", 0) or 0))
+                children = Decimal(str(getattr(booking, "children", 0) or 0))
+                infants = Decimal(str(getattr(booking, "infants", 0) or 0))
+
+                adult_price = getattr(product, "adult_price", None) or product.base_price
+                child_price = getattr(product, "child_price", None) or Decimal("0.00")
+                infant_price = getattr(product, "infant_price", None) or Decimal("0.00")
+
+                adult_cost = getattr(product, "adult_cost_price", None) or product.cost_price
+                child_cost = getattr(product, "child_cost_price", None) or Decimal("0.00")
+                infant_cost = getattr(product, "infant_cost_price", None) or Decimal("0.00")
+
+                item_total = (adults * adult_price) + (children * child_price) + (infants * infant_price)
+                item_cost_total = (adults * adult_cost) + (children * child_cost) + (infants * infant_cost)
 
             booking_item = BookingItem.objects.create(
                 booking=booking,
@@ -2400,12 +2435,12 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 quantity=quantity,
                 unit_price=unit_price,
                 unit_cost=unit_cost,
-                total=unit_price * quantity,
+                total=item_total,
                 instructions=item_data.get("instructions", ""),
             )
 
             subtotal += booking_item.total
-            total_cost += unit_cost * quantity
+            total_cost += item_cost_total
 
             if not booking.primary_product:
                 booking.primary_product = product

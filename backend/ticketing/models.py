@@ -473,8 +473,27 @@ class ExperienceProduct(models.Model):
         help_text="List of image URLs or media objects.",
     )
 
-    base_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
-    cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    base_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Legacy/default sell price. Kept for backward compatibility and synced with adult_price.",
+    )
+    cost_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Legacy/default cost price. Kept for backward compatibility and synced with adult_cost_price.",
+    )
+
+    adult_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    adult_cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    child_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    child_cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    infant_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    infant_cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
     seller_margin_percent = models.DecimalField(
         max_digits=5,
@@ -586,7 +605,51 @@ class ExperienceProduct(models.Model):
 
     @property
     def profit_per_unit(self):
-        return self.base_price - self.cost_price
+        return self.adult_price - self.adult_cost_price
+
+    def get_unit_price(self, passenger_type="adult"):
+        passenger_type = str(passenger_type or "adult").lower()
+
+        if passenger_type == "child":
+            return self.child_price
+
+        if passenger_type == "infant":
+            return self.infant_price
+
+        return self.adult_price
+
+    def get_unit_cost_price(self, passenger_type="adult"):
+        passenger_type = str(passenger_type or "adult").lower()
+
+        if passenger_type == "child":
+            return self.child_cost_price
+
+        if passenger_type == "infant":
+            return self.infant_cost_price
+
+        return self.adult_cost_price
+
+    def calculate_guest_total(self, adults=0, children=0, infants=0):
+        adults = int(adults or 0)
+        children = int(children or 0)
+        infants = int(infants or 0)
+
+        return (
+            Decimal(adults) * self.adult_price
+            + Decimal(children) * self.child_price
+            + Decimal(infants) * self.infant_price
+        )
+
+    def calculate_guest_cost_total(self, adults=0, children=0, infants=0):
+        adults = int(adults or 0)
+        children = int(children or 0)
+        infants = int(infants or 0)
+
+        return (
+            Decimal(adults) * self.adult_cost_price
+            + Decimal(children) * self.child_cost_price
+            + Decimal(infants) * self.infant_cost_price
+        )
 
     @property
     def current_public_path(self):
@@ -645,6 +708,18 @@ class ExperienceProduct(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
+
+        # Backward compatibility:
+        # New products should use adult_price/adult_cost_price.
+        # Old code may still read/write base_price/cost_price.
+        if self.adult_price == Decimal("0.00") and self.base_price != Decimal("0.00"):
+            self.adult_price = self.base_price
+
+        if self.adult_cost_price == Decimal("0.00") and self.cost_price != Decimal("0.00"):
+            self.adult_cost_price = self.cost_price
+
+        self.base_price = self.adult_price
+        self.cost_price = self.adult_cost_price
 
         super().save(*args, **kwargs)
 
