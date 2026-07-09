@@ -78,8 +78,6 @@ class TicketingSettings(models.Model):
     class Meta:
         verbose_name = "Ticketing Settings"
         verbose_name_plural = "Ticketing Settings"
-
-
 class TicketingPublicSiteSettings(models.Model):
     HERO_MEDIA_TYPE_CHOICES = (
         ("image", "Image"),
@@ -93,6 +91,21 @@ class TicketingPublicSiteSettings(models.Model):
         ("adventure", "Adventure"),
     )
 
+    PRODUCT_URL_PATTERN_CHOICES = (
+        ("/product/{slug}", "Product"),
+        ("/products/{slug}", "Products"),
+        ("/tour/{slug}", "Tour"),
+        ("/tours/{slug}", "Tours"),
+        ("/excursion/{slug}", "Excursion"),
+        ("/excursions/{slug}", "Excursions"),
+        ("/excursions/detail/{slug}", "Legacy Excursions Detail"),
+        ("/activity/{slug}", "Activity"),
+        ("/activities/{slug}", "Activities"),
+        ("/experience/{slug}", "Experience"),
+        ("/experiences/{slug}", "Experiences"),
+        ("custom", "Custom Pattern"),
+    )
+
     organisation = models.OneToOneField(
         Organisation,
         on_delete=models.CASCADE,
@@ -102,31 +115,12 @@ class TicketingPublicSiteSettings(models.Model):
     site_title = models.CharField(max_length=255, blank=True)
     public_description = models.TextField(blank=True)
 
-    hero_title = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="Main headline shown on the public home page.",
-    )
-    hero_subtitle = models.TextField(
-        blank=True,
-        help_text="Short subtitle shown under the public home page headline.",
-    )
+    hero_title = models.CharField(max_length=255, blank=True, help_text="Main headline shown on the public home page.")
+    hero_subtitle = models.TextField(blank=True, help_text="Short subtitle shown under the public home page headline.")
 
-    primary_cta_label = models.CharField(
-        max_length=80,
-        default="Explore Experiences",
-        blank=True,
-    )
-    secondary_cta_label = models.CharField(
-        max_length=80,
-        default="Book Transfers",
-        blank=True,
-    )
-    whatsapp_cta_label = models.CharField(
-        max_length=80,
-        default="Chat via WhatsApp",
-        blank=True,
-    )
+    primary_cta_label = models.CharField(max_length=80, default="Explore Experiences", blank=True)
+    secondary_cta_label = models.CharField(max_length=80, default="Book Transfers", blank=True)
+    whatsapp_cta_label = models.CharField(max_length=80, default="Chat via WhatsApp", blank=True)
 
     public_email = models.EmailField(blank=True, null=True)
     public_whatsapp = models.CharField(max_length=30, blank=True, null=True)
@@ -151,113 +145,33 @@ class TicketingPublicSiteSettings(models.Model):
         help_text="Custom public domain for this ticketing website. Example: www.puntacanaticket.com",
     )
 
-    domain_status = models.CharField(
-        max_length=30,
-        choices=DOMAIN_STATUS_CHOICES,
-        default="not_configured",
-        db_index=True,
-    )
-
+    domain_status = models.CharField(max_length=30, choices=DOMAIN_STATUS_CHOICES, default="not_configured", db_index=True)
     domain_verified_at = models.DateTimeField(blank=True, null=True)
     domain_last_checked_at = models.DateTimeField(blank=True, null=True)
     domain_error_message = models.TextField(blank=True)
 
-    aws_acm_certificate_arn = models.CharField(
-        max_length=512,
-        blank=True,
-        help_text="AWS ACM certificate ARN created for this custom domain.",
-    )
-    aws_acm_certificate_status = models.CharField(
-        max_length=80,
-        blank=True,
-        help_text="Latest ACM certificate status. Example: PENDING_VALIDATION or ISSUED.",
-    )
+    aws_acm_certificate_arn = models.CharField(max_length=512, blank=True)
+    aws_acm_certificate_status = models.CharField(max_length=80, blank=True)
     aws_acm_requested_at = models.DateTimeField(blank=True, null=True)
+    aws_acm_validation_record_name = models.CharField(max_length=512, blank=True)
+    aws_acm_validation_record_type = models.CharField(max_length=20, default="CNAME", blank=True)
+    aws_acm_validation_record_value = models.CharField(max_length=512, blank=True)
 
-    aws_acm_validation_record_name = models.CharField(
-        max_length=512,
-        blank=True,
-        help_text="DNS CNAME name required by ACM validation.",
-    )
-    aws_acm_validation_record_type = models.CharField(
-        max_length=20,
-        default="CNAME",
-        blank=True,
-    )
-    aws_acm_validation_record_value = models.CharField(
-        max_length=512,
-        blank=True,
-        help_text="DNS CNAME value required by ACM validation.",
-    )
-
-    cloudfront_distribution_id = models.CharField(
-        max_length=120,
-        blank=True,
-        help_text="CloudFront distribution ID used to serve this public site.",
-    )
-    cloudfront_domain_name = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="CloudFront target domain. Example: dxxxxx.cloudfront.net",
-    )
+    cloudfront_distribution_id = models.CharField(max_length=120, blank=True)
+    cloudfront_domain_name = models.CharField(max_length=255, blank=True)
     cloudfront_alias_added_at = models.DateTimeField(blank=True, null=True)
 
-    dns_records_payload = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="DNS records shown to the customer so they can paste them in GoDaddy.",
-    )
+    dns_records_payload = models.JSONField(default=list, blank=True)
 
-    logo = models.ImageField(
-        upload_to="ticketing/public/logos/",
-        blank=True,
-        null=True,
-    )
+    logo = models.ImageField(upload_to="ticketing/public/logos/", blank=True, null=True)
+    favicon = models.FileField(upload_to="ticketing/public/favicons/", blank=True, null=True)
 
-    favicon = models.FileField(
-        upload_to="ticketing/public/favicons/",
-        blank=True,
-        null=True,
-    )
-
-    hero_media_type = models.CharField(
-        max_length=20,
-        choices=HERO_MEDIA_TYPE_CHOICES,
-        default="image",
-        help_text="Choose whether the public home hero uses an uploaded image or video.",
-    )
-
-    hero_image = models.ImageField(
-        upload_to="ticketing/public/hero/",
-        blank=True,
-        null=True,
-    )
-
-    hero_video = models.FileField(
-        upload_to="ticketing/public/hero-videos/",
-        blank=True,
-        null=True,
-        help_text="Optional uploaded hero video for the public home page.",
-    )
-
-    hero_video_url = models.URLField(
-        blank=True,
-        help_text="Optional external hero video URL. Useful for CDN, S3, Spaces or Cloudinary.",
-    )
-
-    hero_video_poster = models.ImageField(
-        upload_to="ticketing/public/hero-posters/",
-        blank=True,
-        null=True,
-        help_text="Poster image shown before the video loads.",
-    )
-
-    hero_overlay_opacity = models.DecimalField(
-        max_digits=4,
-        decimal_places=2,
-        default=Decimal("0.45"),
-        help_text="Overlay opacity over the hero media. Example: 0.45.",
-    )
+    hero_media_type = models.CharField(max_length=20, choices=HERO_MEDIA_TYPE_CHOICES, default="image")
+    hero_image = models.ImageField(upload_to="ticketing/public/hero/", blank=True, null=True)
+    hero_video = models.FileField(upload_to="ticketing/public/hero-videos/", blank=True, null=True)
+    hero_video_url = models.URLField(blank=True)
+    hero_video_poster = models.ImageField(upload_to="ticketing/public/hero-posters/", blank=True, null=True)
+    hero_overlay_opacity = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("0.45"))
 
     primary_color = models.CharField(max_length=20, default="#111827")
     secondary_color = models.CharField(max_length=20, default="#6B7280")
@@ -268,17 +182,9 @@ class TicketingPublicSiteSettings(models.Model):
     muted_text_color = models.CharField(max_length=20, default="#6B7280")
     card_background_color = models.CharField(max_length=20, default="#FFFFFF")
 
-    homepage_layout_style = models.CharField(
-        max_length=30,
-        choices=HOMEPAGE_LAYOUT_STYLE_CHOICES,
-        default="marketplace",
-    )
+    homepage_layout_style = models.CharField(max_length=30, choices=HOMEPAGE_LAYOUT_STYLE_CHOICES, default="marketplace")
 
-    trust_badges = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Public home trust badges. Example: ['5,000+ Happy Travelers', 'Resort Pickup'].",
-    )
+    trust_badges = models.JSONField(default=list, blank=True)
 
     show_category_grid = models.BooleanField(default=True)
     show_trust_badges = models.BooleanField(default=True)
@@ -293,46 +199,44 @@ class TicketingPublicSiteSettings(models.Model):
 
     excursions_section_title = models.CharField(max_length=150, default="Top Experiences in Punta Cana", blank=True)
     excursions_section_subtitle = models.CharField(max_length=255, default="Handpicked adventures you’ll never forget.", blank=True)
-
     transfers_section_title = models.CharField(max_length=150, default="Transfers", blank=True)
     transfers_section_subtitle = models.CharField(max_length=255, default="Private, reliable rides — airport, hotels and long distance.", blank=True)
-
     tickets_section_title = models.CharField(max_length=150, default="Tickets & Attractions", blank=True)
     tickets_section_subtitle = models.CharField(max_length=255, default="Book tickets and attractions with secure reservation options.", blank=True)
-
     events_section_title = models.CharField(max_length=150, default="Events", blank=True)
     events_section_subtitle = models.CharField(max_length=255, default="Discover local events, shows and limited-date experiences.", blank=True)
-
     nightlife_section_title = models.CharField(max_length=150, default="Nightlife", blank=True)
     nightlife_section_subtitle = models.CharField(max_length=255, default="Nightlife tickets, premium experiences and evening activities.", blank=True)
-
     packages_section_title = models.CharField(max_length=150, default="Packages & Deals", blank=True)
     packages_section_subtitle = models.CharField(max_length=255, default="Bundles with better prices — VIP, family and adventure packages.", blank=True)
 
     ai_assistant_title = models.CharField(max_length=150, default="Meet Your Travel Assistant 🌴", blank=True)
-    ai_assistant_subtitle = models.CharField(
-        max_length=255,
-        default="Ask anything — best experiences, pickup from your hotel, or quick recommendations.",
-        blank=True,
-    )
+    ai_assistant_subtitle = models.CharField(max_length=255, default="Ask anything — best experiences, pickup from your hotel, or quick recommendations.", blank=True)
 
     final_cta_title = models.CharField(max_length=150, default="Ready to Start Your Adventure?", blank=True)
-    final_cta_subtitle = models.CharField(
-        max_length=255,
-        default="Punta Cana Discovery makes booking simple, fast, and secure.",
-        blank=True,
-    )
+    final_cta_subtitle = models.CharField(max_length=255, default="Punta Cana Discovery makes booking simple, fast, and secure.", blank=True)
 
     seo_title = models.CharField(max_length=255, blank=True)
     meta_description = models.TextField(blank=True)
     canonical_url = models.URLField(blank=True)
+
+    product_url_pattern = models.CharField(
+        max_length=120,
+        choices=PRODUCT_URL_PATTERN_CHOICES,
+        default="/product/{slug}",
+        help_text="Public product URL pattern. Use {slug}. Example: /excursions/detail/{slug}",
+    )
+    custom_product_url_pattern = models.CharField(
+        max_length=180,
+        blank=True,
+        help_text="Custom product URL pattern. Must include {slug}. Example: /things-to-do/{slug}",
+    )
+    preserve_imported_product_urls = models.BooleanField(default=True)
+    auto_create_product_redirects = models.BooleanField(default=True)
+
     og_title = models.CharField(max_length=255, blank=True)
     og_description = models.TextField(blank=True)
-    og_image = models.ImageField(
-        upload_to="ticketing/public/seo/",
-        blank=True,
-        null=True,
-    )
+    og_image = models.ImageField(upload_to="ticketing/public/seo/", blank=True, null=True)
 
     robots_allow_indexing = models.BooleanField(default=True)
     robots_allow_ai_crawlers = models.BooleanField(default=True)
@@ -377,10 +281,7 @@ class TicketingPublicSiteSettings(models.Model):
     def build_dns_records_payload(self):
         records = []
 
-        if (
-            self.aws_acm_validation_record_name
-            and self.aws_acm_validation_record_value
-        ):
+        if self.aws_acm_validation_record_name and self.aws_acm_validation_record_value:
             records.append(
                 {
                     "purpose": "ssl_validation",
@@ -436,6 +337,24 @@ class TicketingPublicSiteSettings(models.Model):
                 ]
             )
 
+    def get_product_url_pattern(self):
+        pattern = self.custom_product_url_pattern if self.product_url_pattern == "custom" else self.product_url_pattern
+
+        if not pattern:
+            pattern = "/product/{slug}"
+
+        if "{slug}" not in pattern:
+            pattern = "/product/{slug}"
+
+        if not pattern.startswith("/"):
+            pattern = f"/{pattern}"
+
+        return pattern
+
+    def build_product_path(self, product):
+        slug = getattr(product, "slug", "") or ""
+        return self.get_product_url_pattern().replace("{slug}", slug)
+
     def save(self, *args, **kwargs):
         self.clean_custom_domain()
         super().save(*args, **kwargs)
@@ -450,7 +369,6 @@ class TicketingPublicSiteSettings(models.Model):
     class Meta:
         verbose_name = "Ticketing Public Site Settings"
         verbose_name_plural = "Ticketing Public Site Settings"
-
 
 class ExperienceCategory(models.Model):
     organisation = models.ForeignKey(
@@ -490,8 +408,7 @@ class ExperienceCategory(models.Model):
         unique_together = ("organisation", "slug")
         verbose_name = "Experience Category"
         verbose_name_plural = "Experience Categories"
-
-
+        
 class ExperienceProduct(models.Model):
     PRODUCT_TYPE_CHOICES = (
         ("excursion", "Excursion"),
@@ -531,11 +448,7 @@ class ExperienceProduct(models.Model):
 
     name = models.CharField(max_length=255)
     slug = models.SlugField()
-    product_type = models.CharField(
-        max_length=30,
-        choices=PRODUCT_TYPE_CHOICES,
-        db_index=True,
-    )
+    product_type = models.CharField(max_length=30, choices=PRODUCT_TYPE_CHOICES, db_index=True)
 
     sku = models.CharField(max_length=100, blank=True, null=True)
 
@@ -552,11 +465,7 @@ class ExperienceProduct(models.Model):
     short_description = models.TextField(blank=True)
     long_description = models.TextField(blank=True)
 
-    image = models.ImageField(
-        upload_to="ticketing/products/",
-        blank=True,
-        null=True,
-    )
+    image = models.ImageField(upload_to="ticketing/products/", blank=True, null=True)
 
     gallery = models.JSONField(
         default=list,
@@ -571,10 +480,7 @@ class ExperienceProduct(models.Model):
         max_digits=5,
         decimal_places=2,
         default=Decimal("0.00"),
-        help_text=(
-            "Maximum seller margin/discount allowance for this product. "
-            "If 0, the seller default margin may be used."
-        ),
+        help_text="Maximum seller margin/discount allowance for this product. If 0, the seller default margin may be used.",
     )
     seller_margin_is_active = models.BooleanField(
         default=False,
@@ -633,12 +539,7 @@ class ExperienceProduct(models.Model):
     event_dress_code = models.CharField(max_length=255, blank=True)
     event_organizer_contact = models.CharField(max_length=255, blank=True)
 
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default="draft",
-        db_index=True,
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft", db_index=True)
 
     seo_title = models.CharField(max_length=255, blank=True)
     meta_description = models.TextField(blank=True)
@@ -650,6 +551,20 @@ class ExperienceProduct(models.Model):
     image_alt_text = models.CharField(max_length=255, blank=True)
     keywords_tags = models.JSONField(default=list, blank=True)
     json_ld_override = models.JSONField(default=dict, blank=True)
+
+    imported_from_url = models.URLField(
+        blank=True,
+        help_text="Original product URL from the previous website, used during SEO migration.",
+    )
+    imported_from_domain = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Original website domain this product was imported from.",
+    )
+    preserve_legacy_url = models.BooleanField(
+        default=True,
+        help_text="If enabled, this product can keep or redirect from its imported legacy URL.",
+    )
 
     view_count = models.PositiveIntegerField(default=0)
     booking_count = models.PositiveIntegerField(default=0)
@@ -673,9 +588,64 @@ class ExperienceProduct(models.Model):
     def profit_per_unit(self):
         return self.base_price - self.cost_price
 
+    @property
+    def current_public_path(self):
+        try:
+            site_settings = self.organisation.ticketing_public_site_settings
+            return site_settings.build_product_path(self)
+        except Exception:
+            return f"/product/{self.slug}"
+
+    def get_primary_url_alias(self):
+        return self.url_aliases.filter(is_primary=True, is_active=True).first()
+
+    def ensure_primary_url_alias(self):
+        primary_path = self.current_public_path
+
+        alias, created = ProductURLAlias.objects.get_or_create(
+            organisation=self.organisation,
+            product=self,
+            path=primary_path,
+            defaults={
+                "is_primary": True,
+                "redirect_to_primary": False,
+                "redirect_type": 301,
+                "source": "pattern_change",
+            },
+        )
+
+        if not alias.is_primary or alias.redirect_to_primary:
+            alias.is_primary = True
+            alias.redirect_to_primary = False
+            alias.is_active = True
+            alias.save()
+
+        return alias
+
+    def add_legacy_url_alias(self, path, source="legacy", original_full_url="", notes=""):
+        if not path:
+            return None
+
+        alias, created = ProductURLAlias.objects.get_or_create(
+            organisation=self.organisation,
+            product=self,
+            path=path,
+            defaults={
+                "is_primary": False,
+                "redirect_to_primary": True,
+                "redirect_type": 301,
+                "source": source,
+                "original_full_url": original_full_url or "",
+                "notes": notes or "",
+            },
+        )
+
+        return alias
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -693,7 +663,134 @@ class ExperienceProduct(models.Model):
             models.Index(fields=["organisation", "public_enabled"]),
         ]
 
+class ProductURLAlias(models.Model):
+    REDIRECT_TYPE_CHOICES = (
+        (301, "301 Permanent"),
+        (302, "302 Temporary"),
+    )
 
+    SOURCE_CHOICES = (
+        ("manual", "Manual"),
+        ("import", "Import"),
+        ("slug_change", "Slug Change"),
+        ("pattern_change", "Pattern Change"),
+        ("legacy", "Legacy"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_product_url_aliases",
+    )
+
+    product = models.ForeignKey(
+        ExperienceProduct,
+        on_delete=models.CASCADE,
+        related_name="url_aliases",
+    )
+
+    path = models.CharField(
+        max_length=500,
+        db_index=True,
+        help_text="Path only, not full domain. Example: /excursions/detail/saona-island",
+    )
+
+    is_primary = models.BooleanField(
+        default=False,
+        help_text="The preferred public URL for this product.",
+    )
+
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    redirect_to_primary = models.BooleanField(
+        default=True,
+        help_text="If true, this alias should 301 redirect to the product primary/current URL.",
+    )
+
+    redirect_type = models.PositiveSmallIntegerField(
+        choices=REDIRECT_TYPE_CHOICES,
+        default=301,
+    )
+
+    source = models.CharField(
+        max_length=30,
+        choices=SOURCE_CHOICES,
+        default="manual",
+        db_index=True,
+    )
+
+    original_full_url = models.URLField(
+        blank=True,
+        help_text="Optional full original URL from the old website.",
+    )
+
+    notes = models.TextField(blank=True)
+
+    hit_count = models.PositiveIntegerField(default=0)
+    last_hit_at = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean_path(self):
+        path = str(self.path or "").strip()
+
+        if not path:
+            return "/"
+
+        path = path.replace("https://", "").replace("http://", "")
+
+        if "/" in path and not path.startswith("/"):
+            path = "/" + path.split("/", 1)[1]
+
+        if "?" in path:
+            path = path.split("?", 1)[0]
+
+        if "#" in path:
+            path = path.split("#", 1)[0]
+
+        if not path.startswith("/"):
+            path = f"/{path}"
+
+        if len(path) > 1:
+            path = path.rstrip("/")
+
+        return path
+
+    def save(self, *args, **kwargs):
+        self.path = self.clean_path()
+
+        if self.product and not self.organisation_id:
+            self.organisation = self.product.organisation
+
+        if self.is_primary:
+            ProductURLAlias.objects.filter(
+                organisation=self.organisation,
+                product=self.product,
+                is_primary=True,
+            ).exclude(pk=self.pk).update(is_primary=False)
+
+        super().save(*args, **kwargs)
+
+    def mark_hit(self, save=True):
+        self.hit_count += 1
+        self.last_hit_at = timezone.now()
+
+        if save:
+            self.save(update_fields=["hit_count", "last_hit_at", "updated_at"])
+
+    def __str__(self):
+        return f"{self.path} → {self.product.name}"
+
+    class Meta:
+        ordering = ["path"]
+        unique_together = ("organisation", "path")
+        indexes = [
+            models.Index(fields=["organisation", "path"]),
+            models.Index(fields=["organisation", "is_active"]),
+            models.Index(fields=["organisation", "product"]),
+            models.Index(fields=["organisation", "source"]),
+        ]
 
 class ProductGalleryImage(models.Model):
     product = models.ForeignKey(

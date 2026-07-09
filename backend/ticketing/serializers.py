@@ -12,6 +12,7 @@ from .models import (
     TicketingPaymentProviderSettings,
     ExperienceCategory,
     ExperienceProduct,
+    ProductURLAlias,
     ProductGalleryImage,
     ExperiencePackage,
     ProductAvailability,
@@ -245,6 +246,10 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
             "seo_title",
             "meta_description",
             "canonical_url",
+            "product_url_pattern",
+            "custom_product_url_pattern",
+            "preserve_imported_product_urls",
+            "auto_create_product_redirects",
             "og_title",
             "og_description",
             "og_image",
@@ -1126,6 +1131,32 @@ class ProductGalleryImageSerializer(
         return attrs
 
 
+class ProductURLAliasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductURLAlias
+        fields = [
+            "id",
+            "path",
+            "is_primary",
+            "is_active",
+            "redirect_to_primary",
+            "redirect_type",
+            "source",
+            "original_full_url",
+            "notes",
+            "hit_count",
+            "last_hit_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "hit_count",
+            "last_hit_at",
+            "created_at",
+            "updated_at",
+        ]
+
 class ExperienceProductSerializer(
     MediaURLMixin,
     OrganisationScopedSerializerMixin,
@@ -1146,6 +1177,10 @@ class ExperienceProductSerializer(
     )
 
     image_url = serializers.SerializerMethodField()
+    current_public_path = serializers.ReadOnlyField()
+    primary_url = serializers.SerializerMethodField()
+    url_aliases = ProductURLAliasSerializer(many=True, read_only=True)
+
     profit_per_unit = serializers.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -1170,6 +1205,12 @@ class ExperienceProductSerializer(
             "category_detail",
             "name",
             "slug",
+            "current_public_path",
+            "primary_url",
+            "url_aliases",
+            "imported_from_url",
+            "imported_from_domain",
+            "preserve_legacy_url",
             "product_type",
             "sku",
             "external_provider",
@@ -1254,6 +1295,9 @@ class ExperienceProductSerializer(
             "category",
             "category_detail",
             "image_url",
+            "current_public_path",
+            "primary_url",
+            "url_aliases",
             "profit_per_unit",
             "view_count",
             "booking_count",
@@ -1273,13 +1317,77 @@ class ExperienceProductSerializer(
     def get_image_url(self, obj):
         return self.build_file_url(obj.image)
 
+    def get_primary_url(self, obj):
+        alias = obj.get_primary_url_alias()
+
+        if alias:
+            return alias.path
+
+        return obj.current_public_path
+
     def validate(self, attrs):
         category = attrs.get("category")
 
         if category:
             self.validate_same_organisation(category, "category_id")
 
+        imported_from_url = attrs.get("imported_from_url")
+        preserve_legacy_url = attrs.get("preserve_legacy_url", True)
+
+        if imported_from_url and preserve_legacy_url:
+            # The URL alias is created after save in create/update so that product exists.
+            pass
+
         return attrs
+
+    def _create_imported_url_alias_if_needed(self, product):
+        if not getattr(product, "imported_from_url", ""):
+            return None
+
+        if not getattr(product, "preserve_legacy_url", True):
+            return None
+
+        return product.add_legacy_url_alias(
+            path=product.imported_from_url,
+            source="import",
+            original_full_url=product.imported_from_url,
+            notes="Created automatically from imported_from_url.",
+        )
+
+    def create(self, validated_data):
+        product = super().create(validated_data)
+        self._create_imported_url_alias_if_needed(product)
+
+        try:
+            product.ensure_primary_url_alias()
+        except Exception:
+            pass
+
+        return product
+
+    def update(self, instance, validated_data):
+        old_public_path = instance.current_public_path
+        product = super().update(instance, validated_data)
+        self._create_imported_url_alias_if_needed(product)
+
+        try:
+            new_public_path = product.current_public_path
+
+            if old_public_path and old_public_path != new_public_path:
+                site_settings = getattr(product.organisation, "ticketing_public_site_settings", None)
+
+                if not site_settings or getattr(site_settings, "auto_create_product_redirects", True):
+                    product.add_legacy_url_alias(
+                        path=old_public_path,
+                        source="slug_change",
+                        notes="Created automatically after product URL changed.",
+                    )
+
+            product.ensure_primary_url_alias()
+        except Exception:
+            pass
+
+        return product
 
 
 class CustomerSerializer(serializers.ModelSerializer):

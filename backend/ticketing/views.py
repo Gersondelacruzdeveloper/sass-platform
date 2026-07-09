@@ -13,7 +13,10 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import (
+    get_object_or_404,
+    redirect,
+)
 from django.utils import timezone
 
 from rest_framework import permissions, status, viewsets
@@ -71,6 +74,7 @@ from .models import (
     EventTicketType,
     ProductReview,
     TicketingEmailSettings,
+    ProductURLAlias,
 )
 
 from .serializers import (
@@ -108,6 +112,11 @@ from .services import (
     sync_wellet_products_to_snapshots,
     connect_ticketing_custom_domain,
     check_ticketing_custom_domain,
+)
+from .seo import (
+    resolve_public_product_url,
+    build_redirect_response,
+    build_product_url,
 )
 
 from .permissions import (
@@ -6400,11 +6409,17 @@ class PublicSEOAPIView(PublicOrganisationMixin, APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        products = ExperienceProduct.objects.filter(
-            organisation=organisation,
-            public_enabled=True,
-            is_active=True,
-            status="active",
+        products = (
+            ExperienceProduct.objects
+            .filter(
+                organisation=organisation,
+                public_enabled=True,
+                is_active=True,
+                status="active",
+            )
+            .select_related("organisation", "category")
+            .prefetch_related("url_aliases")
+            .order_by("-updated_at")[:50]
         )
 
         return Response(
@@ -6421,18 +6436,19 @@ class PublicSEOAPIView(PublicOrganisationMixin, APIView):
                             "name": product.name,
                             "description": product.short_description or product.meta_description,
                             "sku": product.sku,
+                            "url": build_product_url(product, site_settings),
                             "offers": {
                                 "@type": "Offer",
                                 "price": str(product.base_price),
+                                "priceCurrency": "USD",
                                 "availability": "https://schema.org/InStock",
                             },
                         }
-                        for product in products[:50]
+                        for product in products
                     ],
                 },
             }
         )
-
 
 class PublicSitemapAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
