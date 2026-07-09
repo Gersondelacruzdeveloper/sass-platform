@@ -54,6 +54,12 @@ type TicketingPublicSiteSettings = {
   seo_title: string;
   meta_description: string;
   canonical_url: string;
+
+  product_url_pattern: string;
+  custom_product_url_pattern: string;
+  preserve_imported_product_urls: boolean;
+  auto_create_product_redirects: boolean;
+
   og_title: string;
   og_description: string;
 
@@ -77,6 +83,23 @@ type ExperienceProduct = {
   id: number;
   name: string;
   slug: string;
+  current_public_path?: string;
+  primary_url?: string;
+  imported_from_url?: string;
+  imported_from_domain?: string;
+  preserve_legacy_url?: boolean;
+  url_aliases?: {
+    id: number;
+    path: string;
+    is_primary: boolean;
+    is_active: boolean;
+    redirect_to_primary: boolean;
+    redirect_type: number;
+    source?: string;
+    original_full_url?: string;
+    hit_count?: number;
+    last_hit_at?: string | null;
+  }[];
   product_type?: string;
   status?: string;
   public_enabled?: boolean;
@@ -119,6 +142,12 @@ const initialPublicSite: TicketingPublicSiteSettings = {
   seo_title: "",
   meta_description: "",
   canonical_url: "",
+
+  product_url_pattern: "/product/{slug}",
+  custom_product_url_pattern: "",
+  preserve_imported_product_urls: true,
+  auto_create_product_redirects: true,
+
   og_title: "",
   og_description: "",
 
@@ -134,6 +163,69 @@ const initialPublicSite: TicketingPublicSiteSettings = {
   show_reviews: true,
   is_published: false,
 };
+
+const PRODUCT_URL_PATTERN_OPTIONS = [
+  { value: "/product/{slug}", label: "/product/{slug}" },
+  { value: "/products/{slug}", label: "/products/{slug}" },
+  { value: "/tour/{slug}", label: "/tour/{slug}" },
+  { value: "/tours/{slug}", label: "/tours/{slug}" },
+  { value: "/activity/{slug}", label: "/activity/{slug}" },
+  { value: "/activities/{slug}", label: "/activities/{slug}" },
+  { value: "/experience/{slug}", label: "/experience/{slug}" },
+  { value: "/experiences/{slug}", label: "/experiences/{slug}" },
+  { value: "/excursions/detail/{slug}", label: "/excursions/detail/{slug} - legacy" },
+  { value: "custom", label: "Custom pattern" },
+];
+
+function getEffectiveProductUrlPattern(site: TicketingPublicSiteSettings) {
+  const rawPattern =
+    site.product_url_pattern === "custom"
+      ? site.custom_product_url_pattern
+      : site.product_url_pattern;
+
+  if (!rawPattern || !rawPattern.includes("{slug}")) {
+    return "/product/{slug}";
+  }
+
+  return rawPattern.startsWith("/") ? rawPattern : `/${rawPattern}`;
+}
+
+function buildExampleProductUrl(site: TicketingPublicSiteSettings, organisationSlug?: string) {
+  const baseUrl = (site.canonical_url || buildCanonicalFallback(organisationSlug)).replace(/\/$/, "");
+  const pattern = getEffectiveProductUrlPattern(site);
+
+  return `${baseUrl}${pattern.replace("{slug}", "saona-island")}`;
+}
+
+function buildProductPublicPath(product: ExperienceProduct, organisationSlug?: string) {
+  const path = product.current_public_path || `/product/${product.slug}`;
+
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+
+  if (!organisationSlug) {
+    return path;
+  }
+
+  return `/experiences/${organisationSlug}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function getPrimaryProductUrl(product: ExperienceProduct, organisationSlug?: string) {
+  return product.primary_url || buildProductPublicPath(product, organisationSlug);
+}
+
+function getProductAliasCount(product: ExperienceProduct) {
+  return Array.isArray(product.url_aliases)
+    ? product.url_aliases.filter((alias) => alias.is_active !== false).length
+    : 0;
+}
+
+function getProductLegacyStatus(product: ExperienceProduct) {
+  if (product.imported_from_url) return "Imported";
+  if (getProductAliasCount(product) > 1) return "Aliases";
+  return "Native";
+}
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -341,6 +433,11 @@ export default function TicketingSEOPage() {
     [organisationSlug]
   );
 
+  const exampleProductUrl = useMemo(
+    () => buildExampleProductUrl(publicSite, organisationSlug),
+    [publicSite, organisationSlug]
+  );
+
   async function loadPage() {
     if (!organisationSlug) return;
 
@@ -373,6 +470,21 @@ export default function TicketingSEOPage() {
         seo_title: normalizeText(publicSiteResponse.data.seo_title),
         meta_description: normalizeText(publicSiteResponse.data.meta_description),
         canonical_url: normalizeText(publicSiteResponse.data.canonical_url),
+        product_url_pattern: normalizeText(
+          publicSiteResponse.data.product_url_pattern,
+          initialPublicSite.product_url_pattern
+        ),
+        custom_product_url_pattern: normalizeText(
+          publicSiteResponse.data.custom_product_url_pattern
+        ),
+        preserve_imported_product_urls: normalizeBoolean(
+          publicSiteResponse.data.preserve_imported_product_urls,
+          true
+        ),
+        auto_create_product_redirects: normalizeBoolean(
+          publicSiteResponse.data.auto_create_product_redirects,
+          true
+        ),
         og_title: normalizeText(publicSiteResponse.data.og_title),
         og_description: normalizeText(publicSiteResponse.data.og_description),
         robots_allow_indexing: normalizeBoolean(
@@ -422,6 +534,9 @@ export default function TicketingSEOPage() {
       const text = [
         product.name,
         product.slug,
+        product.current_public_path,
+        product.primary_url,
+        product.imported_from_url,
         product.product_type,
         product.seo_title,
         product.meta_description,
@@ -452,7 +567,13 @@ export default function TicketingSEOPage() {
 
     const titleComplete = products.filter((product) => product.seo_title).length;
     const metaComplete = products.filter((product) => product.meta_description).length;
-    const canonicalComplete = products.filter((product) => product.canonical_url).length;
+    const canonicalComplete = products.filter(
+      (product) => product.canonical_url || product.primary_url || product.current_public_path
+    ).length;
+    const productsWithAliases = products.filter(
+      (product) => getProductAliasCount(product) > 0
+    ).length;
+    const importedProducts = products.filter((product) => product.imported_from_url).length;
     const jsonLdComplete = products.filter(
       (product) =>
         product.json_ld_override && Object.keys(product.json_ld_override).length > 0
@@ -464,6 +585,8 @@ export default function TicketingSEOPage() {
       titleComplete,
       metaComplete,
       canonicalComplete,
+      productsWithAliases,
+      importedProducts,
       jsonLdComplete,
     };
   }, [products]);
@@ -515,6 +638,10 @@ export default function TicketingSEOPage() {
         seo_title: publicSite.seo_title,
         meta_description: publicSite.meta_description,
         canonical_url: publicSite.canonical_url,
+        product_url_pattern: publicSite.product_url_pattern,
+        custom_product_url_pattern: publicSite.custom_product_url_pattern,
+        preserve_imported_product_urls: publicSite.preserve_imported_product_urls,
+        auto_create_product_redirects: publicSite.auto_create_product_redirects,
         og_title: publicSite.og_title,
         og_description: publicSite.og_description,
         robots_allow_indexing: publicSite.robots_allow_indexing,
@@ -577,7 +704,7 @@ export default function TicketingSEOPage() {
       subtitle="Manage metadata, sitemap, robots, JSON-LD and AI crawler visibility."
     >
       <div className="space-y-5 pb-24">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
           <StatCard
             title="Public products"
             value={`${stats.publishedProducts}/${stats.products}`}
@@ -599,8 +726,20 @@ export default function TicketingSEOPage() {
           <StatCard
             title="Canonical URLs"
             value={`${stats.canonicalComplete}/${stats.products}`}
-            helper="Product canonical fields"
+            helper="Dynamic public URLs"
             icon={<ExternalLink className="h-6 w-6 text-slate-700" />}
+          />
+          <StatCard
+            title="URL aliases"
+            value={`${stats.productsWithAliases}/${stats.products}`}
+            helper="Legacy redirects"
+            icon={<Network className="h-6 w-6 text-cyan-600" />}
+          />
+          <StatCard
+            title="Imported URLs"
+            value={`${stats.importedProducts}/${stats.products}`}
+            helper="Migration-ready"
+            icon={<RefreshCw className="h-6 w-6 text-orange-600" />}
           />
           <StatCard
             title="JSON-LD"
@@ -670,6 +809,64 @@ export default function TicketingSEOPage() {
               </button>
             </div>
           </div>
+        </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
+          <Panel
+            title="URL structure & migration"
+            description="Preserve existing Google rankings by keeping old URLs alive and redirecting them to the current canonical product URL."
+            icon={<Network className="h-5 w-5" />}
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <Select
+                label="Product URL pattern"
+                value={publicSite.product_url_pattern}
+                onChange={(value) => updateField("product_url_pattern", value)}
+                options={PRODUCT_URL_PATTERN_OPTIONS}
+              />
+
+              {publicSite.product_url_pattern === "custom" && (
+                <Input
+                  label="Custom product URL pattern"
+                  value={publicSite.custom_product_url_pattern}
+                  onChange={(value) => updateField("custom_product_url_pattern", value)}
+                  placeholder="/things-to-do/{slug}"
+                />
+              )}
+
+              <Toggle
+                label="Preserve imported product URLs"
+                description="Keep previous product URLs as aliases when products are imported from another website."
+                checked={publicSite.preserve_imported_product_urls}
+                onChange={(value) => updateField("preserve_imported_product_urls", value)}
+              />
+
+              <Toggle
+                label="Automatically create 301 redirects"
+                description="Send old product URLs to the current canonical product URL with a permanent redirect."
+                checked={publicSite.auto_create_product_redirects}
+                onChange={(value) => updateField("auto_create_product_redirects", value)}
+              />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Product URL preview"
+            description="This is the kind of product URL customers and Google will see for new products."
+            icon={<ExternalLink className="h-5 w-5" />}
+          >
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Example product URL
+              </p>
+              <p className="mt-2 break-all text-sm font-black text-slate-900">
+                {exampleProductUrl}
+              </p>
+              <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
+                Use a legacy pattern like /excursions/detail/{'{slug}'} when migrating a customer whose old site already ranks in Google.
+              </p>
+            </div>
+          </Panel>
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -864,6 +1061,11 @@ export default function TicketingSEOPage() {
                 value={robotsUrl}
                 onCopy={() => copy(robotsUrl, "Robots URL")}
               />
+              <EndpointRow
+                label="Example product"
+                value={exampleProductUrl}
+                onCopy={() => copy(exampleProductUrl, "Example product URL")}
+              />
             </div>
 
             <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
@@ -950,6 +1152,8 @@ export default function TicketingSEOPage() {
                       <Th>Title</Th>
                       <Th>Meta</Th>
                       <Th>Canonical</Th>
+                      <Th>URL aliases</Th>
+                      <Th>Migration</Th>
                       <Th>Public link</Th>
                     </tr>
                   </thead>
@@ -966,7 +1170,7 @@ export default function TicketingSEOPage() {
                                 {product.name}
                               </p>
                               <p className="mt-1 text-xs font-bold text-slate-500">
-                                /product/{product.slug}
+                                {product.current_public_path || `/product/${product.slug}`}
                               </p>
                             </div>
                           </Td>
@@ -1019,15 +1223,29 @@ export default function TicketingSEOPage() {
 
                           <Td>
                             <StatusPill
-                              good={Boolean(product.canonical_url)}
+                              good={Boolean(product.canonical_url || product.primary_url || product.current_public_path)}
                               goodText="Set"
                               badText="Missing"
                             />
                           </Td>
 
                           <Td>
+                            <span className="inline-flex rounded-full bg-slate-50 px-3 py-1 text-xs font-black text-slate-700 ring-1 ring-slate-200">
+                              {getProductAliasCount(product)}
+                            </span>
+                          </Td>
+
+                          <Td>
+                            <StatusPill
+                              good={Boolean(product.imported_from_url || getProductAliasCount(product) > 1)}
+                              goodText={getProductLegacyStatus(product)}
+                              badText="Native"
+                            />
+                          </Td>
+
+                          <Td>
                             <Link
-                              to={`/experiences/${organisationSlug}/product/${product.slug}`}
+                              to={buildProductPublicPath(product, organisationSlug)}
                               target="_blank"
                               className="inline-flex items-center gap-2 text-xs font-black text-amber-700"
                             >
@@ -1129,6 +1347,36 @@ function Input({
       {helper && (
         <p className="mt-2 text-xs font-bold text-slate-500">{helper}</p>
       )}
+    </label>
+  );
+}
+
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-bold text-slate-700">{label}</span>
+
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

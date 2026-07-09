@@ -4708,6 +4708,7 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
                 "pickup_schedules__pickup_location",
                 "transfer_routes",
                 "event_ticket_types",
+                "url_aliases",
             )
         )
 
@@ -4741,6 +4742,133 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             )
 
         return queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        slug = kwargs.get(self.lookup_field) or kwargs.get("slug") or ""
+        path = f"/product/{slug}"
+
+        result = resolve_public_product_url(
+            organisation=organisation,
+            path=path,
+        )
+
+        if not result.found:
+            return Response(
+                {"detail": "Product not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if result.should_redirect:
+            return build_redirect_response(result)
+
+        product = result.product
+        serializer = self.get_serializer(product)
+        response = Response(serializer.data)
+        response["Link"] = f'<{build_product_url(product, site_settings)}>; rel="canonical"'
+        return response
+
+
+class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def clean_requested_path(self, raw_path):
+        raw_path = str(raw_path or "").strip()
+
+        if not raw_path:
+            return "/"
+
+        if raw_path.startswith("http://") or raw_path.startswith("https://"):
+            from urllib.parse import urlparse
+
+            parsed = urlparse(raw_path)
+            return parsed.path or "/"
+
+        return raw_path
+
+    def get(self, request, organisation_slug=None):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        raw_path = (
+            request.query_params.get("path")
+            or request.query_params.get("url")
+            or request.path
+        )
+        requested_path = self.clean_requested_path(raw_path)
+
+        result = resolve_public_product_url(
+            organisation=organisation,
+            path=requested_path,
+        )
+
+        if not result.found or not result.product:
+            return Response(
+                {
+                    "detail": "Product not found.",
+                    "found": False,
+                    "requested_path": requested_path,
+                    "resolved_by": result.resolved_by,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product = result.product
+        canonical_url = build_product_url(product, site_settings)
+        canonical_path = product.current_public_path
+
+        serializer = ExperienceProductSerializer(
+            product,
+            context={
+                "request": request,
+                "organisation": organisation,
+            },
+        )
+
+        response = Response(
+            {
+                "found": True,
+                "product": serializer.data,
+                "canonical_url": canonical_url,
+                "canonical_path": canonical_path,
+                "current_public_path": canonical_path,
+                "requested_path": requested_path,
+                "should_redirect": result.should_redirect,
+                "redirect_path": result.redirect_path,
+                "redirect_type": result.redirect_type or 301,
+                "resolved_by": result.resolved_by,
+            }
+        )
+        response["Link"] = f'<{canonical_url}>; rel="canonical"'
+        return response
 
 class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]

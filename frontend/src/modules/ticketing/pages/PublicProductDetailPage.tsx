@@ -1249,6 +1249,65 @@ function listingPath(productType: ProductType) {
   return productType;
 }
 
+function normalizePublicPath(path?: string | null) {
+  const raw = String(path || "/").trim();
+  const withoutQuery = raw.split("?")[0] || "/";
+  const withSlash = withoutQuery.startsWith("/") ? withoutQuery : `/${withoutQuery}`;
+
+  return withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
+}
+
+function getCurrentProductResolvePath(
+  organisationSlug: string,
+  isCustomDomain: boolean
+) {
+  if (typeof window === "undefined") return "/";
+
+  const currentPath = normalizePublicPath(window.location.pathname);
+
+  if (isCustomDomain || !organisationSlug) {
+    return currentPath;
+  }
+
+  const prefix = normalizePublicPath(`/experiences/${organisationSlug}`);
+
+  if (currentPath === prefix) {
+    return "/";
+  }
+
+  if (currentPath.startsWith(`${prefix}/`)) {
+    return normalizePublicPath(currentPath.slice(prefix.length));
+  }
+
+  return currentPath;
+}
+
+function getProductPublicPath(product: ExperienceProduct | null) {
+  if (!product) return "/";
+
+  const currentPublicPath = String((product as any).current_public_path || "").trim();
+
+  if (currentPublicPath) {
+    return normalizePublicPath(currentPublicPath);
+  }
+
+  return normalizePublicPath(`/product/${product.slug}`);
+}
+
+function setCanonicalLink(url: string) {
+  if (typeof document === "undefined" || !url) return;
+
+  let link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "canonical";
+    document.head.appendChild(link);
+  }
+
+  link.href = url;
+}
+
 function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
   const hostname = useMemo(() => getCurrentHostname(), []);
   const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
@@ -1367,6 +1426,7 @@ export default function PublicProductDetailPage() {
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
   const [product, setProduct] = useState<ExperienceProduct | null>(null);
+  const [canonicalUrl, setCanonicalUrl] = useState("");
   const [relatedProducts, setRelatedProducts] = useState<ExperienceProduct[]>([]);
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [resolvedPickup, setResolvedPickup] =
@@ -1398,26 +1458,32 @@ export default function PublicProductDetailPage() {
   const [preferredPickupTime, setPreferredPickupTime] = useState("");
 
   async function loadPage() {
-    if (!organisationSlug || !productSlug) return;
+    if (!organisationSlug) return;
+
+    const resolvePath = getCurrentProductResolvePath(
+      organisationSlug,
+      isCustomDomain
+    );
 
     try {
       setLoading(true);
       setError("");
 
-      const [brandingResponse, productsResponse] = await Promise.all([
+      const [brandingResponse, resolveResponse, productsResponse] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
+        ticketingApi.getPublicProductResolve(organisationSlug, resolvePath),
         ticketingApi.getPublicProducts(organisationSlug, {
           public_enabled: true,
           status: "active",
         }),
       ]);
 
-      const foundProduct =
-        productsResponse.find((item) => item.slug === productSlug) || null;
+      const foundProduct = resolveResponse.product || null;
 
       if (!foundProduct) {
         setBranding(brandingResponse);
         setProduct(null);
+        setCanonicalUrl("");
         setPickupLocations([]);
         setError("This product is not available or is no longer public.");
         return;
@@ -1425,6 +1491,31 @@ export default function PublicProductDetailPage() {
 
       setBranding(brandingResponse);
       setProduct(foundProduct);
+      setCanonicalUrl(
+        resolveResponse.canonical_url ||
+          String((foundProduct as any).primary_url || "") ||
+          ""
+      );
+
+      const redirectPath = normalizePublicPath(
+        resolveResponse.current_public_path || getProductPublicPath(foundProduct)
+      );
+      const currentResolvePath = normalizePublicPath(resolvePath);
+
+      if (
+        resolveResponse.should_redirect &&
+        redirectPath &&
+        redirectPath !== currentResolvePath
+      ) {
+        const targetPath = publicPath(redirectPath);
+        const currentPath = normalizePublicPath(window.location.pathname);
+
+        if (normalizePublicPath(targetPath) !== currentPath) {
+          navigate(`${targetPath}${window.location.search || ""}`, {
+            replace: true,
+          });
+        }
+      }
 
       console.log("PUBLIC PRODUCT PAYMENT FLAGS", {
         name: foundProduct.name,
@@ -1486,6 +1577,7 @@ export default function PublicProductDetailPage() {
       console.error("Could not load public product detail:", err);
 
       setProduct(null);
+      setCanonicalUrl("");
       setPickupLocations([]);
       setError(
         err?.response?.data?.detail ||
@@ -1499,7 +1591,7 @@ export default function PublicProductDetailPage() {
 
   useEffect(() => {
     loadPage();
-  }, [organisationSlug, productSlug]);
+  }, [organisationSlug, productSlug, isCustomDomain]);
 
   useEffect(() => {
     async function loadLiveAvailability() {
@@ -1845,7 +1937,20 @@ export default function PublicProductDetailPage() {
 
       meta.content = metaDescription;
     }
-  }, [product, brandName, publicSite]);
+
+    const backendCanonical =
+      canonicalUrl ||
+      String((product as any).primary_url || "") ||
+      String(product.canonical_url || "");
+
+    const productPath = getProductPublicPath(product);
+    const fallbackCanonical =
+      typeof window !== "undefined"
+        ? `${window.location.origin}${publicPath(productPath)}`
+        : publicPath(productPath);
+
+    setCanonicalLink(backendCanonical || fallbackCanonical);
+  }, [product, brandName, publicSite, canonicalUrl, organisationSlug, isCustomDomain]);
 
   useEffect(() => {
     if (!notice || notice.type !== "share") return;
@@ -4664,7 +4769,7 @@ function RelatedProductCard({
 
   return (
     <Link
-      to={publicPath(`/product/${product.slug}`)}
+      to={publicPath(getProductPublicPath(product))}
       className="group overflow-hidden rounded-3xl border shadow-sm transition hover:-translate-y-1 hover:shadow-md"
       style={{
         backgroundColor: theme.card,

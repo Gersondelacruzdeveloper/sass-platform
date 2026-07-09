@@ -171,6 +171,10 @@ export interface TicketingPublicSiteSettings {
   seo_title: string;
   meta_description: string;
   canonical_url: string;
+  product_url_pattern: string;
+  custom_product_url_pattern: string;
+  preserve_imported_product_urls: boolean;
+  auto_create_product_redirects: boolean;
   og_title: string;
   og_description: string;
   og_image?: string | null;
@@ -334,6 +338,29 @@ export interface ProductGalleryImage {
   updated_at?: string;
 }
 
+export interface ProductURLAlias {
+  id: ID;
+  path: string;
+  is_primary: boolean;
+  is_active: boolean;
+  redirect_to_primary: boolean;
+  redirect_type: number;
+  source: string;
+  original_full_url: string;
+  hit_count: number;
+  last_hit_at?: string | null;
+}
+
+export interface ProductSEOInformation {
+  canonical_url: string;
+  current_public_path: string;
+  primary_url: string;
+  imported_from_url: string;
+  imported_from_domain: string;
+  preserve_legacy_url: boolean;
+  url_aliases: ProductURLAlias[];
+}
+
 export interface ExperienceProduct {
   id: ID;
   organisation: ID;
@@ -342,6 +369,14 @@ export interface ExperienceProduct {
   category_detail?: ExperienceCategory | null;
   name: string;
   slug: string;
+  current_public_path: string;
+  primary_url: string;
+
+  imported_from_url: string;
+  imported_from_domain: string;
+  preserve_legacy_url: boolean;
+
+  url_aliases: ProductURLAlias[];
   product_type: ProductType;
   sku?: string | null;
   external_provider: "local" | "wellet";

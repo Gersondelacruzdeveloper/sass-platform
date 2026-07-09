@@ -76,6 +76,14 @@ export type LiveProductAvailabilityResponse = {
   error?: string;
 };
 
+export interface PublicProductResolveResponse {
+  product: ExperienceProduct;
+  canonical_url: string;
+  current_public_path: string;
+  resolved_by: string;
+  should_redirect: boolean;
+  redirect_type: number;
+}
 
 const cleanParams = (params?: QueryParams): QueryParams => {
   if (!params) return {};
@@ -1037,6 +1045,29 @@ export const ticketingApi = {
       params: withSlug(params, slug),
     });
     return response.data;
+  },
+
+  getPublicProductResolve: async (
+    slug: string,
+    path: string
+  ): Promise<PublicProductResolveResponse> => {
+    const response = await api.get<PublicProductResolveResponse>(
+      `/ticketing/public/${slug}/product-resolve/`,
+      {
+        params: cleanParams({ path }),
+      }
+    );
+
+    return response.data;
+  },
+
+  getPublicProductByPath: async (
+    slug: string,
+    path: string
+  ): Promise<ExperienceProduct> => {
+    const response = await ticketingApi.getPublicProductResolve(slug, path);
+
+    return response.product;
   },
 
   getPublicProductAvailability: async (

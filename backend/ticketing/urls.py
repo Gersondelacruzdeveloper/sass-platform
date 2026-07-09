@@ -42,6 +42,7 @@ from .views import (
     SellerDashboardAPIView,
     PublicBrandingAPIView,
     PublicDomainResolveAPIView,
+    PublicProductResolveAPIView,
     PublicProductViewSet,
     PublicCategoryViewSet,
     PublicBookingViewSet,
@@ -124,6 +125,19 @@ urlpatterns = [
         "public/resolve-domain/",
         PublicDomainResolveAPIView.as_view(),
         name="ticketing-public-resolve-domain",
+    ),
+
+    # Public product URL resolver:
+    # /api/ticketing/public/product-resolve/?slug=organisation-slug&path=/product/saona-island
+    path(
+        "public/product-resolve/",
+        PublicProductResolveAPIView.as_view(),
+        name="ticketing-public-product-resolve",
+    ),
+    path(
+        "public/<slug:organisation_slug>/product-resolve/",
+        PublicProductResolveAPIView.as_view(),
+        name="ticketing-public-product-resolve-by-slug",
     ),
 
     # Public branding / SEO using query param:
