@@ -38,6 +38,8 @@ type PaymentStatus =
   | "unpaid"
   | "pending"
   | "partial"
+  | "deposit_paid"
+  | "partially_paid"
   | "paid"
   | "refunded"
   | "cancelled"
@@ -67,6 +69,7 @@ type BookingItem = {
   quantity?: number;
   unit_price?: string | number;
   line_total?: string | number;
+  total?: string | number;
   instructions?: string | null;
 };
 
@@ -150,6 +153,8 @@ const paymentStatusOptions: StatusOption[] = [
   { value: "", label: "All payments" },
   { value: "unpaid", label: "Unpaid" },
   { value: "pending", label: "Pending" },
+  { value: "deposit_paid", label: "Deposit paid" },
+  { value: "partially_paid", label: "Partially paid" },
   { value: "partial", label: "Partial" },
   { value: "paid", label: "Paid" },
   { value: "refunded", label: "Refunded" },
@@ -257,7 +262,7 @@ function getStatusClasses(status?: string | null) {
     return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   }
 
-  if (["pending", "pending_payment", "partial"].includes(value)) {
+  if (["pending", "pending_payment", "partial", "deposit_paid", "partially_paid"].includes(value)) {
     return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 
@@ -482,28 +487,42 @@ export default function TicketingBookingsPage() {
 
   async function updateBooking(
     booking: Booking,
-    payload: Partial<Pick<Booking, "status" | "payment_status">>
+    payload: Partial<Pick<Booking, "status">>
   ) {
     try {
       setSavingId(booking.id);
       setError("");
       setSavedMessage("");
 
-      const response = await api.patch(`/ticketing/bookings/${booking.id}/`, payload, {
+      /*
+        Payment status is calculated by the backend finance engine from real
+        payments. Do not PATCH payment_status from this page, because values
+        like "paid" will be recalculated back to "deposit_paid" when only a
+        deposit exists.
+
+        For booking status changes, do not replace local state with the full
+        backend serializer response. That response can be very large. We only
+        merge the small payload we just changed.
+      */
+      await api.patch(`/ticketing/bookings/${booking.id}/`, payload, {
         params: requestParams,
       });
 
-      const updatedBooking = response.data as Booking;
+      const updatedBooking = {
+        ...booking,
+        ...payload,
+        updated_at: new Date().toISOString(),
+      } as Booking;
 
       setBookings((current) =>
-        current.map((item) => (item.id === booking.id ? updatedBooking : item))
+        current.map((item) => (item.id === booking.id ? { ...item, ...updatedBooking } : item))
       );
 
       setSelectedBooking((current) =>
-        current?.id === booking.id ? updatedBooking : current
+        current?.id === booking.id ? { ...current, ...updatedBooking } : current
       );
 
-      setSavedMessage("Booking updated.");
+      setSavedMessage("Booking status updated.");
     } catch (err: any) {
       console.error("Could not update booking:", err);
       setError(getErrorMessage(err, "Could not update booking."));
@@ -773,24 +792,12 @@ export default function TicketingBookingsPage() {
                         </Td>
 
                         <Td>
-                          <select
-                            value={booking.payment_status || ""}
-                            disabled={savingId === booking.id}
-                            onChange={(event) =>
-                              updateBooking(booking, {
-                                payment_status: event.target.value,
-                              })
-                            }
-                            className={`h-10 rounded-2xl px-3 text-xs font-black ring-1 outline-none ${getStatusClasses(booking.payment_status)}`}
+                          <span
+                            className={`inline-flex h-10 items-center rounded-2xl px-3 text-xs font-black ring-1 ${getStatusClasses(booking.payment_status)}`}
+                            title="Payment status is controlled by confirmed payments, deposits and gateway payments."
                           >
-                            {paymentStatusOptions
-                              .filter((option) => option.value)
-                              .map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                          </select>
+                            {statusLabel(booking.payment_status)}
+                          </span>
                         </Td>
 
                         <Td>
@@ -841,7 +848,7 @@ function BookingDetailModal({
   onClose: () => void;
   onUpdate: (
     booking: Booking,
-    payload: Partial<Pick<Booking, "status" | "payment_status">>
+    payload: Partial<Pick<Booking, "status">>
   ) => void;
   saving: boolean;
 }) {
@@ -976,24 +983,15 @@ function BookingDetailModal({
                   <span className="text-sm font-bold text-slate-700">
                     Payment status
                   </span>
-                  <select
-                    value={booking.payment_status || ""}
-                    disabled={saving}
-                    onChange={(event) =>
-                      onUpdate(booking, {
-                        payment_status: event.target.value,
-                      })
-                    }
-                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
+                  <div
+                    className={`mt-2 flex h-12 w-full items-center rounded-2xl px-4 text-sm font-black ring-1 ${getStatusClasses(booking.payment_status)}`}
+                    title="Payment status is calculated from real confirmed payments. Add/confirm a payment to change it."
                   >
-                    {paymentStatusOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                  </select>
+                    {statusLabel(booking.payment_status)}
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-slate-500">
+                    Payment status is automatic. To mark as paid, record or confirm a payment.
+                  </p>
                 </label>
               </div>
             </div>
@@ -1062,7 +1060,7 @@ function BookingDetailModal({
                       </p>
                     </div>
                     <p className="font-black text-slate-950">
-                      {formatMoney(item.line_total)}
+                      {formatMoney(item.line_total ?? item.total)}
                     </p>
                   </div>
                 ))}
