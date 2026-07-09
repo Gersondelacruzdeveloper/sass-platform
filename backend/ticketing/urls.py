@@ -17,6 +17,7 @@ from .views import (
     CustomerViewSet,
     SellerViewSet,
     TransferRouteViewSet,
+    TransferPriceBandViewSet,
     EventTicketTypeViewSet,
     BookingViewSet,
     BookingItemViewSet,
@@ -79,6 +80,7 @@ router.register("pickup-schedules", ProductPickupScheduleViewSet, basename="tick
 router.register("customers", CustomerViewSet, basename="ticketing-customers")
 router.register("sellers", SellerViewSet, basename="ticketing-sellers")
 router.register("transfer-routes", TransferRouteViewSet, basename="ticketing-transfer-routes")
+router.register("transfer-price-bands", TransferPriceBandViewSet, basename="ticketing-transfer-price-bands")
 router.register("event-ticket-types", EventTicketTypeViewSet, basename="ticketing-event-ticket-types")
 router.register("bookings", BookingViewSet, basename="ticketing-bookings")
 router.register("booking-items", BookingItemViewSet, basename="ticketing-booking-items")
