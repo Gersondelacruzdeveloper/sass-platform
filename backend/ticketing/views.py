@@ -67,6 +67,7 @@ from .models import (
     ExternalProviderConfig,
     ExternalProviderProductSnapshot,
     TransferRoute,
+    TransferPriceBand,
     EventTicketType,
     ProductReview,
     TicketingEmailSettings,
@@ -96,6 +97,7 @@ from .serializers import (
     ExternalProviderConfigSerializer,
     ExternalProviderProductSnapshotSerializer,
     TransferRouteSerializer,
+    TransferPriceBandSerializer,
     EventTicketTypeSerializer,
     ProductReviewSerializer,
     TicketingEmailSettingsSerializer,
@@ -1573,6 +1575,161 @@ class TransferRouteViewSet(
 
         serializer.save(product=product)
 
+
+
+
+class TransferPriceBandViewSet(
+    TicketingProductManagementPermissionMixin,
+    TicketingPrivateViewSet,
+):
+    serializer_class = TransferPriceBandSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return TransferPriceBand.objects.none()
+
+        queryset = (
+            TransferPriceBand.objects
+            .filter(route__product__organisation=organisation)
+            .select_related("route", "route__product")
+        )
+
+        route = self.request.query_params.get("route")
+        product = self.request.query_params.get("product")
+        is_active = self.request.query_params.get("is_active")
+        passengers = self.request.query_params.get("passengers")
+
+        if route:
+            queryset = queryset.filter(route_id=route)
+
+        if product:
+            queryset = queryset.filter(route__product_id=product)
+
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        if passengers not in [None, ""]:
+            try:
+                passenger_count = int(passengers)
+            except (TypeError, ValueError):
+                passenger_count = None
+
+            if passenger_count is not None:
+                queryset = queryset.filter(
+                    min_passengers__lte=passenger_count,
+                    max_passengers__gte=passenger_count,
+                )
+
+        return queryset
+
+    def perform_create(self, serializer):
+        route = serializer.validated_data.get("route")
+
+        if not route:
+            route_id = self.request.data.get("route") or self.request.data.get("route_id")
+            route = get_object_or_404(
+                TransferRoute,
+                id=route_id,
+                product__organisation=self.require_organisation(),
+            )
+
+        serializer.save(route=route)
+
+    @action(detail=False, methods=["get"], url_path="quote")
+    def quote(self, request):
+        organisation = self.require_organisation()
+
+        route_id = request.query_params.get("route") or request.query_params.get("route_id")
+        passengers = request.query_params.get("passengers")
+        round_trip_value = str(request.query_params.get("round_trip") or "false").lower()
+        is_round_trip = round_trip_value in ["true", "1", "yes"]
+
+        if not route_id:
+            return Response(
+                {"route": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if passengers in [None, ""]:
+            return Response(
+                {"passengers": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            passenger_count = int(passengers)
+        except (TypeError, ValueError):
+            return Response(
+                {"passengers": "Passengers must be a valid number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if passenger_count <= 0:
+            return Response(
+                {"passengers": "Passengers must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        route = get_object_or_404(
+            TransferRoute,
+            id=route_id,
+            product__organisation=organisation,
+            is_active=True,
+        )
+
+        price_band = (
+            TransferPriceBand.objects
+            .filter(
+                route=route,
+                is_active=True,
+                min_passengers__lte=passenger_count,
+                max_passengers__gte=passenger_count,
+            )
+            .order_by("sort_order", "min_passengers")
+            .first()
+        )
+
+        if not price_band:
+            return Response(
+                {
+                    "found": False,
+                    "detail": "No active price band found for this passenger count.",
+                    "route": {
+                        "id": route.id,
+                        "origin": route.origin,
+                        "destination": route.destination,
+                    },
+                    "passengers": passenger_count,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        total_price = price_band.one_way_price
+
+        if is_round_trip:
+            total_price = price_band.round_trip_price or price_band.one_way_price * Decimal("2")
+
+        return Response(
+            {
+                "found": True,
+                "route": {
+                    "id": route.id,
+                    "origin": route.origin,
+                    "destination": route.destination,
+                    "airport": route.airport,
+                },
+                "passengers": passenger_count,
+                "round_trip": is_round_trip,
+                "price_band": TransferPriceBandSerializer(
+                    price_band,
+                    context=self.get_serializer_context(),
+                ).data,
+                "vehicle_type": price_band.vehicle_type or route.vehicle_type,
+                "total_price": str(total_price),
+            }
+        )
 
 class EventTicketTypeViewSet(
     TicketingProductManagementPermissionMixin,

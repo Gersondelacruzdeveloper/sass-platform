@@ -24,6 +24,7 @@ from .models import (
     ExternalProviderConfig,
     ExternalProviderProductSnapshot,
     TransferRoute,
+    TransferPriceBand,
     EventTicketType,
     ProductReview,
 )
@@ -148,6 +149,22 @@ class TransferRouteInline(admin.TabularInline):
         "round_trip_price",
         "is_active",
     )
+
+
+class TransferPriceBandInline(admin.TabularInline):
+    model = TransferPriceBand
+    extra = 0
+    fields = (
+        "name",
+        "min_passengers",
+        "max_passengers",
+        "vehicle_type",
+        "one_way_price",
+        "round_trip_price",
+        "is_active",
+        "sort_order",
+    )
+    ordering = ("sort_order", "min_passengers")
 
 
 class EventTicketTypeInline(admin.TabularInline):
@@ -877,14 +894,11 @@ class TransferRouteAdmin(admin.ModelAdmin):
         "origin",
         "destination",
         "airport",
-        "vehicle_type",
         "is_round_trip",
-        "max_passengers",
-        "price",
-        "round_trip_price",
         "is_active",
+        "created_at",
     )
-    list_filter = ("vehicle_type", "is_round_trip", "is_active")
+    list_filter = ("is_round_trip", "is_active", "product__organisation")
     search_fields = (
         "product__name",
         "origin",
@@ -892,6 +906,31 @@ class TransferRouteAdmin(admin.ModelAdmin):
         "airport",
         "product__organisation__name",
     )
+    readonly_fields = ("created_at", "updated_at")
+    inlines = (TransferPriceBandInline,)
+
+
+@admin.register(TransferPriceBand)
+class TransferPriceBandAdmin(admin.ModelAdmin):
+    list_display = (
+        "route",
+        "name",
+        "min_passengers",
+        "max_passengers",
+        "vehicle_type",
+        "one_way_price",
+        "round_trip_price",
+        "is_active",
+        "sort_order",
+    )
+    list_filter = ("is_active", "vehicle_type", "route__product__organisation")
+    search_fields = (
+        "route__origin",
+        "route__destination",
+        "route__product__name",
+        "name",
+    )
+    ordering = ("route", "sort_order", "min_passengers")
     readonly_fields = ("created_at", "updated_at")
 
 

@@ -1436,6 +1436,55 @@ class TransferRoute(models.Model):
     class Meta:
         ordering = ["origin", "destination"]
 
+class TransferPriceBand(models.Model):
+    route = models.ForeignKey(
+        TransferRoute,
+        on_delete=models.CASCADE,
+        related_name="price_bands",
+    )
+
+    name = models.CharField(max_length=100, blank=True)
+
+    min_passengers = models.PositiveIntegerField(default=1)
+    max_passengers = models.PositiveIntegerField(default=6)
+
+    vehicle_type = models.CharField(
+        max_length=50,
+        choices=TransferRoute.VEHICLE_TYPE_CHOICES,
+        blank=True,
+    )
+
+    one_way_price = models.DecimalField(max_digits=10, decimal_places=2)
+    round_trip_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def organisation(self):
+        return self.route.organisation
+
+    class Meta:
+        ordering = ["sort_order", "min_passengers"]
+        unique_together = (
+            "route",
+            "min_passengers",
+            "max_passengers",
+        )
+        indexes = [
+            models.Index(fields=["route", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.route} ({self.min_passengers}-{self.max_passengers})"
 
 class EventTicketType(models.Model):
     product = models.ForeignKey(

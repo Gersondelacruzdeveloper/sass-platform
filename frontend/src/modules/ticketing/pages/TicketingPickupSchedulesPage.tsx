@@ -269,6 +269,122 @@ function productTypeLabel(value: ProductType) {
   return "Custom";
 }
 
+
+const importDayOptions = dayOptions.filter((option) => option.value !== "");
+
+function toggleStringValue(values: string[], value: string) {
+  return values.includes(value)
+    ? values.filter((item) => item !== value)
+    : [...values, value].sort((a, b) => Number(a) - Number(b));
+}
+
+function parseCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"' && insideQuotes && nextChar === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === "," && !insideQuotes) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current.trim());
+
+  return cells;
+}
+
+function csvEscape(value: unknown) {
+  const text = String(value ?? "");
+
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+async function buildImportFileForSelectedDays(
+  originalFile: File,
+  selectedDays: string[]
+) {
+  if (!selectedDays.length) return originalFile;
+
+  const text = await originalFile.text();
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "");
+
+  if (!lines.length) return originalFile;
+
+  const headers = parseCsvLine(lines[0]).map((header) => header.trim());
+  const normalizedHeaders = headers.map((header) =>
+    header.toLowerCase().replace(/\s+/g, "_")
+  );
+
+  const outputHeaders = [...headers];
+
+  let dayIndex = normalizedHeaders.indexOf("day_of_week");
+  if (dayIndex === -1) {
+    outputHeaders.push("day_of_week");
+    dayIndex = outputHeaders.length - 1;
+  }
+
+  let specificDateIndex = normalizedHeaders.indexOf("specific_date");
+  if (specificDateIndex === -1) {
+    outputHeaders.push("specific_date");
+    specificDateIndex = outputHeaders.length - 1;
+  }
+
+  const outputRows: string[][] = [];
+
+  lines.slice(1).forEach((line) => {
+    const cells = parseCsvLine(line);
+
+    if (!cells.some((cell) => cell.trim())) return;
+
+    selectedDays.forEach((day) => {
+      const row = [...cells];
+
+      while (row.length < outputHeaders.length) {
+        row.push("");
+      }
+
+      row[dayIndex] = day;
+
+      // Recurring weekday imports should not carry a specific date override.
+      // If specific_date exists, the backend gives it priority over day_of_week.
+      row[specificDateIndex] = "";
+
+      outputRows.push(row);
+    });
+  });
+
+  const csvContent = [
+    outputHeaders.map(csvEscape).join(","),
+    ...outputRows.map((row) => outputHeaders.map((_, index) => csvEscape(row[index] || "")).join(",")),
+  ].join("\n");
+
+  return new File([csvContent], originalFile.name.replace(/\.csv$/i, "") + "-selected-days.csv", {
+    type: "text/csv",
+  });
+}
+
 export default function TicketingPickupSchedulesPage() {
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
 
@@ -311,6 +427,7 @@ export default function TicketingPickupSchedulesPage() {
 
   const [importProductId, setImportProductId] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSelectedDays, setImportSelectedDays] = useState<string[]>([]);
   const [importUpdateExisting, setImportUpdateExisting] = useState(false);
   const [previewingImport, setPreviewingImport] = useState(false);
   const [committingImport, setCommittingImport] = useState(false);
@@ -697,10 +814,15 @@ export default function TicketingPickupSchedulesPage() {
       setError("");
       setSavedMessage("");
 
+      const preparedImportFile = await buildImportFileForSelectedDays(
+        importFile,
+        importSelectedDays
+      );
+
       const formData = new FormData();
       formData.append("product", importProductId);
       formData.append("product_id", importProductId);
-      formData.append("file", importFile);
+      formData.append("file", preparedImportFile);
       formData.append("mode", mode);
       formData.append("update_existing", importUpdateExisting ? "true" : "false");
 
@@ -918,8 +1040,65 @@ export default function TicketingPickupSchedulesPage() {
           />
         </div>
 
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-black text-slate-800">
+                Available days for this import
+              </p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                Select one or more days and upload a normal hotel/time template.
+                The page will generate one pickup schedule per selected day.
+                Leave all days unselected if your CSV already includes day_of_week or specific_date.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setImportSelectedDays([])}
+              disabled={!importSelectedDays.length}
+              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+            >
+              Clear days
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {importDayOptions.map((day) => {
+              const selected = importSelectedDays.includes(day.value);
+
+              return (
+                <button
+                  key={day.value}
+                  type="button"
+                  onClick={() =>
+                    setImportSelectedDays((current) =>
+                      toggleStringValue(current, day.value)
+                    )
+                  }
+                  className={[
+                    "rounded-2xl border px-4 py-2 text-sm font-black transition",
+                    selected
+                      ? "border-amber-500 bg-amber-500 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {day.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {importSelectedDays.length > 0 && (
+            <p className="mt-3 text-xs font-bold text-amber-700">
+              Selected: {importSelectedDays.map((day) => dayLabel(Number(day))).join(", ")}.
+              Each CSV row will be duplicated for these days before import.
+            </p>
+          )}
+        </div>
+
         <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-6 text-slate-500">
-          Required CSV columns: <strong>hotel</strong> and <strong>pickup_time</strong>. Optional columns: <strong>zone</strong>, <strong>pickup_point</strong>, <strong>instructions</strong>, <strong>day_of_week</strong>, <strong>specific_date</strong>.
+          Required CSV columns: <strong>hotel</strong> and <strong>pickup_time</strong>. Optional columns: <strong>zone</strong>, <strong>pickup_point</strong>, <strong>instructions</strong>, <strong>day_of_week</strong>, <strong>specific_date</strong>. If you select days above, the frontend will add <strong>day_of_week</strong> automatically.
         </div>
 
         {importResult && (
@@ -939,6 +1118,7 @@ export default function TicketingPickupSchedulesPage() {
                       <Th>Row</Th>
                       <Th>Hotel</Th>
                       <Th>Time</Th>
+                      <Th>Day</Th>
                       <Th>Zone</Th>
                       <Th>Status</Th>
                       <Th>Action</Th>
@@ -950,6 +1130,7 @@ export default function TicketingPickupSchedulesPage() {
                         <Td>{row.row_number}</Td>
                         <Td>{row.hotel_name || "—"}</Td>
                         <Td>{row.pickup_time || "—"}</Td>
+                        <Td>{dayLabel(row.day_of_week)}</Td>
                         <Td>{row.zone_name || "—"}</Td>
                         <Td>
                           <span

@@ -30,6 +30,7 @@ from .models import (
     ExternalProviderConfig,
     ExternalProviderProductSnapshot,
     TransferRoute,
+    TransferPriceBand,
     EventTicketType,
     ProductReview,
 )
@@ -643,8 +644,90 @@ class ProductPickupScheduleSerializer(OrganisationScopedSerializerMixin, seriali
         return attrs
 
 
+
+
+
+class TransferPriceBandSerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    route_name = serializers.SerializerMethodField()
+
+    route_id = serializers.PrimaryKeyRelatedField(
+        source="route",
+        queryset=TransferRoute.objects.all(),
+        write_only=True,
+        required=False,
+    )
+
+    class Meta:
+        model = TransferPriceBand
+        fields = [
+            "id",
+            "route",
+            "route_id",
+            "route_name",
+            "name",
+            "min_passengers",
+            "max_passengers",
+            "vehicle_type",
+            "one_way_price",
+            "round_trip_price",
+            "is_active",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "route",
+            "route_name",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_route_name(self, obj):
+        if not obj.route:
+            return ""
+
+        return f"{obj.route.origin} → {obj.route.destination}"
+
+    def validate(self, attrs):
+        route = attrs.get("route")
+
+        if route:
+            self.validate_same_organisation(route, "route_id")
+
+            if route.product.product_type != "transfer":
+                raise serializers.ValidationError(
+                    {
+                        "route_id": "Price bands can only be attached to transfer routes."
+                    }
+                )
+
+        min_passengers = attrs.get(
+            "min_passengers",
+            getattr(self.instance, "min_passengers", None),
+        )
+        max_passengers = attrs.get(
+            "max_passengers",
+            getattr(self.instance, "max_passengers", None),
+        )
+
+        if min_passengers and max_passengers and min_passengers > max_passengers:
+            raise serializers.ValidationError(
+                {
+                    "max_passengers": "Max passengers must be greater than or equal to min passengers."
+                }
+            )
+
+        return attrs
+
+
 class TransferRouteSerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
+    price_bands = TransferPriceBandSerializer(many=True, read_only=True)
+
     product_id = serializers.PrimaryKeyRelatedField(
         source="product",
         queryset=ExperienceProduct.objects.all(),
@@ -662,12 +745,19 @@ class TransferRouteSerializer(OrganisationScopedSerializerMixin, serializers.Mod
             "origin",
             "destination",
             "airport",
+
+            # Legacy fields kept for backwards compatibility while the frontend
+            # moves to TransferPriceBand.
             "vehicle_type",
             "is_round_trip",
             "base_passengers",
             "max_passengers",
             "price",
             "round_trip_price",
+
+            # New transfer pricing model.
+            "price_bands",
+
             "is_active",
             "created_at",
             "updated_at",
@@ -676,6 +766,7 @@ class TransferRouteSerializer(OrganisationScopedSerializerMixin, serializers.Mod
             "id",
             "product",
             "product_name",
+            "price_bands",
             "created_at",
             "updated_at",
         ]
@@ -685,6 +776,13 @@ class TransferRouteSerializer(OrganisationScopedSerializerMixin, serializers.Mod
 
         if product:
             self.validate_same_organisation(product, "product_id")
+
+            if product.product_type != "transfer":
+                raise serializers.ValidationError(
+                    {
+                        "product_id": "Transfer routes can only be attached to transfer products."
+                    }
+                )
 
         return attrs
 
@@ -731,45 +829,6 @@ class EventTicketTypeSerializer(OrganisationScopedSerializerMixin, serializers.M
             self.validate_same_organisation(product, "product_id")
 
         return attrs
-
-
-class ExternalProviderConfigSerializer(serializers.ModelSerializer):
-    organisation_name = serializers.CharField(
-        source="organisation.name",
-        read_only=True,
-    )
-
-    class Meta:
-        model = ExternalProviderConfig
-        fields = [
-            "id",
-            "organisation",
-            "organisation_name",
-            "provider",
-            "is_enabled",
-            "api_base_url",
-            "api_key",
-            "api_secret",
-            "show_id",
-            "category_id",
-            "currency",
-            "lang",
-            "include_table",
-            "extra_settings",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = [
-            "id",
-            "organisation",
-            "organisation_name",
-            "created_at",
-            "updated_at",
-        ]
-        extra_kwargs = {
-            "api_secret": {"write_only": True, "required": False},
-        }
-
 
 class TicketingPaymentProviderSettingsSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(
