@@ -211,9 +211,6 @@ function buildProductPublicPath(product: ExperienceProduct, organisationSlug?: s
   return `/experiences/${organisationSlug}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function getPrimaryProductUrl(product: ExperienceProduct, organisationSlug?: string) {
-  return product.primary_url || buildProductPublicPath(product, organisationSlug);
-}
 
 function getProductAliasCount(product: ExperienceProduct) {
   return Array.isArray(product.url_aliases)

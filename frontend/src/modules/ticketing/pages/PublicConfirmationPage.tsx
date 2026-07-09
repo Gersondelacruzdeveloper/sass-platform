@@ -256,6 +256,39 @@ function getDisplayProductName(
   return getTicketOptionName(booking) || getMainProductName(booking, product);
 }
 
+function getPassengerCount(booking?: Booking | null, key?: "adults" | "children" | "infants") {
+  if (!booking || !key) return 0;
+  const value = (booking as any)[key];
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function getPassengerBreakdown(booking?: Booking | null) {
+  const adults = getPassengerCount(booking, "adults");
+  const children = getPassengerCount(booking, "children");
+  const infants = getPassengerCount(booking, "infants");
+  const total = Number((booking as any)?.total_guests || adults + children + infants || 0);
+
+  const parts = [
+    adults > 0 ? `${adults} adult${adults === 1 ? "" : "s"}` : "",
+    children > 0 ? `${children} child${children === 1 ? "" : "ren"}` : "",
+    infants > 0 ? `${infants} infant${infants === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+
+  if (!parts.length) return `${total} total`;
+  return `${total || adults + children + infants} total · ${parts.join(", ")}`;
+}
+
+function getBookingItemUnitPrice(booking?: Booking | null) {
+  const item = getFirstBookingItem(booking);
+  return Number(item?.unit_price || 0);
+}
+
+function getBookingItemQuantity(booking?: Booking | null) {
+  const item = getFirstBookingItem(booking);
+  return Number(item?.quantity || 0);
+}
+
 function getTicketDescription(booking?: Booking | null) {
   const item = getFirstBookingItem(booking);
   const raw = item?.external_raw_data || {};
@@ -627,7 +660,7 @@ export default function PublicConfirmationPage() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
                   <Info label="Preferred pickup time" value={formatTime(booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
-                  <Info label="Passengers" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
+                  <Info label="Passengers" value={getPassengerBreakdown(booking)} icon={<Users className="h-4 w-4" />} />
                   <Info label="Vehicle" value={transfer.vehicle || "To be assigned"} icon={<Car className="h-4 w-4" />} />
                   {transfer.priceBand && <Info label="Price band" value={transfer.priceBand} icon={<Ticket className="h-4 w-4" />} />}
                   {transfer.flightNumber && <Info label="Flight number" value={transfer.flightNumber} icon={<Plane className="h-4 w-4" />} />}
@@ -669,7 +702,7 @@ export default function PublicConfirmationPage() {
                     <Info label="Includes" value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
                   )}
                   <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
-                  <Info label="Guests" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
+                  <Info label="Guests" value={getPassengerBreakdown(booking)} icon={<Users className="h-4 w-4" />} />
                   <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
                   <Info label="Hotel" value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
                   <Info label="Pickup time" value={formatTime(pickup?.pickup_time || booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
@@ -692,6 +725,12 @@ export default function PublicConfirmationPage() {
 
           <div className="mt-4 space-y-3">
             <PaymentLine label="Total" value={money(booking?.total_amount, currencySymbol)} />
+            {getBookingItemUnitPrice(booking) > 0 && (
+              <PaymentLine
+                label={getBookingItemQuantity(booking) > 1 ? "Unit price" : "Quoted price"}
+                value={money(getBookingItemUnitPrice(booking), currencySymbol)}
+              />
+            )}
             <PaymentLine label="Deposit required" value={money(booking?.deposit_required, currencySymbol)} />
             <PaymentLine label="Paid" value={money(booking?.deposit_paid, currencySymbol)} />
             <PaymentLine label="Balance due" value={money(booking?.balance_due, currencySymbol)} />

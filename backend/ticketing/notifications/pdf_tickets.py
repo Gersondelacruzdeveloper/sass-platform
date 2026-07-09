@@ -12,7 +12,6 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
 
@@ -24,9 +23,11 @@ def _safe_text(value: Any, fallback: str = "") -> str:
 
 
 def _first_attr(obj: Any, names: list[str], fallback: str = "") -> str:
+    if obj is None:
+        return fallback
     for name in names:
         value = getattr(obj, name, None)
-        if value:
+        if value not in (None, ""):
             return _safe_text(value)
     return fallback
 
@@ -46,6 +47,18 @@ def _valid_hex(value: Any, fallback: str) -> str:
 
 def _hex(value: Any, fallback: str = "#111827"):
     return colors.HexColor(_valid_hex(value, fallback))
+
+
+def _money_decimal(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value or "0"))
+    except Exception:
+        return Decimal("0")
+
+
+def _money(value: Any, currency_symbol: str = "US$") -> str:
+    amount = _money_decimal(value)
+    return f"{currency_symbol}{amount:,.2f}"
 
 
 def _format_date(value: Any, fallback: str = "To be confirmed") -> str:
@@ -80,12 +93,6 @@ def _get_ticketing_settings(booking: Any) -> Any:
 
 
 def _get_logo_reader(public_settings: Any) -> ImageReader | None:
-    """
-    Works with local media storage and remote storage such as S3/DigitalOcean Spaces.
-
-    The previous version only used logo.path + os.path.exists().
-    That fails on cloud storage because ImageField.path may not exist.
-    """
     if not public_settings:
         return None
 
@@ -93,7 +100,6 @@ def _get_logo_reader(public_settings: Any) -> ImageReader | None:
     if not logo:
         return None
 
-    # Local filesystem storage
     try:
         logo_path = getattr(logo, "path", None)
         if logo_path and os.path.exists(logo_path):
@@ -101,18 +107,15 @@ def _get_logo_reader(public_settings: Any) -> ImageReader | None:
     except Exception:
         pass
 
-    # Remote/custom storage: read file bytes through Django storage backend
     try:
         logo.open("rb")
         logo_bytes = logo.read()
         logo.close()
-
         if logo_bytes:
             return ImageReader(io.BytesIO(logo_bytes))
     except Exception:
         pass
 
-    # Fallback: sometimes ReportLab can read a URL directly, but this depends on storage/public access
     try:
         logo_url = getattr(logo, "url", None)
         if logo_url:
@@ -124,12 +127,6 @@ def _get_logo_reader(public_settings: Any) -> ImageReader | None:
 
 
 def _get_first_booking_item(booking: Any) -> Any:
-    """
-    Return the first stored booking item.
-
-    For external/Wellet products, this item is the snapshot of what the
-    customer actually selected, for example "Premium - Open Bar".
-    """
     try:
         items_manager = getattr(booking, "items", None)
         if not items_manager:
@@ -146,9 +143,6 @@ def _get_first_booking_item(booking: Any) -> Any:
 
 
 def _get_container_product_name(booking: Any) -> str:
-    """
-    Return the SaaS product/container name, for example "Coco Bongo Punta Cana".
-    """
     product = (
         getattr(booking, "primary_product", None)
         or getattr(booking, "product", None)
@@ -162,14 +156,6 @@ def _get_container_product_name(booking: Any) -> str:
 
 
 def _get_product_name(booking: Any) -> str:
-    """
-    Return the exact ticket/option purchased.
-
-    Important for Coco Bongo / Wellet:
-    booking.primary_product is only the container product ("Coco Bongo Punta Cana").
-    booking.items.first().external_option_name / product_name is the real ticket
-    selected by the customer ("Premium - Open Bar", "Gold Member - Open Bar", etc.).
-    """
     first_item = _get_first_booking_item(booking)
 
     if first_item:
@@ -182,6 +168,7 @@ def _get_product_name(booking: Any) -> str:
 
     container_name = _get_container_product_name(booking)
     return container_name or "Tour / Product"
+
 
 def _get_customer_name(booking: Any) -> str:
     full_name = _first_attr(
@@ -209,7 +196,7 @@ def _get_customer_contact(booking: Any) -> str:
     phone = _safe_text(getattr(booking, "customer_phone", ""))
 
     if email and whatsapp:
-        return f"{email} • {whatsapp}"
+        return f"{email} | {whatsapp}"
     return email or whatsapp or phone or "-"
 
 
@@ -257,24 +244,13 @@ def _get_pickup_info(booking: Any) -> str:
     pickup_info = getattr(booking, "pickup_info", None)
 
     if pickup_info:
-        hotel = _first_attr(
-            pickup_info,
-            ["hotel_or_location_name", "pickup_zone_name"],
-            "",
-        )
+        hotel = _first_attr(pickup_info, ["hotel_or_location_name", "pickup_zone_name"], "")
         point = _first_attr(pickup_info, ["pickup_point"], "")
         pickup_time = _format_time(getattr(pickup_info, "pickup_time", None), "")
 
-        parts = []
-        if hotel:
-            parts.append(hotel)
-        if point:
-            parts.append(point)
-        if pickup_time:
-            parts.append(pickup_time)
-
+        parts = [part for part in [hotel, point, pickup_time] if part]
         if parts:
-            return " • ".join(parts)
+            return " | ".join(parts)
 
     pickup_point = _first_attr(
         booking,
@@ -291,12 +267,10 @@ def _get_pickup_info(booking: Any) -> str:
     pickup_time = _format_time(getattr(booking, "pickup_time", None), "")
 
     if pickup_point and pickup_time:
-        return f"{pickup_point} • {pickup_time}"
+        return f"{pickup_point} | {pickup_time}"
     if pickup_point:
         return pickup_point
     return "To be confirmed"
-
-
 
 
 def _is_transfer_booking(booking: Any) -> bool:
@@ -370,15 +344,12 @@ def _get_transfer_type(booking: Any) -> str:
 
 def _get_transfer_pickup_details(booking: Any) -> str:
     notes = _safe_text(getattr(booking, "customer_notes", ""))
-    pickup_name = (
-        _extract_note_value(notes, ["Pickup"])
-        or _safe_text(getattr(booking, "customer_hotel", ""))
-    )
+    pickup_name = _extract_note_value(notes, ["Pickup"]) or _safe_text(getattr(booking, "customer_hotel", ""))
     pickup_address = _extract_note_value(notes, ["Pickup address"])
     pickup_map = _extract_note_value(notes, ["Pickup map"])
 
     parts = [part for part in [pickup_name, pickup_address, pickup_map] if part]
-    return " • ".join(parts) if parts else _get_pickup_info(booking)
+    return " | ".join(parts) if parts else _get_pickup_info(booking)
 
 
 def _get_transfer_dropoff_details(booking: Any) -> str:
@@ -388,7 +359,8 @@ def _get_transfer_dropoff_details(booking: Any) -> str:
     dropoff_map = _extract_note_value(notes, ["Drop-off map"])
 
     parts = [part for part in [dropoff_name, dropoff_address, dropoff_map] if part]
-    return " • ".join(parts) if parts else _get_transfer_destination(booking)
+    return " | ".join(parts) if parts else _get_transfer_destination(booking)
+
 
 def _get_guest_summary(booking: Any) -> str:
     adults = getattr(booking, "adults", None) or 0
@@ -415,19 +387,7 @@ def _get_guest_summary(booking: Any) -> str:
 
 
 def _get_payment_status(booking: Any) -> str:
-    return _first_attr(
-        booking,
-        ["payment_status", "status", "payment_state"],
-        "Confirmed",
-    ).replace("_", " ").title()
-
-
-def _money(value: Any, currency_symbol: str = "US$") -> str:
-    try:
-        amount = Decimal(str(value or "0"))
-        return f"{currency_symbol}{amount:,.2f}"
-    except Exception:
-        return f"{currency_symbol}0.00"
+    return _first_attr(booking, ["payment_status", "status", "payment_state"], "Confirmed").replace("_", " ").title()
 
 
 def _get_branding(booking: Any) -> dict[str, Any]:
@@ -451,19 +411,11 @@ def _get_branding(booking: Any) -> dict[str, Any]:
         brand_name = _first_attr(organisation, ["name", "display_name"], brand_name)
 
     if ticketing_settings:
-        brand_name = _first_attr(
-            ticketing_settings,
-            ["public_brand_name", "module_name"],
-            brand_name,
-        )
+        brand_name = _first_attr(ticketing_settings, ["public_brand_name", "module_name"], brand_name)
         currency_symbol = _first_attr(ticketing_settings, ["currency_symbol"], currency_symbol)
 
     if public_settings:
-        brand_name = _first_attr(
-            public_settings,
-            ["display_title", "site_title", "title", "brand_name"],
-            brand_name,
-        )
+        brand_name = _first_attr(public_settings, ["display_title", "site_title", "title", "brand_name"], brand_name)
         contact_email = _first_attr(public_settings, ["public_email", "contact_email", "email"], "")
         whatsapp = _first_attr(public_settings, ["public_whatsapp", "whatsapp", "phone", "contact_phone"], "")
         custom_domain = _first_attr(public_settings, ["custom_domain", "subdomain"], "")
@@ -489,6 +441,25 @@ def _get_branding(booking: Any) -> dict[str, Any]:
     }
 
 
+def _split_text(text: str, max_chars: int) -> list[str]:
+    words = _safe_text(text, "-").split()
+    lines: list[str] = []
+    line = ""
+
+    for word in words:
+        test_line = f"{line} {word}".strip()
+        if len(test_line) > max_chars and line:
+            lines.append(line)
+            line = word
+        else:
+            line = test_line
+
+    if line:
+        lines.append(line)
+
+    return lines or ["-"]
+
+
 def _draw_wrapped_text(
     pdf: canvas.Canvas,
     text: str,
@@ -496,43 +467,19 @@ def _draw_wrapped_text(
     y: float,
     max_chars: int = 80,
     line_height: float = 5 * mm,
+    max_lines: int | None = None,
 ) -> float:
-    words = _safe_text(text, "-").split()
-    line = ""
+    lines = _split_text(text, max_chars)
 
-    for word in words:
-        test_line = f"{line} {word}".strip()
-        if len(test_line) > max_chars and line:
-            pdf.drawString(x, y, line)
-            y -= line_height
-            line = word
-        else:
-            line = test_line
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][: max(0, max_chars - 3)].rstrip() + "..."
 
-    if line:
+    for line in lines:
         pdf.drawString(x, y, line)
+        y -= line_height
 
-    return y
-
-
-def _draw_label_value(
-    pdf: canvas.Canvas,
-    label: str,
-    value: str,
-    x: float,
-    y: float,
-    width: float,
-    label_color: str,
-    value_color: str,
-) -> float:
-    pdf.setFillColor(_hex(label_color, "#6B7280"))
-    pdf.setFont("Helvetica-Bold", 7)
-    pdf.drawString(x, y, label.upper())
-
-    pdf.setFillColor(_hex(value_color, "#111827"))
-    pdf.setFont("Helvetica-Bold", 11)
-    y -= 5 * mm
-    return _draw_wrapped_text(pdf, value, x, y, max_chars=max(18, int(width / 4.3)))
+    return y + line_height
 
 
 def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, y: float) -> None:
@@ -540,15 +487,13 @@ def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, 
 
     if logo_reader:
         try:
-            # White logo panel so dark/colored logos show clearly on any header color.
             pdf.setFillColor(colors.white)
-            pdf.roundRect(x - 2 * mm, y - 21 * mm, 52 * mm, 21 * mm, 3 * mm, fill=1, stroke=0)
-
+            pdf.roundRect(x - 2 * mm, y - 21 * mm, 54 * mm, 22 * mm, 4 * mm, fill=1, stroke=0)
             pdf.drawImage(
                 logo_reader,
                 x,
                 y - 18 * mm,
-                width=48 * mm,
+                width=50 * mm,
                 height=15 * mm,
                 preserveAspectRatio=True,
                 mask="auto",
@@ -561,6 +506,56 @@ def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, 
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 17)
     pdf.drawString(x, y - 8 * mm, branding["brand_name"][:34])
+
+
+def _draw_pill(pdf: canvas.Canvas, text: str, x: float, y: float, w: float, bg: str, fg: str) -> None:
+    pdf.setFillColor(_hex(bg))
+    pdf.roundRect(x, y, w, 9 * mm, 4.5 * mm, fill=1, stroke=0)
+    pdf.setFillColor(_hex(fg, "#FFFFFF"))
+    pdf.setFont("Helvetica-Bold", 8)
+    pdf.drawCentredString(x + w / 2, y + 3.1 * mm, text.upper()[:24])
+
+
+def _draw_card(pdf: canvas.Canvas, x: float, y: float, w: float, h: float, bg: str = "#FFFFFF", stroke: str = "#E5E7EB") -> None:
+    pdf.setFillColor(_hex(bg))
+    pdf.setStrokeColor(_hex(stroke))
+    pdf.roundRect(x, y, w, h, 5 * mm, fill=1, stroke=1)
+
+
+def _draw_field(pdf: canvas.Canvas, label: str, value: str, x: float, y: float, w: float, text_color: str, muted: str) -> None:
+    pdf.setFillColor(_hex(muted))
+    pdf.setFont("Helvetica-Bold", 6.8)
+    pdf.drawString(x, y, label.upper())
+
+    pdf.setFillColor(_hex(text_color))
+    pdf.setFont("Helvetica-Bold", 10)
+    _draw_wrapped_text(pdf, value, x, y - 5 * mm, max_chars=max(18, int(w / 4.1)), line_height=4.5 * mm, max_lines=2)
+
+
+def _get_passenger_price_breakdown(booking: Any, currency_symbol: str) -> list[tuple[str, str]]:
+    adults = int(getattr(booking, "adults", 0) or 0)
+    children = int(getattr(booking, "children", 0) or 0)
+    infants = int(getattr(booking, "infants", 0) or 0)
+
+    product = getattr(booking, "primary_product", None) or getattr(booking, "product", None)
+    first_item = _get_first_booking_item(booking)
+
+    adult_price = _money_decimal(getattr(booking, "adult_price", None) or getattr(product, "adult_price", None) or getattr(product, "base_price", None))
+    child_price = _money_decimal(getattr(booking, "child_price", None) or getattr(product, "child_price", None))
+    infant_price = _money_decimal(getattr(booking, "infant_price", None) or getattr(product, "infant_price", None))
+
+    # External tickets or old bookings may only store one BookingItem price.
+    if first_item and adult_price <= 0:
+        adult_price = _money_decimal(getattr(first_item, "unit_price", None))
+
+    rows: list[tuple[str, str]] = []
+    if adults:
+        rows.append((f"Adults x {adults}", _money(adult_price * adults, currency_symbol)))
+    if children:
+        rows.append((f"Children x {children}", _money(child_price * children, currency_symbol)))
+    if infants:
+        rows.append((f"Infants x {infants}", _money(infant_price * infants, currency_symbol)))
+    return rows
 
 
 def generate_ticket_qr_code(booking: Any) -> io.BytesIO:
@@ -590,197 +585,189 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     booking_code = _safe_text(getattr(booking, "booking_code", ""), "BOOKING")
     branding = _get_branding(booking)
 
-    margin = 16 * mm
-    top = PAGE_HEIGHT - margin
-    ticket_x = margin
-    ticket_y = 45 * mm
-    ticket_w = PAGE_WIDTH - (margin * 2)
-    ticket_h = PAGE_HEIGHT - (margin * 2) - 18 * mm
-
     primary = branding["primary_color"]
     accent = branding["accent_color"]
     text_color = branding["text_color"]
     muted = branding["muted_text_color"]
     currency_symbol = branding["currency_symbol"]
 
-    pdf.setFillColor(_hex("#F3F4F6"))
-    pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
-
-    pdf.setFillColor(colors.white)
-    pdf.setStrokeColor(_hex("#E5E7EB"))
-    pdf.roundRect(ticket_x, ticket_y, ticket_w, ticket_h, 7 * mm, fill=1, stroke=1)
-
-    header_h = 42 * mm
-    header_y = top - header_h
-    pdf.setFillColor(_hex(primary))
-    pdf.roundRect(ticket_x, header_y, ticket_w, header_h, 7 * mm, fill=1, stroke=0)
-    pdf.rect(ticket_x, header_y, ticket_w, 8 * mm, fill=1, stroke=0)
-
-    _draw_logo_or_brand(pdf, branding, ticket_x + 9 * mm, top - 8 * mm)
-
-    pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(ticket_x + 9 * mm, header_y + 9 * mm, "Official booking ticket")
-
-    pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawRightString(ticket_x + ticket_w - 9 * mm, top - 12 * mm, booking_code)
-
-    pdf.setFont("Helvetica", 8)
-    pdf.drawRightString(ticket_x + ticket_w - 9 * mm, top - 18 * mm, "BOOKING CODE")
-
-    qr_panel_x = ticket_x + ticket_w - 55 * mm
-    qr_panel_y = header_y - 46 * mm
-    qr_panel_w = 43 * mm
-    qr_panel_h = 51 * mm
-
-    pdf.setFillColor(colors.white)
-    pdf.setStrokeColor(_hex("#E5E7EB"))
-    pdf.roundRect(qr_panel_x, qr_panel_y, qr_panel_w, qr_panel_h, 4 * mm, fill=1, stroke=1)
-
-    qr_buffer = generate_ticket_qr_code(booking)
-    qr_reader = ImageReader(qr_buffer)
-    pdf.drawImage(
-        qr_reader,
-        qr_panel_x + 6 * mm,
-        qr_panel_y + 13 * mm,
-        width=31 * mm,
-        height=31 * mm,
-        preserveAspectRatio=True,
-        mask="auto",
-    )
-
-    pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica-Bold", 6.5)
-    pdf.drawCentredString(qr_panel_x + qr_panel_w / 2, qr_panel_y + 6 * mm, "SCAN TO VERIFY")
-
-    content_x = ticket_x + 9 * mm
-    content_w = ticket_w - 18 * mm
-    y = header_y - 12 * mm
-
-    status = _get_payment_status(booking)
-    pdf.setFillColor(_hex(accent))
-    pdf.roundRect(content_x, y - 8 * mm, 38 * mm, 8 * mm, 4 * mm, fill=1, stroke=0)
-    pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica-Bold", 8)
-    pdf.drawCentredString(content_x + 19 * mm, y - 5.3 * mm, status.upper()[:20])
-
-    y -= 18 * mm
-    pdf.setFillColor(_hex(text_color))
-    pdf.setFont("Helvetica-Bold", 21)
     is_transfer = _is_transfer_booking(booking)
     ticket_name = (
-        f"{_get_transfer_origin(booking)} → {_get_transfer_destination(booking)}"
+        f"{_get_transfer_origin(booking)} -> {_get_transfer_destination(booking)}"
         if is_transfer
         else _get_product_name(booking)
     )
     container_product_name = "Private Transfer" if is_transfer else _get_container_product_name(booking)
 
-    y = _draw_wrapped_text(
-        pdf,
-        ticket_name,
-        content_x,
-        y,
-        max_chars=35,
-        line_height=8 * mm,
-    )
+    margin = 14 * mm
+    page_bg = "#F3F4F6"
+    card_bg = "#FFFFFF"
+    soft_bg = "#F9FAFB"
+    border = "#E5E7EB"
+
+    pdf.setFillColor(_hex(page_bg))
+    pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
+
+    # Main ticket shell.
+    ticket_x = margin
+    ticket_y = 18 * mm
+    ticket_w = PAGE_WIDTH - margin * 2
+    ticket_h = PAGE_HEIGHT - 32 * mm
+    _draw_card(pdf, ticket_x, ticket_y, ticket_w, ticket_h, card_bg, border)
+
+    # Header with brand and booking code.
+    header_h = 50 * mm
+    header_y = PAGE_HEIGHT - margin - header_h
+    pdf.setFillColor(_hex(primary))
+    pdf.roundRect(ticket_x, header_y, ticket_w, header_h, 6 * mm, fill=1, stroke=0)
+    pdf.rect(ticket_x, header_y, ticket_w, 10 * mm, fill=1, stroke=0)
+
+    _draw_logo_or_brand(pdf, branding, ticket_x + 9 * mm, PAGE_HEIGHT - margin - 8 * mm)
+
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(ticket_x + 9 * mm, header_y + 11 * mm, "Official booking ticket")
+
+    pdf.setFont("Helvetica-Bold", 15)
+    pdf.drawRightString(ticket_x + ticket_w - 10 * mm, PAGE_HEIGHT - margin - 12 * mm, booking_code)
+    pdf.setFont("Helvetica", 7)
+    pdf.drawRightString(ticket_x + ticket_w - 10 * mm, PAGE_HEIGHT - margin - 18 * mm, "BOOKING CODE")
+
+    _draw_pill(pdf, _get_payment_status(booking), ticket_x + ticket_w - 52 * mm, header_y + 10 * mm, 42 * mm, accent, "#FFFFFF")
+
+    # QR card.
+    qr_x = ticket_x + ticket_w - 49 * mm
+    qr_y = header_y - 43 * mm
+    _draw_card(pdf, qr_x, qr_y, 39 * mm, 46 * mm, "#FFFFFF", border)
+    qr_buffer = generate_ticket_qr_code(booking)
+    qr_reader = ImageReader(qr_buffer)
+    pdf.drawImage(qr_reader, qr_x + 6 * mm, qr_y + 13 * mm, width=27 * mm, height=27 * mm, preserveAspectRatio=True, mask="auto")
+    pdf.setFillColor(_hex(muted))
+    pdf.setFont("Helvetica-Bold", 6.5)
+    pdf.drawCentredString(qr_x + 19.5 * mm, qr_y + 6 * mm, "SCAN TO VERIFY")
+
+    content_x = ticket_x + 9 * mm
+    content_w = ticket_w - 18 * mm
+    left_w = content_w - 54 * mm
+    y = header_y - 12 * mm
+
+    pdf.setFillColor(_hex(text_color))
+    pdf.setFont("Helvetica-Bold", 22)
+    y = _draw_wrapped_text(pdf, ticket_name, content_x, y, max_chars=35, line_height=8 * mm, max_lines=3)
 
     if container_product_name and container_product_name != ticket_name:
-        y -= 6 * mm
+        y -= 5 * mm
         pdf.setFillColor(_hex(muted))
         pdf.setFont("Helvetica-Bold", 8)
-        y = _draw_wrapped_text(
-            pdf,
-            container_product_name,
-            content_x,
-            y,
-            max_chars=52,
-            line_height=4 * mm,
-        )
+        y = _draw_wrapped_text(pdf, container_product_name, content_x, y, max_chars=58, line_height=4 * mm, max_lines=2)
 
-    y -= 13 * mm
+    y -= 9 * mm
     pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica", 10)
-    y = _draw_wrapped_text(
-        pdf,
-        f"Ticket issued for {_get_customer_name(booking)}",
-        content_x,
-        y,
-        max_chars=52,
-    )
+    pdf.setFont("Helvetica", 9)
+    _draw_wrapped_text(pdf, f"Issued for {_get_customer_name(booking)}", content_x, y, max_chars=60, max_lines=1)
 
-    grid_top = y - 18 * mm
-    col_gap = 7 * mm
-    col_w = (content_w - (2 * col_gap)) / 3
+    # Detail grid cards.
+    grid_y = y - 33 * mm
+    grid_gap = 4 * mm
+    col_w = (left_w - grid_gap * 2) / 3
+    card_h = 21 * mm
 
-    _draw_label_value(pdf, "Date", _get_booking_date(booking), content_x, grid_top, col_w, muted, text_color)
-    _draw_label_value(pdf, "Time", _get_booking_time(booking), content_x + col_w + col_gap, grid_top, col_w, muted, text_color)
-    _draw_label_value(pdf, "Guests", _get_guest_summary(booking), content_x + (col_w + col_gap) * 2, grid_top, col_w, muted, text_color)
+    for idx, (label, value) in enumerate([
+        ("Date", _get_booking_date(booking)),
+        ("Time", _get_booking_time(booking)),
+        ("Guests", _get_guest_summary(booking)),
+    ]):
+        x = content_x + idx * (col_w + grid_gap)
+        _draw_card(pdf, x, grid_y, col_w, card_h, soft_bg, border)
+        _draw_field(pdf, label, value, x + 4 * mm, grid_y + 14 * mm, col_w - 8 * mm, text_color, muted)
 
-    second_row_y = grid_top - 24 * mm
-    half_w = (content_w - col_gap) / 2
+    row2_y = grid_y - card_h - 5 * mm
+    half_w = (left_w - grid_gap) / 2
+    for idx, (label, value) in enumerate([
+        ("Customer", _get_customer_name(booking)),
+        ("Contact", _get_customer_contact(booking)),
+    ]):
+        x = content_x + idx * (half_w + grid_gap)
+        _draw_card(pdf, x, row2_y, half_w, card_h, soft_bg, border)
+        _draw_field(pdf, label, value, x + 4 * mm, row2_y + 14 * mm, half_w - 8 * mm, text_color, muted)
 
-    _draw_label_value(pdf, "Customer", _get_customer_name(booking), content_x, second_row_y, half_w, muted, text_color)
-    _draw_label_value(pdf, "Contact", _get_customer_contact(booking), content_x + half_w + col_gap, second_row_y, half_w, muted, text_color)
-
-    third_row_y = second_row_y - 26 * mm
-
+    row3_y = row2_y - card_h - 5 * mm
     if is_transfer:
-        _draw_label_value(pdf, "Transfer", _get_transfer_type(booking), content_x, third_row_y, half_w, muted, text_color)
-        _draw_label_value(pdf, "Vehicle", _get_transfer_vehicle(booking), content_x + half_w + col_gap, third_row_y, half_w, muted, text_color)
+        for idx, (label, value) in enumerate([
+            ("Transfer", _get_transfer_type(booking)),
+            ("Vehicle", _get_transfer_vehicle(booking)),
+        ]):
+            x = content_x + idx * (half_w + grid_gap)
+            _draw_card(pdf, x, row3_y, half_w, card_h, soft_bg, border)
+            _draw_field(pdf, label, value, x + 4 * mm, row3_y + 14 * mm, half_w - 8 * mm, text_color, muted)
 
-        fourth_row_y = third_row_y - 26 * mm
-        _draw_label_value(pdf, "Pickup", _get_transfer_pickup_details(booking), content_x, fourth_row_y, content_w, muted, text_color)
+        row4_y = row3_y - card_h - 5 * mm
+        _draw_card(pdf, content_x, row4_y, left_w, card_h, soft_bg, border)
+        _draw_field(pdf, "Pickup", _get_transfer_pickup_details(booking), content_x + 4 * mm, row4_y + 14 * mm, left_w - 8 * mm, text_color, muted)
 
-        fifth_row_y = fourth_row_y - 26 * mm
-        _draw_label_value(pdf, "Drop-off", _get_transfer_dropoff_details(booking), content_x, fifth_row_y, content_w, muted, text_color)
+        row5_y = row4_y - card_h - 5 * mm
+        _draw_card(pdf, content_x, row5_y, left_w, card_h, soft_bg, border)
+        _draw_field(pdf, "Drop-off", _get_transfer_dropoff_details(booking), content_x + 4 * mm, row5_y + 14 * mm, left_w - 8 * mm, text_color, muted)
 
-        payment_y = fifth_row_y - 30 * mm
+        pay_y = row5_y - 36 * mm
     else:
-        _draw_label_value(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x, third_row_y, content_w, muted, text_color)
-        payment_y = third_row_y - 30 * mm
-    pdf.setFillColor(_hex("#F9FAFB"))
-    pdf.setStrokeColor(_hex("#E5E7EB"))
-    pdf.roundRect(content_x, payment_y - 24 * mm, content_w, 25 * mm, 4 * mm, fill=1, stroke=1)
+        _draw_card(pdf, content_x, row3_y, left_w, card_h, soft_bg, border)
+        _draw_field(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x + 4 * mm, row3_y + 14 * mm, left_w - 8 * mm, text_color, muted)
+        pay_y = row3_y - 36 * mm
+
+    # Payment card.
+    pay_h = 38 * mm
+    _draw_card(pdf, content_x, pay_y, content_w, pay_h, "#FFFFFF", border)
+    pdf.setFillColor(_hex(text_color))
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(content_x + 6 * mm, pay_y + pay_h - 9 * mm, "Payment summary")
 
     total_amount = getattr(booking, "total_amount", 0)
     deposit_paid = getattr(booking, "deposit_paid", 0)
     balance_due = getattr(booking, "balance_due", 0)
 
-    pdf.setFillColor(_hex(text_color))
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(content_x + 6 * mm, payment_y - 7 * mm, "Payment summary")
+    payment_rows = [
+        ("Total", _money(total_amount, currency_symbol)),
+        ("Paid", _money(deposit_paid, currency_symbol)),
+        ("Balance", _money(balance_due, currency_symbol)),
+    ]
+    for idx, (label, value) in enumerate(payment_rows):
+        x = content_x + 6 * mm + idx * 45 * mm
+        pdf.setFillColor(_hex(muted))
+        pdf.setFont("Helvetica-Bold", 7)
+        pdf.drawString(x, pay_y + pay_h - 18 * mm, label.upper())
+        pdf.setFillColor(_hex(text_color))
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(x, pay_y + pay_h - 25 * mm, value)
 
-    pdf.setFont("Helvetica", 9)
-    pdf.setFillColor(_hex(muted))
-    pdf.drawString(content_x + 6 * mm, payment_y - 15 * mm, f"Total: {_money(total_amount, currency_symbol)}")
-    pdf.drawString(content_x + 55 * mm, payment_y - 15 * mm, f"Paid: {_money(deposit_paid, currency_symbol)}")
-    pdf.drawString(content_x + 100 * mm, payment_y - 15 * mm, f"Balance: {_money(balance_due, currency_symbol)}")
+    breakdown = _get_passenger_price_breakdown(booking, currency_symbol)
+    if breakdown and not is_transfer:
+        pdf.setFillColor(_hex(muted))
+        pdf.setFont("Helvetica", 8)
+        breakdown_text = " | ".join(f"{label}: {value}" for label, value in breakdown)
+        _draw_wrapped_text(pdf, breakdown_text, content_x + 6 * mm, pay_y + 5 * mm, max_chars=100, line_height=4 * mm, max_lines=2)
 
-    info_y = payment_y - 39 * mm
+    # Important info.
+    info_y = pay_y - 14 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(content_x, info_y, "Important information")
 
     pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica", 9)
-    info_y -= 7 * mm
-    if is_transfer:
-        info_text = (
-            "Please keep your booking code available. Your transfer is booked in advance. "
-            "Be ready at the pickup location at the selected time and keep your phone/WhatsApp available."
-        )
-    else:
-        info_text = (
-            "Please show this ticket when checking in. Keep your booking code and QR code "
-            "available for verification. Arrive at the pickup or meeting point on time."
-        )
-    _draw_wrapped_text(pdf, info_text, content_x, info_y, max_chars=92, line_height=5 * mm)
+    pdf.setFont("Helvetica", 8.8)
+    info_text = (
+        "Please keep your booking code available. Your transfer is booked in advance. Be ready at the pickup location at the selected time and keep your phone/WhatsApp available."
+        if is_transfer
+        else "Please show this ticket when checking in. Keep your booking code and QR code available for verification. Arrive at the pickup or meeting point on time."
+    )
+    _draw_wrapped_text(pdf, info_text, content_x, info_y - 7 * mm, max_chars=96, line_height=4.5 * mm, max_lines=3)
 
-    footer_h = 18 * mm
+    # Footer.
     footer_y = ticket_y
+    footer_h = 15 * mm
     pdf.setFillColor(_hex("#F9FAFB"))
-    pdf.roundRect(ticket_x, footer_y, ticket_w, footer_h, 7 * mm, fill=1, stroke=0)
-    pdf.rect(ticket_x, footer_y + 8 * mm, ticket_w, 10 * mm, fill=1, stroke=0)
+    pdf.roundRect(ticket_x, footer_y, ticket_w, footer_h, 6 * mm, fill=1, stroke=0)
+    pdf.rect(ticket_x, footer_y + 7 * mm, ticket_w, 8 * mm, fill=1, stroke=0)
 
     contact_parts = []
     if branding["contact_email"]:
@@ -791,10 +778,9 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         contact_parts.append(branding["custom_domain"])
 
     footer = " | ".join(contact_parts) if contact_parts else "Thank you for your booking."
-
     pdf.setFillColor(_hex(muted))
     pdf.setFont("Helvetica", 8)
-    pdf.drawCentredString(PAGE_WIDTH / 2, footer_y + 7 * mm, footer[:120])
+    pdf.drawCentredString(PAGE_WIDTH / 2, footer_y + 6 * mm, footer[:120])
 
     pdf.showPage()
     pdf.save()

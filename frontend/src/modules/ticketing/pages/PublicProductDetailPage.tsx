@@ -580,17 +580,58 @@ function isAdvancedAvailabilityDateAllowed(
   return true;
 }
 
-function getEffectiveUnitPrice(
+function getPassengerBasePrice(product: ExperienceProduct, key: QtyKey) {
+  const productAny = product as any;
+
+  if (key === "adult") {
+    return Number(productAny.adult_price ?? product.base_price ?? 0);
+  }
+
+  if (key === "child") {
+    return Number(productAny.child_price ?? 0);
+  }
+
+  return Number(productAny.infant_price ?? 0);
+}
+
+function getEffectivePassengerPrice(
   product: ExperienceProduct,
-  selectedAvailability: AdvancedAvailabilityRecord | null
+  selectedAvailability: AdvancedAvailabilityRecord | null,
+  key: QtyKey
 ) {
   const override = selectedAvailability?.price_override;
 
-  if (override !== undefined && override !== null && override !== "") {
+  // Availability price override is treated as the adult/general price for that date.
+  // Child and infant prices still come from the product passenger pricing fields.
+  if (
+    key === "adult" &&
+    override !== undefined &&
+    override !== null &&
+    override !== ""
+  ) {
     return Number(override || 0);
   }
 
-  return Number(product.base_price || 0);
+  return getPassengerBasePrice(product, key);
+}
+
+function getEffectiveAdultPrice(
+  product: ExperienceProduct,
+  selectedAvailability: AdvancedAvailabilityRecord | null
+) {
+  return getEffectivePassengerPrice(product, selectedAvailability, "adult");
+}
+
+function getPassengerSubtotal(
+  product: ExperienceProduct,
+  selectedAvailability: AdvancedAvailabilityRecord | null,
+  qty: BookingQty
+) {
+  return (
+    qty.adult * getEffectivePassengerPrice(product, selectedAvailability, "adult") +
+    qty.child * getEffectivePassengerPrice(product, selectedAvailability, "child") +
+    qty.infant * getEffectivePassengerPrice(product, selectedAvailability, "infant")
+  );
 }
 
 function getEffectiveDepositAmount(
@@ -1163,6 +1204,12 @@ function buildCheckoutUrl({
   params.set("children", String(qty.child));
   params.set("infants", String(qty.infant));
   params.set("payment", paymentChoice);
+
+  if (!selectedLiveOption && !selectedTransferRoute) {
+    params.set("adult_price", String(getEffectivePassengerPrice(product, selectedAvailability || null, "adult")));
+    params.set("child_price", String(getEffectivePassengerPrice(product, selectedAvailability || null, "child")));
+    params.set("infant_price", String(getEffectivePassengerPrice(product, selectedAvailability || null, "infant")));
+  }
 
   if (selectedAvailability) {
     params.set("availability_id", String(selectedAvailability.id));
@@ -1839,7 +1886,7 @@ export default function PublicProductDetailPage() {
       ? transferTotalPrice
       : isExternalLiveProduct(product)
         ? getLiveOptionPrice(selectedLiveOption) * pax
-        : getEffectiveUnitPrice(product, selectedAvailability) * pax;
+        : getPassengerSubtotal(product, selectedAvailability, qty);
 
     const depositBase = getEffectiveDepositAmount(product, selectedAvailability);
     const depositFixed = isTransfer ? depositBase : depositBase * pax;
@@ -1869,6 +1916,7 @@ export default function PublicProductDetailPage() {
     isTransfer,
     transferTotalPrice,
     pax,
+    qty,
     paymentChoice,
     selectedAvailability,
     selectedLiveOption,
@@ -2555,9 +2603,9 @@ export default function PublicProductDetailPage() {
                 selectedAvailability={selectedAvailability}
                 liveAvailabilityOptions={liveAvailabilityOptions}
                 selectedLiveOptionId={selectedLiveOptionId}
-                setSelectedLiveOptionId={setSelectedLiveOptionId}
                 selectedLiveOption={selectedLiveOption}
-                loadingLiveAvailability={loadingLiveAvailability}
+                setSelectedLiveOptionId={setSelectedLiveOptionId}
+                      loadingLiveAvailability={loadingLiveAvailability}
                 liveAvailabilityError={liveAvailabilityError}
                 isWelletProduct={isWelletProduct}
                 hasAdvancedAvailability={hasAdvancedAvailability}
@@ -2780,9 +2828,9 @@ export default function PublicProductDetailPage() {
                 selectedAvailability={selectedAvailability}
                 liveAvailabilityOptions={liveAvailabilityOptions}
                 selectedLiveOptionId={selectedLiveOptionId}
-                setSelectedLiveOptionId={setSelectedLiveOptionId}
                 selectedLiveOption={selectedLiveOption}
-                loadingLiveAvailability={loadingLiveAvailability}
+                setSelectedLiveOptionId={setSelectedLiveOptionId}
+                      loadingLiveAvailability={loadingLiveAvailability}
                 liveAvailabilityError={liveAvailabilityError}
                 isWelletProduct={isWelletProduct}
                 hasAdvancedAvailability={hasAdvancedAvailability}
@@ -3094,8 +3142,8 @@ function BookingCard({
   selectedAvailability: AdvancedAvailabilityRecord | null;
   liveAvailabilityOptions: LiveTicketOption[];
   selectedLiveOptionId: string;
-  setSelectedLiveOptionId: (id: string) => void;
   selectedLiveOption: LiveTicketOption | null;
+  setSelectedLiveOptionId: (id: string) => void;
   loadingLiveAvailability: boolean;
   liveAvailabilityError: string;
   isWelletProduct: boolean;
@@ -3126,7 +3174,7 @@ function BookingCard({
     ? transferTotalPrice
     : isWelletProduct
       ? getLiveOptionPrice(selectedLiveOption)
-      : getEffectiveUnitPrice(product, selectedAvailability);
+      : getEffectiveAdultPrice(product, selectedAvailability);
   const displayDeposit = isTransfer
     ? getEffectiveDepositAmount(product, selectedAvailability)
     : getEffectiveDepositAmount(product, selectedAvailability);
@@ -3158,8 +3206,8 @@ function BookingCard({
                   ? "per vehicle / group"
                   : "choose route"
                 : selectedAvailability?.price_override
-                  ? "per person · selected date price"
-                  : "per person"}
+                  ? "adult price · selected date price"
+                  : "adult price"}
             </div>
           </div>
 
@@ -3312,6 +3360,10 @@ function BookingCard({
         )}
 
         <GuestSelector
+          product={product}
+          selectedAvailability={selectedAvailability}
+          isTransfer={isTransfer}
+          isWelletProduct={isWelletProduct}
           qty={qty}
           updateQty={updateQty}
           totals={totals}
@@ -4427,6 +4479,10 @@ function PickupAvailabilityCard({
 }
 
 function GuestSelector({
+  product,
+  selectedAvailability,
+  isTransfer,
+  isWelletProduct,
   qty,
   updateQty,
   totals,
@@ -4434,6 +4490,10 @@ function GuestSelector({
   currencySymbol,
   theme,
 }: {
+  product: ExperienceProduct;
+  selectedAvailability: AdvancedAvailabilityRecord | null;
+  isTransfer: boolean;
+  isWelletProduct: boolean;
   qty: BookingQty;
   updateQty: (key: QtyKey, direction: "up" | "down") => void;
   totals: {
@@ -4490,12 +4550,22 @@ function GuestSelector({
           const label =
             key === "adult" ? "Adults" : key === "child" ? "Children" : "Infants";
 
+          const unitPrice =
+            isTransfer || isWelletProduct
+              ? null
+              : getEffectivePassengerPrice(product, selectedAvailability, key);
+
           return (
             <div key={key} className="flex items-center justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-extrabold" style={{ color: theme.text }}>
                   {label}
                 </div>
+                {unitPrice !== null && (
+                  <div className="mt-0.5 text-xs font-bold" style={{ color: theme.muted }}>
+                    {money2(unitPrice, currencySymbol)} each
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -4800,7 +4870,7 @@ function RelatedProductCard({
         </p>
 
         <p className="mt-2 text-sm font-extrabold" style={{ color: theme.accent }}>
-          {money(product.base_price, currencySymbol)}
+          {money(getPassengerBasePrice(product, "adult"), currencySymbol)}
         </p>
       </div>
     </Link>

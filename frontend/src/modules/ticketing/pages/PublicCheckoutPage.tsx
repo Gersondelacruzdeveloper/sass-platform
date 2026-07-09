@@ -413,6 +413,9 @@ export default function PublicCheckoutPage() {
   const sellerSlug = searchParams.get("seller") || "";
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
+  const adultPriceOverride = searchParams.get("adult_price");
+  const childPriceOverride = searchParams.get("child_price");
+  const infantPriceOverride = searchParams.get("infant_price");
 
   // Transfer-only values passed from PublicProductDetailPage.tsx.
   // These do not use excursion pickup schedules. Transfers are advance bookings
@@ -565,19 +568,51 @@ export default function PublicCheckoutPage() {
 
   const isTransfer = product?.product_type === "transfer";
 
-  const unitPrice = useMemo(() => {
-    const productPrice = Number(product?.base_price || 0);
-    const override = parseNumber(unitPriceOverride, NaN);
+  const adultUnitPrice = useMemo(() => {
+    const productAny = product as any;
+    const productPrice = Number(productAny?.adult_price ?? product?.base_price ?? 0);
+    const passengerOverride = parseNumber(adultPriceOverride, NaN);
+    const legacyOverride = parseNumber(unitPriceOverride, NaN);
+
+    if (Number.isFinite(passengerOverride) && passengerOverride > 0) {
+      return passengerOverride;
+    }
 
     /*
-      Do not allow a missing or accidental 0.00 query parameter to erase the
-      real product price. The checkout should use the product price from the API
-      unless a positive override was intentionally passed from the product page.
+      Keep the old unit_price override for transfers and external ticket options.
+      For normal excursions, adult/child/infant query params are preferred.
     */
-    if (Number.isFinite(override) && override > 0) return override;
+    if (Number.isFinite(legacyOverride) && legacyOverride > 0) {
+      return legacyOverride;
+    }
 
     return productPrice;
-  }, [product, unitPriceOverride]);
+  }, [product, adultPriceOverride, unitPriceOverride]);
+
+  const childUnitPrice = useMemo(() => {
+    const productAny = product as any;
+    const productPrice = Number(productAny?.child_price ?? 0);
+    const override = parseNumber(childPriceOverride, NaN);
+
+    if (Number.isFinite(override) && override >= 0) return override;
+
+    return productPrice;
+  }, [product, childPriceOverride]);
+
+  const infantUnitPrice = useMemo(() => {
+    const productAny = product as any;
+    const productPrice = Number(productAny?.infant_price ?? 0);
+    const override = parseNumber(infantPriceOverride, NaN);
+
+    if (Number.isFinite(override) && override >= 0) return override;
+
+    return productPrice;
+  }, [product, infantPriceOverride]);
+
+  const legacyUnitPrice = adultUnitPrice;
+
+  const passengerTotal =
+    adults * adultUnitPrice + children * childUnitPrice + infants * infantUnitPrice;
 
   const depositPerGuest = useMemo(() => {
     const productDeposit = Number(product?.deposit_amount || 0);
@@ -588,13 +623,17 @@ export default function PublicCheckoutPage() {
     return productDeposit;
   }, [product, depositOverride]);
 
+  const isExternalTicket = Boolean(externalOptionName || externalProductId || externalAvailabilityId);
+
   const totalFull =
     isTransfer && Number.isFinite(transferQuotedTotal) && transferQuotedTotal > 0
       ? transferQuotedTotal
-      : unitPrice * guests;
+      : isExternalTicket
+        ? legacyUnitPrice * guests
+        : passengerTotal;
 
-  const itemQuantity = isTransfer ? 1 : guests;
-  const itemUnitPrice = isTransfer ? totalFull : unitPrice;
+  const itemQuantity = isTransfer || (!isExternalTicket && !isTransfer) ? 1 : guests;
+  const itemUnitPrice = isTransfer || (!isExternalTicket && !isTransfer) ? totalFull : legacyUnitPrice;
 
   const depositFromPercent =
     Number(product?.deposit_percentage || 0) > 0
@@ -705,6 +744,9 @@ export default function PublicCheckoutPage() {
         isTransfer && transferOrigin ? `Route from: ${transferOrigin}` : "",
         isTransfer && transferDestination ? `Route to: ${transferDestination}` : "",
         isTransfer && transferVehicleType ? `Vehicle: ${transferVehicleType}` : "",
+        !isTransfer && !isExternalTicket ? `Adult price: ${adultUnitPrice.toFixed(2)} x ${adults}` : "",
+        !isTransfer && !isExternalTicket && children > 0 ? `Child price: ${childUnitPrice.toFixed(2)} x ${children}` : "",
+        !isTransfer && !isExternalTicket && infants > 0 ? `Infant price: ${infantUnitPrice.toFixed(2)} x ${infants}` : "",
         isTransfer ? `Passengers: ${guests}` : "",
         isTransfer && form.pickup_name.trim() ? `Pickup: ${form.pickup_name.trim()}` : "",
         isTransfer && form.pickup_address.trim() ? `Pickup address: ${form.pickup_address.trim()}` : "",
@@ -781,6 +823,9 @@ export default function PublicCheckoutPage() {
         adults,
         children,
         infants,
+        adult_unit_price: adultUnitPrice.toFixed(2),
+        child_unit_price: childUnitPrice.toFixed(2),
+        infant_unit_price: infantUnitPrice.toFixed(2),
         subtotal_amount: totalFull.toFixed(2),
         discount_amount: "0.00",
         tax_amount: "0.00",
@@ -1184,6 +1229,18 @@ export default function PublicCheckoutPage() {
               <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Show time" value={formatTime(externalStartTime)} theme={theme} />
             )}
             <SummaryRow icon={<Users className="h-4 w-4" />} label={isTransfer ? "Passengers" : "Guests"} value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
+            {!isTransfer && !isExternalTicket && (
+              <SummaryRow
+                icon={<Ticket className="h-4 w-4" />}
+                label="Price breakdown"
+                value={[
+                  `${adults} adult${adults === 1 ? "" : "s"} × ${money(adultUnitPrice, currencySymbol)}`,
+                  children > 0 ? `${children} child${children === 1 ? "" : "ren"} × ${money(childUnitPrice, currencySymbol)}` : "",
+                  infants > 0 ? `${infants} infant${infants === 1 ? "" : "s"} × ${money(infantUnitPrice, currencySymbol)}` : "",
+                ].filter(Boolean).join(" · ")}
+                theme={theme}
+              />
+            )}
             {isTransfer && (form.pickup_name || transferPickupName || hotelFromQuery) && (
               <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup" value={form.pickup_name || transferPickupName || hotelFromQuery} theme={theme} />
             )}

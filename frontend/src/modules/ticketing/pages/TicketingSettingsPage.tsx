@@ -194,6 +194,12 @@ type TicketingPublicSiteSettings = {
   seo_title: string;
   meta_description: string;
   canonical_url: string;
+
+  product_url_pattern: string;
+  custom_product_url_pattern: string;
+  preserve_imported_product_urls: boolean;
+  auto_create_product_redirects: boolean;
+
   og_title: string;
   og_description: string;
 
@@ -368,6 +374,12 @@ const initialPublicSite: TicketingPublicSiteSettings = {
   seo_title: "",
   meta_description: "",
   canonical_url: "",
+
+  product_url_pattern: "/product/{slug}",
+  custom_product_url_pattern: "",
+  preserve_imported_product_urls: true,
+  auto_create_product_redirects: true,
+
   og_title: "",
   og_description: "",
 
@@ -1049,6 +1061,22 @@ export default function TicketingSettingsPage() {
           seo_title: normalizeText(publicSiteData.seo_title),
           meta_description: normalizeText(publicSiteData.meta_description),
           canonical_url: normalizeText(publicSiteData.canonical_url),
+          product_url_pattern: normalizeText(
+            publicSiteData.product_url_pattern,
+            initialPublicSite.product_url_pattern,
+          ),
+          custom_product_url_pattern: normalizeText(
+            publicSiteData.custom_product_url_pattern,
+            initialPublicSite.custom_product_url_pattern,
+          ),
+          preserve_imported_product_urls: normalizeBoolean(
+            publicSiteData.preserve_imported_product_urls,
+            true,
+          ),
+          auto_create_product_redirects: normalizeBoolean(
+            publicSiteData.auto_create_product_redirects,
+            true,
+          ),
           og_title: normalizeText(publicSiteData.og_title),
           og_description: normalizeText(publicSiteData.og_description),
           robots_allow_indexing: normalizeBoolean(
@@ -1413,6 +1441,26 @@ export default function TicketingSettingsPage() {
         publicSite.meta_description,
       );
       appendText(publicSiteFormData, "canonical_url", publicSite.canonical_url);
+      appendText(
+        publicSiteFormData,
+        "product_url_pattern",
+        publicSite.product_url_pattern,
+      );
+      appendText(
+        publicSiteFormData,
+        "custom_product_url_pattern",
+        publicSite.custom_product_url_pattern,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "preserve_imported_product_urls",
+        publicSite.preserve_imported_product_urls,
+      );
+      appendBoolean(
+        publicSiteFormData,
+        "auto_create_product_redirects",
+        publicSite.auto_create_product_redirects,
+      );
       appendText(publicSiteFormData, "og_title", publicSite.og_title);
       appendText(
         publicSiteFormData,

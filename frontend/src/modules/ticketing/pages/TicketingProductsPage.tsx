@@ -45,8 +45,12 @@ type ProductFormState = {
   sku: string;
   short_description: string;
   long_description: string;
-  base_price: string;
-  cost_price: string;
+  adult_price: string;
+  adult_cost_price: string;
+  child_price: string;
+  child_cost_price: string;
+  infant_price: string;
+  infant_cost_price: string;
   deposit_amount: string;
   deposit_percentage: string;
   capacity: string;
@@ -112,8 +116,12 @@ const emptyForm: ProductFormState = {
   sku: "",
   short_description: "",
   long_description: "",
-  base_price: "0.00",
-  cost_price: "0.00",
+  adult_price: "0.00",
+  adult_cost_price: "0.00",
+  child_price: "0.00",
+  child_cost_price: "0.00",
+  infant_price: "0.00",
+  infant_cost_price: "0.00",
   deposit_amount: "0.00",
   deposit_percentage: "0.00",
   capacity: "0",
@@ -194,14 +202,14 @@ function formatMoney(value: unknown, symbol = "US$") {
 }
 
 function getProfit(product: ExperienceProduct) {
-  const price = Number(product.base_price || 0);
-  const cost = Number(product.cost_price || 0);
+  const price = Number((product as any).adult_price ?? product.base_price ?? 0);
+  const cost = Number((product as any).adult_cost_price ?? product.cost_price ?? 0);
 
   return price - cost;
 }
 
 function getProfitMargin(product: ExperienceProduct) {
-  const price = Number(product.base_price || 0);
+  const price = Number((product as any).adult_price ?? product.base_price ?? 0);
 
   if (price <= 0) return 0;
 
@@ -281,8 +289,12 @@ function getProductForm(product?: ExperienceProduct | null): ProductFormState {
     sku: text(product.sku),
     short_description: text(product.short_description),
     long_description: text(product.long_description),
-    base_price: moneyToString(product.base_price),
-    cost_price: moneyToString(product.cost_price),
+    adult_price: moneyToString((product as any).adult_price ?? product.base_price),
+    adult_cost_price: moneyToString((product as any).adult_cost_price ?? product.cost_price),
+    child_price: moneyToString((product as any).child_price),
+    child_cost_price: moneyToString((product as any).child_cost_price),
+    infant_price: moneyToString((product as any).infant_price),
+    infant_cost_price: moneyToString((product as any).infant_cost_price),
     deposit_amount: moneyToString(product.deposit_amount),
     deposit_percentage: moneyToString(product.deposit_percentage),
     capacity: numberText(product.capacity),
@@ -367,8 +379,16 @@ function buildProductPayload(form: ProductFormState, imageFile: File | null) {
   appendText(formData, "short_description", form.short_description);
   appendText(formData, "long_description", form.long_description);
 
-  appendNumberText(formData, "base_price", form.base_price);
-  appendNumberText(formData, "cost_price", form.cost_price);
+  appendNumberText(formData, "adult_price", form.adult_price);
+  appendNumberText(formData, "adult_cost_price", form.adult_cost_price);
+  appendNumberText(formData, "child_price", form.child_price);
+  appendNumberText(formData, "child_cost_price", form.child_cost_price);
+  appendNumberText(formData, "infant_price", form.infant_price);
+  appendNumberText(formData, "infant_cost_price", form.infant_cost_price);
+
+  // Keep legacy fields in sync for old API/UI/report compatibility.
+  appendNumberText(formData, "base_price", form.adult_price);
+  appendNumberText(formData, "cost_price", form.adult_cost_price);
   appendNumberText(formData, "deposit_amount", form.deposit_amount);
   appendNumberText(formData, "deposit_percentage", form.deposit_percentage);
   appendNumberText(formData, "capacity", form.capacity);
@@ -1178,12 +1198,12 @@ function ProductCard({
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
             <MiniMetric
               label="Price"
-              value={formatMoney(product.base_price)}
+              value={formatMoney((product as any).adult_price ?? product.base_price)}
               icon={DollarSign}
             />
             <MiniMetric
               label="Cost"
-              value={formatMoney(product.cost_price)}
+              value={formatMoney((product as any).adult_cost_price ?? product.cost_price)}
               icon={Tag}
             />
             <MiniMetric
@@ -1660,23 +1680,59 @@ function ProductModal({
             description="Set the sell price, cost, deposit and available capacity."
             icon={DollarSign}
           >
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <Input
-                label="Base price"
+                label="Adult price"
                 type="number"
                 min="0"
                 step="0.01"
-                value={form.base_price}
-                onChange={(value) => onChange("base_price", value)}
+                value={form.adult_price}
+                onChange={(value) => onChange("adult_price", value)}
               />
 
               <Input
-                label="Cost price"
+                label="Adult cost"
                 type="number"
                 min="0"
                 step="0.01"
-                value={form.cost_price}
-                onChange={(value) => onChange("cost_price", value)}
+                value={form.adult_cost_price}
+                onChange={(value) => onChange("adult_cost_price", value)}
+              />
+
+              <Input
+                label="Child price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.child_price}
+                onChange={(value) => onChange("child_price", value)}
+              />
+
+              <Input
+                label="Child cost"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.child_cost_price}
+                onChange={(value) => onChange("child_cost_price", value)}
+              />
+
+              <Input
+                label="Infant price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.infant_price}
+                onChange={(value) => onChange("infant_price", value)}
+              />
+
+              <Input
+                label="Infant cost"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.infant_cost_price}
+                onChange={(value) => onChange("infant_cost_price", value)}
               />
 
               <Input
