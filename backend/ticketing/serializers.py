@@ -1001,43 +1001,6 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             validated_data.pop("smtp_password")
 
         return super().update(instance, validated_data)
-    
-class ExternalProviderConfigSerializer(serializers.ModelSerializer):
-    organisation_name = serializers.CharField(
-        source="organisation.name",
-        read_only=True,
-    )
-
-    class Meta:
-        model = ExternalProviderConfig
-        fields = [
-            "id",
-            "organisation",
-            "organisation_name",
-            "provider",
-            "is_enabled",
-            "api_base_url",
-            "api_key",
-            "api_secret",
-            "show_id",
-            "category_id",
-            "currency",
-            "lang",
-            "include_table",
-            "extra_settings",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = [
-            "id",
-            "organisation",
-            "organisation_name",
-            "created_at",
-            "updated_at",
-        ]
-        extra_kwargs = {
-            "api_secret": {"write_only": True, "required": False},
-        }
 
 class ExternalProviderProductSnapshotSerializer(MediaURLMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(

@@ -11,6 +11,8 @@ import {
   Eye,
   Loader2,
   MapPin,
+  Navigation,
+  Plane,
   RefreshCw,
   Search,
   Ticket,
@@ -65,6 +67,7 @@ type BookingItem = {
   quantity?: number;
   unit_price?: string | number;
   line_total?: string | number;
+  instructions?: string | null;
 };
 
 type BookingPayment = {
@@ -86,6 +89,11 @@ type Booking = {
   payment_mode?: string;
   payment_method?: string;
   source?: string;
+  transfer_origin?: string | null;
+  transfer_destination?: string | null;
+  transfer_vehicle_type?: string | null;
+  transfer_round_trip?: boolean | null;
+  transfer_status?: string | null;
   service_date?: string | null;
   service_time?: string | null;
 
@@ -146,6 +154,16 @@ const paymentStatusOptions: StatusOption[] = [
   { value: "paid", label: "Paid" },
   { value: "refunded", label: "Refunded" },
   { value: "cancelled", label: "Cancelled" },
+];
+
+const productTypeOptions: StatusOption[] = [
+  { value: "", label: "All products" },
+  { value: "transfer", label: "Transfers" },
+  { value: "excursion", label: "Excursions" },
+  { value: "ticket", label: "Tickets" },
+  { value: "event", label: "Events" },
+  { value: "nightlife", label: "Nightlife" },
+  { value: "custom", label: "Custom" },
 ];
 
 function getRequestParams(organisationSlug?: string) {
@@ -259,7 +277,72 @@ function getProductName(booking: Booking) {
   );
 }
 
+function getProductType(booking: Booking) {
+  return String(booking.primary_product_detail?.product_type || "").toLowerCase();
+}
+
+function isTransferBooking(booking: Booking) {
+  return getProductType(booking) === "transfer" || Boolean(booking.transfer_origin || booking.transfer_destination);
+}
+
+function getBookingInstructions(booking: Booking) {
+  return booking.items?.map((item) => item.instructions || "").filter(Boolean).join("\n") || "";
+}
+
+function getInstructionValue(booking: Booking, label: string) {
+  const instructions = getBookingInstructions(booking);
+  const line = instructions
+    .split("\n")
+    .find((item) => item.toLowerCase().startsWith(label.toLowerCase() + ":"));
+
+  return line ? line.split(":").slice(1).join(":").trim() : "";
+}
+
+function getTransferOrigin(booking: Booking) {
+  return booking.transfer_origin || getInstructionValue(booking, "Route from") || "Pickup";
+}
+
+function getTransferDestination(booking: Booking) {
+  return booking.transfer_destination || getInstructionValue(booking, "Route to") || "Drop-off";
+}
+
+function getTransferRouteLabel(booking: Booking) {
+  return `${getTransferOrigin(booking)} → ${getTransferDestination(booking)}`;
+}
+
+function getTransferVehicle(booking: Booking) {
+  return booking.transfer_vehicle_type || getInstructionValue(booking, "Vehicle") || "Vehicle not assigned";
+}
+
+function getTransferPickup(booking: Booking) {
+  return getInstructionValue(booking, "Pickup") || booking.customer_hotel || "—";
+}
+
+function getTransferPickupAddress(booking: Booking) {
+  return getInstructionValue(booking, "Pickup address");
+}
+
+function getTransferPickupMap(booking: Booking) {
+  return getInstructionValue(booking, "Pickup map");
+}
+
+function getTransferDropoff(booking: Booking) {
+  return getInstructionValue(booking, "Drop-off") || getTransferDestination(booking);
+}
+
+function getTransferDropoffAddress(booking: Booking) {
+  return getInstructionValue(booking, "Drop-off address");
+}
+
+function getTransferDropoffMap(booking: Booking) {
+  return getInstructionValue(booking, "Drop-off map");
+}
+
 function getPickupHotel(booking: Booking) {
+  if (isTransferBooking(booking)) {
+    return getTransferPickup(booking);
+  }
+
   return (
     booking.pickup_info?.hotel_or_location_name ||
     booking.pickup_info?.pickup_location_name ||
@@ -293,6 +376,7 @@ export default function TicketingBookingsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
 
   const requestParams = useMemo(
@@ -340,11 +424,14 @@ export default function TicketingBookingsPage() {
       0
     );
 
+    const transfers = bookings.filter(isTransferBooking).length;
+
     return {
       total: bookings.length,
       pending,
       confirmed,
       paid,
+      transfers,
       balanceDue,
     };
   }, [bookings]);
@@ -359,6 +446,9 @@ export default function TicketingBookingsPage() {
         booking.customer_hotel,
         getProductName(booking),
         getPickupHotel(booking),
+        getTransferRouteLabel(booking),
+        getTransferVehicle(booking),
+        getTransferDropoff(booking),
         booking.seller_name,
         booking.status,
         booking.payment_status,
@@ -378,13 +468,17 @@ export default function TicketingBookingsPage() {
         return false;
       }
 
+      if (typeFilter && getProductType(booking) !== typeFilter) {
+        return false;
+      }
+
       if (dateFilter && booking.service_date !== dateFilter) {
         return false;
       }
 
       return true;
     });
-  }, [bookings, search, statusFilter, paymentFilter, dateFilter]);
+  }, [bookings, search, statusFilter, paymentFilter, typeFilter, dateFilter]);
 
   async function updateBooking(
     booking: Booking,
@@ -437,7 +531,7 @@ export default function TicketingBookingsPage() {
       subtitle="Manage customer bookings, tickets, transfers, events and payment status."
     >
       <div className="space-y-5 pb-24">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <StatCard
             title="Total bookings"
             value={String(stats.total)}
@@ -461,6 +555,12 @@ export default function TicketingBookingsPage() {
             value={String(stats.paid)}
             helper="Payment completed"
             icon={<CreditCard className="h-6 w-6 text-emerald-600" />}
+          />
+          <StatCard
+            title="Transfers"
+            value={String(stats.transfers)}
+            helper="Private transport bookings"
+            icon={<Plane className="h-6 w-6 text-blue-600" />}
           />
           <StatCard
             title="Balance due"
@@ -505,7 +605,7 @@ export default function TicketingBookingsPage() {
             </button>
           </div>
 
-          <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_210px_210px_180px]">
+          <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_190px_190px_170px_170px]">
             <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
               <Search className="h-4 w-4 text-slate-400" />
               <input
@@ -540,6 +640,18 @@ export default function TicketingBookingsPage() {
               ))}
             </select>
 
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
+            >
+              {productTypeOptions.map((option) => (
+                <option key={option.value || "all-types"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
             <input
               type="date"
               value={dateFilter}
@@ -559,7 +671,7 @@ export default function TicketingBookingsPage() {
                       <Th>Booking</Th>
                       <Th>Customer</Th>
                       <Th>Product / Date</Th>
-                      <Th>Pickup</Th>
+                      <Th>Pickup / Route</Th>
                       <Th>Total</Th>
                       <Th>Status</Th>
                       <Th>Payment</Th>
@@ -598,19 +710,35 @@ export default function TicketingBookingsPage() {
                               {getProductName(booking)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {formatDate(booking.service_date)} · {getTotalGuests(booking)} guests
+                              {formatDate(booking.service_date)} · {getTotalGuests(booking)} {isTransferBooking(booking) ? "passengers" : "guests"}
                             </p>
                           </div>
                         </Td>
 
                         <Td>
                           <div>
-                            <p className="font-black text-slate-900">
-                              {getPickupHotel(booking)}
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">
-                              {formatTime(getPickupTime(booking))}
-                            </p>
+                            {isTransferBooking(booking) ? (
+                              <>
+                                <p className="font-black text-slate-900">
+                                  {getTransferRouteLabel(booking)}
+                                </p>
+                                <p className="mt-1 text-xs font-bold text-slate-500">
+                                  Pickup: {getTransferPickup(booking)} · {formatTime(getPickupTime(booking))}
+                                </p>
+                                <p className="mt-1 text-xs font-bold text-blue-600">
+                                  {getTransferVehicle(booking)}
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-black text-slate-900">
+                                  {getPickupHotel(booking)}
+                                </p>
+                                <p className="mt-1 text-xs font-bold text-slate-500">
+                                  {formatTime(getPickupTime(booking))}
+                                </p>
+                              </>
+                            )}
                           </div>
                         </Td>
 
@@ -717,6 +845,8 @@ function BookingDetailModal({
   ) => void;
   saving: boolean;
 }) {
+  const transferBooking = isTransferBooking(booking);
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -758,22 +888,53 @@ function BookingDetailModal({
             />
             <InfoCard
               icon={<Users className="h-5 w-5" />}
-              label="Guests"
+              label={transferBooking ? "Passengers" : "Guests"}
               value={`${getTotalGuests(booking)} total`}
               helper={`${booking.adults || 0} adults · ${booking.children || 0} children · ${booking.infants || 0} infants`}
             />
-            <InfoCard
-              icon={<MapPin className="h-5 w-5" />}
-              label="Pickup hotel"
-              value={getPickupHotel(booking)}
-              helper={booking.pickup_info?.pickup_point || "Pickup point not set"}
-            />
-            <InfoCard
-              icon={<Clock3 className="h-5 w-5" />}
-              label="Pickup time"
-              value={formatTime(getPickupTime(booking))}
-              helper={booking.pickup_info?.instructions || "Automatic pickup"}
-            />
+            {transferBooking ? (
+              <>
+                <InfoCard
+                  icon={<Navigation className="h-5 w-5" />}
+                  label="Transfer route"
+                  value={getTransferRouteLabel(booking)}
+                  helper={booking.transfer_round_trip ? "Round trip" : "One way"}
+                />
+                <InfoCard
+                  icon={<MapPin className="h-5 w-5" />}
+                  label="Pickup"
+                  value={getTransferPickup(booking)}
+                  helper={getTransferPickupAddress(booking) || "Pickup address not provided"}
+                />
+                <InfoCard
+                  icon={<MapPin className="h-5 w-5" />}
+                  label="Drop-off"
+                  value={getTransferDropoff(booking)}
+                  helper={getTransferDropoffAddress(booking) || "Drop-off address not provided"}
+                />
+                <InfoCard
+                  icon={<Plane className="h-5 w-5" />}
+                  label="Vehicle"
+                  value={getTransferVehicle(booking)}
+                  helper={statusLabel(booking.transfer_status || "advance booking")}
+                />
+              </>
+            ) : (
+              <>
+                <InfoCard
+                  icon={<MapPin className="h-5 w-5" />}
+                  label="Pickup hotel"
+                  value={getPickupHotel(booking)}
+                  helper={booking.pickup_info?.pickup_point || "Pickup point not set"}
+                />
+                <InfoCard
+                  icon={<Clock3 className="h-5 w-5" />}
+                  label="Pickup time"
+                  value={formatTime(getPickupTime(booking))}
+                  helper={booking.pickup_info?.instructions || "Automatic pickup"}
+                />
+              </>
+            )}
             <InfoCard
               icon={<CreditCard className="h-5 w-5" />}
               label="Total / balance"
@@ -853,6 +1014,23 @@ function BookingDetailModal({
             </div>
           </section>
 
+          {transferBooking && (
+            <section className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide text-blue-700">
+                Transfer details
+              </h3>
+
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <TransferDetail label="Route" value={getTransferRouteLabel(booking)} />
+                <TransferDetail label="Preferred time" value={formatTime(getPickupTime(booking))} />
+                <TransferDetail label="Pickup" value={getTransferPickup(booking)} helper={getTransferPickupAddress(booking)} mapLink={getTransferPickupMap(booking)} />
+                <TransferDetail label="Drop-off" value={getTransferDropoff(booking)} helper={getTransferDropoffAddress(booking)} mapLink={getTransferDropoffMap(booking)} />
+                <TransferDetail label="Vehicle" value={getTransferVehicle(booking)} />
+                <TransferDetail label="Passengers" value={`${getTotalGuests(booking)} total`} />
+              </div>
+            </section>
+          )}
+
           {booking.customer_notes && (
             <section className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
@@ -921,6 +1099,42 @@ function BookingDetailModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function TransferDetail({
+  label,
+  value,
+  helper,
+  mapLink,
+}: {
+  label: string;
+  value?: string | null;
+  helper?: string | null;
+  mapLink?: string | null;
+}) {
+  return (
+    <div className="rounded-2xl border border-blue-100 bg-white p-3 text-sm">
+      <p className="text-xs font-black uppercase tracking-wide text-blue-600">
+        {label}
+      </p>
+      <p className="mt-1 font-black text-slate-950">{value || "—"}</p>
+      {helper && (
+        <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+          {helper}
+        </p>
+      )}
+      {mapLink && (
+        <a
+          href={mapLink}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-flex text-xs font-black text-blue-700 underline"
+        >
+          Open map
+        </a>
+      )}
     </div>
   );
 }

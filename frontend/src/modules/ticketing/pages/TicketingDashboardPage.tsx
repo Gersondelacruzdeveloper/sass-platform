@@ -7,6 +7,9 @@ import {
   BadgeDollarSign,
   BarChart3,
   CalendarClock,
+  Car,
+  MapPin,
+  Plane,
   CheckCircle2,
   Clock3,
   CreditCard,
@@ -71,6 +74,140 @@ function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
           <Icon className="h-6 w-6" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+function productTypeLabel(value?: string | null) {
+  const normalized = String(value || "product").toLowerCase();
+
+  if (normalized === "transfer") return "Transfer";
+  if (normalized === "excursion") return "Excursion";
+  if (normalized === "ticket") return "Ticket";
+  if (normalized === "event") return "Event";
+  if (normalized === "nightlife") return "Nightlife";
+  if (normalized === "custom") return "Custom";
+
+  return normalized.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function productTypeClasses(value?: string | null) {
+  const normalized = String(value || "").toLowerCase();
+
+  if (normalized === "transfer") {
+    return "bg-sky-50 text-sky-700 ring-sky-200";
+  }
+
+  if (normalized === "excursion") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  if (normalized === "ticket" || normalized === "nightlife") {
+    return "bg-purple-50 text-purple-700 ring-purple-200";
+  }
+
+  if (normalized === "event") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-slate-100 text-slate-600 ring-slate-200";
+}
+
+function ProductTypeBadge({ type }: { type?: string | null }) {
+  return (
+    <span
+      className={[
+        "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+        productTypeClasses(type),
+      ].join(" ")}
+    >
+      {productTypeLabel(type)}
+    </span>
+  );
+}
+
+function TransferSnapshot({
+  slug,
+  products,
+}: {
+  slug?: string;
+  products: DashboardProductRanking[];
+}) {
+  const transferProducts = products.filter(
+    (product) => String(product.product_type || "").toLowerCase() === "transfer"
+  );
+
+  const transfersSold = transferProducts.reduce(
+    (sum, product) => sum + Number(product.quantity_sold || 0),
+    0
+  );
+
+  const transferRevenue = transferProducts.reduce(
+    (sum, product) => sum + Number(product.revenue || 0),
+    0
+  );
+
+  return (
+    <div className="rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+            <Car className="h-6 w-6" />
+          </div>
+
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-sky-700">
+              Transfer engine
+            </p>
+            <h2 className="mt-1 text-lg font-black text-slate-950">
+              Private transfers, routes and passenger price bands
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+              Transfers now work separately from excursion pickup schedules. Customers book a
+              route, passenger count, pickup, drop-off, date and preferred time.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:min-w-[320px]">
+          <div className="rounded-2xl border border-sky-100 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+              Transfers sold
+            </p>
+            <p className="mt-1 text-xl font-black text-slate-950">
+              {formatNumber(transfersSold)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-sky-100 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+              Transfer revenue
+            </p>
+            <p className="mt-1 text-xl font-black text-emerald-600">
+              {formatMoney(transferRevenue)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link
+          to={`/ticketing/${slug}/transfers`}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
+        >
+          <MapPin className="h-4 w-4" />
+          Manage transfer routes
+        </Link>
+
+        <Link
+          to={`/ticketing/${slug}/bookings`}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+        >
+          <Plane className="h-4 w-4" />
+          View transfer bookings
+        </Link>
       </div>
     </div>
   );
@@ -152,9 +289,7 @@ function ProductRankingTable({
                   </p>
                 </td>
                 <td className="px-5 py-4">
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                    {product.product_type || "product"}
-                  </span>
+                  <ProductTypeBadge type={product.product_type} />
                 </td>
                 <td className="px-5 py-4 text-right font-black text-slate-900">
                   {formatNumber(product.quantity_sold)}
@@ -376,6 +511,8 @@ export default function TicketingDashboardPage() {
       </div>
 
       {!hasAnyData && <EmptyState />}
+
+      <TransferSnapshot slug={slug} products={dashboard.top_products || []} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
