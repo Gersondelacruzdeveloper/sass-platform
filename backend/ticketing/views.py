@@ -291,6 +291,7 @@ class TicketingProductManagementPermissionMixin:
             "events",
             "tickets",
             "resolve",
+            "quote",
         ]
 
         if getattr(self, "action", None) in read_actions:

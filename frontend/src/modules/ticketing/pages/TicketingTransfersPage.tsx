@@ -21,6 +21,7 @@ import {
   Search,
   ToggleLeft,
   ToggleRight,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -37,17 +38,36 @@ type Category = {
   is_active?: boolean;
 };
 
-type TransferRoute = {
-  id?: number;
+type TransferPriceBand = {
+  id: number;
+  route: number;
+  route_name?: string;
   name?: string;
-  from_location?: string;
-  to_location?: string;
-  origin?: string;
-  destination?: string;
-  duration_minutes?: number;
-  price?: string | number;
-  base_price?: string | number;
+  min_passengers: number;
+  max_passengers: number;
+  vehicle_type?: string;
+  one_way_price: string | number;
+  round_trip_price?: string | number | null;
   is_active?: boolean;
+  sort_order?: number;
+};
+
+type TransferRoute = {
+  id: number;
+  product: number;
+  product_name?: string;
+  origin: string;
+  destination: string;
+  airport?: string;
+  vehicle_type?: string;
+  is_round_trip?: boolean;
+  base_passengers?: number;
+  max_passengers?: number;
+  price?: string | number;
+  round_trip_price?: string | number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ExperienceProduct = {
@@ -63,15 +83,20 @@ type ExperienceProduct = {
   public_enabled?: boolean;
 
   short_description?: string | null;
+  long_description?: string | null;
   description?: string | null;
   summary?: string | null;
 
   base_price?: string | number;
   deposit_amount?: string | number;
   deposit_percentage?: string | number;
+  capacity?: number | string | null;
   max_capacity?: number | string | null;
+  duration_text?: string | null;
   duration_minutes?: number | string | null;
+  location?: string | null;
   location_name?: string | null;
+  address?: string | null;
   meeting_point?: string | null;
 
   supports_pickup?: boolean;
@@ -94,40 +119,109 @@ type TransferFormState = {
   name: string;
   slug: string;
   short_description: string;
-  description: string;
+  long_description: string;
   base_price: string;
   deposit_amount: string;
   deposit_percentage: string;
-  max_capacity: string;
-  duration_minutes: string;
-  location_name: string;
-  meeting_point: string;
+  capacity: string;
+  duration_text: string;
+  location: string;
+  address: string;
   status: ProductStatus;
   is_active: boolean;
   public_enabled: boolean;
-  allow_public_bookings: boolean;
   seller_enabled: boolean;
 };
 
-const blankForm: TransferFormState = {
+type RouteFormState = {
+  id?: number | null;
+  product: string;
+  origin: string;
+  destination: string;
+  airport: string;
+  vehicle_type: string;
+  is_round_trip: boolean;
+  base_passengers: string;
+  max_passengers: string;
+  price: string;
+  round_trip_price: string;
+  is_active: boolean;
+};
+
+type BandFormState = {
+  id?: number | null;
+  route: string;
+  name: string;
+  min_passengers: string;
+  max_passengers: string;
+  vehicle_type: string;
+  one_way_price: string;
+  round_trip_price: string;
+  is_active: boolean;
+  sort_order: string;
+};
+
+type QuoteResult = {
+  route?: string;
+  route_id?: number;
+  price_band?: string;
+  price_band_id?: number;
+  vehicle?: string;
+  vehicle_type?: string;
+  passengers?: number;
+  round_trip?: boolean;
+  price?: string | number;
+  total_price?: string | number;
+  one_way_price?: string | number;
+  round_trip_price?: string | number;
+};
+
+const blankTransferForm: TransferFormState = {
   id: null,
   category: "",
   name: "",
   slug: "",
   short_description: "",
-  description: "",
+  long_description: "",
   base_price: "0.00",
   deposit_amount: "0.00",
   deposit_percentage: "0.00",
-  max_capacity: "1",
-  duration_minutes: "",
-  location_name: "",
-  meeting_point: "",
+  capacity: "1",
+  duration_text: "",
+  location: "",
+  address: "",
   status: "active",
   is_active: true,
   public_enabled: true,
-  allow_public_bookings: true,
   seller_enabled: true,
+};
+
+const blankRouteForm: RouteFormState = {
+  id: null,
+  product: "",
+  origin: "",
+  destination: "",
+  airport: "",
+  vehicle_type: "van",
+  is_round_trip: false,
+  base_passengers: "1",
+  max_passengers: "6",
+  price: "0.00",
+  round_trip_price: "0.00",
+  is_active: true,
+};
+
+const blankBandForm: BandFormState = {
+  id: null,
+  route: "",
+  name: "",
+  min_passengers: "1",
+  max_passengers: "6",
+  vehicle_type: "van",
+  one_way_price: "0.00",
+  round_trip_price: "",
+  is_active: true,
+  sort_order: "0",
 };
 
 const statusOptions = [
@@ -135,6 +229,16 @@ const statusOptions = [
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
   { value: "archived", label: "Archived" },
+];
+
+const vehicleOptions = [
+  { value: "standard_car", label: "Standard Car" },
+  { value: "suv", label: "SUV" },
+  { value: "van", label: "Van" },
+  { value: "minibus", label: "Minibus" },
+  { value: "bus", label: "Bus" },
+  { value: "luxury", label: "Luxury" },
+  { value: "other", label: "Other" },
 ];
 
 function getRequestParams(organisationSlug?: string) {
@@ -184,17 +288,15 @@ function formatMoney(value?: string | number | null, symbol = "US$") {
   })}`;
 }
 
-function formatMinutes(value?: string | number | null) {
-  const minutes = Number(value || 0);
+function formatVehicle(value?: string | null) {
+  if (!value) return "—";
 
-  if (!minutes) return "—";
+  const option = vehicleOptions.find((item) => item.value === value);
+  if (option) return option.label;
 
-  if (minutes < 60) return `${minutes} min`;
-
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  return String(value)
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function slugify(value: string) {
@@ -257,72 +359,139 @@ function resolveAssetUrl(url?: string | null) {
 
 function productToForm(product: ExperienceProduct): TransferFormState {
   return {
-    ...blankForm,
+    ...blankTransferForm,
     id: product.id,
     category: String(product.category || product.category_id || product.category_detail?.id || ""),
     name: product.name || "",
     slug: product.slug || "",
-    short_description:
-      product.short_description || product.summary || "",
-    description: product.description || "",
+    short_description: product.short_description || product.summary || "",
+    long_description: product.long_description || product.description || "",
     base_price: String(product.base_price ?? "0.00"),
     deposit_amount: String(product.deposit_amount ?? "0.00"),
     deposit_percentage: String(product.deposit_percentage ?? "0.00"),
-    max_capacity: String(product.max_capacity ?? "1"),
-    duration_minutes: String(product.duration_minutes ?? ""),
-    location_name: product.location_name || "",
-    meeting_point: product.meeting_point || "",
+    capacity: String(product.capacity ?? product.max_capacity ?? "1"),
+    duration_text: String(product.duration_text ?? product.duration_minutes ?? ""),
+    location: product.location || product.location_name || "",
+    address: product.address || product.meeting_point || "",
     status: product.status || "active",
     is_active: product.is_active !== false,
     public_enabled: Boolean(product.public_enabled),
-    allow_public_bookings: product.allow_public_bookings !== false,
     seller_enabled: product.seller_enabled !== false,
   };
 }
 
-function formToPayload(form: TransferFormState) {
+function transferFormToPayload(form: TransferFormState) {
   const payload: Record<string, unknown> = {
     product_type: "transfer",
     name: form.name.trim(),
     slug: form.slug.trim() || slugify(form.name),
     short_description: form.short_description.trim(),
-    description: form.description.trim(),
+    long_description: form.long_description.trim(),
     base_price: form.base_price || "0.00",
     deposit_amount: form.deposit_amount || "0.00",
     deposit_percentage: form.deposit_percentage || "0.00",
-    max_capacity: Number(form.max_capacity || 1),
-    duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
-    location_name: form.location_name.trim(),
-    meeting_point: form.meeting_point.trim(),
+    capacity: Number(form.capacity || 1),
+    duration_text: form.duration_text.trim(),
+    location: form.location.trim(),
+    address: form.address.trim(),
+    supports_pickup: true,
+    requires_pickup_location: true,
     status: form.status,
     is_active: form.is_active,
     public_enabled: form.public_enabled,
-    allow_public_bookings: form.allow_public_bookings,
     seller_enabled: form.seller_enabled,
   };
 
   if (form.category) {
-    payload.category = Number(form.category);
+    payload.category_id = Number(form.category);
   }
 
   return payload;
+}
+
+function routeToForm(route: TransferRoute): RouteFormState {
+  return {
+    id: route.id,
+    product: String(route.product || ""),
+    origin: route.origin || "",
+    destination: route.destination || "",
+    airport: route.airport || "",
+    vehicle_type: route.vehicle_type || "van",
+    is_round_trip: Boolean(route.is_round_trip),
+    base_passengers: String(route.base_passengers ?? 1),
+    max_passengers: String(route.max_passengers ?? 6),
+    price: String(route.price ?? "0.00"),
+    round_trip_price: String(route.round_trip_price ?? "0.00"),
+    is_active: route.is_active !== false,
+  };
+}
+
+function routeFormToPayload(form: RouteFormState) {
+  return {
+    product_id: Number(form.product),
+    origin: form.origin.trim(),
+    destination: form.destination.trim(),
+    airport: form.airport.trim(),
+    vehicle_type: form.vehicle_type,
+    is_round_trip: form.is_round_trip,
+    base_passengers: Number(form.base_passengers || 1),
+    max_passengers: Number(form.max_passengers || 1),
+    price: form.price || "0.00",
+    round_trip_price: form.round_trip_price || "0.00",
+    is_active: form.is_active,
+  };
+}
+
+function bandToForm(band: TransferPriceBand): BandFormState {
+  return {
+    id: band.id,
+    route: String(band.route || ""),
+    name: band.name || "",
+    min_passengers: String(band.min_passengers ?? 1),
+    max_passengers: String(band.max_passengers ?? 6),
+    vehicle_type: band.vehicle_type || "van",
+    one_way_price: String(band.one_way_price ?? "0.00"),
+    round_trip_price: band.round_trip_price ? String(band.round_trip_price) : "",
+    is_active: band.is_active !== false,
+    sort_order: String(band.sort_order ?? 0),
+  };
+}
+
+function bandFormToPayload(form: BandFormState) {
+  return {
+    route_id: Number(form.route),
+    name: form.name.trim(),
+    min_passengers: Number(form.min_passengers || 1),
+    max_passengers: Number(form.max_passengers || 1),
+    vehicle_type: form.vehicle_type,
+    one_way_price: form.one_way_price || "0.00",
+    round_trip_price: form.round_trip_price || null,
+    is_active: form.is_active,
+    sort_order: Number(form.sort_order || 0),
+  };
 }
 
 function getProductPublicUrl(organisationSlug: string, product: ExperienceProduct) {
   return `${window.location.origin}/experiences/${organisationSlug}/product/${product.slug}`;
 }
 
-function getPrimaryRouteLabel(product: ExperienceProduct) {
-  const route = product.transfer_routes?.[0];
+function routeLabel(route?: TransferRoute | null) {
+  if (!route) return "Route not configured";
+  return `${route.origin || "Origin"} → ${route.destination || "Destination"}`;
+}
 
-  if (!route) return product.location_name || "Route not configured";
+function bandLabel(band: TransferPriceBand) {
+  return `${band.min_passengers}-${band.max_passengers} passengers`;
+}
 
-  const from = route.from_location || route.origin || "";
-  const to = route.to_location || route.destination || "";
+function getProductRoutes(product: ExperienceProduct, routes: TransferRoute[]) {
+  return routes.filter((route) => route.product === product.id);
+}
 
-  if (from && to) return `${from} → ${to}`;
-
-  return route.name || product.location_name || "Route not configured";
+function getPrimaryRouteLabel(product: ExperienceProduct, routes: TransferRoute[]) {
+  const route = getProductRoutes(product, routes)[0] || product.transfer_routes?.[0];
+  if (route) return routeLabel(route);
+  return product.location || product.location_name || "Route not configured";
 }
 
 export default function TicketingTransfersPage() {
@@ -331,13 +500,30 @@ export default function TicketingTransfersPage() {
 
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [routes, setRoutes] = useState<TransferRoute[]>([]);
+  const [priceBands, setPriceBands] = useState<TransferPriceBand[]>([]);
+
   const [selectedTransfer, setSelectedTransfer] = useState<ExperienceProduct | null>(null);
   const [editingTransfer, setEditingTransfer] = useState<ExperienceProduct | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<TransferFormState>(blankForm);
+  const [showTransferForm, setShowTransferForm] = useState(false);
+  const [transferForm, setTransferForm] = useState<TransferFormState>(blankTransferForm);
+
+  const [editingRoute, setEditingRoute] = useState<TransferRoute | null>(null);
+  const [showRouteForm, setShowRouteForm] = useState(false);
+  const [routeForm, setRouteForm] = useState<RouteFormState>(blankRouteForm);
+
+  const [editingBand, setEditingBand] = useState<TransferPriceBand | null>(null);
+  const [showBandForm, setShowBandForm] = useState(false);
+  const [bandForm, setBandForm] = useState<BandFormState>(blankBandForm);
+
+  const [quoteRouteId, setQuoteRouteId] = useState("");
+  const [quotePassengers, setQuotePassengers] = useState("1");
+  const [quoteRoundTrip, setQuoteRoundTrip] = useState(false);
+  const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [quoting, setQuoting] = useState(false);
 
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
@@ -358,22 +544,29 @@ export default function TicketingTransfersPage() {
       setLoading(true);
       setError("");
 
-      const [productsResponse, categoriesResponse] = await Promise.all([
-        api.get("/ticketing/products/", {
-          params: requestParams,
-        }),
-        api.get("/ticketing/categories/", {
-          params: requestParams,
-        }),
-      ]);
+      const [productsResponse, categoriesResponse, routesResponse, bandsResponse] =
+        await Promise.all([
+          api.get("/ticketing/products/", { params: requestParams }),
+          api.get("/ticketing/categories/", { params: requestParams }),
+          api.get("/ticketing/transfer-routes/", { params: requestParams }),
+          api.get("/ticketing/transfer-price-bands/", { params: requestParams }),
+        ]);
 
       const allProducts = normalizeList<ExperienceProduct>(productsResponse.data);
       const transferProducts = allProducts.filter(
         (product) => product.product_type === "transfer"
       );
 
+      const loadedRoutes = normalizeList<TransferRoute>(routesResponse.data);
+
       setProducts(transferProducts);
       setCategories(normalizeList<Category>(categoriesResponse.data));
+      setRoutes(loadedRoutes);
+      setPriceBands(normalizeList<TransferPriceBand>(bandsResponse.data));
+
+      if (!quoteRouteId && loadedRoutes.length > 0) {
+        setQuoteRouteId(String(loadedRoutes[0].id));
+      }
     } catch (err: any) {
       console.error("Could not load transfers:", err);
       setError(getErrorMessage(err, "Could not load transfers."));
@@ -393,37 +586,35 @@ export default function TicketingTransfersPage() {
 
     const publicProducts = products.filter((product) => product.public_enabled).length;
 
-    const totalCapacity = products.reduce(
-      (sum, product) => sum + Number(product.max_capacity || 0),
-      0
-    );
+    const activeRoutes = routes.filter((route) => route.is_active !== false).length;
+    const activeBands = priceBands.filter((band) => band.is_active !== false).length;
 
-    const averagePrice =
-      products.length > 0
-        ? products.reduce((sum, product) => sum + Number(product.base_price || 0), 0) /
-          products.length
-        : 0;
+    const lowestPrice = priceBands.length
+      ? Math.min(...priceBands.map((band) => Number(band.one_way_price || 0)))
+      : 0;
 
     return {
       total: products.length,
       active,
       publicProducts,
-      totalCapacity,
-      averagePrice,
+      activeRoutes,
+      activeBands,
+      lowestPrice,
     };
-  }, [products]);
+  }, [products, routes, priceBands]);
 
   const filteredTransfers = useMemo(() => {
     return products.filter((product) => {
+      const productRoutes = getProductRoutes(product, routes);
       const searchText = [
         product.name,
         product.slug,
         product.status,
-        product.location_name,
-        product.meeting_point,
-        getPrimaryRouteLabel(product),
+        product.location,
+        product.address,
         product.category_detail?.name,
         product.short_description,
+        ...productRoutes.map(routeLabel),
       ]
         .join(" ")
         .toLowerCase();
@@ -446,35 +637,70 @@ export default function TicketingTransfersPage() {
 
       return true;
     });
-  }, [products, search, statusFilter, publicFilter]);
+  }, [products, routes, search, statusFilter, publicFilter]);
 
-  function openCreateForm() {
+  function openCreateTransferForm() {
     setEditingTransfer(null);
     setSelectedTransfer(null);
-    setForm(blankForm);
-    setShowForm(true);
+    setTransferForm(blankTransferForm);
+    setShowTransferForm(true);
     setError("");
     setSavedMessage("");
   }
 
-  function openEditForm(product: ExperienceProduct) {
+  function openEditTransferForm(product: ExperienceProduct) {
     setEditingTransfer(product);
     setSelectedTransfer(null);
-    setForm(productToForm(product));
-    setShowForm(true);
+    setTransferForm(productToForm(product));
+    setShowTransferForm(true);
     setError("");
     setSavedMessage("");
   }
 
-  function updateForm<K extends keyof TransferFormState>(
+  function openCreateRouteForm(product?: ExperienceProduct | null) {
+    setEditingRoute(null);
+    setRouteForm({
+      ...blankRouteForm,
+      product: product ? String(product.id) : "",
+    });
+    setShowRouteForm(true);
+    setError("");
+    setSavedMessage("");
+  }
+
+  function openEditRouteForm(route: TransferRoute) {
+    setEditingRoute(route);
+    setRouteForm(routeToForm(route));
+    setShowRouteForm(true);
+    setError("");
+    setSavedMessage("");
+  }
+
+  function openCreateBandForm(route?: TransferRoute | null) {
+    setEditingBand(null);
+    setBandForm({
+      ...blankBandForm,
+      route: route ? String(route.id) : "",
+    });
+    setShowBandForm(true);
+    setError("");
+    setSavedMessage("");
+  }
+
+  function openEditBandForm(band: TransferPriceBand) {
+    setEditingBand(band);
+    setBandForm(bandToForm(band));
+    setShowBandForm(true);
+    setError("");
+    setSavedMessage("");
+  }
+
+  function updateTransferForm<K extends keyof TransferFormState>(
     field: K,
     value: TransferFormState[K]
   ) {
-    setForm((current) => {
-      const next = {
-        ...current,
-        [field]: value,
-      };
+    setTransferForm((current) => {
+      const next = { ...current, [field]: value };
 
       if (field === "name" && !current.id && !current.slug.trim()) {
         next.slug = slugify(String(value));
@@ -484,8 +710,22 @@ export default function TicketingTransfersPage() {
     });
   }
 
+  function updateRouteForm<K extends keyof RouteFormState>(
+    field: K,
+    value: RouteFormState[K]
+  ) {
+    setRouteForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateBandForm<K extends keyof BandFormState>(
+    field: K,
+    value: BandFormState[K]
+  ) {
+    setBandForm((current) => ({ ...current, [field]: value }));
+  }
+
   async function saveTransfer() {
-    if (!form.name.trim()) {
+    if (!transferForm.name.trim()) {
       setError("Transfer name is required.");
       return;
     }
@@ -495,7 +735,7 @@ export default function TicketingTransfersPage() {
       setError("");
       setSavedMessage("");
 
-      const payload = formToPayload(form);
+      const payload = transferFormToPayload(transferForm);
 
       const response = editingTransfer
         ? await api.patch(`/ticketing/products/${editingTransfer.id}/`, payload, {
@@ -517,12 +757,133 @@ export default function TicketingTransfersPage() {
         return [savedProduct, ...current];
       });
 
-      setShowForm(false);
+      setShowTransferForm(false);
       setEditingTransfer(null);
       setSavedMessage(editingTransfer ? "Transfer updated." : "Transfer created.");
     } catch (err: any) {
       console.error("Could not save transfer:", err);
       setError(getErrorMessage(err, "Could not save transfer."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveRoute() {
+    if (!routeForm.product) {
+      setError("Select a transfer product for this route.");
+      return;
+    }
+
+    if (!routeForm.origin.trim() || !routeForm.destination.trim()) {
+      setError("Origin and destination are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      setSavedMessage("");
+
+      const payload = routeFormToPayload(routeForm);
+
+      const response = editingRoute
+        ? await api.patch(`/ticketing/transfer-routes/${editingRoute.id}/`, payload, {
+            params: requestParams,
+          })
+        : await api.post("/ticketing/transfer-routes/", payload, {
+            params: requestParams,
+          });
+
+      const savedRoute = response.data as TransferRoute;
+
+      setRoutes((current) => {
+        if (editingRoute) {
+          return current.map((item) =>
+            item.id === savedRoute.id ? savedRoute : item
+          );
+        }
+
+        return [savedRoute, ...current];
+      });
+
+      if (!quoteRouteId) setQuoteRouteId(String(savedRoute.id));
+
+      setShowRouteForm(false);
+      setEditingRoute(null);
+      setSavedMessage(editingRoute ? "Route updated." : "Route created.");
+    } catch (err: any) {
+      console.error("Could not save route:", err);
+      setError(getErrorMessage(err, "Could not save route."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveBand() {
+    if (!bandForm.route) {
+      setError("Select a route for this price band.");
+      return;
+    }
+
+    if (Number(bandForm.max_passengers) < Number(bandForm.min_passengers)) {
+      setError("Max passengers must be greater than or equal to min passengers.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      setSavedMessage("");
+
+      const payload = bandFormToPayload(bandForm);
+
+      const response = editingBand
+        ? await api.patch(`/ticketing/transfer-price-bands/${editingBand.id}/`, payload, {
+            params: requestParams,
+          })
+        : await api.post("/ticketing/transfer-price-bands/", payload, {
+            params: requestParams,
+          });
+
+      const savedBand = response.data as TransferPriceBand;
+
+      setPriceBands((current) => {
+        if (editingBand) {
+          return current.map((item) => (item.id === savedBand.id ? savedBand : item));
+        }
+
+        return [savedBand, ...current];
+      });
+
+      setShowBandForm(false);
+      setEditingBand(null);
+      setSavedMessage(editingBand ? "Price band updated." : "Price band created.");
+    } catch (err: any) {
+      console.error("Could not save price band:", err);
+      setError(getErrorMessage(err, "Could not save price band."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteBand(band: TransferPriceBand) {
+    const confirmed = window.confirm(`Delete ${bandLabel(band)}?`);
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setError("");
+      setSavedMessage("");
+
+      await api.delete(`/ticketing/transfer-price-bands/${band.id}/`, {
+        params: requestParams,
+      });
+
+      setPriceBands((current) => current.filter((item) => item.id !== band.id));
+      setSavedMessage("Price band deleted.");
+    } catch (err: any) {
+      console.error("Could not delete price band:", err);
+      setError(getErrorMessage(err, "Could not delete price band."));
     } finally {
       setSaving(false);
     }
@@ -536,12 +897,8 @@ export default function TicketingTransfersPage() {
 
       const response = await api.patch(
         `/ticketing/products/${product.id}/`,
-        {
-          public_enabled: !product.public_enabled,
-        },
-        {
-          params: requestParams,
-        }
+        { public_enabled: !product.public_enabled },
+        { params: requestParams }
       );
 
       const updatedProduct = response.data as ExperienceProduct;
@@ -576,6 +933,36 @@ export default function TicketingTransfersPage() {
     }
   }
 
+  async function testQuote() {
+    if (!quoteRouteId) {
+      setError("Select a route before testing a quote.");
+      return;
+    }
+
+    try {
+      setQuoting(true);
+      setError("");
+      setQuoteResult(null);
+
+      const response = await api.post(
+        "/ticketing/transfer-price-bands/quote/",
+        {
+          route_id: Number(quoteRouteId),
+          passengers: Number(quotePassengers || 1),
+          round_trip: quoteRoundTrip,
+        },
+        { params: requestParams }
+      );
+
+      setQuoteResult(response.data as QuoteResult);
+    } catch (err: any) {
+      console.error("Could not calculate quote:", err);
+      setError(getErrorMessage(err, "Could not calculate transfer quote."));
+    } finally {
+      setQuoting(false);
+    }
+  }
+
   if (loading) {
     return (
       <TicketingPageShell
@@ -592,40 +979,16 @@ export default function TicketingTransfersPage() {
   return (
     <TicketingPageShell
       title="Transfers"
-      subtitle="Manage airport, hotel and private transfer services."
+      subtitle="Manage transfer products, routes and passenger price bands."
     >
       <div className="space-y-5 pb-24">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <StatCard
-            title="Transfer services"
-            value={String(stats.total)}
-            helper="All transfer products"
-            icon={<Car className="h-6 w-6 text-slate-700" />}
-          />
-          <StatCard
-            title="Active"
-            value={String(stats.active)}
-            helper="Available to sell"
-            icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
-          />
-          <StatCard
-            title="Public"
-            value={String(stats.publicProducts)}
-            helper="Visible on public site"
-            icon={<ExternalLink className="h-6 w-6 text-sky-600" />}
-          />
-          <StatCard
-            title="Total capacity"
-            value={String(stats.totalCapacity)}
-            helper="Combined capacity"
-            icon={<Users className="h-6 w-6 text-amber-600" />}
-          />
-          <StatCard
-            title="Average price"
-            value={formatMoney(stats.averagePrice)}
-            helper="Base price average"
-            icon={<DollarSign className="h-6 w-6 text-emerald-600" />}
-          />
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <StatCard title="Transfer products" value={String(stats.total)} helper="Services" icon={<Car className="h-6 w-6 text-slate-700" />} />
+          <StatCard title="Active" value={String(stats.active)} helper="Available to sell" icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />} />
+          <StatCard title="Public" value={String(stats.publicProducts)} helper="Visible online" icon={<ExternalLink className="h-6 w-6 text-sky-600" />} />
+          <StatCard title="Routes" value={String(stats.activeRoutes)} helper="Active routes" icon={<MapPin className="h-6 w-6 text-amber-600" />} />
+          <StatCard title="Price bands" value={String(stats.activeBands)} helper="Passenger ranges" icon={<Users className="h-6 w-6 text-indigo-600" />} />
+          <StatCard title="From" value={formatMoney(stats.lowestPrice)} helper="Lowest band" icon={<DollarSign className="h-6 w-6 text-emerald-600" />} />
         </section>
 
         {error && (
@@ -645,29 +1008,29 @@ export default function TicketingTransfersPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
-              <h2 className="text-lg font-black text-slate-950">
-                Transfer services
-              </h2>
+              <h2 className="text-lg font-black text-slate-950">Transfer manager</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Create and manage airport, hotel and private transfer products.
+                Keep the product simple, then add routes and passenger-based prices.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={loadPage}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
-              >
+              <button type="button" onClick={loadPage} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </button>
 
-              <button
-                type="button"
-                onClick={openCreateForm}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
-              >
+              <button type="button" onClick={() => openCreateRouteForm(selectedTransfer)} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                <MapPin className="h-4 w-4" />
+                New route
+              </button>
+
+              <button type="button" onClick={() => openCreateBandForm()} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                <DollarSign className="h-4 w-4" />
+                New price band
+              </button>
+
+              <button type="button" onClick={openCreateTransferForm} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
                 <Plus className="h-4 w-4" />
                 New transfer
               </button>
@@ -677,32 +1040,17 @@ export default function TicketingTransfersPage() {
           <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_220px_180px]">
             <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
               <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search transfer, route, airport, hotel..."
-                className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
-              />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search transfer, route, airport, destination..." className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
             </div>
 
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
-            >
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none">
               <option value="">All statuses</option>
               {statusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
+                <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
 
-            <select
-              value={publicFilter}
-              onChange={(event) => setPublicFilter(event.target.value)}
-              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
-            >
+            <select value={publicFilter} onChange={(event) => setPublicFilter(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none">
               <option value="">All visibility</option>
               <option value="public">Public</option>
               <option value="hidden">Hidden</option>
@@ -718,10 +1066,9 @@ export default function TicketingTransfersPage() {
                   <thead className="bg-slate-50">
                     <tr>
                       <Th>Transfer</Th>
-                      <Th>Route / Location</Th>
-                      <Th>Price</Th>
-                      <Th>Duration</Th>
-                      <Th>Capacity</Th>
+                      <Th>Primary route</Th>
+                      <Th>Routes</Th>
+                      <Th>Price bands</Th>
                       <Th>Status</Th>
                       <Th>Public</Th>
                       <Th>Actions</Th>
@@ -729,155 +1076,312 @@ export default function TicketingTransfersPage() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredTransfers.map((product) => (
-                      <tr key={product.id}>
-                        <Td>
-                          <div className="flex items-center gap-3">
-                            <TransferImage product={product} />
-                            <div>
-                              <p className="font-black text-slate-950">
-                                {product.name}
-                              </p>
-                              <p className="mt-1 text-xs font-bold text-slate-500">
-                                /product/{product.slug}
-                              </p>
+                    {filteredTransfers.map((product) => {
+                      const productRoutes = getProductRoutes(product, routes);
+                      const productBands = priceBands.filter((band) =>
+                        productRoutes.some((route) => route.id === band.route)
+                      );
+
+                      return (
+                        <tr key={product.id}>
+                          <Td>
+                            <div className="flex items-center gap-3">
+                              <TransferImage product={product} />
+                              <div>
+                                <p className="font-black text-slate-950">{product.name}</p>
+                                <p className="mt-1 text-xs font-bold text-slate-500">/product/{product.slug}</p>
+                              </div>
                             </div>
-                          </div>
-                        </Td>
+                          </Td>
 
-                        <Td>
-                          <div>
-                            <p className="font-black text-slate-900">
-                              {getPrimaryRouteLabel(product)}
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">
-                              {product.category_detail?.name || "Transfer"}
-                            </p>
-                          </div>
-                        </Td>
+                          <Td>
+                            <div>
+                              <p className="font-black text-slate-900">{getPrimaryRouteLabel(product, routes)}</p>
+                              <p className="mt-1 text-xs font-bold text-slate-500">{product.category_detail?.name || "Transfer"}</p>
+                            </div>
+                          </Td>
 
-                        <Td>
-                          <div>
-                            <p className="font-black text-slate-950">
-                              {formatMoney(product.base_price)}
-                            </p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">
-                              Deposit: {formatMoney(product.deposit_amount)}
-                            </p>
-                          </div>
-                        </Td>
+                          <Td><p className="font-black text-slate-950">{productRoutes.length}</p></Td>
+                          <Td><p className="font-black text-slate-950">{productBands.length}</p></Td>
 
-                        <Td>
-                          <p className="font-black text-slate-950">
-                            {formatMinutes(product.duration_minutes)}
-                          </p>
-                        </Td>
+                          <Td>
+                            <span className={["inline-flex rounded-full px-3 py-1 text-xs font-black ring-1", getStatusClasses(product)].join(" ")}>{statusLabel(product.status)}</span>
+                          </Td>
 
-                        <Td>
-                          <p className="font-black text-slate-950">
-                            {product.max_capacity || "—"}
-                          </p>
-                        </Td>
-
-                        <Td>
-                          <span
-                            className={[
-                              "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-                              getStatusClasses(product),
-                            ].join(" ")}
-                          >
-                            {statusLabel(product.status)}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => togglePublic(product)}
-                            className={[
-                              "inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-3 text-xs font-black text-white transition disabled:opacity-60",
-                              product.public_enabled
-                                ? "bg-emerald-600 hover:bg-emerald-700"
-                                : "bg-slate-500 hover:bg-slate-600",
-                            ].join(" ")}
-                          >
-                            {product.public_enabled ? (
-                              <ToggleRight className="h-4 w-4" />
-                            ) : (
-                              <ToggleLeft className="h-4 w-4" />
-                            )}
-                            {product.public_enabled ? "Public" : "Hidden"}
-                          </button>
-                        </Td>
-
-                        <Td>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedTransfer(product)}
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                            >
-                              <Eye className="h-4 w-4" />
-                              View
+                          <Td>
+                            <button type="button" disabled={saving} onClick={() => togglePublic(product)} className={["inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-3 text-xs font-black text-white transition disabled:opacity-60", product.public_enabled ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-500 hover:bg-slate-600"].join(" ")}>
+                              {product.public_enabled ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                              {product.public_enabled ? "Public" : "Hidden"}
                             </button>
+                          </Td>
 
-                            <button
-                              type="button"
-                              onClick={() => openEditForm(product)}
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                            >
-                              <Edit3 className="h-4 w-4" />
-                              Edit
-                            </button>
+                          <Td>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => setSelectedTransfer(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                <Eye className="h-4 w-4" /> View
+                              </button>
 
-                            <button
-                              type="button"
-                              onClick={() => copyPublicLink(product)}
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                            >
-                              <Copy className="h-4 w-4" />
-                              Link
-                            </button>
-                          </div>
-                        </Td>
-                      </tr>
-                    ))}
+                              <button type="button" onClick={() => openEditTransferForm(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                <Edit3 className="h-4 w-4" /> Edit
+                              </button>
+
+                              <button type="button" onClick={() => openCreateRouteForm(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                <MapPin className="h-4 w-4" /> Route
+                              </button>
+                            </div>
+                          </Td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
         </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1.4fr_0.8fr]">
+          <RoutesAndBandsPanel
+            products={products}
+            routes={routes}
+            priceBands={priceBands}
+            saving={saving}
+            onEditRoute={openEditRouteForm}
+            onCreateBand={openCreateBandForm}
+            onEditBand={openEditBandForm}
+            onDeleteBand={deleteBand}
+          />
+
+          <QuoteTester
+            routes={routes}
+            quoteRouteId={quoteRouteId}
+            quotePassengers={quotePassengers}
+            quoteRoundTrip={quoteRoundTrip}
+            quoteResult={quoteResult}
+            quoting={quoting}
+            onRouteChange={setQuoteRouteId}
+            onPassengersChange={setQuotePassengers}
+            onRoundTripChange={setQuoteRoundTrip}
+            onTest={testQuote}
+          />
+        </section>
       </div>
 
-      {showForm && (
+      {showTransferForm && (
         <TransferFormModal
-          form={form}
+          form={transferForm}
           categories={categories}
           editingTransfer={editingTransfer}
           saving={saving}
           onClose={() => {
-            setShowForm(false);
+            setShowTransferForm(false);
             setEditingTransfer(null);
           }}
-          onChange={updateForm}
+          onChange={updateTransferForm}
           onSave={saveTransfer}
+        />
+      )}
+
+      {showRouteForm && (
+        <RouteFormModal
+          form={routeForm}
+          products={products}
+          editingRoute={editingRoute}
+          saving={saving}
+          onClose={() => {
+            setShowRouteForm(false);
+            setEditingRoute(null);
+          }}
+          onChange={updateRouteForm}
+          onSave={saveRoute}
+        />
+      )}
+
+      {showBandForm && (
+        <BandFormModal
+          form={bandForm}
+          routes={routes}
+          editingBand={editingBand}
+          saving={saving}
+          onClose={() => {
+            setShowBandForm(false);
+            setEditingBand(null);
+          }}
+          onChange={updateBandForm}
+          onSave={saveBand}
         />
       )}
 
       {selectedTransfer && (
         <TransferDetailModal
           product={selectedTransfer}
+          routes={getProductRoutes(selectedTransfer, routes)}
+          priceBands={priceBands}
           organisationSlug={organisationSlug}
           saving={saving}
           onClose={() => setSelectedTransfer(null)}
-          onEdit={() => openEditForm(selectedTransfer)}
+          onEdit={() => openEditTransferForm(selectedTransfer)}
+          onCreateRoute={() => openCreateRouteForm(selectedTransfer)}
+          onCreateBand={openCreateBandForm}
+          onEditRoute={openEditRouteForm}
+          onEditBand={openEditBandForm}
+          onDeleteBand={deleteBand}
           onCopyLink={() => copyPublicLink(selectedTransfer)}
           onTogglePublic={() => togglePublic(selectedTransfer)}
         />
       )}
     </TicketingPageShell>
+  );
+}
+
+function RoutesAndBandsPanel({
+  products,
+  routes,
+  priceBands,
+  saving,
+  onEditRoute,
+  onCreateBand,
+  onEditBand,
+  onDeleteBand,
+}: {
+  products: ExperienceProduct[];
+  routes: TransferRoute[];
+  priceBands: TransferPriceBand[];
+  saving: boolean;
+  onEditRoute: (route: TransferRoute) => void;
+  onCreateBand: (route: TransferRoute) => void;
+  onEditBand: (band: TransferPriceBand) => void;
+  onDeleteBand: (band: TransferPriceBand) => void;
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-black text-slate-950">Routes and price bands</h2>
+      <p className="mt-1 text-sm font-semibold text-slate-500">Each route can have multiple passenger ranges.</p>
+
+      <div className="mt-5 space-y-4">
+        {routes.length === 0 ? (
+          <EmptyState text="No routes yet. Create a route first, then add price bands." />
+        ) : (
+          routes.map((route) => {
+            const product = products.find((item) => item.id === route.product);
+            const routeBands = priceBands
+              .filter((band) => band.route === route.id)
+              .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+            return (
+              <div key={route.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{product?.name || route.product_name || "Transfer"}</p>
+                    <h3 className="mt-1 text-base font-black text-slate-950">{routeLabel(route)}</h3>
+                    <p className="mt-1 text-xs font-bold text-slate-500">{route.airport || "No airport set"} · {formatVehicle(route.vehicle_type)} · Legacy price {formatMoney(route.price)}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => onEditRoute(route)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
+                      <Edit3 className="h-4 w-4" /> Edit route
+                    </button>
+                    <button type="button" onClick={() => onCreateBand(route)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-3 text-xs font-black text-white">
+                      <Plus className="h-4 w-4" /> Add band
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                  {routeBands.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">No price bands yet.</div>
+                  ) : (
+                    routeBands.map((band) => (
+                      <div key={band.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-950">{band.name || bandLabel(band)}</p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band)} · {formatVehicle(band.vehicle_type)}</p>
+                          </div>
+                          <span className={["rounded-full px-2 py-1 text-[11px] font-black", band.is_active !== false ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"].join(" ")}>{band.is_active !== false ? "Active" : "Off"}</span>
+                        </div>
+                        <div className="mt-3 flex items-end justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-black text-slate-950">{formatMoney(band.one_way_price)}</p>
+                            <p className="text-xs font-bold text-slate-500">Round trip: {band.round_trip_price ? formatMoney(band.round_trip_price) : "—"}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => onEditBand(band)} className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><Edit3 className="h-4 w-4" /></button>
+                            <button type="button" disabled={saving} onClick={() => onDeleteBand(band)} className="rounded-xl border border-red-100 p-2 text-red-600 hover:bg-red-50 disabled:opacity-60"><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+function QuoteTester({
+  routes,
+  quoteRouteId,
+  quotePassengers,
+  quoteRoundTrip,
+  quoteResult,
+  quoting,
+  onRouteChange,
+  onPassengersChange,
+  onRoundTripChange,
+  onTest,
+}: {
+  routes: TransferRoute[];
+  quoteRouteId: string;
+  quotePassengers: string;
+  quoteRoundTrip: boolean;
+  quoteResult: QuoteResult | null;
+  quoting: boolean;
+  onRouteChange: (value: string) => void;
+  onPassengersChange: (value: string) => void;
+  onRoundTripChange: (value: boolean) => void;
+  onTest: () => void;
+}) {
+  const price = quoteResult?.total_price ?? quoteResult?.price ?? quoteResult?.one_way_price;
+
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-black text-slate-950">Quote tester</h2>
+      <p className="mt-1 text-sm font-semibold text-slate-500">Test the exact backend price calculation.</p>
+
+      <div className="mt-5 space-y-4">
+        <label className="block">
+          <span className="text-sm font-bold text-slate-700">Route</span>
+          <select value={quoteRouteId} onChange={(event) => onRouteChange(event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+            <option value="">Select route</option>
+            {routes.map((route) => (
+              <option key={route.id} value={String(route.id)}>{routeLabel(route)}</option>
+            ))}
+          </select>
+        </label>
+
+        <Input label="Passengers" type="number" value={quotePassengers} onChange={onPassengersChange} />
+
+        <Toggle label="Round trip" description="Use round-trip price when available." checked={quoteRoundTrip} onChange={onRoundTripChange} />
+
+        <button type="button" onClick={onTest} disabled={quoting || !quoteRouteId} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
+          {quoting ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
+          Calculate quote
+        </button>
+
+        {quoteResult && (
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Calculated price</p>
+            <p className="mt-1 text-3xl font-black text-emerald-900">{formatMoney(price)}</p>
+            <p className="mt-2 text-sm font-bold text-emerald-800">{quoteResult.price_band || `${quoteResult.passengers || quotePassengers} passengers`} · {formatVehicle(quoteResult.vehicle_type || quoteResult.vehicle)}</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -895,472 +1399,341 @@ function TransferFormModal({
   editingTransfer: ExperienceProduct | null;
   saving: boolean;
   onClose: () => void;
-  onChange: <K extends keyof TransferFormState>(
-    field: K,
-    value: TransferFormState[K]
-  ) => void;
+  onChange: <K extends keyof TransferFormState>(field: K, value: TransferFormState[K]) => void;
   onSave: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              {editingTransfer ? "Edit transfer" : "New transfer"}
-            </p>
-            <h2 className="mt-1 text-xl font-black text-slate-950">
-              {form.name || "Transfer service"}
-            </h2>
-            <p className="mt-1 text-sm font-bold text-slate-500">
-              Create a transfer product for airport, hotel or private transportation.
-            </p>
+    <ModalShell title={editingTransfer ? "Edit transfer" : "New transfer"} subtitle={form.name || "Transfer service"} onClose={onClose}>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="Basic information" description="Name, category and public description." icon={<Plane className="h-5 w-5" />}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Input label="Transfer name" value={form.name} onChange={(value) => onChange("name", value)} placeholder="Private Transfers" required />
+            <Input label="Slug" value={form.slug} onChange={(value) => onChange("slug", slugify(value))} placeholder="private-transfers" />
+
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">Category</span>
+              <select value={form.category} onChange={(event) => onChange("category", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+                <option value="">No category</option>
+                {categories.map((category) => <option key={category.id} value={String(category.id)}>{category.name}</option>)}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">Status</span>
+              <select value={form.status} onChange={(event) => onChange("status", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+                {statusOptions.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </select>
+            </label>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          <Textarea label="Short description" value={form.short_description} onChange={(value) => onChange("short_description", value)} placeholder="Private transfers across Punta Cana, Bayahibe, La Romana and Santo Domingo." />
+          <Textarea label="Full description" value={form.long_description} onChange={(value) => onChange("long_description", value)} placeholder="Explain luggage, waiting time, airport pickup instructions and payment rules." />
+        </Panel>
 
-        <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">
-          <div className="grid gap-5 lg:grid-cols-2">
-            <Panel
-              title="Basic information"
-              description="Name, category and public description."
-              icon={<Plane className="h-5 w-5" />}
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input
-                  label="Transfer name"
-                  value={form.name}
-                  onChange={(value) => onChange("name", value)}
-                  placeholder="Punta Cana Airport to Bávaro Hotel"
-                  required
-                />
-
-                <Input
-                  label="Slug"
-                  value={form.slug}
-                  onChange={(value) => onChange("slug", slugify(value))}
-                  placeholder="airport-to-bavaro"
-                />
-
-                <label className="block">
-                  <span className="text-sm font-bold text-slate-700">
-                    Category
-                  </span>
-                  <select
-                    value={form.category}
-                    onChange={(event) => onChange("category", event.target.value)}
-                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
-                  >
-                    <option value="">No category</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={String(category.id)}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="text-sm font-bold text-slate-700">
-                    Status
-                  </span>
-                  <select
-                    value={form.status}
-                    onChange={(event) => onChange("status", event.target.value)}
-                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
-                  >
-                    {statusOptions.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <Textarea
-                label="Short description"
-                value={form.short_description}
-                onChange={(value) => onChange("short_description", value)}
-                placeholder="Private transfer from PUJ airport to your hotel."
-              />
-
-              <Textarea
-                label="Full description"
-                value={form.description}
-                onChange={(value) => onChange("description", value)}
-                placeholder="Describe what is included, luggage details, waiting time, meeting instructions..."
-              />
-            </Panel>
-
-            <Panel
-              title="Route and pricing"
-              description="Main route information, capacity, duration and pricing."
-              icon={<MapPin className="h-5 w-5" />}
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input
-                  label="Route / location name"
-                  value={form.location_name}
-                  onChange={(value) => onChange("location_name", value)}
-                  placeholder="PUJ Airport → Bávaro / Punta Cana"
-                />
-
-                <Input
-                  label="Meeting point"
-                  value={form.meeting_point}
-                  onChange={(value) => onChange("meeting_point", value)}
-                  placeholder="Airport arrivals area"
-                />
-
-                <Input
-                  label="Base price"
-                  type="number"
-                  value={form.base_price}
-                  onChange={(value) => onChange("base_price", value)}
-                  placeholder="40.00"
-                />
-
-                <Input
-                  label="Deposit amount"
-                  type="number"
-                  value={form.deposit_amount}
-                  onChange={(value) => onChange("deposit_amount", value)}
-                  placeholder="10.00"
-                />
-
-                <Input
-                  label="Deposit percentage"
-                  type="number"
-                  value={form.deposit_percentage}
-                  onChange={(value) => onChange("deposit_percentage", value)}
-                  placeholder="0.00"
-                />
-
-                <Input
-                  label="Max capacity"
-                  type="number"
-                  value={form.max_capacity}
-                  onChange={(value) => onChange("max_capacity", value)}
-                  placeholder="4"
-                />
-
-                <Input
-                  label="Duration minutes"
-                  type="number"
-                  value={form.duration_minutes}
-                  onChange={(value) => onChange("duration_minutes", value)}
-                  placeholder="25"
-                />
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <Toggle
-                  label="Active"
-                  description="Can be used internally."
-                  checked={form.is_active}
-                  onChange={(value) => onChange("is_active", value)}
-                />
-
-                <Toggle
-                  label="Public"
-                  description="Show on the public website."
-                  checked={form.public_enabled}
-                  onChange={(value) => onChange("public_enabled", value)}
-                />
-
-                <Toggle
-                  label="Public bookings"
-                  description="Allow customers to book this transfer."
-                  checked={form.allow_public_bookings}
-                  onChange={(value) => onChange("allow_public_bookings", value)}
-                />
-
-                <Toggle
-                  label="Seller enabled"
-                  description="Allow sellers to sell this transfer."
-                  checked={form.seller_enabled}
-                  onChange={(value) => onChange("seller_enabled", value)}
-                />
-              </div>
-            </Panel>
+        <Panel title="Product defaults" description="General transfer product defaults. Route pricing is managed separately." icon={<MapPin className="h-5 w-5" />}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Input label="Base price" type="number" value={form.base_price} onChange={(value) => onChange("base_price", value)} placeholder="0.00" />
+            <Input label="Deposit amount" type="number" value={form.deposit_amount} onChange={(value) => onChange("deposit_amount", value)} placeholder="10.00" />
+            <Input label="Deposit percentage" type="number" value={form.deposit_percentage} onChange={(value) => onChange("deposit_percentage", value)} placeholder="0.00" />
+            <Input label="Default capacity" type="number" value={form.capacity} onChange={(value) => onChange("capacity", value)} placeholder="6" />
+            <Input label="Duration text" value={form.duration_text} onChange={(value) => onChange("duration_text", value)} placeholder="45 minutes" />
+            <Input label="Location label" value={form.location} onChange={(value) => onChange("location", value)} placeholder="Punta Cana / Bayahibe" />
           </div>
 
-          <div className="mt-5 flex justify-end">
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={saving}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              {editingTransfer ? "Save transfer" : "Create transfer"}
-            </button>
+          <Textarea label="Default meeting instructions" value={form.address} onChange={(value) => onChange("address", value)} placeholder="Driver will meet you at the selected pickup address or hotel lobby." />
+
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <Toggle label="Active" description="Can be used internally." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+            <Toggle label="Public" description="Show on public website." checked={form.public_enabled} onChange={(value) => onChange("public_enabled", value)} />
+            <Toggle label="Seller enabled" description="Allow sellers to sell it." checked={form.seller_enabled} onChange={(value) => onChange("seller_enabled", value)} />
           </div>
-        </div>
+        </Panel>
       </div>
-    </div>
+
+      <ModalActions saving={saving} label={editingTransfer ? "Save transfer" : "Create transfer"} onSave={onSave} />
+    </ModalShell>
+  );
+}
+
+function RouteFormModal({
+  form,
+  products,
+  editingRoute,
+  saving,
+  onClose,
+  onChange,
+  onSave,
+}: {
+  form: RouteFormState;
+  products: ExperienceProduct[];
+  editingRoute: TransferRoute | null;
+  saving: boolean;
+  onClose: () => void;
+  onChange: <K extends keyof RouteFormState>(field: K, value: RouteFormState[K]) => void;
+  onSave: () => void;
+}) {
+  return (
+    <ModalShell title={editingRoute ? "Edit route" : "New route"} subtitle={form.origin && form.destination ? `${form.origin} → ${form.destination}` : "Transfer route"} onClose={onClose}>
+      <Panel title="Route" description="Define where this transfer goes. Prices are handled by passenger bands." icon={<MapPin className="h-5 w-5" />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block md:col-span-2">
+            <span className="text-sm font-bold text-slate-700">Transfer product</span>
+            <select value={form.product} onChange={(event) => onChange("product", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+              <option value="">Select transfer product</option>
+              {products.map((product) => <option key={product.id} value={String(product.id)}>{product.name}</option>)}
+            </select>
+          </label>
+
+          <Input label="Origin" value={form.origin} onChange={(value) => onChange("origin", value)} placeholder="Punta Cana Airport" required />
+          <Input label="Destination" value={form.destination} onChange={(value) => onChange("destination", value)} placeholder="Bayahibe" required />
+          <Input label="Airport" value={form.airport} onChange={(value) => onChange("airport", value)} placeholder="PUJ" />
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">Default vehicle</span>
+            <select value={form.vehicle_type} onChange={(event) => onChange("vehicle_type", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+              {vehicleOptions.map((vehicle) => <option key={vehicle.value} value={vehicle.value}>{vehicle.label}</option>)}
+            </select>
+          </label>
+
+          <Input label="Legacy base passengers" type="number" value={form.base_passengers} onChange={(value) => onChange("base_passengers", value)} />
+          <Input label="Legacy max passengers" type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} />
+          <Input label="Legacy one-way price" type="number" value={form.price} onChange={(value) => onChange("price", value)} />
+          <Input label="Legacy round-trip price" type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} />
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <Toggle label="Round trip supported" description="This route can be sold as round trip." checked={form.is_round_trip} onChange={(value) => onChange("is_round_trip", value)} />
+          <Toggle label="Active" description="Route is available to quote and sell." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+        </div>
+      </Panel>
+
+      <ModalActions saving={saving} label={editingRoute ? "Save route" : "Create route"} onSave={onSave} />
+    </ModalShell>
+  );
+}
+
+function BandFormModal({
+  form,
+  routes,
+  editingBand,
+  saving,
+  onClose,
+  onChange,
+  onSave,
+}: {
+  form: BandFormState;
+  routes: TransferRoute[];
+  editingBand: TransferPriceBand | null;
+  saving: boolean;
+  onClose: () => void;
+  onChange: <K extends keyof BandFormState>(field: K, value: BandFormState[K]) => void;
+  onSave: () => void;
+}) {
+  return (
+    <ModalShell title={editingBand ? "Edit price band" : "New price band"} subtitle={form.name || `${form.min_passengers}-${form.max_passengers} passengers`} onClose={onClose}>
+      <Panel title="Passenger price band" description="The customer enters passenger count; the backend selects the matching band." icon={<DollarSign className="h-5 w-5" />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block md:col-span-2">
+            <span className="text-sm font-bold text-slate-700">Route</span>
+            <select value={form.route} onChange={(event) => onChange("route", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+              <option value="">Select route</option>
+              {routes.map((route) => <option key={route.id} value={String(route.id)}>{routeLabel(route)}</option>)}
+            </select>
+          </label>
+
+          <Input label="Band name" value={form.name} onChange={(value) => onChange("name", value)} placeholder="Small Group" />
+          <Input label="Sort order" type="number" value={form.sort_order} onChange={(value) => onChange("sort_order", value)} />
+          <Input label="Min passengers" type="number" value={form.min_passengers} onChange={(value) => onChange("min_passengers", value)} required />
+          <Input label="Max passengers" type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} required />
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">Vehicle</span>
+            <select value={form.vehicle_type} onChange={(event) => onChange("vehicle_type", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
+              {vehicleOptions.map((vehicle) => <option key={vehicle.value} value={vehicle.value}>{vehicle.label}</option>)}
+            </select>
+          </label>
+
+          <Input label="One-way price" type="number" value={form.one_way_price} onChange={(value) => onChange("one_way_price", value)} required />
+          <Input label="Round-trip price" type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} placeholder="Optional" />
+        </div>
+
+        <div className="mt-5">
+          <Toggle label="Active" description="This band can be used for quotes." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+        </div>
+      </Panel>
+
+      <ModalActions saving={saving} label={editingBand ? "Save price band" : "Create price band"} onSave={onSave} />
+    </ModalShell>
   );
 }
 
 function TransferDetailModal({
   product,
+  routes,
+  priceBands,
   organisationSlug,
   saving,
   onClose,
   onEdit,
+  onCreateRoute,
+  onCreateBand,
+  onEditRoute,
+  onEditBand,
+  onDeleteBand,
   onCopyLink,
   onTogglePublic,
 }: {
   product: ExperienceProduct;
+  routes: TransferRoute[];
+  priceBands: TransferPriceBand[];
   organisationSlug: string;
   saving: boolean;
   onClose: () => void;
   onEdit: () => void;
+  onCreateRoute: () => void;
+  onCreateBand: (route: TransferRoute) => void;
+  onEditRoute: (route: TransferRoute) => void;
+  onEditBand: (band: TransferPriceBand) => void;
+  onDeleteBand: (band: TransferPriceBand) => void;
   onCopyLink: () => void;
   onTogglePublic: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div className="flex items-center gap-4">
             <TransferImage product={product} large />
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-                Transfer detail
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">
-                {product.name}
-              </h2>
-              <p className="mt-1 text-sm font-bold text-slate-500">
-                {getPrimaryRouteLabel(product)}
-              </p>
+              <p className="text-xs font-black uppercase tracking-wide text-amber-600">Transfer detail</p>
+              <h2 className="mt-1 text-xl font-black text-slate-950">{product.name}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-500">{routes[0] ? routeLabel(routes[0]) : "No route configured yet"}</p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onEdit}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"
-            >
-              <Edit3 className="h-4 w-4" />
-              Edit
-            </button>
-
-            <button
-              type="button"
-              onClick={onCopyLink}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
-            >
-              <Copy className="h-4 w-4" />
-              Copy public link
-            </button>
-
-            <Link
-              to={`/experiences/${organisationSlug}/product/${product.slug}`}
-              target="_blank"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open public page
-            </Link>
-
-            <button
-              type="button"
-              disabled={saving}
-              onClick={onTogglePublic}
-              className={[
-                "inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white disabled:opacity-60",
-                product.public_enabled ? "bg-red-600" : "bg-emerald-600",
-              ].join(" ")}
-            >
-              {product.public_enabled ? (
-                <ToggleLeft className="h-4 w-4" />
-              ) : (
-                <ToggleRight className="h-4 w-4" />
-              )}
-              {product.public_enabled ? "Hide public" : "Make public"}
-            </button>
+            <button type="button" onClick={onEdit} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" /> Edit product</button>
+            <button type="button" onClick={onCreateRoute} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><MapPin className="h-4 w-4" /> Add route</button>
+            <button type="button" onClick={onCopyLink} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Copy className="h-4 w-4" /> Copy public link</button>
+            <Link to={`/experiences/${organisationSlug}/product/${product.slug}`} target="_blank" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><ExternalLink className="h-4 w-4" /> Open public page</Link>
+            <button type="button" disabled={saving} onClick={onTogglePublic} className={["inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white disabled:opacity-60", product.public_enabled ? "bg-red-600" : "bg-emerald-600"].join(" ")}>{product.public_enabled ? <ToggleLeft className="h-4 w-4" /> : <ToggleRight className="h-4 w-4" />}{product.public_enabled ? "Hide public" : "Make public"}</button>
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-4">
-            <InfoCard
-              icon={<DollarSign className="h-5 w-5" />}
-              label="Price"
-              value={formatMoney(product.base_price)}
-              helper={`Deposit: ${formatMoney(product.deposit_amount)}`}
-            />
-            <InfoCard
-              icon={<Clock3 className="h-5 w-5" />}
-              label="Duration"
-              value={formatMinutes(product.duration_minutes)}
-              helper="Estimated transfer time"
-            />
-            <InfoCard
-              icon={<Users className="h-5 w-5" />}
-              label="Capacity"
-              value={String(product.max_capacity || "—")}
-              helper="Maximum passengers"
-            />
-            <InfoCard
-              icon={<ExternalLink className="h-5 w-5" />}
-              label="Visibility"
-              value={product.public_enabled ? "Public" : "Hidden"}
-              helper={statusLabel(product.status)}
-            />
+            <InfoCard icon={<DollarSign className="h-5 w-5" />} label="Base price" value={formatMoney(product.base_price)} helper="Fallback only" />
+            <InfoCard icon={<Clock3 className="h-5 w-5" />} label="Duration" value={String(product.duration_text || product.duration_minutes || "—")} helper="Product default" />
+            <InfoCard icon={<MapPin className="h-5 w-5" />} label="Routes" value={String(routes.length)} helper="Configured routes" />
+            <InfoCard icon={<Users className="h-5 w-5" />} label="Price bands" value={String(priceBands.filter((band) => routes.some((route) => route.id === band.route)).length)} helper="Passenger ranges" />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Description
-            </h3>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
-              {product.description ||
-                product.short_description ||
-                "No description added yet."}
-            </p>
-          </section>
+            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Routes</h3>
+            <div className="mt-4 space-y-4">
+              {routes.length === 0 ? (
+                <EmptyState text="No routes configured for this transfer." />
+              ) : (
+                routes.map((route) => {
+                  const routeBands = priceBands.filter((band) => band.route === route.id);
+                  return (
+                    <div key={route.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                        <div>
+                          <h4 className="font-black text-slate-950">{routeLabel(route)}</h4>
+                          <p className="mt-1 text-xs font-bold text-slate-500">{formatVehicle(route.vehicle_type)} · {routeBands.length} price bands</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => onEditRoute(route)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600"><Edit3 className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => onCreateBand(route)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white"><Plus className="h-4 w-4" /> Band</button>
+                        </div>
+                      </div>
 
-          <section className="mt-5 rounded-3xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Route information
-            </h3>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <InfoLine label="Route" value={getPrimaryRouteLabel(product)} />
-              <InfoLine label="Meeting point" value={product.meeting_point || "—"} />
-              <InfoLine label="Category" value={product.category_detail?.name || "—"} />
-              <InfoLine label="Public URL" value={getProductPublicUrl(organisationSlug, product)} />
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {routeBands.length === 0 ? (
+                          <div className="rounded-2xl bg-white p-3 text-sm font-bold text-slate-500">No bands yet.</div>
+                        ) : (
+                          routeBands.map((band) => (
+                            <div key={band.id} className="rounded-2xl bg-white p-3">
+                              <p className="font-black text-slate-950">{band.name || bandLabel(band)}</p>
+                              <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band)} · {formatVehicle(band.vehicle_type)}</p>
+                              <p className="mt-2 text-sm font-black text-slate-900">{formatMoney(band.one_way_price)} / {band.round_trip_price ? formatMoney(band.round_trip_price) : "—"}</p>
+                              <div className="mt-2 flex gap-2">
+                                <button type="button" onClick={() => onEditBand(band)} className="rounded-xl border border-slate-200 p-2 text-slate-600"><Edit3 className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => onDeleteBand(band)} className="rounded-xl border border-red-100 p-2 text-red-600"><Trash2 className="h-4 w-4" /></button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </section>
-
-          {product.transfer_routes && product.transfer_routes.length > 0 && (
-            <section className="mt-5 rounded-3xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Configured routes
-              </h3>
-
-              <div className="mt-3 space-y-2">
-                {product.transfer_routes.map((route, index) => (
-                  <div
-                    key={route.id || index}
-                    className="rounded-2xl bg-slate-50 p-3 text-sm"
-                  >
-                    <p className="font-black text-slate-950">
-                      {route.name ||
-                        `${route.from_location || route.origin || "Origin"} → ${
-                          route.to_location || route.destination || "Destination"
-                        }`}
-                    </p>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      {formatMinutes(route.duration_minutes)} ·{" "}
-                      {formatMoney(route.price || route.base_price)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-function TransferImage({
-  product,
-  large = false,
-}: {
-  product: ExperienceProduct;
-  large?: boolean;
-}) {
+function TransferImage({ product, large = false }: { product: ExperienceProduct; large?: boolean }) {
   const imageUrl = resolveAssetUrl(product.image_url || product.image);
 
   return (
-    <div
-      className={[
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-amber-100 text-amber-700",
-        large ? "h-16 w-16" : "h-11 w-11",
-      ].join(" ")}
-    >
-      {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={product.name}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <Car className={large ? "h-8 w-8" : "h-5 w-5"} />
-      )}
+    <div className={["flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-amber-100 text-amber-700", large ? "h-16 w-16" : "h-11 w-11"].join(" ")}>
+      {imageUrl ? <img src={imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <Car className={large ? "h-8 w-8" : "h-5 w-5"} />}
     </div>
   );
 }
 
-function Panel({
-  title,
-  description,
-  icon,
-  children,
-}: {
-  title: string;
-  description: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-amber-600">{title}</p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">{subtitle}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ModalActions({ saving, label, onSave }: { saving: boolean; label: string; onSave: () => void }) {
+  return (
+    <div className="mt-5 flex justify-end">
+      <button type="button" onClick={onSave} disabled={saving} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+        {label}
+      </button>
+    </div>
+  );
+}
+
+function Panel({ title, description, icon, children }: { title: string; description: string; icon: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-          {icon}
-        </div>
-
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">{icon}</div>
         <div>
           <h3 className="text-base font-black text-slate-950">{title}</h3>
-          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-            {description}
-          </p>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">{description}</p>
         </div>
       </div>
-
       <div className="mt-5">{children}</div>
     </section>
   );
 }
 
-function StatCard({
-  title,
-  value,
-  helper,
-  icon,
-}: {
-  title: string;
-  value: string;
-  helper: string;
-  icon: ReactNode;
-}) {
+function StatCard({ title, value, helper, icon }: { title: string; value: string; helper: string; icon: ReactNode }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       {icon}
@@ -1371,154 +1744,55 @@ function StatCard({
   );
 }
 
-function InfoCard({
-  icon,
-  label,
-  value,
-  helper,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  helper?: string;
-}) {
+function InfoCard({ icon, label, value, helper }: { icon: ReactNode; label: string; value: string; helper?: string }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-amber-600">{icon}</div>
-      <p className="mt-3 text-xs font-black uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
+      <p className="mt-3 text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-black text-slate-950">{value}</p>
-      {helper && (
-        <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-          {helper}
-        </p>
-      )}
+      {helper && <p className="mt-1 text-xs font-bold leading-5 text-slate-500">{helper}</p>}
     </div>
   );
 }
 
-function InfoLine({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-1 break-all text-sm font-black text-slate-950">
-        {value || "—"}
-      </p>
-    </div>
-  );
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  required = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  required?: boolean;
-}) {
+function Input({ label, value, onChange, placeholder, type = "text", required = false }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; required?: boolean }) {
   return (
     <label className="block">
-      <span className="text-sm font-bold text-slate-700">
-        {label}
-        {required && <span className="text-red-500"> *</span>}
-      </span>
-
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white"
-      />
+      <span className="text-sm font-bold text-slate-700">{label}{required && <span className="text-red-500"> *</span>}</span>
+      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white" />
     </label>
   );
 }
 
-function Textarea({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
+function Textarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <label className="mt-4 block">
       <span className="text-sm font-bold text-slate-700">{label}</span>
-
-      <textarea
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white"
-      />
+      <textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white" />
     </label>
   );
 }
 
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
+function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
     <label className="flex cursor-pointer items-start justify-between gap-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <span>
         <span className="block text-sm font-black text-slate-800">{label}</span>
-        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
-          {description}
-        </span>
+        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">{description}</span>
       </span>
-
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-5 w-5 shrink-0 accent-amber-500"
-      />
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-amber-500" />
     </label>
   );
 }
 
 function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm font-bold text-slate-500">
-      {text}
-    </div>
-  );
+  return <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm font-bold text-slate-500">{text}</div>;
 }
 
 function Th({ children }: { children: ReactNode }) {
-  return (
-    <th className="whitespace-nowrap px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500">
-      {children}
-    </th>
-  );
+  return <th className="whitespace-nowrap px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500">{children}</th>;
 }
 
 function Td({ children }: { children: ReactNode }) {
-  return (
-    <td className="whitespace-nowrap px-4 py-3 align-top text-sm font-semibold text-slate-600">
-      {children}
-    </td>
-  );
+  return <td className="whitespace-nowrap px-4 py-3 align-top text-sm font-semibold text-slate-600">{children}</td>;
 }
