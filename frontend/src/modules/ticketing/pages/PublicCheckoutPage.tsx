@@ -778,7 +778,6 @@ export default function PublicCheckoutPage() {
         transfer_destination: isTransfer ? transferDestination || form.dropoff_name.trim() || form.dropoff_address.trim() : "",
         transfer_vehicle_type: isTransfer ? transferVehicleType : "",
         transfer_round_trip: isTransfer ? transferRoundTrip : false,
-        transfer_status: isTransfer ? "booked" : "",
         adults,
         children,
         infants,
