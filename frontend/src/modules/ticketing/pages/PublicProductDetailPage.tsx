@@ -104,6 +104,39 @@ type PickupAvailabilitySummary = {
   message: string;
 };
 
+type TransferPriceBand = {
+  id: number;
+  route?: number | string | null;
+  route_id?: number | string | null;
+  route_name?: string;
+  name?: string;
+  min_passengers: number | string;
+  max_passengers: number | string;
+  vehicle_type?: string | null;
+  one_way_price: number | string;
+  round_trip_price?: number | string | null;
+  is_active?: boolean;
+  sort_order?: number;
+};
+
+type TransferRouteOption = {
+  id: number;
+  product?: number | string | null;
+  origin?: string | null;
+  destination?: string | null;
+  from_location?: string | null;
+  to_location?: string | null;
+  airport?: string | null;
+  vehicle_type?: string | null;
+  is_round_trip?: boolean;
+  base_passengers?: number | string | null;
+  max_passengers?: number | string | null;
+  price?: number | string | null;
+  round_trip_price?: number | string | null;
+  is_active?: boolean;
+  price_bands?: TransferPriceBand[];
+};
+
 type AdvancedAvailabilityRecord = ProductAvailability & {
   date: string;
   available_capacity?: number | string | null;
@@ -611,6 +644,86 @@ function getLiveOptionPrice(option: LiveTicketOption | null) {
   return Number(option.price || 0);
 }
 
+function isTransferProduct(product: ExperienceProduct | null) {
+  return String(product?.product_type || "").toLowerCase() === "transfer";
+}
+
+function getTransferRoutes(product: ExperienceProduct | null): TransferRouteOption[] {
+  if (!product) return [];
+
+  const routes = Array.isArray((product as any).transfer_routes)
+    ? ((product as any).transfer_routes as TransferRouteOption[])
+    : [];
+
+  return routes.filter((route) => route.is_active !== false);
+}
+
+function getTransferRouteLabel(route: TransferRouteOption | null) {
+  if (!route) return "Select route";
+
+  const origin = route.from_location || route.origin || "Origin";
+  const destination = route.to_location || route.destination || "Destination";
+
+  return `${origin} → ${destination}`;
+}
+
+function getTransferPriceBands(route: TransferRouteOption | null): TransferPriceBand[] {
+  if (!route || !Array.isArray(route.price_bands)) return [];
+
+  return route.price_bands
+    .filter((band) => band.is_active !== false)
+    .sort((a, b) => {
+      const sortA = Number(a.sort_order || 0);
+      const sortB = Number(b.sort_order || 0);
+
+      if (sortA !== sortB) return sortA - sortB;
+
+      return Number(a.min_passengers || 0) - Number(b.min_passengers || 0);
+    });
+}
+
+function getTransferPriceBandForPassengers(
+  route: TransferRouteOption | null,
+  passengers: number
+) {
+  return (
+    getTransferPriceBands(route).find((band) => {
+      const min = Number(band.min_passengers || 0);
+      const max = Number(band.max_passengers || 0);
+
+      return passengers >= min && passengers <= max;
+    }) || null
+  );
+}
+
+function getTransferRouteLegacyPrice(
+  route: TransferRouteOption | null,
+  roundTrip: boolean
+) {
+  if (!route) return 0;
+
+  if (roundTrip && route.round_trip_price !== null && route.round_trip_price !== undefined) {
+    return Number(route.round_trip_price || 0);
+  }
+
+  return Number(route.price || 0);
+}
+
+function getTransferBandPrice(
+  band: TransferPriceBand | null,
+  roundTrip: boolean
+) {
+  if (!band) return 0;
+
+  if (roundTrip && band.round_trip_price !== null && band.round_trip_price !== undefined) {
+    return Number(band.round_trip_price || 0);
+  }
+
+  const oneWay = Number(band.one_way_price || 0);
+
+  return roundTrip ? oneWay * 2 : oneWay;
+}
+
 function cleanLiveText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -1020,6 +1133,11 @@ function buildCheckoutUrl({
   paymentChoice,
   selectedAvailability,
   selectedLiveOption,
+  selectedTransferRoute,
+  selectedTransferPriceBand,
+  transferRoundTrip,
+  preferredPickupTime,
+  transferTotalPrice,
 }: {
   publicPath: (path: string) => string;
   product: ExperienceProduct;
@@ -1030,6 +1148,11 @@ function buildCheckoutUrl({
   paymentChoice: PaymentChoice;
   selectedAvailability?: AdvancedAvailabilityRecord | null;
   selectedLiveOption?: LiveTicketOption | null;
+  selectedTransferRoute?: TransferRouteOption | null;
+  selectedTransferPriceBand?: TransferPriceBand | null;
+  transferRoundTrip?: boolean;
+  preferredPickupTime?: string;
+  transferTotalPrice?: number;
 }) {
   const params = new URLSearchParams();
 
@@ -1051,6 +1174,28 @@ function buildCheckoutUrl({
     if (selectedAvailability.deposit_override !== undefined && selectedAvailability.deposit_override !== null && selectedAvailability.deposit_override !== "") {
       params.set("deposit_amount", String(selectedAvailability.deposit_override));
     }
+  }
+
+  if (selectedTransferRoute) {
+    params.set("transfer_route_id", String(selectedTransferRoute.id));
+    params.set("transfer_origin", selectedTransferRoute.origin || selectedTransferRoute.from_location || "");
+    params.set("transfer_destination", selectedTransferRoute.destination || selectedTransferRoute.to_location || "");
+    params.set("transfer_round_trip", transferRoundTrip ? "true" : "false");
+  }
+
+  if (selectedTransferPriceBand) {
+    params.set("transfer_price_band_id", String(selectedTransferPriceBand.id));
+    params.set("transfer_vehicle_type", selectedTransferPriceBand.vehicle_type || selectedTransferRoute?.vehicle_type || "");
+  }
+
+  if (preferredPickupTime) {
+    params.set("service_time", preferredPickupTime);
+    params.set("pickup_time", preferredPickupTime);
+  }
+
+  if (transferTotalPrice !== undefined && transferTotalPrice !== null && transferTotalPrice > 0) {
+    params.set("transfer_total_price", String(transferTotalPrice));
+    params.set("unit_price", String(transferTotalPrice));
   }
 
   if (selectedLiveOption) {
@@ -1248,6 +1393,9 @@ export default function PublicProductDetailPage() {
   const [loadingLiveAvailability, setLoadingLiveAvailability] = useState(false);
   const [liveAvailabilityError, setLiveAvailabilityError] = useState("");
   const [selectedLiveOptionId, setSelectedLiveOptionId] = useState("");
+  const [selectedTransferRouteId, setSelectedTransferRouteId] = useState("");
+  const [transferRoundTrip, setTransferRoundTrip] = useState(false);
+  const [preferredPickupTime, setPreferredPickupTime] = useState("");
 
   async function loadPage() {
     if (!organisationSlug || !productSlug) return;
@@ -1472,6 +1620,58 @@ export default function PublicProductDetailPage() {
     );
   }, [selectedLiveOptionId, liveAvailabilityOptions]);
 
+  const isTransfer = isTransferProduct(product);
+
+  const transferRoutes = useMemo(
+    () => getTransferRoutes(product),
+    [product]
+  );
+
+  useEffect(() => {
+    if (!isTransfer) {
+      setSelectedTransferRouteId("");
+      setTransferRoundTrip(false);
+      setPreferredPickupTime("");
+      return;
+    }
+
+    if (!selectedTransferRouteId && transferRoutes.length === 1) {
+      setSelectedTransferRouteId(String(transferRoutes[0].id));
+    }
+  }, [isTransfer, selectedTransferRouteId, transferRoutes]);
+
+  const selectedTransferRoute = useMemo(() => {
+    if (!selectedTransferRouteId) return null;
+
+    return (
+      transferRoutes.find((route) => String(route.id) === selectedTransferRouteId) ||
+      null
+    );
+  }, [selectedTransferRouteId, transferRoutes]);
+
+  const pax = qty.adult + qty.child + qty.infant;
+
+  const selectedTransferPriceBand = useMemo(
+    () => getTransferPriceBandForPassengers(selectedTransferRoute, pax),
+    [selectedTransferRoute, pax]
+  );
+
+  const transferTotalPrice = useMemo(() => {
+    if (!isTransfer || !selectedTransferRoute) return 0;
+
+    const bandPrice = getTransferBandPrice(
+      selectedTransferPriceBand,
+      transferRoundTrip
+    );
+
+    if (bandPrice > 0) return bandPrice;
+
+    return getTransferRouteLegacyPrice(selectedTransferRoute, transferRoundTrip);
+  }, [isTransfer, selectedTransferRoute, selectedTransferPriceBand, transferRoundTrip]);
+
+  const transferPriceMissing =
+    isTransfer && Boolean(selectedTransferRoute) && transferTotalPrice <= 0;
+
   const liveOptionAvailable =
     !isWelletProduct ||
     Boolean(
@@ -1488,8 +1688,8 @@ export default function PublicProductDetailPage() {
   );
 
   const pickupDateAllowed = useMemo(
-    () => isPickupDateAllowed(product, date, pickupLocationId),
-    [product, date, pickupLocationId]
+    () => isTransfer ? true : isPickupDateAllowed(product, date, pickupLocationId),
+    [isTransfer, product, date, pickupLocationId]
   );
 
   const dateAllowed = availabilityDateAllowed && pickupDateAllowed;
@@ -1500,9 +1700,10 @@ export default function PublicProductDetailPage() {
   );
 
   const showPickup =
-    Boolean(product?.supports_pickup) ||
-    Boolean(product?.requires_pickup_location) ||
-    productHasPickupSchedules;
+    !isTransfer &&
+    (Boolean(product?.supports_pickup) ||
+      Boolean(product?.requires_pickup_location) ||
+      productHasPickupSchedules);
 
   const policies = useMemo(() => {
     if (!product) return [];
@@ -1533,8 +1734,6 @@ export default function PublicProductDetailPage() {
     }
   }, [product?.id, paymentOptions, paymentChoice]);
 
-  const pax = qty.adult + qty.child + qty.infant;
-
   const totals = useMemo(() => {
     if (!product) {
       return {
@@ -1544,12 +1743,14 @@ export default function PublicProductDetailPage() {
       };
     }
 
-    const unitPrice = isExternalLiveProduct(product)
-      ? getLiveOptionPrice(selectedLiveOption)
-      : getEffectiveUnitPrice(product, selectedAvailability);
-    const fullTotal = unitPrice * pax;
+    const fullTotal = isTransfer
+      ? transferTotalPrice
+      : isExternalLiveProduct(product)
+        ? getLiveOptionPrice(selectedLiveOption) * pax
+        : getEffectiveUnitPrice(product, selectedAvailability) * pax;
 
-    const depositPerGuest = getEffectiveDepositAmount(product, selectedAvailability);
+    const depositBase = getEffectiveDepositAmount(product, selectedAvailability);
+    const depositFixed = isTransfer ? depositBase : depositBase * pax;
     const depositFromPercent =
       Number(product.deposit_percentage || 0) > 0
         ? fullTotal * (Number(product.deposit_percentage || 0) / 100)
@@ -1559,8 +1760,8 @@ export default function PublicProductDetailPage() {
       paymentChoice === "full"
         ? fullTotal
         : paymentChoice === "deposit"
-          ? depositPerGuest > 0
-            ? depositPerGuest * pax
+          ? depositFixed > 0
+            ? depositFixed
             : depositFromPercent
           : 0;
 
@@ -1571,7 +1772,15 @@ export default function PublicProductDetailPage() {
       totalDeposit: safeDeposit,
       dueLater: Math.max(0, fullTotal - safeDeposit),
     };
-  }, [product, pax, paymentChoice, selectedAvailability, selectedLiveOption]);
+  }, [
+    product,
+    isTransfer,
+    transferTotalPrice,
+    pax,
+    paymentChoice,
+    selectedAvailability,
+    selectedLiveOption,
+  ]);
 
   useEffect(() => {
     async function resolvePickup() {
@@ -1701,10 +1910,16 @@ export default function PublicProductDetailPage() {
     if (qty.adult < 1) return false;
     if (pax < 1) return false;
 
+    if (isTransfer) {
+      if (!selectedTransferRoute) return false;
+      if (!preferredPickupTime) return false;
+      if (transferPriceMissing) return false;
+    }
+
     if (!availabilityDateAllowed) return false;
     if (showPickup && !pickupDateAllowed) return false;
 
-    if (product.requires_pickup_location) {
+    if (!isTransfer && product.requires_pickup_location) {
       if (!pickupLocationId) return false;
       if (!resolvedPickup?.found) return false;
     }
@@ -1724,6 +1939,10 @@ export default function PublicProductDetailPage() {
     date,
     qty.adult,
     pax,
+    isTransfer,
+    selectedTransferRoute,
+    preferredPickupTime,
+    transferPriceMissing,
     showPickup,
     availabilityDateAllowed,
     pickupDateAllowed,
@@ -1747,6 +1966,11 @@ export default function PublicProductDetailPage() {
           paymentChoice,
           selectedAvailability,
           selectedLiveOption,
+          selectedTransferRoute,
+          selectedTransferPriceBand,
+          transferRoundTrip,
+          preferredPickupTime,
+          transferTotalPrice,
         })
       : "#";
 
@@ -1768,6 +1992,31 @@ export default function PublicProductDetailPage() {
         setNotice({
           type: "checkout",
           title: "Please select an available payment option.",
+        });
+        return;
+      }
+
+      if (isTransfer && !selectedTransferRoute) {
+        setNotice({
+          type: "checkout",
+          title: "Please select your transfer route.",
+        });
+        return;
+      }
+
+      if (isTransfer && !preferredPickupTime) {
+        setNotice({
+          type: "checkout",
+          title: "Please select your preferred pickup time.",
+        });
+        return;
+      }
+
+      if (isTransfer && transferPriceMissing) {
+        setNotice({
+          type: "checkout",
+          title: "This passenger count has no transfer price yet.",
+          subtitle: "Please choose a different passenger count or contact us.",
         });
         return;
       }
@@ -2173,6 +2422,18 @@ export default function PublicProductDetailPage() {
             <div className="mt-6 lg:hidden" id="booking-mobile">
               <BookingCard
                 product={product}
+                isTransfer={isTransfer}
+                transferRoutes={transferRoutes}
+                selectedTransferRouteId={selectedTransferRouteId}
+                setSelectedTransferRouteId={setSelectedTransferRouteId}
+                selectedTransferRoute={selectedTransferRoute}
+                selectedTransferPriceBand={selectedTransferPriceBand}
+                transferRoundTrip={transferRoundTrip}
+                setTransferRoundTrip={setTransferRoundTrip}
+                preferredPickupTime={preferredPickupTime}
+                setPreferredPickupTime={setPreferredPickupTime}
+                transferTotalPrice={transferTotalPrice}
+                transferPriceMissing={transferPriceMissing}
                 currencySymbol={currencySymbol}
                 date={date}
                 setDate={setDate}
@@ -2386,6 +2647,18 @@ export default function PublicProductDetailPage() {
             <div className="sticky top-24">
               <BookingCard
                 product={product}
+                isTransfer={isTransfer}
+                transferRoutes={transferRoutes}
+                selectedTransferRouteId={selectedTransferRouteId}
+                setSelectedTransferRouteId={setSelectedTransferRouteId}
+                selectedTransferRoute={selectedTransferRoute}
+                selectedTransferPriceBand={selectedTransferPriceBand}
+                transferRoundTrip={transferRoundTrip}
+                setTransferRoundTrip={setTransferRoundTrip}
+                preferredPickupTime={preferredPickupTime}
+                setPreferredPickupTime={setPreferredPickupTime}
+                transferTotalPrice={transferTotalPrice}
+                transferPriceMissing={transferPriceMissing}
                 currencySymbol={currencySymbol}
                 date={date}
                 setDate={setDate}
@@ -2640,6 +2913,18 @@ function PublicHeader({
 
 function BookingCard({
   product,
+  isTransfer,
+  transferRoutes,
+  selectedTransferRouteId,
+  setSelectedTransferRouteId,
+  selectedTransferRoute,
+  selectedTransferPriceBand,
+  transferRoundTrip,
+  setTransferRoundTrip,
+  preferredPickupTime,
+  setPreferredPickupTime,
+  transferTotalPrice,
+  transferPriceMissing,
   currencySymbol,
   date,
   setDate,
@@ -2676,6 +2961,18 @@ function BookingCard({
   theme,
 }: {
   product: ExperienceProduct;
+  isTransfer: boolean;
+  transferRoutes: TransferRouteOption[];
+  selectedTransferRouteId: string;
+  setSelectedTransferRouteId: (id: string) => void;
+  selectedTransferRoute: TransferRouteOption | null;
+  selectedTransferPriceBand: TransferPriceBand | null;
+  transferRoundTrip: boolean;
+  setTransferRoundTrip: (value: boolean) => void;
+  preferredPickupTime: string;
+  setPreferredPickupTime: (value: string) => void;
+  transferTotalPrice: number;
+  transferPriceMissing: boolean;
   currencySymbol: string;
   date: string;
   setDate: (date: string) => void;
@@ -2720,10 +3017,14 @@ function BookingCard({
   theme: PublicTheme;
 }) {
   const pax = qty.adult + qty.child + qty.infant;
-  const displayUnitPrice = isWelletProduct
-    ? getLiveOptionPrice(selectedLiveOption)
-    : getEffectiveUnitPrice(product, selectedAvailability);
-  const displayDeposit = getEffectiveDepositAmount(product, selectedAvailability);
+  const displayUnitPrice = isTransfer
+    ? transferTotalPrice
+    : isWelletProduct
+      ? getLiveOptionPrice(selectedLiveOption)
+      : getEffectiveUnitPrice(product, selectedAvailability);
+  const displayDeposit = isTransfer
+    ? getEffectiveDepositAmount(product, selectedAvailability)
+    : getEffectiveDepositAmount(product, selectedAvailability);
 
   return (
     <div
@@ -2747,7 +3048,13 @@ function BookingCard({
               {money(displayUnitPrice, currencySymbol)}
             </div>
             <div className="text-sm font-semibold" style={{ color: theme.muted }}>
-              {selectedAvailability?.price_override ? "per person · selected date price" : "per person"}
+              {isTransfer
+                ? selectedTransferRoute
+                  ? "per vehicle / group"
+                  : "choose route"
+                : selectedAvailability?.price_override
+                  ? "per person · selected date price"
+                  : "per person"}
             </div>
           </div>
 
@@ -2806,6 +3113,25 @@ function BookingCard({
       </div>
 
       <div className="space-y-3 p-5 sm:p-6">
+        {isTransfer && (
+          <TransferRouteBookingSection
+            routes={transferRoutes}
+            selectedRouteId={selectedTransferRouteId}
+            setSelectedRouteId={setSelectedTransferRouteId}
+            selectedRoute={selectedTransferRoute}
+            selectedPriceBand={selectedTransferPriceBand}
+            roundTrip={transferRoundTrip}
+            setRoundTrip={setTransferRoundTrip}
+            preferredPickupTime={preferredPickupTime}
+            setPreferredPickupTime={setPreferredPickupTime}
+            passengerCount={pax}
+            totalPrice={transferTotalPrice}
+            priceMissing={transferPriceMissing}
+            currencySymbol={currencySymbol}
+            theme={theme}
+          />
+        )}
+
         {showPickup && (
           <div>
             <div className="text-sm font-extrabold" style={{ color: theme.text }}>
@@ -3016,14 +3342,193 @@ function BookingCard({
         </button>
 
         <div className="text-xs font-semibold" style={{ color: theme.muted }}>
-          Pickup time is calculated automatically when a matching hotel/date
-          schedule exists.
+          {isTransfer
+            ? "Choose your preferred pickup time. We confirm driver details after booking."
+            : "Pickup time is calculated automatically when a matching hotel/date schedule exists."}
         </div>
       </div>
     </div>
   );
 }
 
+
+function TransferRouteBookingSection({
+  routes,
+  selectedRouteId,
+  setSelectedRouteId,
+  selectedRoute,
+  selectedPriceBand,
+  roundTrip,
+  setRoundTrip,
+  preferredPickupTime,
+  setPreferredPickupTime,
+  passengerCount,
+  totalPrice,
+  priceMissing,
+  currencySymbol,
+  theme,
+}: {
+  routes: TransferRouteOption[];
+  selectedRouteId: string;
+  setSelectedRouteId: (id: string) => void;
+  selectedRoute: TransferRouteOption | null;
+  selectedPriceBand: TransferPriceBand | null;
+  roundTrip: boolean;
+  setRoundTrip: (value: boolean) => void;
+  preferredPickupTime: string;
+  setPreferredPickupTime: (value: string) => void;
+  passengerCount: number;
+  totalPrice: number;
+  priceMissing: boolean;
+  currencySymbol: string;
+  theme: PublicTheme;
+}) {
+  return (
+    <div
+      className="rounded-3xl border p-4"
+      style={{
+        backgroundColor: hexToRgba(theme.primary, 0.035),
+        borderColor: hexToRgba(theme.primary, 0.12),
+      }}
+    >
+      <div>
+        <div className="text-sm font-extrabold" style={{ color: theme.text }}>
+          Transfer route
+        </div>
+
+        <select
+          value={selectedRouteId}
+          onChange={(event) => setSelectedRouteId(event.target.value)}
+          className="mt-2 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+            color: theme.text,
+          }}
+        >
+          <option value="">Select pickup and destination route</option>
+
+          {routes.map((route) => (
+            <option key={route.id} value={String(route.id)}>
+              {getTransferRouteLabel(route)}
+            </option>
+          ))}
+        </select>
+
+        {!routes.length && (
+          <p className="mt-2 text-xs font-bold" style={{ color: theme.accent }}>
+            Transfer routes are not configured for this product yet.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label
+          className="flex cursor-pointer items-start gap-3 rounded-2xl border p-3"
+          style={{
+            backgroundColor: !roundTrip ? hexToRgba(theme.accent, 0.1) : theme.card,
+            borderColor: !roundTrip
+              ? hexToRgba(theme.accent, 0.55)
+              : hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <input
+            type="radio"
+            checked={!roundTrip}
+            onChange={() => setRoundTrip(false)}
+            className="mt-1"
+            style={{ accentColor: theme.accent }}
+          />
+          <span>
+            <span className="block text-sm font-black" style={{ color: theme.text }}>
+              One way
+            </span>
+            <span className="mt-1 block text-xs font-bold" style={{ color: theme.muted }}>
+              Pickup to destination
+            </span>
+          </span>
+        </label>
+
+        <label
+          className="flex cursor-pointer items-start gap-3 rounded-2xl border p-3"
+          style={{
+            backgroundColor: roundTrip ? hexToRgba(theme.accent, 0.1) : theme.card,
+            borderColor: roundTrip
+              ? hexToRgba(theme.accent, 0.55)
+              : hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <input
+            type="radio"
+            checked={roundTrip}
+            onChange={() => setRoundTrip(true)}
+            className="mt-1"
+            style={{ accentColor: theme.accent }}
+          />
+          <span>
+            <span className="block text-sm font-black" style={{ color: theme.text }}>
+              Round trip
+            </span>
+            <span className="mt-1 block text-xs font-bold" style={{ color: theme.muted }}>
+              Return included
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-sm font-extrabold" style={{ color: theme.text }}>
+          Preferred pickup time
+        </div>
+        <input
+          type="time"
+          value={preferredPickupTime}
+          onChange={(event) => setPreferredPickupTime(event.target.value)}
+          className="mt-2 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+            color: theme.text,
+          }}
+        />
+        <p className="mt-2 text-xs font-bold" style={{ color: theme.muted }}>
+          This is your preferred time. We confirm final driver details after booking.
+        </p>
+      </div>
+
+      {selectedRoute && (
+        <div
+          className="mt-4 rounded-2xl border p-4"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: hexToRgba(theme.primary, 0.12),
+          }}
+        >
+          <div className="text-xs font-black uppercase tracking-wide" style={{ color: theme.muted }}>
+            Price for {passengerCount} passenger{passengerCount === 1 ? "" : "s"}
+          </div>
+
+          {priceMissing ? (
+            <div className="mt-2 text-sm font-black" style={{ color: theme.accent }}>
+              No price band is configured for this passenger count.
+            </div>
+          ) : (
+            <div className="mt-1 text-2xl font-black" style={{ color: theme.text }}>
+              {money2(totalPrice, currencySymbol)}
+            </div>
+          )}
+
+          {selectedPriceBand && (
+            <div className="mt-2 text-xs font-bold" style={{ color: theme.muted }}>
+              {selectedPriceBand.name || `${selectedPriceBand.min_passengers}-${selectedPriceBand.max_passengers} passengers`}
+              {selectedPriceBand.vehicle_type ? ` · ${selectedPriceBand.vehicle_type}` : ""}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LiveTicketOptionsCard({
   options,

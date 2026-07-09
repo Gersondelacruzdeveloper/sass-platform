@@ -5,17 +5,25 @@ import type { ReactNode } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
+  ArrowRight,
+  Car,
   CheckCircle2,
   Clock3,
   Home,
   Loader2,
   MapPin,
+  Navigation,
+  Plane,
   Ticket,
   Users,
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
-import type { Booking, ExperienceProduct, PublicBrandingResponse } from "../types/ticketingTypes";
+import type {
+  Booking,
+  ExperienceProduct,
+  PublicBrandingResponse,
+} from "../types/ticketingTypes";
 
 type LocationState = {
   booking?: Booking;
@@ -43,6 +51,10 @@ type BookingItemLike = {
   external_variant_id?: string | null;
   external_availability_id?: string | null;
   external_raw_data?: any;
+  instructions?: string | null;
+  service_time?: string | null;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
 };
 
 const PLATFORM_HOSTS = ["localhost", "127.0.0.1", "app.puntacanadiscovery.com"];
@@ -143,7 +155,10 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 
 function money(value: unknown, symbol = "US$") {
   const amount = Number(value || 0);
-  return `${symbol} ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${symbol} ${amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function formatTime(value?: string | null) {
@@ -160,7 +175,16 @@ function formatDate(value?: string | null) {
   if (!value) return "—";
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function cleanText(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function getPaymentBanner(booking?: Booking | null, queryStatus?: string | null) {
@@ -190,7 +214,7 @@ function getPaymentBanner(booking?: Booking | null, queryStatus?: string | null)
 
   return {
     title: "Booking received",
-    message: "Your booking request has been created. Save this booking code.",
+    message: "Your booking has been created. Save this booking code.",
     className: "border-amber-200 bg-amber-50 text-amber-800",
   };
 }
@@ -202,10 +226,6 @@ function getBookingItems(booking?: Booking | null): BookingItemLike[] {
 
 function getFirstBookingItem(booking?: Booking | null): BookingItemLike | null {
   return getBookingItems(booking)[0] || null;
-}
-
-function cleanText(value: unknown) {
-  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function getTicketOptionName(booking?: Booking | null) {
@@ -245,6 +265,134 @@ function getTicketDescription(booking?: Booking | null) {
     cleanText(raw?.description) ||
     ""
   );
+}
+
+function getLineValue(instructions: string, label: string) {
+  const lines = instructions.split("\n");
+  const prefix = `${label}:`.toLowerCase();
+  const found = lines.find((line) => line.trim().toLowerCase().startsWith(prefix));
+
+  if (!found) return "";
+
+  return found.split(":").slice(1).join(":").trim();
+}
+
+function getTransferDetails(booking?: Booking | null, product?: ExperienceProduct | null) {
+  const rawBooking = (booking || {}) as any;
+  const item = getFirstBookingItem(booking);
+  const rawItem = (item || {}) as any;
+  const instructions = String(rawItem.instructions || "");
+
+  const productType =
+    cleanText((product as any)?.product_type) ||
+    cleanText(rawBooking.primary_product_detail?.product_type) ||
+    cleanText(rawItem.product_type);
+
+  const origin =
+    cleanText(rawBooking.transfer_origin) ||
+    getLineValue(instructions, "Transfer origin") ||
+    getLineValue(instructions, "Origin") ||
+    getLineValue(instructions, "From");
+
+  const destination =
+    cleanText(rawBooking.transfer_destination) ||
+    getLineValue(instructions, "Transfer destination") ||
+    getLineValue(instructions, "Destination") ||
+    getLineValue(instructions, "To");
+
+  const pickupName =
+    cleanText(rawBooking.transfer_pickup_name) ||
+    cleanText(rawBooking.pickup_name) ||
+    getLineValue(instructions, "Pickup") ||
+    getLineValue(instructions, "Pickup name") ||
+    cleanText(rawBooking.customer_hotel);
+
+  const pickupAddress =
+    cleanText(rawBooking.transfer_pickup_address) ||
+    cleanText(rawBooking.pickup_address) ||
+    getLineValue(instructions, "Pickup address");
+
+  const dropoffName =
+    cleanText(rawBooking.transfer_dropoff_name) ||
+    cleanText(rawBooking.dropoff_name) ||
+    getLineValue(instructions, "Drop-off") ||
+    getLineValue(instructions, "Dropoff") ||
+    getLineValue(instructions, "Destination name");
+
+  const dropoffAddress =
+    cleanText(rawBooking.transfer_dropoff_address) ||
+    cleanText(rawBooking.dropoff_address) ||
+    getLineValue(instructions, "Drop-off address") ||
+    getLineValue(instructions, "Dropoff address");
+
+  const pickupMapsLink =
+    cleanText(rawBooking.pickup_maps_link) ||
+    cleanText(rawBooking.transfer_pickup_maps_link) ||
+    getLineValue(instructions, "Pickup map");
+
+  const dropoffMapsLink =
+    cleanText(rawBooking.dropoff_maps_link) ||
+    cleanText(rawBooking.transfer_dropoff_maps_link) ||
+    getLineValue(instructions, "Drop-off map") ||
+    getLineValue(instructions, "Dropoff map");
+
+  const vehicle =
+    cleanText(rawBooking.transfer_vehicle_type) ||
+    getLineValue(instructions, "Vehicle") ||
+    getLineValue(instructions, "Vehicle type");
+
+  const priceBand =
+    cleanText(rawBooking.transfer_price_band_name) ||
+    getLineValue(instructions, "Price band") ||
+    getLineValue(instructions, "Passengers band");
+
+  const roundTripRaw =
+    rawBooking.transfer_round_trip ??
+    rawBooking.round_trip ??
+    getLineValue(instructions, "Round trip");
+
+  const roundTrip =
+    roundTripRaw === true ||
+    String(roundTripRaw || "").toLowerCase() === "true" ||
+    String(roundTripRaw || "").toLowerCase() === "yes";
+
+  const flightNumber =
+    cleanText(rawBooking.transfer_flight_number) ||
+    getLineValue(instructions, "Flight number");
+
+  const returnDate = cleanText(rawBooking.transfer_return_date) || getLineValue(instructions, "Return date");
+  const returnTime = cleanText(rawBooking.transfer_return_time) || getLineValue(instructions, "Return time");
+
+  const isTransfer =
+    productType === "transfer" ||
+    Boolean(origin || destination || pickupAddress || dropoffAddress || vehicle || priceBand);
+
+  return {
+    isTransfer,
+    origin,
+    destination,
+    pickupName,
+    pickupAddress,
+    pickupMapsLink,
+    dropoffName,
+    dropoffAddress,
+    dropoffMapsLink,
+    vehicle,
+    priceBand,
+    roundTrip,
+    flightNumber,
+    returnDate,
+    returnTime,
+  };
+}
+
+function mapsHref(value?: string | null) {
+  const clean = cleanText(value);
+
+  if (!clean) return "";
+  if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clean)}`;
 }
 
 export default function PublicConfirmationPage() {
@@ -407,6 +555,7 @@ export default function PublicConfirmationPage() {
   const ticketOptionName = getTicketOptionName(booking);
   const displayProductName = getDisplayProductName(booking, product);
   const ticketDescription = getTicketDescription(booking);
+  const transfer = getTransferDetails(booking, product);
 
   if (organisationLoading || loadingBooking) {
     return (
@@ -451,31 +600,91 @@ export default function PublicConfirmationPage() {
       </section>
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-black">Booking details</h2>
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-black">
+              {transfer.isTransfer ? "Transfer details" : "Booking details"}
+            </h2>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Info label={ticketOptionName ? "Ticket option" : "Product"} value={displayProductName} icon={<Ticket className="h-4 w-4" />} />
-            {ticketOptionName && (
-              <Info label="Experience" value={mainProductName} icon={<Ticket className="h-4 w-4" />} />
+            {transfer.isTransfer ? (
+              <>
+                <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="flex items-center gap-3 text-slate-950">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
+                      <Car className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+                        {transfer.roundTrip ? "Round trip transfer" : "One way transfer"}
+                      </p>
+                      <p className="mt-1 text-lg font-black">
+                        {transfer.origin || "Pickup area"} <ArrowRight className="mx-1 inline h-4 w-4" /> {transfer.destination || "Destination"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label="Preferred pickup time" value={formatTime(booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label="Passengers" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
+                  <Info label="Vehicle" value={transfer.vehicle || "To be assigned"} icon={<Car className="h-4 w-4" />} />
+                  {transfer.priceBand && <Info label="Price band" value={transfer.priceBand} icon={<Ticket className="h-4 w-4" />} />}
+                  {transfer.flightNumber && <Info label="Flight number" value={transfer.flightNumber} icon={<Plane className="h-4 w-4" />} />}
+                  {transfer.roundTrip && <Info label="Return date" value={formatDate(transfer.returnDate)} icon={<Clock3 className="h-4 w-4" />} />}
+                  {transfer.roundTrip && <Info label="Return time" value={formatTime(transfer.returnTime)} icon={<Clock3 className="h-4 w-4" />} />}
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <LocationCard
+                    title="Pickup"
+                    name={transfer.pickupName || transfer.origin || booking?.customer_hotel || "Pickup location"}
+                    address={transfer.pickupAddress}
+                    mapsLink={transfer.pickupMapsLink}
+                  />
+
+                  <LocationCard
+                    title="Destination"
+                    name={transfer.dropoffName || transfer.destination || "Destination"}
+                    address={transfer.dropoffAddress}
+                    mapsLink={transfer.dropoffMapsLink}
+                  />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">What happens next</p>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
+                    Your booking is saved with the pickup and destination information. The team will assign a driver later and may contact you by WhatsApp or email if anything needs to be confirmed.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Info label={ticketOptionName ? "Ticket option" : "Product"} value={displayProductName} icon={<Ticket className="h-4 w-4" />} />
+                  {ticketOptionName && (
+                    <Info label="Experience" value={mainProductName} icon={<Ticket className="h-4 w-4" />} />
+                  )}
+                  {ticketDescription && (
+                    <Info label="Includes" value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
+                  )}
+                  <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label="Guests" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
+                  <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
+                  <Info label="Hotel" value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
+                  <Info label="Pickup time" value={formatTime(pickup?.pickup_time || booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
+                </div>
+
+                {pickup?.pickup_point && (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">Pickup point</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{pickup.pickup_point}</p>
+                    {pickup.instructions && <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{pickup.instructions}</p>}
+                  </div>
+                )}
+              </>
             )}
-            {ticketDescription && (
-              <Info label="Includes" value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
-            )}
-            <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
-            <Info label="Guests" value={`${booking?.total_guests || 0} total`} icon={<Users className="h-4 w-4" />} />
-            <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
-            <Info label="Hotel" value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
-            <Info label="Pickup time" value={formatTime(pickup?.pickup_time || booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
           </div>
-
-          {pickup?.pickup_point && (
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Pickup point</p>
-              <p className="mt-1 text-sm font-black text-slate-950">{pickup.pickup_point}</p>
-              {pickup.instructions && <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{pickup.instructions}</p>}
-            </div>
-          )}
         </div>
 
         <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -526,6 +735,47 @@ function PublicShell({ brandName, publicPath, children }: { brandName: string; p
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">{children}</main>
+    </div>
+  );
+}
+
+function LocationCard({
+  title,
+  name,
+  address,
+  mapsLink,
+}: {
+  title: string;
+  name?: string | null;
+  address?: string | null;
+  mapsLink?: string | null;
+}) {
+  const link = mapsHref(mapsLink || address || name);
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-amber-600 shadow-sm">
+          <MapPin className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">{title}</p>
+          <p className="mt-1 text-sm font-black text-slate-950">{name || "—"}</p>
+          {address && <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{address}</p>}
+        </div>
+      </div>
+
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+        >
+          <Navigation className="h-4 w-4" />
+          Open map
+        </a>
+      )}
     </div>
   );
 }

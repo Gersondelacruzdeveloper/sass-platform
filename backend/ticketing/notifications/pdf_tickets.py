@@ -297,6 +297,99 @@ def _get_pickup_info(booking: Any) -> str:
     return "To be confirmed"
 
 
+
+
+def _is_transfer_booking(booking: Any) -> bool:
+    product = getattr(booking, "primary_product", None) or getattr(booking, "product", None)
+    product_type = _safe_text(getattr(product, "product_type", "")).lower() if product else ""
+
+    if product_type == "transfer":
+        return True
+
+    if _first_attr(booking, ["transfer_origin", "transfer_destination"], ""):
+        return True
+
+    try:
+        first_item = _get_first_booking_item(booking)
+        if first_item and _safe_text(getattr(first_item, "product_type", "")).lower() == "transfer":
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _extract_note_value(notes: str, labels: list[str]) -> str:
+    if not notes:
+        return ""
+
+    for line in str(notes).splitlines():
+        clean_line = line.strip()
+        lower = clean_line.lower()
+
+        for label in labels:
+            prefix = f"{label.lower()}:"
+            if lower.startswith(prefix):
+                return clean_line.split(":", 1)[1].strip()
+
+    return ""
+
+
+def _get_transfer_origin(booking: Any) -> str:
+    notes = _safe_text(getattr(booking, "customer_notes", ""))
+    return (
+        _first_attr(booking, ["transfer_origin"], "")
+        or _extract_note_value(notes, ["Route from", "Pickup", "Pickup address"])
+        or _safe_text(getattr(booking, "customer_hotel", ""))
+        or "Pickup location"
+    )
+
+
+def _get_transfer_destination(booking: Any) -> str:
+    notes = _safe_text(getattr(booking, "customer_notes", ""))
+    return (
+        _first_attr(booking, ["transfer_destination"], "")
+        or _extract_note_value(notes, ["Route to", "Drop-off", "Drop-off address"])
+        or "Drop-off location"
+    )
+
+
+def _get_transfer_vehicle(booking: Any) -> str:
+    notes = _safe_text(getattr(booking, "customer_notes", ""))
+    return (
+        _first_attr(booking, ["transfer_vehicle_type", "vehicle_assigned"], "")
+        or _extract_note_value(notes, ["Vehicle"])
+        or "To be assigned"
+    )
+
+
+def _get_transfer_type(booking: Any) -> str:
+    round_trip = bool(getattr(booking, "transfer_round_trip", False))
+    return "Round trip" if round_trip else "One way"
+
+
+def _get_transfer_pickup_details(booking: Any) -> str:
+    notes = _safe_text(getattr(booking, "customer_notes", ""))
+    pickup_name = (
+        _extract_note_value(notes, ["Pickup"])
+        or _safe_text(getattr(booking, "customer_hotel", ""))
+    )
+    pickup_address = _extract_note_value(notes, ["Pickup address"])
+    pickup_map = _extract_note_value(notes, ["Pickup map"])
+
+    parts = [part for part in [pickup_name, pickup_address, pickup_map] if part]
+    return " • ".join(parts) if parts else _get_pickup_info(booking)
+
+
+def _get_transfer_dropoff_details(booking: Any) -> str:
+    notes = _safe_text(getattr(booking, "customer_notes", ""))
+    dropoff_name = _extract_note_value(notes, ["Drop-off"])
+    dropoff_address = _extract_note_value(notes, ["Drop-off address"])
+    dropoff_map = _extract_note_value(notes, ["Drop-off map"])
+
+    parts = [part for part in [dropoff_name, dropoff_address, dropoff_map] if part]
+    return " • ".join(parts) if parts else _get_transfer_destination(booking)
+
 def _get_guest_summary(booking: Any) -> str:
     adults = getattr(booking, "adults", None) or 0
     children = getattr(booking, "children", None) or 0
@@ -574,8 +667,13 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     y -= 18 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 21)
-    ticket_name = _get_product_name(booking)
-    container_product_name = _get_container_product_name(booking)
+    is_transfer = _is_transfer_booking(booking)
+    ticket_name = (
+        f"{_get_transfer_origin(booking)} → {_get_transfer_destination(booking)}"
+        if is_transfer
+        else _get_product_name(booking)
+    )
+    container_product_name = "Private Transfer" if is_transfer else _get_container_product_name(booking)
 
     y = _draw_wrapped_text(
         pdf,
@@ -625,9 +723,21 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     _draw_label_value(pdf, "Contact", _get_customer_contact(booking), content_x + half_w + col_gap, second_row_y, half_w, muted, text_color)
 
     third_row_y = second_row_y - 26 * mm
-    _draw_label_value(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x, third_row_y, content_w, muted, text_color)
 
-    payment_y = third_row_y - 30 * mm
+    if is_transfer:
+        _draw_label_value(pdf, "Transfer", _get_transfer_type(booking), content_x, third_row_y, half_w, muted, text_color)
+        _draw_label_value(pdf, "Vehicle", _get_transfer_vehicle(booking), content_x + half_w + col_gap, third_row_y, half_w, muted, text_color)
+
+        fourth_row_y = third_row_y - 26 * mm
+        _draw_label_value(pdf, "Pickup", _get_transfer_pickup_details(booking), content_x, fourth_row_y, content_w, muted, text_color)
+
+        fifth_row_y = fourth_row_y - 26 * mm
+        _draw_label_value(pdf, "Drop-off", _get_transfer_dropoff_details(booking), content_x, fifth_row_y, content_w, muted, text_color)
+
+        payment_y = fifth_row_y - 30 * mm
+    else:
+        _draw_label_value(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x, third_row_y, content_w, muted, text_color)
+        payment_y = third_row_y - 30 * mm
     pdf.setFillColor(_hex("#F9FAFB"))
     pdf.setStrokeColor(_hex("#E5E7EB"))
     pdf.roundRect(content_x, payment_y - 24 * mm, content_w, 25 * mm, 4 * mm, fill=1, stroke=1)
@@ -654,10 +764,16 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.setFillColor(_hex(muted))
     pdf.setFont("Helvetica", 9)
     info_y -= 7 * mm
-    info_text = (
-        "Please show this ticket when checking in. Keep your booking code and QR code "
-        "available for verification. Arrive at the pickup or meeting point on time."
-    )
+    if is_transfer:
+        info_text = (
+            "Please keep your booking code available. Your transfer is booked in advance. "
+            "Be ready at the pickup location at the selected time and keep your phone/WhatsApp available."
+        )
+    else:
+        info_text = (
+            "Please show this ticket when checking in. Keep your booking code and QR code "
+            "available for verification. Arrive at the pickup or meeting point on time."
+        )
     _draw_wrapped_text(pdf, info_text, content_x, info_y, max_chars=92, line_height=5 * mm)
 
     footer_h = 18 * mm

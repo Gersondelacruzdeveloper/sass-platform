@@ -65,6 +65,12 @@ type CheckoutForm = {
   email: string;
   hotel_name: string;
   notes: string;
+  pickup_name: string;
+  pickup_address: string;
+  pickup_maps_link: string;
+  dropoff_name: string;
+  dropoff_address: string;
+  dropoff_maps_link: string;
 };
 
 function getApiBaseUrl() {
@@ -408,6 +414,37 @@ export default function PublicCheckoutPage() {
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
 
+  // Transfer-only values passed from PublicProductDetailPage.tsx.
+  // These do not use excursion pickup schedules. Transfers are advance bookings
+  // with a selected route, passenger count, preferred time, pickup, and drop-off.
+  const transferRouteId =
+    searchParams.get("transfer_route_id") || searchParams.get("route_id") || "";
+  const transferPriceBandId =
+    searchParams.get("transfer_price_band_id") || searchParams.get("price_band_id") || "";
+  const transferOrigin =
+    searchParams.get("transfer_origin") || searchParams.get("origin") || "";
+  const transferDestination =
+    searchParams.get("transfer_destination") || searchParams.get("destination") || "";
+  const transferVehicleType =
+    searchParams.get("transfer_vehicle_type") || searchParams.get("vehicle_type") || "";
+  const transferRoundTrip =
+    ["true", "1", "yes"].includes(
+      String(searchParams.get("transfer_round_trip") || searchParams.get("round_trip") || "false").toLowerCase()
+    );
+
+  const transferPickupName =
+    searchParams.get("pickup_name") || searchParams.get("pickup_location_name") || hotelFromQuery || "";
+  const transferPickupAddress = searchParams.get("pickup_address") || "";
+  const transferPickupMapsLink = searchParams.get("pickup_maps_link") || "";
+  const transferDropoffName =
+    searchParams.get("dropoff_name") || searchParams.get("dropoff_location_name") || "";
+  const transferDropoffAddress = searchParams.get("dropoff_address") || "";
+  const transferDropoffMapsLink = searchParams.get("dropoff_maps_link") || "";
+  const transferQuotedTotal = parseNumber(
+    searchParams.get("transfer_total_price") || searchParams.get("quoted_total") || "",
+    NaN
+  );
+
   // Live external/Wellet option selected on the product detail page.
   // Important: for Coco Bongo, the SaaS product is only the show/container.
   // The real bookable product is the selected Wellet ticket option.
@@ -431,16 +468,36 @@ export default function PublicCheckoutPage() {
     full_name: "",
     whatsapp: "",
     email: "",
-    hotel_name: hotelFromQuery,
+    hotel_name: hotelFromQuery || transferPickupName,
     notes: "",
+    pickup_name: transferPickupName,
+    pickup_address: transferPickupAddress,
+    pickup_maps_link: transferPickupMapsLink,
+    dropoff_name: transferDropoffName,
+    dropoff_address: transferDropoffAddress,
+    dropoff_maps_link: transferDropoffMapsLink,
   });
 
   useEffect(() => {
     setForm((current) => ({
       ...current,
-      hotel_name: hotelFromQuery || current.hotel_name,
+      hotel_name: hotelFromQuery || transferPickupName || current.hotel_name,
+      pickup_name: transferPickupName || current.pickup_name,
+      pickup_address: transferPickupAddress || current.pickup_address,
+      pickup_maps_link: transferPickupMapsLink || current.pickup_maps_link,
+      dropoff_name: transferDropoffName || current.dropoff_name,
+      dropoff_address: transferDropoffAddress || current.dropoff_address,
+      dropoff_maps_link: transferDropoffMapsLink || current.dropoff_maps_link,
     }));
-  }, [hotelFromQuery]);
+  }, [
+    hotelFromQuery,
+    transferPickupName,
+    transferPickupAddress,
+    transferPickupMapsLink,
+    transferDropoffName,
+    transferDropoffAddress,
+    transferDropoffMapsLink,
+  ]);
 
   async function loadPage() {
     if (!organisationSlug) return;
@@ -506,6 +563,8 @@ export default function PublicCheckoutPage() {
     );
   }, [products, productId, productSlug]);
 
+  const isTransfer = product?.product_type === "transfer";
+
   const unitPrice = useMemo(() => {
     const productPrice = Number(product?.base_price || 0);
     const override = parseNumber(unitPriceOverride, NaN);
@@ -529,7 +588,13 @@ export default function PublicCheckoutPage() {
     return productDeposit;
   }, [product, depositOverride]);
 
-  const totalFull = unitPrice * guests;
+  const totalFull =
+    isTransfer && Number.isFinite(transferQuotedTotal) && transferQuotedTotal > 0
+      ? transferQuotedTotal
+      : unitPrice * guests;
+
+  const itemQuantity = isTransfer ? 1 : guests;
+  const itemUnitPrice = isTransfer ? totalFull : unitPrice;
 
   const depositFromPercent =
     Number(product?.deposit_percentage || 0) > 0
@@ -581,7 +646,15 @@ export default function PublicCheckoutPage() {
     if (!form.full_name.trim()) return "Full name is required.";
     if (!form.whatsapp.trim()) return "WhatsApp number is required.";
 
-    if ((product.requires_pickup_location || product.supports_pickup) && !pickupLocationId) {
+    if (isTransfer) {
+      if (!transferRouteId) return "Transfer route is required.";
+      if (!form.pickup_name.trim() && !form.pickup_address.trim()) {
+        return "Pickup location or address is required.";
+      }
+      if (!form.dropoff_name.trim() && !form.dropoff_address.trim()) {
+        return "Drop-off location or address is required.";
+      }
+    } else if ((product.requires_pickup_location || product.supports_pickup) && !pickupLocationId) {
       return "Pickup location is required.";
     }
 
@@ -627,6 +700,18 @@ export default function PublicCheckoutPage() {
         externalStartTime ? `Show time: ${externalStartTime}` : "",
         externalEndTime ? `End time: ${externalEndTime}` : "",
         externalPerformanceId ? `Performance ID: ${externalPerformanceId}` : "",
+        isTransfer && transferRouteId ? `Transfer route ID: ${transferRouteId}` : "",
+        isTransfer && transferPriceBandId ? `Price band ID: ${transferPriceBandId}` : "",
+        isTransfer && transferOrigin ? `Route from: ${transferOrigin}` : "",
+        isTransfer && transferDestination ? `Route to: ${transferDestination}` : "",
+        isTransfer && transferVehicleType ? `Vehicle: ${transferVehicleType}` : "",
+        isTransfer ? `Passengers: ${guests}` : "",
+        isTransfer && form.pickup_name.trim() ? `Pickup: ${form.pickup_name.trim()}` : "",
+        isTransfer && form.pickup_address.trim() ? `Pickup address: ${form.pickup_address.trim()}` : "",
+        isTransfer && form.pickup_maps_link.trim() ? `Pickup map: ${form.pickup_maps_link.trim()}` : "",
+        isTransfer && form.dropoff_name.trim() ? `Drop-off: ${form.dropoff_name.trim()}` : "",
+        isTransfer && form.dropoff_address.trim() ? `Drop-off address: ${form.dropoff_address.trim()}` : "",
+        isTransfer && form.dropoff_maps_link.trim() ? `Drop-off map: ${form.dropoff_maps_link.trim()}` : "",
         pickupPoint ? `Pickup point: ${pickupPoint}` : "",
       ].filter(Boolean);
 
@@ -635,8 +720,8 @@ export default function PublicCheckoutPage() {
         product_name: externalOptionName || product.name,
         service_date: serviceDate,
         service_time: pickupTime,
-        quantity: guests,
-        unit_price: unitPrice.toFixed(2),
+        quantity: itemQuantity,
+        unit_price: itemUnitPrice.toFixed(2),
         instructions: ticketInfoLines.join("\n"),
 
         // Coco Bongo / Wellet dynamic ticket option.
@@ -680,8 +765,20 @@ export default function PublicCheckoutPage() {
         customer_name: form.full_name.trim(),
         customer_whatsapp: form.whatsapp.trim(),
         customer_email: form.email.trim() || null,
-        customer_hotel: form.hotel_name.trim() || hotelFromQuery || "",
-        customer_notes: form.notes.trim(),
+        customer_hotel: form.hotel_name.trim() || hotelFromQuery || form.pickup_name.trim() || "",
+        customer_notes: [
+          form.notes.trim(),
+          isTransfer && form.pickup_address.trim() ? `Pickup address: ${form.pickup_address.trim()}` : "",
+          isTransfer && form.pickup_maps_link.trim() ? `Pickup map: ${form.pickup_maps_link.trim()}` : "",
+          isTransfer && form.dropoff_name.trim() ? `Drop-off: ${form.dropoff_name.trim()}` : "",
+          isTransfer && form.dropoff_address.trim() ? `Drop-off address: ${form.dropoff_address.trim()}` : "",
+          isTransfer && form.dropoff_maps_link.trim() ? `Drop-off map: ${form.dropoff_maps_link.trim()}` : "",
+        ].filter(Boolean).join("\n"),
+        transfer_origin: isTransfer ? transferOrigin || form.pickup_name.trim() || form.pickup_address.trim() : "",
+        transfer_destination: isTransfer ? transferDestination || form.dropoff_name.trim() || form.dropoff_address.trim() : "",
+        transfer_vehicle_type: isTransfer ? transferVehicleType : "",
+        transfer_round_trip: isTransfer ? transferRoundTrip : false,
+        transfer_status: isTransfer ? "booked" : "",
         adults,
         children,
         infants,
@@ -692,7 +789,7 @@ export default function PublicCheckoutPage() {
         deposit_required: payNow.toFixed(2),
         deposit_paid: "0.00",
         balance_due: totalFull.toFixed(2),
-        pickup_location_id: pickupLocationId ? Number(pickupLocationId) : null,
+        pickup_location_id: !isTransfer && pickupLocationId ? Number(pickupLocationId) : null,
         items_payload: [itemPayload],
         payments_payload: paymentsPayload,
       };
@@ -850,7 +947,7 @@ export default function PublicCheckoutPage() {
           </h1>
 
           <p className="mt-2 text-sm font-semibold leading-6" style={{ color: theme.muted }}>
-            Enter your details. Your pickup time is already calculated from the selected hotel and date.
+            Enter your details. Transfer bookings are confirmed in advance with your selected route, pickup, drop-off, date and time.
           </p>
 
           {error && (
@@ -892,20 +989,84 @@ export default function PublicCheckoutPage() {
             />
 
             <Input
-              label="Hotel / pickup location"
-              value={form.hotel_name}
-              onChange={(value) => updateField("hotel_name", value)}
-              placeholder="Hotel name"
+              label={isTransfer ? "Pickup name" : "Hotel / pickup location"}
+              value={isTransfer ? form.pickup_name : form.hotel_name}
+              onChange={(value) =>
+                isTransfer ? updateField("pickup_name", value) : updateField("hotel_name", value)
+              }
+              placeholder={isTransfer ? "Hotel, Airbnb, villa, airport..." : "Hotel name"}
               icon={<MapPin className="h-4 w-4" />}
               theme={theme}
             />
           </div>
 
+          {isTransfer && (
+            <div className="mt-5 rounded-3xl border p-4" style={{
+              backgroundColor: hexToRgba(theme.primary, 0.04),
+              borderColor: hexToRgba(theme.primary, 0.12),
+            }}>
+              <p className="text-sm font-black" style={{ color: theme.text }}>
+                Transfer pickup and drop-off
+              </p>
+              <p className="mt-1 text-xs font-semibold leading-5" style={{ color: theme.muted }}>
+                Add the exact pickup and destination details so the driver knows where to go.
+              </p>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Pickup address"
+                  value={form.pickup_address}
+                  onChange={(value) => updateField("pickup_address", value)}
+                  placeholder="Full hotel, Airbnb or villa address"
+                  icon={<MapPin className="h-4 w-4" />}
+                  theme={theme}
+                />
+
+                <Input
+                  label="Pickup Google Maps link"
+                  value={form.pickup_maps_link}
+                  onChange={(value) => updateField("pickup_maps_link", value)}
+                  placeholder="Optional map link"
+                  icon={<MapPin className="h-4 w-4" />}
+                  theme={theme}
+                />
+
+                <Input
+                  label="Drop-off name"
+                  value={form.dropoff_name}
+                  onChange={(value) => updateField("dropoff_name", value)}
+                  placeholder="Bayahibe port, hotel, airport..."
+                  icon={<MapPin className="h-4 w-4" />}
+                  required
+                  theme={theme}
+                />
+
+                <Input
+                  label="Drop-off address"
+                  value={form.dropoff_address}
+                  onChange={(value) => updateField("dropoff_address", value)}
+                  placeholder="Full destination address if needed"
+                  icon={<MapPin className="h-4 w-4" />}
+                  theme={theme}
+                />
+
+                <Input
+                  label="Drop-off Google Maps link"
+                  value={form.dropoff_maps_link}
+                  onChange={(value) => updateField("dropoff_maps_link", value)}
+                  placeholder="Optional map link"
+                  icon={<MapPin className="h-4 w-4" />}
+                  theme={theme}
+                />
+              </div>
+            </div>
+          )}
+
           <Textarea
             label="Notes"
             value={form.notes}
             onChange={(value) => updateField("notes", value)}
-            placeholder="Room number, special requests, allergies, flight info..."
+            placeholder={isTransfer ? "Room number, luggage, child seats, flight info, pickup instructions..." : "Room number, special requests, allergies, flight info..."}
             theme={theme}
           />
 
@@ -996,6 +1157,17 @@ export default function PublicCheckoutPage() {
 
           <div className="mt-5 space-y-3">
             <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Product" value={product?.name || productSlug} theme={theme} />
+            {isTransfer && (transferOrigin || transferDestination) && (
+              <SummaryRow
+                icon={<MapPin className="h-4 w-4" />}
+                label="Transfer route"
+                value={`${transferOrigin || "Pickup"} → ${transferDestination || "Drop-off"}`}
+                theme={theme}
+              />
+            )}
+            {isTransfer && transferVehicleType && (
+              <SummaryRow icon={<Users className="h-4 w-4" />} label="Vehicle" value={transferVehicleType} theme={theme} />
+            )}
             {externalOptionName && (
               <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={externalOptionName} theme={theme} />
             )}
@@ -1012,8 +1184,20 @@ export default function PublicCheckoutPage() {
             {externalStartTime && (
               <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Show time" value={formatTime(externalStartTime)} theme={theme} />
             )}
-            <SummaryRow icon={<Users className="h-4 w-4" />} label="Guests" value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
-            {hotelFromQuery && (
+            <SummaryRow icon={<Users className="h-4 w-4" />} label={isTransfer ? "Passengers" : "Guests"} value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
+            {isTransfer && (form.pickup_name || transferPickupName || hotelFromQuery) && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup" value={form.pickup_name || transferPickupName || hotelFromQuery} theme={theme} />
+            )}
+            {isTransfer && (form.pickup_address || transferPickupAddress) && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup address" value={form.pickup_address || transferPickupAddress} theme={theme} />
+            )}
+            {isTransfer && (form.dropoff_name || transferDropoffName) && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Drop-off" value={form.dropoff_name || transferDropoffName} theme={theme} />
+            )}
+            {isTransfer && (form.dropoff_address || transferDropoffAddress) && (
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Drop-off address" value={form.dropoff_address || transferDropoffAddress} theme={theme} />
+            )}
+            {!isTransfer && hotelFromQuery && (
               <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup hotel" value={hotelFromQuery} theme={theme} />
             )}
             {pickupTime && (
