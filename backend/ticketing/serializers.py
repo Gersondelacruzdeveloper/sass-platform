@@ -310,7 +310,20 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
         return self.build_file_url(obj.logo)
 
     def get_favicon_url(self, obj):
-        return self.build_file_url(obj.favicon)
+        if obj.favicon:
+            return self.build_file_url(obj.favicon)
+
+        branding = getattr(obj.organisation, "branding", None)
+        if not branding:
+            return None
+
+        if branding.favicon:
+            return self.build_file_url(branding.favicon)
+
+        if branding.app_icon_192:
+            return self.build_file_url(branding.app_icon_192)
+
+        return None
 
     def get_hero_image_url(self, obj):
         return self.build_file_url(obj.hero_image)

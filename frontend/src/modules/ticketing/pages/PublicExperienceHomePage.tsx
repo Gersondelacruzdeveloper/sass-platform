@@ -490,7 +490,92 @@ export default function PublicExperienceHomePage() {
 
       meta.content = metaDescription;
     }
-  }, [brandName, publicSite]);
+
+    const faviconUrl = resolveAssetUrl(
+      publicSite?.favicon_url ||
+        publicSite?.favicon ||
+        publicSite?.logo_url ||
+        publicSite?.logo
+    );
+
+    if (faviconUrl) {
+      let favicon = document.getElementById(
+        "app-favicon"
+      ) as HTMLLinkElement | null;
+
+      if (!favicon) {
+        favicon = document.createElement("link");
+        favicon.id = "app-favicon";
+        favicon.rel = "icon";
+        document.head.appendChild(favicon);
+      }
+
+      favicon.href = faviconUrl;
+      favicon.type = faviconUrl.toLowerCase().includes(".ico")
+        ? "image/x-icon"
+        : "image/png";
+
+      let shortcutIcon = document.getElementById(
+        "app-shortcut-icon"
+      ) as HTMLLinkElement | null;
+
+      if (!shortcutIcon) {
+        shortcutIcon = document.createElement("link");
+        shortcutIcon.id = "app-shortcut-icon";
+        shortcutIcon.rel = "shortcut icon";
+        document.head.appendChild(shortcutIcon);
+      }
+
+      shortcutIcon.href = faviconUrl;
+      shortcutIcon.type = favicon.type;
+
+      let appleTouchIcon = document.getElementById(
+        "apple-touch-icon"
+      ) as HTMLLinkElement | null;
+
+      if (!appleTouchIcon) {
+        appleTouchIcon = document.createElement("link");
+        appleTouchIcon.id = "apple-touch-icon";
+        appleTouchIcon.rel = "apple-touch-icon";
+        document.head.appendChild(appleTouchIcon);
+      }
+
+      appleTouchIcon.href = faviconUrl;
+    }
+
+    if (organisationSlug) {
+      const manifestUrl = `${getApiBaseUrl()}/organisations/public-manifest/ticketing/${organisationSlug}/manifest.json`;
+
+      let manifest = document.getElementById(
+        "app-manifest"
+      ) as HTMLLinkElement | null;
+
+      if (!manifest) {
+        manifest = document.createElement("link");
+        manifest.id = "app-manifest";
+        manifest.rel = "manifest";
+        document.head.appendChild(manifest);
+      }
+
+      manifest.href = manifestUrl;
+    }
+
+    let themeColorMeta = document.getElementById(
+      "app-theme-color"
+    ) as HTMLMetaElement | null;
+
+    if (!themeColorMeta) {
+      themeColorMeta = document.createElement("meta");
+      themeColorMeta.id = "app-theme-color";
+      themeColorMeta.name = "theme-color";
+      document.head.appendChild(themeColorMeta);
+    }
+
+    themeColorMeta.content =
+      publicSite?.primary_color ||
+      publicSite?.theme_color ||
+      "#0F172A";
+  }, [brandName, organisationSlug, publicSite]);
 
   const publicProducts = useMemo(() => {
     return products.filter(
