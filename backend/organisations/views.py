@@ -239,12 +239,23 @@ class PublicOrganisationManifestView(APIView):
                 "purpose": "maskable",
             })
 
+        # Build a tenant-specific launch URL.
+        #
+        # Ticketing users open directly in their own organisation dashboard.
+        # Other modules keep their existing login launch route.
+        if business_type == "ticketing":
+            start_path = f"/ticketing/{organisation.slug}/dashboard"
+        else:
+            start_path = f"/{business_type}/{organisation.slug}/login"
+
+        scope_path = f"/{business_type}/{organisation.slug}/"
+
         manifest = {
             "name": app_name,
             "short_name": short_name,
             "description": description,
-            "start_url": f"{frontend_url}/{business_type}/{organisation.slug}/login",
-            "scope": f"{frontend_url}/{business_type}/{organisation.slug}/",
+            "start_url": f"{frontend_url}{start_path}",
+            "scope": f"{frontend_url}{scope_path}",
             "display": "standalone",
             "orientation": "portrait-primary",
             "theme_color": branding.theme_color or branding.primary_color or "#020617",
