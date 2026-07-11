@@ -941,11 +941,10 @@ export default function TicketingSellerNewBookingPage() {
           ? getLiveOptionLabel(selectedLiveOption)
           : selectedProduct.name,
         service_date: form.serviceDate,
-        service_time:
-          form.serviceTime ||
-          selectedLiveOption?.start_time ||
-          selectedProduct.start_time ||
-          null,
+        // Coco Bongo/Wellet show times are external metadata, not Django TimeField values.
+        service_time: isLiveCocoBongoProduct
+          ? null
+          : form.serviceTime || selectedProduct.start_time || null,
         quantity: isLiveCocoBongoProduct
           ? liveTicketQuantity
           : getChargeableGuests(form),
@@ -969,6 +968,14 @@ export default function TicketingSellerNewBookingPage() {
           selectedLiveOption.external_availability_id || "";
         itemPayload.external_option_name =
           getLiveOptionLabel(selectedLiveOption);
+        itemPayload.external_start_time =
+          selectedLiveOption.start_time || "";
+        itemPayload.external_end_time =
+          selectedLiveOption.end_time || "";
+        itemPayload.external_checkin_time =
+          selectedLiveOption.checkin_time || "";
+        itemPayload.external_performance_id =
+          selectedLiveOption.performance_id || "";
       }
 
       const payload: BookingCreatePayload = {
@@ -979,7 +986,9 @@ export default function TicketingSellerNewBookingPage() {
         payment_mode: paymentMode,
         payment_method: paymentMethod,
         service_date: form.serviceDate,
-        service_time: form.serviceTime || selectedProduct.start_time || null,
+        service_time: isLiveCocoBongoProduct
+          ? null
+          : form.serviceTime || selectedProduct.start_time || null,
         customer_name: form.customerName.trim(),
         customer_whatsapp: form.customerWhatsapp.trim() || null,
         customer_email: form.customerEmail.trim() || null,
