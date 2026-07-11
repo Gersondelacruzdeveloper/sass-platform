@@ -444,44 +444,55 @@ function getSellerOwedToCompany(seller: Seller) {
   return values.length ? Math.max(...values, 0) : 0;
 }
 
+function readNumber(
+  source: Record<string, unknown>,
+  keys: string[]
+) {
+  for (const key of keys) {
+    const amount = numberValue(
+      source[key] as string | number | null | undefined
+    );
+
+    if (amount !== 0) {
+      return amount;
+    }
+  }
+
+  return 0;
+}
+
 function getSellerOwnerNet(seller: Seller) {
-  return firstMoneyValue(
-    seller.total_owner_net_amount,
-    seller.owner_net_amount
-  );
+  return readNumber(seller as Record<string, unknown>, [
+    "owner_net_amount",
+    "owner_net",
+    "total_owner_net_amount",
+  ]);
 }
 
 function getSellerOwnerReceived(seller: Seller) {
-  return firstMoneyValue(
-    seller.total_owner_received_amount,
-    seller.owner_received_amount
-  );
+  return readNumber(seller as Record<string, unknown>, [
+    "owner_received_amount",
+    "owner_received",
+    "total_owner_received_amount",
+  ]);
 }
 
 function getSellerOwnerPending(seller: Seller) {
-  /*
-   * Prefer an explicit pending/remaining field from the API. If it is not
-   * available, calculate what the company has not received yet:
-   *
-   * owner pending = owner net - owner received
-   */
-  const explicitValues = [
-    seller.total_owner_remaining_amount,
-    seller.owner_remaining_amount,
-    seller.total_owner_pending_amount,
-    seller.owner_pending_amount,
-    seller.company_pending_amount,
-  ]
-    .map(numberValue)
-    .filter((value) => value > 0);
+  const sellerRecord = seller as Record<string, unknown>;
 
-  if (explicitValues.length) {
-    return Math.max(...explicitValues);
-  }
-
-  return Math.max(
-    getSellerOwnerNet(seller) - getSellerOwnerReceived(seller),
-    0
+  return (
+    readNumber(sellerRecord, [
+      "owner_remaining_amount",
+      "owner_pending",
+      "owner_pending_amount",
+      "total_owner_remaining_amount",
+      "total_owner_pending_amount",
+      "company_pending_amount",
+    ]) ||
+    Math.max(
+      getSellerOwnerNet(seller) - getSellerOwnerReceived(seller),
+      0
+    )
   );
 }
 
