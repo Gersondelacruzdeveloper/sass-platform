@@ -335,8 +335,14 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 }
 
 export default function PublicExperienceHomePage() {
-  const params = useParams();
+  const params = useParams<{
+    organisationSlug?: string;
+    slug?: string;
+    sellerCode?: string;
+  }>();
+
   const slugFromUrl = params.organisationSlug || params.slug || "";
+  const sellerCodeFromUrl = String(params.sellerCode || "").trim();
 
   const {
     organisationSlug,
@@ -345,16 +351,57 @@ export default function PublicExperienceHomePage() {
     isCustomDomain,
   } = usePublicTicketingOrganisation(slugFromUrl);
 
+  const sellerStorageKey = organisationSlug
+    ? `ticketing_seller_slug:${organisationSlug}`
+    : "";
+
+  const [storedSellerCode, setStoredSellerCode] = useState(() => {
+    if (sellerCodeFromUrl) return sellerCodeFromUrl;
+    if (typeof window === "undefined" || !slugFromUrl) return "";
+
+    return (
+      window.sessionStorage.getItem(
+        `ticketing_seller_slug:${slugFromUrl}`
+      ) || ""
+    );
+  });
+
+  useEffect(() => {
+    if (!sellerStorageKey || typeof window === "undefined") return;
+
+    if (sellerCodeFromUrl) {
+      window.sessionStorage.setItem(sellerStorageKey, sellerCodeFromUrl);
+      setStoredSellerCode(sellerCodeFromUrl);
+      return;
+    }
+
+    const savedSellerCode =
+      window.sessionStorage.getItem(sellerStorageKey) || "";
+
+    setStoredSellerCode(savedSellerCode);
+  }, [sellerCodeFromUrl, sellerStorageKey]);
+
+  const activeSellerCode = sellerCodeFromUrl || storedSellerCode;
+
   const publicPath = (path: string = "/") => {
     if (!organisationSlug) {
       return path || "/";
     }
 
+    const cleanPath = path === "/" ? "" : path;
+
     if (isCustomDomain) {
+      if (activeSellerCode) {
+        return `/s/${activeSellerCode}${cleanPath}`;
+      }
+
       return path || "/";
     }
 
-    const cleanPath = path === "/" ? "" : path;
+    if (activeSellerCode) {
+      return `/experiences/${organisationSlug}/s/${activeSellerCode}${cleanPath}`;
+    }
+
     return `/experiences/${organisationSlug}${cleanPath}`;
   };
 

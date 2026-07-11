@@ -1166,6 +1166,7 @@ function hasSelectedPaymentOption(
 
 function buildCheckoutUrl({
   publicPath,
+  sellerSlug,
   product,
   date,
   qty,
@@ -1181,6 +1182,7 @@ function buildCheckoutUrl({
   transferTotalPrice,
 }: {
   publicPath: (path: string) => string;
+  sellerSlug?: string;
   product: ExperienceProduct;
   date: string;
   qty: BookingQty;
@@ -1196,6 +1198,10 @@ function buildCheckoutUrl({
   transferTotalPrice?: number;
 }) {
   const params = new URLSearchParams();
+
+  if (sellerSlug) {
+    params.set("seller", sellerSlug);
+  }
 
   params.set("product", product.slug);
   params.set("product_id", String(product.id));
@@ -1306,24 +1312,40 @@ function normalizePublicPath(path?: string | null) {
 
 function getCurrentProductResolvePath(
   organisationSlug: string,
-  isCustomDomain: boolean
+  isCustomDomain: boolean,
+  sellerCode?: string
 ) {
   if (typeof window === "undefined") return "/";
 
-  const currentPath = normalizePublicPath(window.location.pathname);
+  let currentPath = normalizePublicPath(window.location.pathname);
 
-  if (isCustomDomain || !organisationSlug) {
-    return currentPath;
+  if (!isCustomDomain && organisationSlug) {
+    const organisationPrefix = normalizePublicPath(
+      `/experiences/${organisationSlug}`
+    );
+
+    if (currentPath === organisationPrefix) {
+      currentPath = "/";
+    } else if (currentPath.startsWith(`${organisationPrefix}/`)) {
+      currentPath = normalizePublicPath(
+        currentPath.slice(organisationPrefix.length)
+      );
+    }
   }
 
-  const prefix = normalizePublicPath(`/experiences/${organisationSlug}`);
+  // Seller referral URLs add /s/:sellerCode before the real public path.
+  // The backend product resolver should receive /product/:slug, not the
+  // referral wrapper /s/:sellerCode/product/:slug.
+  if (sellerCode) {
+    const sellerPrefix = normalizePublicPath(`/s/${sellerCode}`);
 
-  if (currentPath === prefix) {
-    return "/";
-  }
+    if (currentPath === sellerPrefix) {
+      return "/";
+    }
 
-  if (currentPath.startsWith(`${prefix}/`)) {
-    return normalizePublicPath(currentPath.slice(prefix.length));
+    if (currentPath.startsWith(`${sellerPrefix}/`)) {
+      return normalizePublicPath(currentPath.slice(sellerPrefix.length));
+    }
   }
 
   return currentPath;
@@ -1444,9 +1466,11 @@ export default function PublicProductDetailPage() {
   const {
     organisationSlug: organisationSlugFromUrl = "",
     productSlug = "",
+    sellerCode = "",
   } = useParams<{
     organisationSlug?: string;
     productSlug?: string;
+    sellerCode?: string;
   }>();
 
   const {
@@ -1461,11 +1485,20 @@ export default function PublicProductDetailPage() {
       return path || "/";
     }
 
+    const cleanPath = path === "/" ? "" : path;
+
     if (isCustomDomain) {
+      if (sellerCode) {
+        return `/s/${sellerCode}${cleanPath}`;
+      }
+
       return path || "/";
     }
 
-    const cleanPath = path === "/" ? "" : path;
+    if (sellerCode) {
+      return `/experiences/${organisationSlug}/s/${sellerCode}${cleanPath}`;
+    }
+
     return `/experiences/${organisationSlug}${cleanPath}`;
   };
 
@@ -1509,7 +1542,8 @@ export default function PublicProductDetailPage() {
 
     const resolvePath = getCurrentProductResolvePath(
       organisationSlug,
-      isCustomDomain
+      isCustomDomain,
+      sellerCode
     );
 
     try {
@@ -1638,7 +1672,7 @@ export default function PublicProductDetailPage() {
 
   useEffect(() => {
     loadPage();
-  }, [organisationSlug, productSlug, isCustomDomain]);
+  }, [organisationSlug, productSlug, isCustomDomain, sellerCode]);
 
   useEffect(() => {
     async function loadLiveAvailability() {
@@ -2111,6 +2145,7 @@ export default function PublicProductDetailPage() {
     product && canCheckout
       ? buildCheckoutUrl({
           publicPath,
+          sellerSlug: sellerCode,
           product,
           date,
           qty,

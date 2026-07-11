@@ -53,13 +53,17 @@ const PLATFORM_HOSTS = [
   "app.puntacanadiscovery.com",
 ];
 
-function getCurrentHostname() {
-  if (typeof window === "undefined") return "";
+function getCurrentHostname(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
   return window.location.hostname.toLowerCase();
 }
 
-function isCustomTicketingDomain() {
+function isCustomTicketingDomain(): boolean {
   const hostname = getCurrentHostname();
+
   return Boolean(hostname) && !PLATFORM_HOSTS.includes(hostname);
 }
 
@@ -72,11 +76,17 @@ function CustomDomainOnly({ children }: { children: ReactElement }) {
 }
 
 function SellerDashboardFallback() {
-  const { organisationSlug } = useParams<{ organisationSlug: string }>();
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  if (!organisationSlug) {
+    return <Navigate to="/ticketing" replace />;
+  }
 
   return (
     <Navigate
-      to={`/ticketing/${organisationSlug || ""}/seller/dashboard`}
+      to={`/ticketing/${organisationSlug}/seller/dashboard`}
       replace
     />
   );
@@ -84,8 +94,10 @@ function SellerDashboardFallback() {
 
 export const ticketingRoutes = (
   <>
+    {/* Platform landing page */}
     <Route path="/ticketing" element={<TicketingLandingPage />} />
 
+    {/* Custom-domain public website routes */}
     <Route
       path="/"
       element={
@@ -131,32 +143,128 @@ export const ticketingRoutes = (
       }
     />
 
-    <Route path="/experiences/:organisationSlug" element={<PublicExperienceHomePage />} />
-    <Route path="/experiences/:organisationSlug/product/:productSlug" element={<PublicProductDetailPage />} />
-    <Route path="/experiences/:organisationSlug/checkout" element={<PublicCheckoutPage />} />
-    <Route path="/experiences/:organisationSlug/confirmation/:bookingCode" element={<PublicConfirmationPage />} />
-    <Route path="/experiences/:organisationSlug/:listingType" element={<PublicProductsListingPage />} />
+    {/* Platform-hosted public website routes */}
+    <Route
+      path="/experiences/:organisationSlug"
+      element={<PublicExperienceHomePage />}
+    />
 
-    <Route path="/ticketing/:organisationSlug/login" element={<TicketingLoginPage />} />
-    <Route path="/ticketing/signup" element={<TicketingSignupPage />} />
-    <Route path="/ticketing/:organisationSlug/billing-locked" element={<TicketingBillingLockedPage />} />
-    <Route path="/ticketing/subscription/success" element={<TicketingSubscriptionSuccessPage />} />
-    <Route path="/ticketing/subscription/cancel" element={<TicketingSubscriptionCancelPage />} />
+    <Route
+      path="/experiences/:organisationSlug/product/:productSlug"
+      element={<PublicProductDetailPage />}
+    />
 
+    <Route
+      path="/experiences/:organisationSlug/checkout"
+      element={<PublicCheckoutPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/confirmation/:bookingCode"
+      element={<PublicConfirmationPage />}
+    />
+
+    {/*
+      Seller referral routes.
+
+      Example:
+      /experiences/punta-cana-discovery/s/g
+
+      These routes must appear before the generic :listingType route.
+    */}
+    <Route
+      path="/experiences/:organisationSlug/s/:sellerCode"
+      element={<PublicExperienceHomePage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/s/:sellerCode/product/:productSlug"
+      element={<PublicProductDetailPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/s/:sellerCode/checkout"
+      element={<PublicCheckoutPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/s/:sellerCode/confirmation/:bookingCode"
+      element={<PublicConfirmationPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/s/:sellerCode/:listingType"
+      element={<PublicProductsListingPage />}
+    />
+
+    {/* Keep this generic route after the seller referral routes */}
+    <Route
+      path="/experiences/:organisationSlug/:listingType"
+      element={<PublicProductsListingPage />}
+    />
+
+    {/* Authentication and subscription routes */}
+    <Route
+      path="/ticketing/:organisationSlug/login"
+      element={<TicketingLoginPage />}
+    />
+
+    <Route
+      path="/ticketing/signup"
+      element={<TicketingSignupPage />}
+    />
+
+    <Route
+      path="/ticketing/:organisationSlug/billing-locked"
+      element={<TicketingBillingLockedPage />}
+    />
+
+    <Route
+      path="/ticketing/subscription/success"
+      element={<TicketingSubscriptionSuccessPage />}
+    />
+
+    <Route
+      path="/ticketing/subscription/cancel"
+      element={<TicketingSubscriptionCancelPage />}
+    />
+
+    {/* Protected dashboards */}
     <Route element={<ProtectedRoute />}>
-      {/* Seller Portal FIRST */}
+      {/* Seller portal */}
       <Route
         path="/ticketing/:organisationSlug/seller"
         element={<TicketingSellerLayout />}
       >
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<TicketingSellerDashboardPage />} />
-        <Route path="products" element={<TicketingSellerProductsPage />} />
-        <Route path="new-booking" element={<TicketingSellerNewBookingPage />} />
-        <Route path="bookings" element={<TicketingSellerBookingsPage />} />
-        <Route path="customers" element={<TicketingSellerCustomersPage />} />
-        <Route path="commissions" element={<TicketingSellerCommissionsPage />} />
-        <Route path="profile" element={<TicketingSellerProfilePage />} />
+        <Route
+          path="dashboard"
+          element={<TicketingSellerDashboardPage />}
+        />
+        <Route
+          path="products"
+          element={<TicketingSellerProductsPage />}
+        />
+        <Route
+          path="new-booking"
+          element={<TicketingSellerNewBookingPage />}
+        />
+        <Route
+          path="bookings"
+          element={<TicketingSellerBookingsPage />}
+        />
+        <Route
+          path="customers"
+          element={<TicketingSellerCustomersPage />}
+        />
+        <Route
+          path="commissions"
+          element={<TicketingSellerCommissionsPage />}
+        />
+        <Route
+          path="profile"
+          element={<TicketingSellerProfilePage />}
+        />
       </Route>
 
       <Route
@@ -164,7 +272,7 @@ export const ticketingRoutes = (
         element={<SellerDashboardFallback />}
       />
 
-      {/* Owner/Admin Portal */}
+      {/* Owner/admin portal */}
       <Route
         path="/ticketing/:organisationSlug"
         element={<TicketingDashboardLayout />}
@@ -174,18 +282,30 @@ export const ticketingRoutes = (
         <Route path="bookings" element={<TicketingBookingsPage />} />
         <Route path="new-booking" element={<TicketingNewBookingPage />} />
         <Route path="products" element={<TicketingProductsPage />} />
-        <Route path="pickup-schedules" element={<TicketingPickupSchedulesPage />} />
-        <Route path="availability" element={<TicketingAvailabilityPage />} />
+        <Route
+          path="pickup-schedules"
+          element={<TicketingPickupSchedulesPage />}
+        />
+        <Route
+          path="availability"
+          element={<TicketingAvailabilityPage />}
+        />
         <Route path="excursions" element={<TicketingExcursionsPage />} />
         <Route path="transfers" element={<TicketingTransfersPage />} />
         <Route path="events" element={<TicketingEventsPage />} />
         <Route path="sellers" element={<TicketingSellersPage />} />
-        <Route path="commissions" element={<TicketingCommissionsPage />} />
+        <Route
+          path="commissions"
+          element={<TicketingCommissionsPage />}
+        />
         <Route path="reports" element={<TicketingReportsPage />} />
         <Route path="settings" element={<TicketingSettingsPage />} />
         <Route path="branding" element={<TicketingBrandingPage />} />
         <Route path="domain" element={<TicketingDomainPage />} />
-        <Route path="integrations" element={<TicketingIntegrationsPage />} />
+        <Route
+          path="integrations"
+          element={<TicketingIntegrationsPage />}
+        />
         <Route path="seo" element={<TicketingSEOPage />} />
       </Route>
     </Route>
