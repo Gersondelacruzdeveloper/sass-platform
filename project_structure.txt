@@ -113,7 +113,20 @@
 │   │   ├── __init__.py
 │   │   ├── admin.py
 │   │   ├── apps.py
+│   │   ├── booking_finance_service.py
 │   │   ├── cors.py
+│   │   ├── finance
+│   │   │   ├── __init__.py
+│   │   │   ├── calculator.py
+│   │   │   ├── commissions.py
+│   │   │   ├── constants.py
+│   │   │   ├── payments.py
+│   │   │   ├── permissions.py
+│   │   │   ├── pricing.py
+│   │   │   ├── reports.py
+│   │   │   ├── settlements.py
+│   │   │   └── utils.py
+│   │   ├── google_oauth.py
 │   │   ├── migrations
 │   │   │   ├── 0001_initial.py
 │   │   │   ├── 0002_ticketingpublicsitesettings_ai_assistant_subtitle_and_more.py
@@ -121,11 +134,45 @@
 │   │   │   ├── 0004_ticketingpublicsitesettings_domain_error_message_and_more.py
 │   │   │   ├── 0005_ticketingpublicsitesettings_aws_acm_certificate_arn_and_more.py
 │   │   │   ├── 0006_bookingpayment_provider_and_more.py
+│   │   │   ├── 0007_ticketingemailsettings.py
+│   │   │   ├── 0008_ticketingemailsettings_oauth_access_token_and_more.py
+│   │   │   ├── 0009_booking_customer_discount_amount_and_more.py
+│   │   │   ├── 0010_experienceproduct_seller_allowed_discount_percent.py
+│   │   │   ├── 0011_transferpriceband.py
+│   │   │   ├── 0012_experienceproduct_imported_from_domain_and_more.py
+│   │   │   ├── 0013_experienceproduct_adult_cost_price_and_more.py
 │   │   │   └── __init__.py
 │   │   ├── models.py
+│   │   ├── notifications
+│   │   │   ├── __init__.py
+│   │   │   ├── calendar_service.py
+│   │   │   ├── email_service.py
+│   │   │   ├── pdf_service.py
+│   │   │   ├── pdf_tickets.py
+│   │   │   ├── qr_service.py
+│   │   │   ├── service.py
+│   │   │   ├── sms_service.py
+│   │   │   ├── templates.py
+│   │   │   ├── utils.py
+│   │   │   └── whatsapp_service.py
 │   │   ├── permissions.py
+│   │   ├── seo
+│   │   │   ├── __init__.py
+│   │   │   ├── migration.py
+│   │   │   ├── paths.py
+│   │   │   ├── redirects.py
+│   │   │   ├── resolver.py
+│   │   │   └── sitemap.py
 │   │   ├── serializers.py
 │   │   ├── services.py
+│   │   ├── tasks.py
+│   │   ├── templates
+│   │   │   └── ticketing
+│   │   │       └── emails
+│   │   │           ├── customer_confirmation.html
+│   │   │           ├── customer_confirmation.txt
+│   │   │           ├── owner_notification.html
+│   │   │           └── owner_notification.txt
 │   │   ├── tests.py
 │   │   ├── urls.py
 │   │   └── views.py
@@ -297,12 +344,40 @@
 │   │   │   │   │   └── ticketingApi.ts
 │   │   │   │   ├── components
 │   │   │   │   │   ├── TicketingPageShell.tsx
+│   │   │   │   │   ├── TicketingSellerSidebar.tsx
 │   │   │   │   │   ├── TicketingSidebar.tsx
-│   │   │   │   │   └── TicketingTopbar.tsx
+│   │   │   │   │   ├── TicketingTopbar.tsx
+│   │   │   │   │   ├── seller
+│   │   │   │   │   │   ├── SellerBookingCard.tsx
+│   │   │   │   │   │   ├── SellerProductCard.tsx
+│   │   │   │   │   │   └── SellerStatCard.tsx
+│   │   │   │   │   └── settings
+│   │   │   │   │       ├── BookingRulesSettings.tsx
+│   │   │   │   │       ├── BrandingSettings.tsx
+│   │   │   │   │       ├── EmailSettingsPanel.tsx
+│   │   │   │   │       ├── FinancialSettings.tsx
+│   │   │   │   │       ├── HomePageSettings.tsx
+│   │   │   │   │       ├── NotificationSettings.tsx
+│   │   │   │   │       ├── PaymentProvidersSettings.tsx
+│   │   │   │   │       ├── PublicSiteThemeSettings.tsx
+│   │   │   │   │       ├── PublicWebsiteSettings.tsx
+│   │   │   │   │       ├── SeoSettings.tsx
+│   │   │   │   │       ├── TicketingEmailSettingsPanel.tsx
+│   │   │   │   │       └── common
+│   │   │   │   │           └── settings-common-components
+│   │   │   │   │               ├── ColorInput.tsx
+│   │   │   │   │               ├── FormInput.tsx
+│   │   │   │   │               ├── FormSelect.tsx
+│   │   │   │   │               ├── FormTextarea.tsx
+│   │   │   │   │               ├── SectionCard.tsx
+│   │   │   │   │               ├── StatusBadge.tsx
+│   │   │   │   │               ├── ToggleCard.tsx
+│   │   │   │   │               └── index.ts
 │   │   │   │   ├── hooks
 │   │   │   │   │   └── usePublicTicketingOrganisation.ts
 │   │   │   │   ├── layouts
-│   │   │   │   │   └── TicketingDashboardLayout.tsx
+│   │   │   │   │   ├── TicketingDashboardLayout.tsx
+│   │   │   │   │   └── TicketingSellerLayout.tsx
 │   │   │   │   ├── pages
 │   │   │   │   │   ├── PublicCheckoutPage.tsx
 │   │   │   │   │   ├── PublicConfirmationPage.tsx
@@ -326,12 +401,21 @@
 │   │   │   │   │   ├── TicketingProductsPage.tsx
 │   │   │   │   │   ├── TicketingReportsPage.tsx
 │   │   │   │   │   ├── TicketingSEOPage.tsx
+│   │   │   │   │   ├── TicketingSellerDashboardPage.tsx
 │   │   │   │   │   ├── TicketingSellersPage.tsx
 │   │   │   │   │   ├── TicketingSettingsPage.tsx
 │   │   │   │   │   ├── TicketingSignupPage.tsx
 │   │   │   │   │   ├── TicketingSubscriptionCancelPage.tsx
 │   │   │   │   │   ├── TicketingSubscriptionSuccessPage.tsx
-│   │   │   │   │   └── TicketingTransfersPage.tsx
+│   │   │   │   │   ├── TicketingTransfersPage.tsx
+│   │   │   │   │   └── seller
+│   │   │   │   │       ├── TicketingSellerBookingsPage.tsx
+│   │   │   │   │       ├── TicketingSellerCommissionsPage.tsx
+│   │   │   │   │       ├── TicketingSellerCustomersPage.tsx
+│   │   │   │   │       ├── TicketingSellerDashboardPage.tsx
+│   │   │   │   │       ├── TicketingSellerNewBookingPage.tsx
+│   │   │   │   │       ├── TicketingSellerProductsPage.tsx
+│   │   │   │   │       └── TicketingSellerProfilePage.tsx
 │   │   │   │   ├── routes
 │   │   │   │   │   └── ticketingRoutes.tsx
 │   │   │   │   ├── types
@@ -417,4 +501,4 @@
 │   └── yarn.lock
 └── project_structure.txt
 
-83 directories, 335 files
+94 directories, 408 files
