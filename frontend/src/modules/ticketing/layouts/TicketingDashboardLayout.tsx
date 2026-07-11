@@ -83,7 +83,7 @@ function updateOrCreateLinkById(
   id: string,
   rel: string,
   href: string,
-  type?: string
+  type?: string,
 ) {
   if (!href) return;
 
@@ -166,12 +166,15 @@ export default function TicketingDashboardLayout() {
 
       try {
         const response = await api.get<OrganisationBranding>(
-          `/organisations/public-branding/ticketing/${slug}/`
+          `/organisations/public-branding/ticketing/${slug}/`,
         );
 
         setBranding(response.data);
       } catch (error) {
-        console.error("Could not load ticketing branding in owner layout:", error);
+        console.error(
+          "Could not load ticketing branding in owner layout:",
+          error,
+        );
       }
     }
 
@@ -192,7 +195,7 @@ export default function TicketingDashboardLayout() {
         branding?.app_icon_192 ||
         branding?.logo_url ||
         branding?.logo ||
-        ""
+        "",
     );
   }, [branding]);
 
@@ -204,19 +207,23 @@ export default function TicketingDashboardLayout() {
         branding?.app_icon_512 ||
         branding?.logo_url ||
         branding?.logo ||
-        ""
+        "",
     );
   }, [branding]);
 
-  const organisationName =
+  const rawOrganisationName =
+    authUser?.organisation?.name ||
+    authUser?.seller?.organisation_name ||
+    slug ||
+    "Ticketing Organisation";
+
+  const companyName =
     branding?.platform_name ||
     branding?.company_name ||
-    authUser?.organisation?.name ||
-    slug ||
-    "PCD Experiences";
+    rawOrganisationName;
 
-  const organisationLogoUrl = resolveAssetUrl(
-    branding?.logo_url || branding?.logo || ""
+  const companyLogoUrl = resolveAssetUrl(
+    branding?.logo_url || branding?.logo || "",
   );
 
   const userName = getUserDisplayName(authUser);
@@ -230,7 +237,7 @@ export default function TicketingDashboardLayout() {
       "app-manifest",
       "manifest",
       manifestUrl,
-      "application/manifest+json"
+      "application/manifest+json",
     );
   }, [manifestUrl]);
 
@@ -240,7 +247,7 @@ export default function TicketingDashboardLayout() {
     const appName =
       branding.platform_name ||
       branding.company_name ||
-      organisationName ||
+      companyName ||
       "PCD Experiences";
 
     document.title = appName;
@@ -251,7 +258,7 @@ export default function TicketingDashboardLayout() {
         "app-shortcut-icon",
         "shortcut icon",
         faviconUrl,
-        "image/png"
+        "image/png",
       );
     }
 
@@ -259,28 +266,28 @@ export default function TicketingDashboardLayout() {
       updateOrCreateLinkById(
         "apple-touch-icon",
         "apple-touch-icon",
-        appleTouchIconUrl
+        appleTouchIconUrl,
       );
     }
 
     updateOrCreateMetaById(
       "app-theme-color",
       "theme-color",
-      branding.theme_color || branding.primary_color || "#020617"
+      branding.theme_color || branding.primary_color || "#020617",
     );
 
     updateOrCreateMetaById(
       "apple-mobile-web-app-title",
       "apple-mobile-web-app-title",
-      appName
+      appName,
     );
 
     updateOrCreateMetaById(
       "mobile-web-app-capable",
       "mobile-web-app-capable",
-      "yes"
+      "yes",
     );
-  }, [branding, faviconUrl, appleTouchIconUrl, organisationName]);
+  }, [branding, faviconUrl, appleTouchIconUrl, companyName]);
 
   useEffect(() => {
     const isStandalone =
@@ -305,7 +312,7 @@ export default function TicketingDashboardLayout() {
     return () => {
       window.removeEventListener(
         "beforeinstallprompt",
-        handleBeforeInstallPrompt
+        handleBeforeInstallPrompt,
       );
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
@@ -342,6 +349,11 @@ export default function TicketingDashboardLayout() {
         onClose={() => setMobileOpen(false)}
         slug={slug}
         isOwnerOrAdmin
+        organisationName={rawOrganisationName}
+        organisationLogoUrl={companyLogoUrl}
+        companyName={companyName}
+        companyLogoUrl={companyLogoUrl}
+        portalLabel="Owner Portal"
       />
 
       <div className="min-h-screen lg:pl-72">
@@ -350,8 +362,10 @@ export default function TicketingDashboardLayout() {
           userName={userName}
           userEmail={userEmail}
           userAvatarUrl={userAvatarUrl}
-          organisationName={organisationName}
-          organisationLogoUrl={organisationLogoUrl}
+          organisationName={rawOrganisationName}
+          organisationLogoUrl={companyLogoUrl}
+          companyName={companyName}
+          companyLogoUrl={companyLogoUrl}
           portalLabel="Owner Portal"
           onMenuClick={() => setMobileOpen(true)}
           onLogout={handleLogout}

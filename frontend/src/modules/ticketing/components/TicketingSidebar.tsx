@@ -34,6 +34,12 @@ type TicketingSidebarProps = {
   currentSeller?: Seller | null;
   currentSellerLoading?: boolean;
   isOwnerOrAdmin?: boolean;
+
+  organisationName?: string | null;
+  organisationLogoUrl?: string | null;
+  companyName?: string | null;
+  companyLogoUrl?: string | null;
+  portalLabel?: string;
 };
 
 type NavItem = {
@@ -52,7 +58,7 @@ function buildPath(slug: string, path: string) {
 
 function getPermissionValue(
   seller: Seller | null | undefined,
-  permission: TicketingPermissionKey
+  permission: TicketingPermissionKey,
 ) {
   if (!seller) return false;
 
@@ -73,7 +79,7 @@ function getPermissionValue(
 
 function hasAnyPermission(
   seller: Seller | null | undefined,
-  permissions: TicketingPermissionKey[]
+  permissions: TicketingPermissionKey[],
 ) {
   if (!seller) return false;
 
@@ -82,7 +88,7 @@ function hasAnyPermission(
   if (["owner", "admin", "manager"].includes(role)) return true;
 
   return permissions.some((permission) =>
-    getPermissionValue(seller, permission)
+    getPermissionValue(seller, permission),
   );
 }
 
@@ -93,12 +99,27 @@ export default function TicketingSidebar({
   currentSeller = null,
   currentSellerLoading = false,
   isOwnerOrAdmin = false,
+  organisationName,
+  organisationLogoUrl,
+  companyName,
+  companyLogoUrl,
+  portalLabel,
 }: TicketingSidebarProps) {
   const location = useLocation();
   const params = useParams();
 
   const routeSlug = params.organisationSlug || params.slug || "";
   const safeSlug = slug || routeSlug;
+
+  const displayCompanyName =
+    companyName?.trim() ||
+    organisationName?.trim() ||
+    "Ticketing Platform";
+
+  const displayCompanyLogo =
+    companyLogoUrl?.trim() ||
+    organisationLogoUrl?.trim() ||
+    null;
 
   const navItems: NavItem[] = [
     {
@@ -231,16 +252,18 @@ export default function TicketingSidebar({
 
   const sellerRole = String(currentSeller?.role || "").toLowerCase();
   const sellerIsAdminLike = ["owner", "admin", "manager"].includes(sellerRole);
-  const sellerMode = Boolean(currentSeller) && !isOwnerOrAdmin && !sellerIsAdminLike;
+  const sellerMode =
+    Boolean(currentSeller) && !isOwnerOrAdmin && !sellerIsAdminLike;
 
-  const visibleItems = isOwnerOrAdmin || sellerIsAdminLike
-    ? navItems.filter((item) => !item.sellerOnly)
-    : currentSeller
-      ? navItems.filter((item) => {
-          if (item.ownerOnly) return false;
-          return hasAnyPermission(currentSeller, item.permissions);
-        })
-      : [];
+  const visibleItems =
+    isOwnerOrAdmin || sellerIsAdminLike
+      ? navItems.filter((item) => !item.sellerOnly)
+      : currentSeller
+        ? navItems.filter((item) => {
+            if (item.ownerOnly) return false;
+            return hasAnyPermission(currentSeller, item.permissions);
+          })
+        : [];
 
   const sellerName =
     currentSeller?.full_name ||
@@ -254,22 +277,38 @@ export default function TicketingSidebar({
     ? buildPath(safeSlug, "/seller-dashboard")
     : buildPath(safeSlug, "/dashboard");
 
+  const resolvedPortalLabel =
+    portalLabel ||
+    (sellerMode ? "Seller Portal" : "Tours, Tickets & Transfers");
+
   const sidebarContent = (
     <div className="flex h-full flex-col bg-slate-950 text-white">
-      <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
+      <div className="flex min-h-20 items-center justify-between border-b border-white/10 px-5 py-3">
         <Link
           to={homePath}
-          className="flex items-center gap-3"
+          className="flex min-w-0 items-center gap-3"
           onClick={onClose}
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-400 text-slate-950">
-            <Ticket className="h-6 w-6" />
-          </div>
+          {displayCompanyLogo ? (
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white shadow-lg">
+              <img
+                src={displayCompanyLogo}
+                alt={`${displayCompanyName} logo`}
+                className="h-full w-full object-contain"
+              />
+            </div>
+          ) : (
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-400 text-slate-950 shadow-lg shadow-amber-400/20">
+              <Ticket className="h-6 w-6" />
+            </div>
+          )}
 
-          <div>
-            <p className="text-sm font-black leading-tight">PCD Experiences</p>
-            <p className="text-xs font-semibold text-white/50">
-              {sellerMode ? "Seller Portal" : "Tickets & Transfers"}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black leading-tight text-white">
+              {displayCompanyName}
+            </p>
+            <p className="mt-1 truncate text-xs font-semibold text-white/50">
+              {resolvedPortalLabel}
             </p>
           </div>
         </Link>
@@ -277,7 +316,8 @@ export default function TicketingSidebar({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-xl p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/70 transition hover:bg-white/10 hover:text-white lg:hidden"
+          aria-label="Close navigation menu"
         >
           <X className="h-5 w-5" />
         </button>
@@ -307,8 +347,8 @@ export default function TicketingSidebar({
                     : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <Icon className="h-5 w-5" />
-                <span>{item.label}</span>
+                <Icon className="h-5 w-5 shrink-0" />
+                <span className="truncate">{item.label}</span>
               </Link>
             );
           })
@@ -316,14 +356,16 @@ export default function TicketingSidebar({
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        <div className="rounded-3xl bg-white/5 p-4">
+        <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-white/5">
           <p className="text-xs font-black uppercase tracking-wide text-white/40">
             {sellerMode ? "Seller" : "Account"}
           </p>
+
           <p className="mt-1 truncate text-sm font-black text-white">
             {sellerName}
           </p>
-          <p className="mt-1 truncate text-xs font-semibold text-white/50">
+
+          <p className="mt-1 truncate text-xs font-semibold capitalize text-white/50">
             {sellerSubtitle}
           </p>
         </div>
@@ -335,8 +377,9 @@ export default function TicketingSidebar({
     <>
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm lg:hidden"
           onClick={onClose}
+          aria-hidden="true"
         />
       )}
 
