@@ -84,6 +84,43 @@ type PickupScheduleRule = ProductPickupSchedule & {
   is_active?: boolean;
 };
 
+type LiveTicketOption = {
+  provider: "wellet" | "local" | string;
+  external_product_id?: string;
+  external_variant_id?: string;
+  external_availability_id?: string;
+  name?: string;
+  option_name?: string;
+  price?: number | string;
+  currency?: string;
+  available?: boolean;
+  available_quantity?: number | null;
+  sold_out?: boolean;
+  service_date?: string;
+  start_time?: string;
+  end_time?: string;
+  checkin_time?: string;
+  performance_id?: string;
+  description?: string;
+  features?: string[];
+  high_demand?: boolean;
+  raw?: unknown;
+};
+
+type LiveAvailabilityResponse = {
+  ok: boolean;
+  provider: "wellet" | "local" | string;
+  product?: {
+    id: number;
+    name: string;
+    slug: string;
+    external_product_id?: string;
+  };
+  service_date?: string;
+  options: LiveTicketOption[];
+  error?: string;
+};
+
 const initialForm: FormState = {
   productId: "",
   serviceDate: "",
@@ -320,6 +357,183 @@ function getAllowedPaymentActions(seller: Seller | null) {
   return actions;
 }
 
+
+function isCocoBongoProduct(product: ExperienceProduct | null) {
+  if (!product) return false;
+
+  const provider = String((product as any).external_provider || "").toLowerCase();
+  const slug = String(product.slug || "").toLowerCase();
+  const name = String(product.name || "").toLowerCase();
+  const externalProductId = String(
+    (product as any).external_product_id || ""
+  ).toLowerCase();
+
+  return (
+    provider === "wellet" ||
+    Boolean((product as any).is_cocobongo_product) ||
+    slug.includes("coco-bongo") ||
+    name.includes("coco bongo") ||
+    externalProductId.includes("coco-bongo")
+  );
+}
+
+function cleanLiveText(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function asObject(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+}
+
+function getLiveOptionKey(option: LiveTicketOption) {
+  return String(
+    option.external_availability_id ||
+      option.external_variant_id ||
+      option.external_product_id ||
+      option.option_name ||
+      option.name ||
+      ""
+  );
+}
+
+function getLiveOptionLabel(option: LiveTicketOption) {
+  return option.option_name || option.name || "Ticket option";
+}
+
+function getLiveOptionPrice(option: LiveTicketOption | null) {
+  return numberValue(option?.price);
+}
+
+function getRawLivePrice(product: Record<string, any>) {
+  const prices = Array.isArray(product.prices) ? product.prices : [];
+  const firstPrice = asObject(prices[0]) || {};
+
+  return {
+    amount: Number(
+      firstPrice.amount ??
+        firstPrice.amountWithoutDiscount ??
+        product.amount ??
+        product.price ??
+        0
+    ),
+    currency: String(
+      firstPrice.currencyCode ||
+        firstPrice.currency ||
+        product.currencyCode ||
+        product.currency ||
+        "USD"
+    ),
+  };
+}
+
+function getRawAvailableQuantity(product: Record<string, any>) {
+  const value =
+    product.itemsAvailable ??
+    product.stock ??
+    product.available_quantity;
+
+  if (value === null || value === undefined || value === "") return null;
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function flattenRawWelletProducts(
+  option: LiveTicketOption
+): LiveTicketOption[] {
+  const raw = asObject(option.raw);
+
+  if (!raw) return [option];
+
+  const performance = asObject(raw.performance) || {};
+  const products = Array.isArray(raw.products)
+    ? raw.products
+    : raw.product && typeof raw.product === "object"
+      ? [raw.product]
+      : [];
+
+  if (!products.length) return [option];
+
+  const performanceId = cleanLiveText(performance.id);
+  const startTime = cleanLiveText(
+    performance.timeStart || performance.time || performance.startTime
+  );
+  const endTime = cleanLiveText(
+    performance.timeEnd || performance.endTime
+  );
+  const checkinTime = cleanLiveText(performance.timeCheckIn);
+
+  return products
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const productItem = item as Record<string, any>;
+      const price = getRawLivePrice(productItem);
+      const productId = cleanLiveText(productItem.id);
+      const availableQuantity = getRawAvailableQuantity(productItem);
+
+      const soldOut =
+        productItem.isSoldOut === true ||
+        productItem.isSoldOut === "true" ||
+        productItem.isUnavailable === true ||
+        productItem.isUnavailable === "true";
+
+      const available =
+        option.available !== false &&
+        option.sold_out !== true &&
+        performance.isActive !== false &&
+        !soldOut &&
+        (availableQuantity === null || availableQuantity > 0);
+
+      return {
+        ...option,
+        provider: "wellet",
+        external_product_id: productId,
+        external_variant_id: productId,
+        external_availability_id:
+          performanceId && productId
+            ? `${performanceId}:${productId}`
+            : productId,
+        performance_id: performanceId,
+        option_name:
+          cleanLiveText(productItem.name) ||
+          cleanLiveText(productItem.description) ||
+          getLiveOptionLabel(option),
+        description: cleanLiveText(productItem.description),
+        features: Array.isArray(productItem.features)
+          ? productItem.features.map(cleanLiveText).filter(Boolean)
+          : [],
+        price: price.amount,
+        currency: price.currency,
+        available,
+        available_quantity: availableQuantity,
+        sold_out: !available,
+        service_date: option.service_date,
+        start_time: startTime || option.start_time,
+        end_time: endTime || option.end_time,
+        checkin_time: checkinTime,
+        raw: {
+          performance,
+          product: productItem,
+        },
+      };
+    });
+}
+
+function normalizeLiveTicketOptions(options: LiveTicketOption[]) {
+  const flattened = options.flatMap(flattenRawWelletProducts);
+  const seen = new Set<string>();
+
+  return flattened.filter((option, index) => {
+    const key = getLiveOptionKey(option) || `live-option-${index}`;
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
 function getProductImage(product: ExperienceProduct) {
   return product.image_url || product.image || product.gallery_images?.find((image) => image.is_cover)?.image_url || "";
 }
@@ -348,6 +562,11 @@ export default function TicketingSellerNewBookingPage() {
   const [hotelSearch, setHotelSearch] = useState("");
   const [showOptionalCustomer, setShowOptionalCustomer] = useState(false);
   const [showPaymentDetails, setShowPaymentDetails] = useState(false);
+  const [liveAvailability, setLiveAvailability] =
+    useState<LiveAvailabilityResponse | null>(null);
+  const [loadingLiveAvailability, setLoadingLiveAvailability] = useState(false);
+  const [liveAvailabilityError, setLiveAvailabilityError] = useState("");
+  const [selectedLiveOptionId, setSelectedLiveOptionId] = useState("");
 
   async function loadPage() {
     if (!slug) return;
@@ -421,6 +640,99 @@ export default function TicketingSellerNewBookingPage() {
 
   const selectedProduct = useMemo(() => products.find((product) => String(product.id) === String(form.productId)) || null, [products, form.productId]);
 
+  const isLiveCocoBongoProduct = useMemo(
+    () => isCocoBongoProduct(selectedProduct),
+    [selectedProduct]
+  );
+
+  const liveAvailabilityOptions = useMemo(
+    () => normalizeLiveTicketOptions(liveAvailability?.options || []),
+    [liveAvailability]
+  );
+
+  const selectedLiveOption = useMemo(() => {
+    if (!selectedLiveOptionId) return null;
+
+    return (
+      liveAvailabilityOptions.find(
+        (option) => getLiveOptionKey(option) === selectedLiveOptionId
+      ) || null
+    );
+  }, [selectedLiveOptionId, liveAvailabilityOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLiveAvailability() {
+      if (
+        !slug ||
+        !selectedProduct ||
+        !isLiveCocoBongoProduct ||
+        !form.serviceDate
+      ) {
+        setLiveAvailability(null);
+        setSelectedLiveOptionId("");
+        setLiveAvailabilityError("");
+        setLoadingLiveAvailability(false);
+        return;
+      }
+
+      try {
+        setLoadingLiveAvailability(true);
+        setLiveAvailabilityError("");
+
+        const response = await ticketingApi.getPublicProductAvailability(
+          slug,
+          selectedProduct.slug,
+          { date: form.serviceDate }
+        );
+
+        if (cancelled) return;
+
+        setLiveAvailability(response);
+
+        const options = normalizeLiveTicketOptions(response.options || []);
+        const firstAvailable = options.find(
+          (option) =>
+            option.available !== false &&
+            option.sold_out !== true
+        );
+
+        setSelectedLiveOptionId(
+          firstAvailable ? getLiveOptionKey(firstAvailable) : ""
+        );
+      } catch (error: any) {
+        if (cancelled) return;
+
+        console.error("Could not load Coco Bongo availability:", error);
+        setLiveAvailability(null);
+        setSelectedLiveOptionId("");
+        setLiveAvailabilityError(
+          getErrorMessage(
+            error,
+            "Coco Bongo availability is not available for this date."
+          )
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingLiveAvailability(false);
+        }
+      }
+    }
+
+    loadLiveAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    slug,
+    selectedProduct?.id,
+    selectedProduct?.slug,
+    isLiveCocoBongoProduct,
+    form.serviceDate,
+  ]);
+
   const selectedPickupLocation = useMemo(
     () => pickupLocations.find((location) => String(location.id) === String(form.pickupLocationId)) || null,
     [pickupLocations, form.pickupLocationId]
@@ -486,8 +798,15 @@ export default function TicketingSellerNewBookingPage() {
     }
   }, [visiblePickupLocations, form.pickupLocationId]);
 
-  const unitPrice = numberValue(selectedProduct?.base_price);
-  const subtotal = unitPrice * getChargeableGuests(form);
+  const liveTicketQuantity = Math.max(1, getTotalGuests(form));
+  const unitPrice = isLiveCocoBongoProduct
+    ? getLiveOptionPrice(selectedLiveOption)
+    : numberValue(selectedProduct?.base_price);
+  const subtotal =
+    unitPrice *
+    (isLiveCocoBongoProduct
+      ? liveTicketQuantity
+      : getChargeableGuests(form));
   const discountAmount = seller?.can_apply_discounts ? numberValue(form.discountAmount) : 0;
   const taxAmount = 0;
   const totalAmount = Math.max(subtotal - discountAmount + taxAmount, 0);
@@ -523,6 +842,9 @@ export default function TicketingSellerNewBookingPage() {
   function selectProduct(productId: string) {
     const product = products.find((item) => String(item.id) === productId);
     setResolvedPickup(null);
+    setLiveAvailability(null);
+    setSelectedLiveOptionId("");
+    setLiveAvailabilityError("");
     setForm((current) => ({
       ...current,
       productId,
@@ -564,6 +886,22 @@ export default function TicketingSellerNewBookingPage() {
     if (requiresPickup && form.pickupLocationId && !resolvedPickup?.found && !assignedPickupSchedule && selectedProduct.requires_pickup_location) {
       return setErrorMessage("No pickup schedule was found for this product, date and pickup location.");
     }
+    if (isLiveCocoBongoProduct && loadingLiveAvailability) {
+      return setErrorMessage("Please wait while Coco Bongo availability is checked.");
+    }
+    if (isLiveCocoBongoProduct && liveAvailabilityError) {
+      return setErrorMessage(liveAvailabilityError);
+    }
+    if (isLiveCocoBongoProduct && !selectedLiveOption) {
+      return setErrorMessage("Select an available Coco Bongo ticket option.");
+    }
+    if (
+      selectedLiveOption &&
+      (selectedLiveOption.available === false ||
+        selectedLiveOption.sold_out === true)
+    ) {
+      return setErrorMessage("The selected Coco Bongo option is sold out.");
+    }
     if (!selectedAction) return setErrorMessage("Select an allowed payment option before creating the booking.");
 
     try {
@@ -573,6 +911,65 @@ export default function TicketingSellerNewBookingPage() {
 
       const paymentMode = getPaymentMode(form.paymentAction);
       const paymentMethod = getPaymentMethod(form.paymentAction);
+
+      const liveOptionInstructions = selectedLiveOption
+        ? [
+            `Ticket option: ${getLiveOptionLabel(selectedLiveOption)}`,
+            selectedLiveOption.description
+              ? `Description: ${selectedLiveOption.description}`
+              : "",
+            selectedLiveOption.features?.length
+              ? `Includes: ${selectedLiveOption.features.join(", ")}`
+              : "",
+            selectedLiveOption.checkin_time
+              ? `Check-in time: ${selectedLiveOption.checkin_time}`
+              : "",
+            selectedLiveOption.start_time
+              ? `Show time: ${selectedLiveOption.start_time}`
+              : "",
+            selectedLiveOption.performance_id
+              ? `Performance ID: ${selectedLiveOption.performance_id}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "";
+
+      const itemPayload: any = {
+        product_id: selectedProduct.id,
+        product_name: selectedLiveOption
+          ? getLiveOptionLabel(selectedLiveOption)
+          : selectedProduct.name,
+        service_date: form.serviceDate,
+        service_time:
+          form.serviceTime ||
+          selectedLiveOption?.start_time ||
+          selectedProduct.start_time ||
+          null,
+        quantity: isLiveCocoBongoProduct
+          ? liveTicketQuantity
+          : getChargeableGuests(form),
+        unit_price: moneyString(unitPrice),
+        unit_cost: selectedProduct.cost_price || "0.00",
+        instructions: [form.customerNotes.trim(), liveOptionInstructions]
+          .filter(Boolean)
+          .join("\n"),
+      };
+
+      if (selectedLiveOption) {
+        itemPayload.selected_external_product_id =
+          getLiveOptionKey(selectedLiveOption);
+        itemPayload.external_provider =
+          selectedLiveOption.provider || "wellet";
+        itemPayload.external_product_id =
+          selectedLiveOption.external_product_id || "";
+        itemPayload.external_variant_id =
+          selectedLiveOption.external_variant_id || "";
+        itemPayload.external_availability_id =
+          selectedLiveOption.external_availability_id || "";
+        itemPayload.external_option_name =
+          getLiveOptionLabel(selectedLiveOption);
+      }
 
       const payload: BookingCreatePayload = {
         primary_product: selectedProduct.id,
@@ -601,18 +998,7 @@ export default function TicketingSellerNewBookingPage() {
         requires_supervisor_approval: form.paymentAction === "requires_supervisor_approval",
         receipt_sent_before_full_payment: seller.can_send_receipt_before_full_payment && form.receiptSentBeforeFullPayment,
         pickup_location_id: form.pickupLocationId ? Number(form.pickupLocationId) : null,
-        items_payload: [
-          {
-            product_id: selectedProduct.id,
-            product_name: selectedProduct.name,
-            service_date: form.serviceDate,
-            service_time: form.serviceTime || selectedProduct.start_time || null,
-            quantity: getChargeableGuests(form),
-            unit_price: moneyString(unitPrice),
-            unit_cost: selectedProduct.cost_price || "0.00",
-            instructions: form.customerNotes.trim(),
-          },
-        ],
+        items_payload: [itemPayload],
         payments_payload: paymentPayload ? [paymentPayload] : [],
       };
 
@@ -751,6 +1137,115 @@ export default function TicketingSellerNewBookingPage() {
 
           <Panel eyebrow="Step 2" title="Choose date" icon={<CalendarDays className="h-5 w-5" />}>
             <Input label="Service date" type="date" value={form.serviceDate} onChange={(value) => updateForm("serviceDate", value)} required />
+
+            {isLiveCocoBongoProduct && (
+              <div className="mt-5 rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                    <Ticket className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-950">
+                      Live Coco Bongo availability
+                    </p>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                      Select a date to load the live ticket products and prices.
+                    </p>
+                  </div>
+                </div>
+
+                {!form.serviceDate ? (
+                  <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm font-bold text-slate-500">
+                    Choose the service date first.
+                  </p>
+                ) : loadingLiveAvailability ? (
+                  <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white p-4 text-sm font-bold text-slate-600">
+                    <Loader2 className="h-5 w-5 animate-spin text-violet-600" />
+                    Checking live ticket availability...
+                  </div>
+                ) : liveAvailabilityError ? (
+                  <AlertBox
+                    tone="red"
+                    icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}
+                  >
+                    {liveAvailabilityError}
+                  </AlertBox>
+                ) : liveAvailabilityOptions.length === 0 ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+                    No Coco Bongo ticket options are available for this date.
+                  </div>
+                ) : (
+                  <div className="mt-4 grid gap-3">
+                    {liveAvailabilityOptions.map((option) => {
+                      const optionKey = getLiveOptionKey(option);
+                      const selected = optionKey === selectedLiveOptionId;
+                      const unavailable =
+                        option.available === false || option.sold_out === true;
+
+                      return (
+                        <button
+                          key={optionKey}
+                          type="button"
+                          disabled={unavailable}
+                          onClick={() => setSelectedLiveOptionId(optionKey)}
+                          className={[
+                            "w-full rounded-2xl border p-4 text-left transition",
+                            selected
+                              ? "border-violet-500 bg-violet-50 ring-2 ring-violet-100"
+                              : "border-slate-200 bg-white hover:border-violet-300",
+                            unavailable
+                              ? "cursor-not-allowed opacity-55"
+                              : "",
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-black text-slate-950">
+                                {getLiveOptionLabel(option)}
+                              </p>
+
+                              {option.description && (
+                                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                                  {option.description}
+                                </p>
+                              )}
+
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-600">
+                                {option.start_time && (
+                                  <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                                    Show {formatTime(option.start_time)}
+                                  </span>
+                                )}
+                                {option.available_quantity !== null &&
+                                  option.available_quantity !== undefined && (
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                                      {option.available_quantity} available
+                                    </span>
+                                  )}
+                                {unavailable && (
+                                  <span className="rounded-full bg-red-100 px-2.5 py-1 text-red-700">
+                                    Sold out
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-right">
+                              <p className="text-lg font-black text-slate-950">
+                                {formatMoney(option.price)}
+                              </p>
+                              {selected && (
+                                <CheckCircle2 className="ml-auto mt-2 h-5 w-5 text-violet-600" />
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </Panel>
 
           <Panel eyebrow="Step 3" title="Choose hotel" icon={<Hotel className="h-5 w-5" />}>
@@ -888,7 +1383,24 @@ export default function TicketingSellerNewBookingPage() {
 
             <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4">
               <SummaryLine label="Date" value={form.serviceDate || "—"} />
-              <SummaryLine label="Guests" value={`${getTotalGuests(form)} total · ${getChargeableGuests(form)} charged`} />
+              {isLiveCocoBongoProduct && (
+                <SummaryLine
+                  label="Ticket option"
+                  value={
+                    selectedLiveOption
+                      ? getLiveOptionLabel(selectedLiveOption)
+                      : "Select availability"
+                  }
+                />
+              )}
+              <SummaryLine
+                label="Guests"
+                value={
+                  isLiveCocoBongoProduct
+                    ? `${getTotalGuests(form)} ticket${getTotalGuests(form) === 1 ? "" : "s"}`
+                    : `${getTotalGuests(form)} total · ${getChargeableGuests(form)} charged`
+                }
+              />
               <SummaryLine label="Hotel" value={selectedPickupLocation?.name || "—"} />
               <SummaryLine label="Pickup" value={pickupTime ? `${formatTime(pickupTime)} · ${pickupPoint}` : "—"} />
             </div>
@@ -901,7 +1413,17 @@ export default function TicketingSellerNewBookingPage() {
               <BigMoney label="Balance" value={formatMoney(balanceDue)} muted />
             </div>
 
-            <button type="button" onClick={saveBooking} disabled={saving || !seller?.can_create_bookings} className="mt-5 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 px-5 text-sm font-black text-slate-950 transition hover:bg-amber-300 disabled:opacity-60">
+            <button
+              type="button"
+              onClick={saveBooking}
+              disabled={
+                saving ||
+                !seller?.can_create_bookings ||
+                (isLiveCocoBongoProduct &&
+                  (loadingLiveAvailability || !selectedLiveOption))
+              }
+              className="mt-5 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 px-5 text-sm font-black text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Create booking
             </button>
