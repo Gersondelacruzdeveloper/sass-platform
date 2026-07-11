@@ -56,6 +56,87 @@ function formatNumber(value: unknown) {
   }).format(amount);
 }
 
+function numberValue(value: unknown) {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function getDashboardSellerDueToCompany(summary: any) {
+  /*
+   * Different dashboard/backend versions may expose the same aggregate under
+   * different field names. A present zero compatibility field must not hide a
+   * positive aggregate value.
+   */
+  const values = [
+    summary?.seller_due_to_company,
+    summary?.total_owed_to_company,
+    summary?.total_seller_due_to_company,
+    summary?.pending_settlement_amount,
+    summary?.seller_owed_to_company,
+    summary?.owed_to_company,
+  ]
+    .map(numberValue)
+    .filter((value) => Number.isFinite(value));
+
+  return values.length ? Math.max(...values, 0) : 0;
+}
+
+function getDashboardOwnerNet(summary: any) {
+  const values = [
+    summary?.owner_net_amount,
+    summary?.total_owner_net_amount,
+    summary?.owner_net,
+    summary?.company_net_amount,
+    summary?.company_net,
+  ]
+    .map(numberValue)
+    .filter((value) => Number.isFinite(value));
+
+  return values.length ? Math.max(...values, 0) : 0;
+}
+
+function getDashboardOwnerReceived(summary: any) {
+  const values = [
+    summary?.owner_received_amount,
+    summary?.total_owner_received_amount,
+    summary?.owner_received,
+    summary?.company_received_amount,
+    summary?.company_received,
+  ]
+    .map(numberValue)
+    .filter((value) => Number.isFinite(value));
+
+  return values.length ? Math.max(...values, 0) : 0;
+}
+
+function getDashboardOwnerPending(summary: any) {
+  /*
+   * Prefer an explicit backend pending/remaining field. If the dashboard
+   * response does not include one yet, calculate the amount still not received
+   * by the company from owner net minus owner received.
+   */
+  const explicitValues = [
+    summary?.owner_remaining_amount,
+    summary?.total_owner_remaining_amount,
+    summary?.owner_pending_amount,
+    summary?.owner_pending,
+    summary?.company_pending_amount,
+    summary?.company_pending,
+    summary?.owner_receivable_amount,
+  ]
+    .map(numberValue)
+    .filter((value) => value > 0);
+
+  if (explicitValues.length) {
+    return Math.max(...explicitValues);
+  }
+
+  const ownerNet = getDashboardOwnerNet(summary);
+  const ownerReceived = getDashboardOwnerReceived(summary);
+
+  return Math.max(ownerNet - ownerReceived, 0);
+}
+
 function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -544,7 +625,7 @@ export default function TicketingDashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Confirmadas"
           value={formatNumber(summary.confirmed_bookings)}
@@ -568,9 +649,16 @@ export default function TicketingDashboardPage() {
 
         <StatCard
           title="Debe a compañía"
-          value={formatMoney(summary.seller_due_to_company)}
+          value={formatMoney(getDashboardSellerDueToCompany(summary))}
           subtitle="Cobrado por vendedores"
           icon={Users}
+        />
+
+        <StatCard
+          title="Owner pendiente"
+          value={formatMoney(getDashboardOwnerPending(summary))}
+          subtitle="Todavía no recibido por la compañía"
+          icon={CreditCard}
         />
       </div>
 

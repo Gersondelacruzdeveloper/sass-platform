@@ -8,6 +8,7 @@ import {
   BadgeDollarSign,
   CheckCircle2,
   Copy,
+  CreditCard,
   Edit3,
   ExternalLink,
   Eye,
@@ -106,6 +107,9 @@ type Seller = {
   total_owner_net_amount?: string | number;
   total_owner_received_amount?: string | number;
   total_owner_remaining_amount?: string | number;
+  owner_pending_amount?: string | number;
+  total_owner_pending_amount?: string | number;
+  company_pending_amount?: string | number;
   total_seller_collected_amount?: string | number;
   pending_settlement_amount?: string | number;
   permissions?: Partial<Record<PermissionKey, boolean>>;
@@ -114,6 +118,7 @@ type Seller = {
   total_commission_amount?: string | number;
   total_collected_amount?: string | number;
   total_owed_to_company?: string | number;
+  total_seller_due_to_company?: string | number;
   created_at?: string;
   updated_at?: string;
 } & Partial<Record<PermissionKey, boolean>>;
@@ -422,11 +427,21 @@ function getSellerCollectedAmount(seller: Seller) {
 }
 
 function getSellerOwedToCompany(seller: Seller) {
-  return firstMoneyValue(
-    seller.seller_due_to_company,
+  /*
+   * Seller list responses can contain both booking-level compatibility fields
+   * and seller-level aggregate totals. A present "0.00" compatibility field
+   * must not hide a positive aggregate balance.
+   */
+  const values = [
+    seller.total_owed_to_company,
+    seller.total_seller_due_to_company,
     seller.pending_settlement_amount,
-    seller.total_owed_to_company
-  );
+    seller.seller_due_to_company,
+  ]
+    .map(numberValue)
+    .filter((value) => Number.isFinite(value));
+
+  return values.length ? Math.max(...values, 0) : 0;
 }
 
 function getSellerOwnerNet(seller: Seller) {
@@ -440,6 +455,33 @@ function getSellerOwnerReceived(seller: Seller) {
   return firstMoneyValue(
     seller.total_owner_received_amount,
     seller.owner_received_amount
+  );
+}
+
+function getSellerOwnerPending(seller: Seller) {
+  /*
+   * Prefer an explicit pending/remaining field from the API. If it is not
+   * available, calculate what the company has not received yet:
+   *
+   * owner pending = owner net - owner received
+   */
+  const explicitValues = [
+    seller.total_owner_remaining_amount,
+    seller.owner_remaining_amount,
+    seller.total_owner_pending_amount,
+    seller.owner_pending_amount,
+    seller.company_pending_amount,
+  ]
+    .map(numberValue)
+    .filter((value) => value > 0);
+
+  if (explicitValues.length) {
+    return Math.max(...explicitValues);
+  }
+
+  return Math.max(
+    getSellerOwnerNet(seller) - getSellerOwnerReceived(seller),
+    0
   );
 }
 
@@ -655,6 +697,10 @@ export default function TicketingSellersPage() {
       ),
       ownerReceived: sellers.reduce(
         (sum, seller) => sum + getSellerOwnerReceived(seller),
+        0
+      ),
+      ownerPending: sellers.reduce(
+        (sum, seller) => sum + getSellerOwnerPending(seller),
         0
       ),
       owedToCompany: sellers.reduce(
@@ -878,7 +924,7 @@ export default function TicketingSellersPage() {
       subtitle="Create sellers, manage seller margins, permissions, settlement balances and sales access."
     >
       <div className="space-y-5 pb-24">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <StatCard
             title="Total sellers"
             value={String(stats.total)}
@@ -914,6 +960,12 @@ export default function TicketingSellersPage() {
             value={formatMoney(stats.owedToCompany)}
             helper="Pending settlement"
             icon={<BadgeDollarSign className="h-6 w-6 text-red-600" />}
+          />
+          <StatCard
+            title="Owner pending"
+            value={formatMoney(stats.ownerPending)}
+            helper="Still not received by company"
+            icon={<CreditCard className="h-6 w-6 text-amber-600" />}
           />
         </section>
 
@@ -1011,6 +1063,7 @@ export default function TicketingSellersPage() {
                       <Th>Gross sales</Th>
                       <Th>Seller earned</Th>
                       <Th>Owed to company</Th>
+                      <Th>Owner pending</Th>
                       <Th>Status</Th>
                       <Th>Actions</Th>
                     </tr>
@@ -1078,6 +1131,22 @@ export default function TicketingSellersPage() {
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               Pending settlement
+                            </p>
+                          </div>
+                        </Td>
+
+                        <Td>
+                          <div>
+                            <p className={[
+                              "font-black",
+                              getSellerOwnerPending(seller) > 0
+                                ? "text-amber-700"
+                                : "text-slate-950",
+                            ].join(" ")}>
+                              {formatMoney(getSellerOwnerPending(seller))}
+                            </p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">
+                              Still not received
                             </p>
                           </div>
                         </Td>
@@ -1600,7 +1669,7 @@ function SellerDetailModal({
             </button>
           </div>
 
-          <section className="mt-5 grid gap-4 lg:grid-cols-4">
+          <section className="mt-5 grid gap-4 lg:grid-cols-5">
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
               label="Gross sales"
@@ -1624,6 +1693,12 @@ function SellerDetailModal({
               label="Owed to company"
               value={formatMoney(getSellerOwedToCompany(seller))}
               helper="Pending settlement balance"
+            />
+            <InfoCard
+              icon={<CreditCard className="h-5 w-5" />}
+              label="Owner pending"
+              value={formatMoney(getSellerOwnerPending(seller))}
+              helper="Still not received by company"
             />
           </section>
 
@@ -1653,11 +1728,12 @@ function SellerDetailModal({
               Settlement summary
             </h3>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-4">
+            <div className="mt-4 grid gap-3 lg:grid-cols-5">
               <InfoLine label="Gross sales" value={formatMoney(seller.total_sales_amount)} />
               <InfoLine label="Seller collected" value={formatMoney(getSellerCollectedAmount(seller))} />
               <InfoLine label="Seller earned" value={formatMoney(seller.total_commission_amount)} />
               <InfoLine label="Owed to company" value={formatMoney(getSellerOwedToCompany(seller))} />
+              <InfoLine label="Owner pending" value={formatMoney(getSellerOwnerPending(seller))} />
             </div>
 
             <p className="mt-3 text-sm font-semibold leading-6 text-amber-800">
