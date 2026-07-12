@@ -558,15 +558,242 @@ def _get_passenger_price_breakdown(booking: Any, currency_symbol: str) -> list[t
     return rows
 
 
+
+def _get_booking_item_quantity(booking: Any, item: Any) -> int:
+    for source, names in (
+        (item, ["quantity", "guest_count", "total_guests", "ticket_quantity"]),
+        (booking, ["total_guests", "guest_count"]),
+    ):
+        if source is None:
+            continue
+        for name in names:
+            value = getattr(source, name, None)
+            try:
+                quantity = int(value or 0)
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity > 0:
+                return quantity
+
+    adults = int(getattr(booking, "adults", 0) or 0)
+    children = int(getattr(booking, "children", 0) or 0)
+    infants = int(getattr(booking, "infants", 0) or 0)
+    return max(adults + children + infants, 1)
+
+
+def _get_item_product(item: Any) -> Any:
+    if item is None:
+        return None
+
+    return (
+        getattr(item, "product", None)
+        or getattr(item, "experience_product", None)
+        or getattr(item, "ticket_product", None)
+    )
+
+
+def _resolve_item_business_entity(booking: Any, item: Any) -> Any:
+    """
+    Resolve the venue/operator that is allowed to scan this booking item.
+
+    Resolution order:
+    1. Explicit business entity already attached to the item.
+    2. Existing financial snapshot.
+    3. Active product/business agreement.
+    """
+    explicit = (
+        getattr(item, "business_entity", None)
+        or getattr(item, "partner", None)
+        or getattr(item, "provider_business_entity", None)
+    )
+    if explicit is not None:
+        return explicit
+
+    try:
+        from ticketing.models import BookingFinancialSnapshot
+
+        snapshot = (
+            BookingFinancialSnapshot.objects.filter(
+                booking_item=item,
+                business_entity__isnull=False,
+            )
+            .select_related("business_entity")
+            .order_by("-captured_at", "-id")
+            .first()
+        )
+        if snapshot and snapshot.business_entity:
+            return snapshot.business_entity
+    except Exception:
+        pass
+
+    product = _get_item_product(item)
+    if product is None:
+        return None
+
+    try:
+        from django.db.models import Q
+        from django.utils import timezone
+        from ticketing.models import ProductBusinessAgreement
+
+        service_date = (
+            getattr(item, "service_date", None)
+            or getattr(booking, "service_date", None)
+            or timezone.localdate()
+        )
+
+        agreement = (
+            ProductBusinessAgreement.objects.filter(
+                organisation=getattr(booking, "organisation", None),
+                product=product,
+                is_active=True,
+            )
+            .filter(
+                Q(effective_from__isnull=True)
+                | Q(effective_from__lte=service_date)
+            )
+            .filter(
+                Q(effective_until__isnull=True)
+                | Q(effective_until__gte=service_date)
+            )
+            .select_related("business_entity")
+            .order_by("-effective_from", "-version", "-id")
+            .first()
+        )
+        if agreement:
+            return agreement.business_entity
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_or_create_admission_token(booking: Any) -> Any:
+    """
+    Return the primary admission token used by the scanner.
+
+    The QR code must contain this UUID. It must never contain BOOKING:<code>.
+    """
+    item = _get_first_booking_item(booking)
+    if item is None:
+        raise ValueError(
+            "Cannot generate an admission QR because this booking has no booking item."
+        )
+
+    try:
+        from ticketing.models import AdmissionToken
+
+        existing_tokens = AdmissionToken.objects.filter(
+            booking_item=item,
+        ).order_by("-is_primary", "-issued_at", "-id")
+
+        for token in existing_tokens:
+            token_status = _safe_text(getattr(token, "status", "")).lower()
+            if token_status in {"", "active", "partially_used"}:
+                return token
+    except Exception:
+        existing_tokens = None
+
+    business_entity = _resolve_item_business_entity(booking, item)
+    if business_entity is None:
+        raise ValueError(
+            "Cannot generate an admission QR because this product has no active "
+            "business agreement or assigned business entity."
+        )
+
+    from ticketing.operations.tokens import issue_admission_token
+
+    return issue_admission_token(
+        item,
+        business_entity=business_entity,
+        total_admissions=_get_booking_item_quantity(booking, item),
+        is_primary=True,
+        metadata={
+            "source": "ticket_pdf",
+            "booking_code": _safe_text(
+                getattr(booking, "booking_code", "")
+            ),
+        },
+    )
+
+
+def _draw_text_block(
+    pdf: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    *,
+    font: str = "Helvetica",
+    size: float = 9,
+    color: str = "#111827",
+    line_height: float = 4.5 * mm,
+    max_lines: int = 3,
+) -> float:
+    """Draw wrapped text and return the next safe y coordinate."""
+    approx_chars = max(18, int(width / max(size * 0.48, 1)))
+    lines = _split_text(text, approx_chars)
+
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1].rstrip(". ") + "..."
+
+    pdf.setFillColor(_hex(color))
+    pdf.setFont(font, size)
+
+    current_y = y
+    for line in lines:
+        pdf.drawString(x, current_y, line)
+        current_y -= line_height
+
+    return current_y
+
+
+def _draw_detail_row(
+    pdf: canvas.Canvas,
+    label: str,
+    value: str,
+    x: float,
+    y: float,
+    width: float,
+    text_color: str,
+    muted: str,
+) -> float:
+    """Draw one clean detail row with a separator and dynamic height."""
+    label_width = 36 * mm
+    value_x = x + label_width
+
+    pdf.setFillColor(_hex(muted))
+    pdf.setFont("Helvetica-Bold", 7)
+    pdf.drawString(x, y, label.upper())
+
+    next_y = _draw_text_block(
+        pdf,
+        value,
+        value_x,
+        y,
+        width - label_width,
+        font="Helvetica-Bold",
+        size=9,
+        color=text_color,
+        line_height=4.5 * mm,
+        max_lines=2,
+    )
+
+    row_bottom = min(next_y, y - 5 * mm)
+    pdf.setStrokeColor(_hex("#E5E7EB"))
+    pdf.setLineWidth(0.6)
+    pdf.line(x, row_bottom - 2 * mm, x + width, row_bottom - 2 * mm)
+    return row_bottom - 6 * mm
+
 def generate_ticket_qr_code(booking: Any) -> io.BytesIO:
-    booking_code = _safe_text(getattr(booking, "booking_code", ""), "BOOKING")
-    qr_payload = f"BOOKING:{booking_code}"
+    admission_token = _get_or_create_admission_token(booking)
+    qr_payload = str(getattr(admission_token, "token"))
 
     qr = qrcode.QRCode(
-        version=1,
+        version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=8,
-        border=2,
+        box_size=10,
+        border=3,
     )
     qr.add_data(qr_payload)
     qr.make(fit=True)
@@ -579,10 +806,20 @@ def generate_ticket_qr_code(booking: Any) -> io.BytesIO:
 
 
 def generate_ticket_pdf(booking: Any) -> bytes:
+    """
+    Generate a clean one-page ticket.
+
+    The layout intentionally uses flowing rows instead of many small boxes.
+    Every wrapped block returns the next safe Y position, preventing text from
+    overlapping the QR code, payment values, or surrounding content.
+    """
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
 
-    booking_code = _safe_text(getattr(booking, "booking_code", ""), "BOOKING")
+    booking_code = _safe_text(
+        getattr(booking, "booking_code", ""),
+        "BOOKING",
+    )
     branding = _get_branding(booking)
 
     primary = branding["primary_color"]
@@ -593,182 +830,297 @@ def generate_ticket_pdf(booking: Any) -> bytes:
 
     is_transfer = _is_transfer_booking(booking)
     ticket_name = (
-        f"{_get_transfer_origin(booking)} -> {_get_transfer_destination(booking)}"
+        f"{_get_transfer_origin(booking)} to "
+        f"{_get_transfer_destination(booking)}"
         if is_transfer
         else _get_product_name(booking)
     )
-    container_product_name = "Private Transfer" if is_transfer else _get_container_product_name(booking)
+    container_product_name = (
+        "Private Transfer"
+        if is_transfer
+        else _get_container_product_name(booking)
+    )
 
     margin = 14 * mm
-    page_bg = "#F3F4F6"
-    card_bg = "#FFFFFF"
-    soft_bg = "#F9FAFB"
-    border = "#E5E7EB"
+    ticket_x = margin
+    ticket_y = 14 * mm
+    ticket_w = PAGE_WIDTH - 2 * margin
+    ticket_h = PAGE_HEIGHT - 2 * margin
 
-    pdf.setFillColor(_hex(page_bg))
+    pdf.setFillColor(_hex("#F3F4F6"))
     pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
 
-    # Main ticket shell.
-    ticket_x = margin
-    ticket_y = 18 * mm
-    ticket_w = PAGE_WIDTH - margin * 2
-    ticket_h = PAGE_HEIGHT - 32 * mm
-    _draw_card(pdf, ticket_x, ticket_y, ticket_w, ticket_h, card_bg, border)
+    _draw_card(
+        pdf,
+        ticket_x,
+        ticket_y,
+        ticket_w,
+        ticket_h,
+        "#FFFFFF",
+        "#E5E7EB",
+    )
 
-    # Header with brand and booking code.
-    header_h = 50 * mm
+    # Header
+    header_h = 42 * mm
     header_y = PAGE_HEIGHT - margin - header_h
     pdf.setFillColor(_hex(primary))
-    pdf.roundRect(ticket_x, header_y, ticket_w, header_h, 6 * mm, fill=1, stroke=0)
-    pdf.rect(ticket_x, header_y, ticket_w, 10 * mm, fill=1, stroke=0)
+    pdf.roundRect(
+        ticket_x,
+        header_y,
+        ticket_w,
+        header_h,
+        6 * mm,
+        fill=1,
+        stroke=0,
+    )
+    pdf.rect(
+        ticket_x,
+        header_y,
+        ticket_w,
+        8 * mm,
+        fill=1,
+        stroke=0,
+    )
 
-    _draw_logo_or_brand(pdf, branding, ticket_x + 9 * mm, PAGE_HEIGHT - margin - 8 * mm)
+    _draw_logo_or_brand(
+        pdf,
+        branding,
+        ticket_x + 9 * mm,
+        PAGE_HEIGHT - margin - 7 * mm,
+    )
 
     pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(ticket_x + 9 * mm, header_y + 11 * mm, "Official booking ticket")
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(
+        ticket_x + 9 * mm,
+        header_y + 8 * mm,
+        "Official booking ticket",
+    )
 
-    pdf.setFont("Helvetica-Bold", 15)
-    pdf.drawRightString(ticket_x + ticket_w - 10 * mm, PAGE_HEIGHT - margin - 12 * mm, booking_code)
-    pdf.setFont("Helvetica", 7)
-    pdf.drawRightString(ticket_x + ticket_w - 10 * mm, PAGE_HEIGHT - margin - 18 * mm, "BOOKING CODE")
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawRightString(
+        ticket_x + ticket_w - 9 * mm,
+        PAGE_HEIGHT - margin - 11 * mm,
+        booking_code,
+    )
+    pdf.setFont("Helvetica", 6.8)
+    pdf.drawRightString(
+        ticket_x + ticket_w - 9 * mm,
+        PAGE_HEIGHT - margin - 17 * mm,
+        "BOOKING CODE",
+    )
 
-    _draw_pill(pdf, _get_payment_status(booking), ticket_x + ticket_w - 52 * mm, header_y + 10 * mm, 42 * mm, accent, "#FFFFFF")
+    # Main content starts below header. QR gets a dedicated fixed column.
+    content_x = ticket_x + 9 * mm
+    content_right = ticket_x + ticket_w - 9 * mm
+    content_w = content_right - content_x
+    qr_size = 34 * mm
+    qr_x = content_right - qr_size
+    qr_y = header_y - qr_size - 10 * mm
+    title_w = content_w - qr_size - 10 * mm
 
-    # QR card.
-    qr_x = ticket_x + ticket_w - 49 * mm
-    qr_y = header_y - 43 * mm
-    _draw_card(pdf, qr_x, qr_y, 39 * mm, 46 * mm, "#FFFFFF", border)
     qr_buffer = generate_ticket_qr_code(booking)
-    qr_reader = ImageReader(qr_buffer)
-    pdf.drawImage(qr_reader, qr_x + 6 * mm, qr_y + 13 * mm, width=27 * mm, height=27 * mm, preserveAspectRatio=True, mask="auto")
+    pdf.setFillColor(colors.white)
+    pdf.setStrokeColor(_hex("#E5E7EB"))
+    pdf.roundRect(
+        qr_x - 3 * mm,
+        qr_y - 9 * mm,
+        qr_size + 6 * mm,
+        qr_size + 15 * mm,
+        4 * mm,
+        fill=1,
+        stroke=1,
+    )
+    pdf.drawImage(
+        ImageReader(qr_buffer),
+        qr_x,
+        qr_y,
+        width=qr_size,
+        height=qr_size,
+        preserveAspectRatio=True,
+        mask="auto",
+    )
     pdf.setFillColor(_hex(muted))
     pdf.setFont("Helvetica-Bold", 6.5)
-    pdf.drawCentredString(qr_x + 19.5 * mm, qr_y + 6 * mm, "SCAN TO VERIFY")
+    pdf.drawCentredString(
+        qr_x + qr_size / 2,
+        qr_y - 5 * mm,
+        "SCAN TO CHECK IN",
+    )
 
-    content_x = ticket_x + 9 * mm
-    content_w = ticket_w - 18 * mm
-    left_w = content_w - 54 * mm
-    y = header_y - 12 * mm
-
-    pdf.setFillColor(_hex(text_color))
-    pdf.setFont("Helvetica-Bold", 22)
-    y = _draw_wrapped_text(pdf, ticket_name, content_x, y, max_chars=35, line_height=8 * mm, max_lines=3)
+    y = header_y - 13 * mm
+    y = _draw_text_block(
+        pdf,
+        ticket_name,
+        content_x,
+        y,
+        title_w,
+        font="Helvetica-Bold",
+        size=20,
+        color=text_color,
+        line_height=7.5 * mm,
+        max_lines=3,
+    )
 
     if container_product_name and container_product_name != ticket_name:
-        y -= 5 * mm
-        pdf.setFillColor(_hex(muted))
-        pdf.setFont("Helvetica-Bold", 8)
-        y = _draw_wrapped_text(pdf, container_product_name, content_x, y, max_chars=58, line_height=4 * mm, max_lines=2)
+        y -= 1 * mm
+        y = _draw_text_block(
+            pdf,
+            container_product_name,
+            content_x,
+            y,
+            title_w,
+            font="Helvetica-Bold",
+            size=8,
+            color=muted,
+            line_height=4 * mm,
+            max_lines=2,
+        )
 
-    y -= 9 * mm
-    pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica", 9)
-    _draw_wrapped_text(pdf, f"Issued for {_get_customer_name(booking)}", content_x, y, max_chars=60, max_lines=1)
+    y -= 2 * mm
+    y = _draw_text_block(
+        pdf,
+        f"Issued for {_get_customer_name(booking)}",
+        content_x,
+        y,
+        title_w,
+        font="Helvetica",
+        size=9,
+        color=muted,
+        max_lines=2,
+    )
 
-    # Detail grid cards.
-    grid_y = y - 33 * mm
-    grid_gap = 4 * mm
-    col_w = (left_w - grid_gap * 2) / 3
-    card_h = 21 * mm
+    # Ensure details begin below both title and QR.
+    y = min(y - 5 * mm, qr_y - 14 * mm)
 
-    for idx, (label, value) in enumerate([
+    pdf.setFillColor(_hex(text_color))
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(content_x, y, "Booking details")
+    y -= 8 * mm
+
+    detail_rows = [
         ("Date", _get_booking_date(booking)),
         ("Time", _get_booking_time(booking)),
         ("Guests", _get_guest_summary(booking)),
-    ]):
-        x = content_x + idx * (col_w + grid_gap)
-        _draw_card(pdf, x, grid_y, col_w, card_h, soft_bg, border)
-        _draw_field(pdf, label, value, x + 4 * mm, grid_y + 14 * mm, col_w - 8 * mm, text_color, muted)
-
-    row2_y = grid_y - card_h - 5 * mm
-    half_w = (left_w - grid_gap) / 2
-    for idx, (label, value) in enumerate([
         ("Customer", _get_customer_name(booking)),
         ("Contact", _get_customer_contact(booking)),
-    ]):
-        x = content_x + idx * (half_w + grid_gap)
-        _draw_card(pdf, x, row2_y, half_w, card_h, soft_bg, border)
-        _draw_field(pdf, label, value, x + 4 * mm, row2_y + 14 * mm, half_w - 8 * mm, text_color, muted)
+    ]
 
-    row3_y = row2_y - card_h - 5 * mm
     if is_transfer:
-        for idx, (label, value) in enumerate([
-            ("Transfer", _get_transfer_type(booking)),
-            ("Vehicle", _get_transfer_vehicle(booking)),
-        ]):
-            x = content_x + idx * (half_w + grid_gap)
-            _draw_card(pdf, x, row3_y, half_w, card_h, soft_bg, border)
-            _draw_field(pdf, label, value, x + 4 * mm, row3_y + 14 * mm, half_w - 8 * mm, text_color, muted)
-
-        row4_y = row3_y - card_h - 5 * mm
-        _draw_card(pdf, content_x, row4_y, left_w, card_h, soft_bg, border)
-        _draw_field(pdf, "Pickup", _get_transfer_pickup_details(booking), content_x + 4 * mm, row4_y + 14 * mm, left_w - 8 * mm, text_color, muted)
-
-        row5_y = row4_y - card_h - 5 * mm
-        _draw_card(pdf, content_x, row5_y, left_w, card_h, soft_bg, border)
-        _draw_field(pdf, "Drop-off", _get_transfer_dropoff_details(booking), content_x + 4 * mm, row5_y + 14 * mm, left_w - 8 * mm, text_color, muted)
-
-        pay_y = row5_y - 36 * mm
+        detail_rows.extend(
+            [
+                ("Transfer", _get_transfer_type(booking)),
+                ("Vehicle", _get_transfer_vehicle(booking)),
+                ("Pickup", _get_transfer_pickup_details(booking)),
+                ("Drop-off", _get_transfer_dropoff_details(booking)),
+            ]
+        )
     else:
-        _draw_card(pdf, content_x, row3_y, left_w, card_h, soft_bg, border)
-        _draw_field(pdf, "Pickup / Meeting Point", _get_pickup_info(booking), content_x + 4 * mm, row3_y + 14 * mm, left_w - 8 * mm, text_color, muted)
-        pay_y = row3_y - 36 * mm
+        detail_rows.append(
+            ("Pickup / Meeting Point", _get_pickup_info(booking))
+        )
 
-    # Payment card.
-    pay_h = 38 * mm
-    _draw_card(pdf, content_x, pay_y, content_w, pay_h, "#FFFFFF", border)
+    for label, value in detail_rows:
+        y = _draw_detail_row(
+            pdf,
+            label,
+            value,
+            content_x,
+            y,
+            content_w,
+            text_color,
+            muted,
+        )
+
+    # Payment summary
+    y -= 1 * mm
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(content_x + 6 * mm, pay_y + pay_h - 9 * mm, "Payment summary")
+    pdf.drawString(content_x, y, "Payment summary")
+    y -= 8 * mm
 
     total_amount = getattr(booking, "total_amount", 0)
     deposit_paid = getattr(booking, "deposit_paid", 0)
     balance_due = getattr(booking, "balance_due", 0)
 
-    payment_rows = [
-        ("Total", _money(total_amount, currency_symbol)),
-        ("Paid", _money(deposit_paid, currency_symbol)),
-        ("Balance", _money(balance_due, currency_symbol)),
-    ]
-    for idx, (label, value) in enumerate(payment_rows):
-        x = content_x + 6 * mm + idx * 45 * mm
+    payment_col_w = content_w / 3
+    for index, (label, value) in enumerate(
+        [
+            ("Total", _money(total_amount, currency_symbol)),
+            ("Paid", _money(deposit_paid, currency_symbol)),
+            ("Balance", _money(balance_due, currency_symbol)),
+        ]
+    ):
+        x = content_x + index * payment_col_w
         pdf.setFillColor(_hex(muted))
         pdf.setFont("Helvetica-Bold", 7)
-        pdf.drawString(x, pay_y + pay_h - 18 * mm, label.upper())
+        pdf.drawString(x, y, label.upper())
         pdf.setFillColor(_hex(text_color))
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(x, pay_y + pay_h - 25 * mm, value)
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(x, y - 6 * mm, value)
 
-    breakdown = _get_passenger_price_breakdown(booking, currency_symbol)
-    if breakdown and not is_transfer:
-        pdf.setFillColor(_hex(muted))
-        pdf.setFont("Helvetica", 8)
-        breakdown_text = " | ".join(f"{label}: {value}" for label, value in breakdown)
-        _draw_wrapped_text(pdf, breakdown_text, content_x + 6 * mm, pay_y + 5 * mm, max_chars=100, line_height=4 * mm, max_lines=2)
+    y -= 14 * mm
 
-    # Important info.
-    info_y = pay_y - 14 * mm
-    pdf.setFillColor(_hex(text_color))
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(content_x, info_y, "Important information")
-
-    pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica", 8.8)
-    info_text = (
-        "Please keep your booking code available. Your transfer is booked in advance. Be ready at the pickup location at the selected time and keep your phone/WhatsApp available."
-        if is_transfer
-        else "Please show this ticket when checking in. Keep your booking code and QR code available for verification. Arrive at the pickup or meeting point on time."
+    breakdown = _get_passenger_price_breakdown(
+        booking,
+        currency_symbol,
     )
-    _draw_wrapped_text(pdf, info_text, content_x, info_y - 7 * mm, max_chars=96, line_height=4.5 * mm, max_lines=3)
+    if breakdown and not is_transfer:
+        breakdown_text = "  |  ".join(
+            f"{label}: {value}" for label, value in breakdown
+        )
+        y = _draw_text_block(
+            pdf,
+            breakdown_text,
+            content_x,
+            y,
+            content_w,
+            font="Helvetica",
+            size=8,
+            color=muted,
+            line_height=4 * mm,
+            max_lines=2,
+        )
 
-    # Footer.
-    footer_y = ticket_y
-    footer_h = 15 * mm
-    pdf.setFillColor(_hex("#F9FAFB"))
-    pdf.roundRect(ticket_x, footer_y, ticket_w, footer_h, 6 * mm, fill=1, stroke=0)
-    pdf.rect(ticket_x, footer_y + 7 * mm, ticket_w, 8 * mm, fill=1, stroke=0)
+    # Important information
+    y -= 3 * mm
+    pdf.setFillColor(_hex(accent))
+    pdf.roundRect(
+        content_x,
+        max(y - 23 * mm, ticket_y + 21 * mm),
+        content_w,
+        23 * mm,
+        4 * mm,
+        fill=1,
+        stroke=0,
+    )
+    info_y = max(y - 23 * mm, ticket_y + 21 * mm) + 16 * mm
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(content_x + 5 * mm, info_y, "Important information")
 
+    info_text = (
+        "Be ready at the selected pickup location and keep your phone or "
+        "WhatsApp available. Show this QR code to the assigned operator."
+        if is_transfer
+        else "Show this QR code when checking in. Arrive on time and keep "
+        "the booking code available in case manual verification is needed."
+    )
+    _draw_text_block(
+        pdf,
+        info_text,
+        content_x + 5 * mm,
+        info_y - 6 * mm,
+        content_w - 10 * mm,
+        font="Helvetica",
+        size=8,
+        color="#FFFFFF",
+        line_height=4 * mm,
+        max_lines=3,
+    )
+
+    # Footer
+    footer_y = ticket_y + 6 * mm
     contact_parts = []
     if branding["contact_email"]:
         contact_parts.append(branding["contact_email"])
@@ -777,14 +1129,21 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     if branding["custom_domain"]:
         contact_parts.append(branding["custom_domain"])
 
-    footer = " | ".join(contact_parts) if contact_parts else "Thank you for your booking."
+    footer = (
+        " | ".join(contact_parts)
+        if contact_parts
+        else "Thank you for your booking."
+    )
     pdf.setFillColor(_hex(muted))
-    pdf.setFont("Helvetica", 8)
-    pdf.drawCentredString(PAGE_WIDTH / 2, footer_y + 6 * mm, footer[:120])
+    pdf.setFont("Helvetica", 7.5)
+    pdf.drawCentredString(
+        PAGE_WIDTH / 2,
+        footer_y,
+        footer[:120],
+    )
 
     pdf.showPage()
     pdf.save()
-
     buffer.seek(0)
     return buffer.read()
 

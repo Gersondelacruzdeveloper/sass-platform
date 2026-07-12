@@ -61,6 +61,16 @@ type ScannerStatus =
   | "admitting"
   | "admitted";
 
+  function extractAdmissionToken(value: string): string {
+  const trimmed = value.trim();
+
+  const uuidMatch = trimmed.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+  );
+
+  return uuidMatch?.[0] || trimmed;
+}
+
 function getErrorMessage(error: unknown): string {
   if (
     typeof error === "object" &&
@@ -208,7 +218,7 @@ export default function TicketingScannerPage() {
 
   const resolveToken = useCallback(
     async (tokenValue: string) => {
-      const trimmed = tokenValue.trim();
+      const trimmed = extractAdmissionToken(tokenValue);
       if (!trimmed || !selectedEntityId) return;
 
       detectionPausedRef.current = true;
