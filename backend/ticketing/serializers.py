@@ -2758,7 +2758,7 @@ class TicketingBusinessEntitySerializer(
         return obj.product_agreements.filter(is_active=True).count()
 
     def get_active_users_count(self, obj):
-        return obj.user_accesses.filter(is_active=True).count()
+        return obj.user_access.filter(is_active=True).count()
 
     def validate_settlement_cycle_days(self, value):
         if value < 1:
