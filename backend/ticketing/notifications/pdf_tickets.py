@@ -14,6 +14,8 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
+PDF_TICKET_GENERATOR_VERSION = "admission-fix-v2-2026-07-12"
+
 
 def _safe_text(value: Any, fallback: str = "") -> str:
     if value is None:
@@ -585,11 +587,27 @@ def _get_item_product(item: Any) -> Any:
     if item is None:
         return None
 
-    return (
+    product = (
         getattr(item, "product", None)
         or getattr(item, "experience_product", None)
         or getattr(item, "ticket_product", None)
     )
+
+    if product is not None:
+        return product
+
+    product_id = getattr(item, "product_id", None)
+    if not product_id:
+        return None
+
+    try:
+        from ticketing.models import ExperienceProduct
+
+        return ExperienceProduct.objects.filter(
+            id=product_id,
+        ).first()
+    except Exception:
+        return None
 
 
 def _resolve_item_business_entity(booking: Any, item: Any) -> Any:
@@ -599,13 +617,14 @@ def _resolve_item_business_entity(booking: Any, item: Any) -> Any:
     Resolution order:
     1. Explicit business entity already attached to the item.
     2. Existing financial snapshot.
-    3. Active product/business agreement.
+    3. Active product/business agreement for the service date.
     """
     explicit = (
         getattr(item, "business_entity", None)
         or getattr(item, "partner", None)
         or getattr(item, "provider_business_entity", None)
     )
+
     if explicit is not None:
         return explicit
 
@@ -621,48 +640,57 @@ def _resolve_item_business_entity(booking: Any, item: Any) -> Any:
             .order_by("-captured_at", "-id")
             .first()
         )
+
         if snapshot and snapshot.business_entity:
             return snapshot.business_entity
     except Exception:
+        # Missing or unavailable snapshots must not block agreement lookup.
         pass
 
     product = _get_item_product(item)
-    if product is None:
+    product_id = (
+        getattr(item, "product_id", None)
+        or getattr(product, "id", None)
+    )
+
+    if not product_id:
         return None
 
-    try:
-        from django.db.models import Q
-        from django.utils import timezone
-        from ticketing.models import ProductBusinessAgreement
+    from django.db.models import Q
+    from django.utils import timezone
+    from ticketing.models import ProductBusinessAgreement
 
-        service_date = (
-            getattr(item, "service_date", None)
-            or getattr(booking, "service_date", None)
-            or timezone.localdate()
-        )
+    service_date = (
+        getattr(item, "service_date", None)
+        or getattr(booking, "service_date", None)
+        or timezone.localdate()
+    )
 
-        agreement = (
-            ProductBusinessAgreement.objects.filter(
-                organisation=getattr(booking, "organisation", None),
-                product=product,
-                is_active=True,
-            )
-            .filter(
-                Q(effective_from__isnull=True)
-                | Q(effective_from__lte=service_date)
-            )
-            .filter(
-                Q(effective_until__isnull=True)
-                | Q(effective_until__gte=service_date)
-            )
-            .select_related("business_entity")
-            .order_by("-effective_from", "-version", "-id")
-            .first()
+    agreement = (
+        ProductBusinessAgreement.objects.filter(
+            organisation_id=getattr(
+                booking,
+                "organisation_id",
+                None,
+            ),
+            product_id=product_id,
+            is_active=True,
         )
-        if agreement:
-            return agreement.business_entity
-    except Exception:
-        pass
+        .filter(
+            Q(effective_from__isnull=True)
+            | Q(effective_from__lte=service_date)
+        )
+        .filter(
+            Q(effective_until__isnull=True)
+            | Q(effective_until__gte=service_date)
+        )
+        .select_related("business_entity")
+        .order_by("-effective_from", "-version", "-id")
+        .first()
+    )
+
+    if agreement and agreement.business_entity:
+        return agreement.business_entity
 
     return None
 
