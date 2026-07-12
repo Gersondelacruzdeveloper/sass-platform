@@ -2774,3 +2774,993 @@ class ProductReview(models.Model):
         ordering = ["-created_at"]
 
 
+
+
+# =============================================================================
+# Ticketing Operations, Admissions, Partner Agreements, Ledger and Settlements
+# =============================================================================
+
+
+class TicketingBusinessEntity(models.Model):
+    """A provider, venue, operator, transport company, guide company or partner."""
+
+    ENTITY_TYPE_CHOICES = (
+        ("venue", "Venue / Attraction"),
+        ("tour_operator", "Tour Operator"),
+        ("transfer_operator", "Transfer Operator"),
+        ("event_organizer", "Event Organizer"),
+        ("guide_company", "Guide Company"),
+        ("external_provider", "External Provider"),
+        ("partner", "Business Partner"),
+        ("other", "Other"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_business_entities",
+    )
+    name = models.CharField(max_length=180)
+    slug = models.SlugField(max_length=200)
+    entity_type = models.CharField(
+        max_length=40,
+        choices=ENTITY_TYPE_CHOICES,
+        default="partner",
+        db_index=True,
+    )
+
+    legal_name = models.CharField(max_length=255, blank=True)
+    tax_identifier = models.CharField(max_length=100, blank=True)
+    contact_name = models.CharField(max_length=150, blank=True)
+    contact_email = models.EmailField(blank=True)
+    contact_phone = models.CharField(max_length=40, blank=True)
+    contact_whatsapp = models.CharField(max_length=40, blank=True)
+    address = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+
+    currency = models.CharField(max_length=10, default="USD")
+    settlement_cycle_days = models.PositiveSmallIntegerField(default=10)
+    settlement_anchor_date = models.DateField(null=True, blank=True)
+    can_collect_customer_balance = models.BooleanField(default=False)
+    can_scan_tickets = models.BooleanField(default=True)
+    require_check_in_confirmation = models.BooleanField(default=True)
+    allow_partial_admission = models.BooleanField(default=True)
+    allow_offline_scanning = models.BooleanField(default=False)
+
+    external_provider = models.CharField(max_length=50, blank=True)
+    external_entity_id = models.CharField(max_length=150, blank=True)
+    extra_settings = models.JSONField(default=dict, blank=True)
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.name) or "partner"
+            candidate = base_slug
+            counter = 2
+            while TicketingBusinessEntity.objects.filter(
+                organisation=self.organisation,
+                slug=candidate,
+            ).exclude(pk=self.pk).exists():
+                candidate = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = candidate
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = ("organisation", "slug")
+        indexes = [
+            models.Index(fields=["organisation", "entity_type"]),
+            models.Index(fields=["organisation", "is_active"]),
+        ]
+
+
+class BusinessEntityUserAccess(models.Model):
+    ROLE_CHOICES = (
+        ("administrator", "Administrator"),
+        ("finance", "Finance"),
+        ("supervisor", "Supervisor"),
+        ("scanner", "Scanner / Door Staff"),
+        ("driver", "Driver"),
+        ("guide", "Guide"),
+        ("viewer", "Viewer"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_business_entity_access",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.CASCADE,
+        related_name="user_access",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ticketing_business_entity_access",
+    )
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES, default="scanner")
+
+    can_access_dashboard = models.BooleanField(default=True)
+    can_scan = models.BooleanField(default=True)
+    can_view_today_bookings = models.BooleanField(default=True)
+    can_view_admissions = models.BooleanField(default=True)
+    can_view_customer_contact = models.BooleanField(default=False)
+    can_view_financials = models.BooleanField(default=False)
+    can_view_settlements = models.BooleanField(default=False)
+    can_record_payments = models.BooleanField(default=False)
+    can_reverse_admissions = models.BooleanField(default=False)
+    can_manage_users = models.BooleanField(default=False)
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    last_access_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if self.business_entity_id:
+            self.organisation = self.business_entity.organisation
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user} - {self.business_entity} ({self.role})"
+
+    class Meta:
+        unique_together = ("business_entity", "user")
+        indexes = [
+            models.Index(fields=["organisation", "user", "is_active"]),
+            models.Index(fields=["business_entity", "role"]),
+        ]
+
+
+class ProductBusinessAgreement(models.Model):
+    AGREEMENT_TYPE_CHOICES = (
+        ("fixed_partner_net", "Fixed Partner Net"),
+        ("partner_percentage", "Partner Percentage"),
+        ("fixed_platform_commission", "Fixed Platform Commission"),
+        ("platform_percentage", "Platform Percentage"),
+        ("custom", "Custom Allocation"),
+    )
+    SETTLEMENT_BASIS_CHOICES = (
+        ("checked_in", "Checked-in Guests"),
+        ("confirmed_booking", "Confirmed Booking"),
+        ("fully_paid_booking", "Fully Paid Booking"),
+        ("provider_confirmation", "External Provider Confirmation"),
+    )
+    COLLECTION_MODE_CHOICES = (
+        ("platform", "Platform Collects"),
+        ("partner", "Business Entity Collects"),
+        ("seller", "Seller Collects"),
+        ("customer_split", "Deposit / Balance Split"),
+        ("mixed", "Mixed Collection"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_product_business_agreements",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.CASCADE,
+        related_name="product_agreements",
+    )
+    product = models.ForeignKey(
+        ExperienceProduct,
+        on_delete=models.CASCADE,
+        related_name="business_agreements",
+    )
+
+    name = models.CharField(max_length=180, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    agreement_type = models.CharField(
+        max_length=40,
+        choices=AGREEMENT_TYPE_CHOICES,
+        default="fixed_partner_net",
+    )
+    settlement_basis = models.CharField(
+        max_length=40,
+        choices=SETTLEMENT_BASIS_CHOICES,
+        default="checked_in",
+        db_index=True,
+    )
+    collection_mode = models.CharField(
+        max_length=40,
+        choices=COLLECTION_MODE_CHOICES,
+        default="mixed",
+    )
+
+    partner_fixed_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    partner_percentage = models.DecimalField(max_digits=7, decimal_places=4, default=Decimal("0.0000"))
+    platform_fixed_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    platform_percentage = models.DecimalField(max_digits=7, decimal_places=4, default=Decimal("0.0000"))
+
+    seller_commission_included = models.BooleanField(default=True)
+    settlement_cycle_days = models.PositiveSmallIntegerField(default=10)
+    payment_due_days = models.PositiveSmallIntegerField(default=0)
+    currency = models.CharField(max_length=10, default="USD")
+
+    effective_from = models.DateField(default=timezone.localdate, db_index=True)
+    effective_until = models.DateField(null=True, blank=True, db_index=True)
+    terms = models.TextField(blank=True)
+    extra_rules = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_agreements_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if self.product_id:
+            self.organisation = self.product.organisation
+        super().save(*args, **kwargs)
+
+    def applies_to(self, service_date):
+        if not self.is_active:
+            return False
+        if service_date < self.effective_from:
+            return False
+        return not self.effective_until or service_date <= self.effective_until
+
+    def __str__(self):
+        return self.name or f"{self.product} - {self.business_entity} v{self.version}"
+
+    class Meta:
+        ordering = ["-effective_from", "-version"]
+        unique_together = ("business_entity", "product", "version")
+        indexes = [
+            models.Index(fields=["organisation", "product", "is_active"]),
+            models.Index(fields=["business_entity", "effective_from", "effective_until"]),
+        ]
+
+
+class BookingFinancialSnapshot(models.Model):
+    """Immutable commercial allocation captured for a booking item."""
+
+    COLLECTION_PARTY_CHOICES = (
+        ("platform", "Platform"),
+        ("partner", "Business Entity"),
+        ("seller", "Seller"),
+        ("customer", "Customer / Uncollected"),
+        ("mixed", "Mixed"),
+        ("none", "None"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_financial_snapshots",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="financial_snapshots",
+    )
+    booking_item = models.OneToOneField(
+        BookingItem,
+        on_delete=models.CASCADE,
+        related_name="financial_snapshot",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="financial_snapshots",
+    )
+    agreement = models.ForeignKey(
+        ProductBusinessAgreement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="financial_snapshots",
+    )
+
+    agreement_version = models.PositiveIntegerField(default=0)
+    settlement_basis = models.CharField(max_length=40, blank=True)
+    currency = models.CharField(max_length=10, default="USD")
+    quantity = models.PositiveIntegerField(default=1)
+
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    net_customer_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    partner_entitlement = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    platform_entitlement = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    seller_entitlement = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+    collected_by_platform = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    collected_by_partner = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    collected_by_seller = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    customer_balance_due = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    primary_collection_party = models.CharField(
+        max_length=30,
+        choices=COLLECTION_PARTY_CHOICES,
+        default="none",
+    )
+
+    calculation_data = models.JSONField(default=dict, blank=True)
+    captured_at = models.DateTimeField(default=timezone.now, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def allocated_total(self):
+        return self.partner_entitlement + self.platform_entitlement + self.seller_entitlement
+
+    @property
+    def collected_total(self):
+        return self.collected_by_platform + self.collected_by_partner + self.collected_by_seller
+
+    def save(self, *args, **kwargs):
+        if self.booking_item_id:
+            self.booking = self.booking_item.booking
+            self.organisation = self.booking_item.booking.organisation
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Financial snapshot - {self.booking.booking_code} / item {self.booking_item_id}"
+
+    class Meta:
+        ordering = ["-captured_at"]
+        indexes = [
+            models.Index(fields=["organisation", "business_entity", "captured_at"]),
+            models.Index(fields=["booking", "business_entity"]),
+        ]
+
+
+class AdmissionToken(models.Model):
+    STATUS_CHOICES = (
+        ("active", "Active"),
+        ("revoked", "Revoked"),
+        ("expired", "Expired"),
+        ("consumed", "Fully Consumed"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_admission_tokens",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="admission_tokens",
+    )
+    booking_item = models.ForeignKey(
+        BookingItem,
+        on_delete=models.CASCADE,
+        related_name="admission_tokens",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admission_tokens",
+    )
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active", db_index=True)
+    valid_from = models.DateTimeField(null=True, blank=True)
+    valid_until = models.DateTimeField(null=True, blank=True)
+    total_admissions = models.PositiveIntegerField(default=1)
+    admitted_quantity = models.PositiveIntegerField(default=0)
+
+    is_primary = models.BooleanField(default=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_admission_tokens_revoked",
+    )
+    revocation_reason = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    @property
+    def remaining_admissions(self):
+        return max(self.total_admissions - self.admitted_quantity, 0)
+
+    @property
+    def is_currently_valid(self):
+        now = timezone.now()
+        if self.status != "active":
+            return False
+        if self.valid_from and now < self.valid_from:
+            return False
+        if self.valid_until and now > self.valid_until:
+            return False
+        return self.remaining_admissions > 0
+
+    def revoke(self, user=None, reason=""):
+        self.status = "revoked"
+        self.revoked_at = timezone.now()
+        self.revoked_by = user
+        self.revocation_reason = reason or ""
+        self.save(update_fields=["status", "revoked_at", "revoked_by", "revocation_reason"])
+
+    def save(self, *args, **kwargs):
+        if self.booking_item_id:
+            self.booking = self.booking_item.booking
+            self.organisation = self.booking_item.booking.organisation
+        if self.is_primary and self.booking_item_id:
+            AdmissionToken.objects.filter(
+                booking_item_id=self.booking_item_id,
+                is_primary=True,
+            ).exclude(pk=self.pk).update(is_primary=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.booking.booking_code} - {self.token}"
+
+    class Meta:
+        ordering = ["-issued_at"]
+        indexes = [
+            models.Index(fields=["organisation", "status"]),
+            models.Index(fields=["business_entity", "status"]),
+            models.Index(fields=["booking_item", "is_primary"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(admitted_quantity__lte=models.F("total_admissions")),
+                name="admission_token_admitted_lte_total",
+            ),
+        ]
+
+
+class TicketScanAttempt(models.Model):
+    RESULT_CHOICES = (
+        ("valid", "Valid"),
+        ("admitted", "Admitted"),
+        ("already_used", "Already Used"),
+        ("partially_used", "Partially Used"),
+        ("wrong_date", "Wrong Date"),
+        ("wrong_partner", "Wrong Business Entity"),
+        ("cancelled", "Booking Cancelled"),
+        ("refunded", "Booking Refunded"),
+        ("expired", "Expired"),
+        ("revoked", "Revoked"),
+        ("not_found", "Not Found"),
+        ("unauthorised", "Unauthorised"),
+        ("invalid", "Invalid"),
+        ("offline_pending", "Offline Pending Sync"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_scan_attempts",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scan_attempts",
+    )
+    scanned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_scan_attempts",
+    )
+    admission_token = models.ForeignKey(
+        AdmissionToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scan_attempts",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scan_attempts",
+    )
+    booking_item = models.ForeignKey(
+        BookingItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scan_attempts",
+    )
+
+    scanned_value = models.CharField(max_length=600, blank=True)
+    result = models.CharField(max_length=30, choices=RESULT_CHOICES, db_index=True)
+    requested_quantity = models.PositiveIntegerField(default=0)
+    admitted_quantity = models.PositiveIntegerField(default=0)
+    failure_reason = models.TextField(blank=True)
+
+    scanner_device_id = models.CharField(max_length=150, blank=True, db_index=True)
+    scanner_name = models.CharField(max_length=150, blank=True)
+    location_name = models.CharField(max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    offline_event_id = models.UUIDField(null=True, blank=True, unique=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    scanned_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    def __str__(self):
+        return f"{self.result} - {self.scanned_at}"
+
+    class Meta:
+        ordering = ["-scanned_at"]
+        indexes = [
+            models.Index(fields=["organisation", "scanned_at"]),
+            models.Index(fields=["business_entity", "result", "scanned_at"]),
+            models.Index(fields=["booking", "scanned_at"]),
+        ]
+
+
+class TicketAdmission(models.Model):
+    STATUS_CHOICES = (
+        ("admitted", "Admitted"),
+        ("boarded", "Boarded"),
+        ("picked_up", "Picked Up"),
+        ("completed", "Completed"),
+        ("reversed", "Reversed"),
+        ("void", "Void"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_admissions",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admissions",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="admissions",
+    )
+    booking_item = models.ForeignKey(
+        BookingItem,
+        on_delete=models.CASCADE,
+        related_name="admissions",
+    )
+    admission_token = models.ForeignKey(
+        AdmissionToken,
+        on_delete=models.PROTECT,
+        related_name="admissions",
+    )
+    scan_attempt = models.OneToOneField(
+        TicketScanAttempt,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admission",
+    )
+
+    quantity_admitted = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="admitted", db_index=True)
+    admitted_at = models.DateTimeField(default=timezone.now, db_index=True)
+    admitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_admissions_created",
+    )
+
+    scanner_device_id = models.CharField(max_length=150, blank=True)
+    location_name = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_admissions_reversed",
+    )
+    reversal_reason = models.TextField(blank=True)
+
+    @property
+    def effective_quantity(self):
+        return 0 if self.status in {"reversed", "void"} else self.quantity_admitted
+
+    def reverse(self, user=None, reason=""):
+        if self.status in {"reversed", "void"}:
+            return
+        self.status = "reversed"
+        self.reversed_at = timezone.now()
+        self.reversed_by = user
+        self.reversal_reason = reason or ""
+        self.save(update_fields=["status", "reversed_at", "reversed_by", "reversal_reason"])
+
+    def save(self, *args, **kwargs):
+        if self.booking_item_id:
+            self.booking = self.booking_item.booking
+            self.organisation = self.booking_item.booking.organisation
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.booking.booking_code} - {self.quantity_admitted} admitted"
+
+    class Meta:
+        ordering = ["-admitted_at"]
+        indexes = [
+            models.Index(fields=["organisation", "admitted_at"]),
+            models.Index(fields=["business_entity", "status", "admitted_at"]),
+            models.Index(fields=["booking_item", "status"]),
+        ]
+
+
+class TicketingLedgerEntry(models.Model):
+    ENTRY_TYPE_CHOICES = (
+        ("sale", "Sale"),
+        ("discount", "Discount"),
+        ("tax", "Tax"),
+        ("payment", "Payment"),
+        ("refund", "Refund"),
+        ("seller_commission", "Seller Commission"),
+        ("partner_entitlement", "Business Entity Entitlement"),
+        ("platform_commission", "Platform Commission"),
+        ("receivable", "Receivable"),
+        ("payable", "Payable"),
+        ("settlement", "Settlement"),
+        ("adjustment", "Adjustment"),
+        ("reversal", "Reversal"),
+    )
+    PARTY_TYPE_CHOICES = (
+        ("platform", "Platform"),
+        ("partner", "Business Entity"),
+        ("seller", "Seller"),
+        ("customer", "Customer"),
+        ("payment_provider", "Payment Provider"),
+        ("system", "System"),
+    )
+    DIRECTION_CHOICES = (
+        ("debit", "Debit"),
+        ("credit", "Credit"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_ledger_entries",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+    )
+    booking_item = models.ForeignKey(
+        BookingItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+    )
+    booking_payment = models.ForeignKey(
+        BookingPayment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+    )
+    seller = models.ForeignKey(
+        Seller,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+    )
+
+    entry_group = models.UUIDField(default=uuid.uuid4, db_index=True)
+    entry_type = models.CharField(max_length=40, choices=ENTRY_TYPE_CHOICES, db_index=True)
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    party_type = models.CharField(max_length=30, choices=PARTY_TYPE_CHOICES, db_index=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=10, default="USD")
+    description = models.CharField(max_length=255, blank=True)
+    reference = models.CharField(max_length=150, blank=True, db_index=True)
+    effective_at = models.DateTimeField(default=timezone.now, db_index=True)
+    is_reversed = models.BooleanField(default=False, db_index=True)
+    reverses_entry = models.OneToOneField(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reversal_entry",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_ledger_entries_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def signed_amount(self):
+        return self.amount if self.direction == "credit" else -self.amount
+
+    def __str__(self):
+        return f"{self.entry_type} {self.direction} {self.amount} {self.currency}"
+
+    class Meta:
+        ordering = ["-effective_at", "-id"]
+        indexes = [
+            models.Index(fields=["organisation", "effective_at"]),
+            models.Index(fields=["business_entity", "party_type", "effective_at"]),
+            models.Index(fields=["booking", "entry_type"]),
+            models.Index(fields=["entry_group", "entry_type"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gte=Decimal("0.00")),
+                name="ticketing_ledger_amount_non_negative",
+            ),
+        ]
+
+
+class PartnerSettlementPeriod(models.Model):
+    STATUS_CHOICES = (
+        ("draft", "Draft"),
+        ("review", "In Review"),
+        ("approved", "Approved"),
+        ("partially_paid", "Partially Paid"),
+        ("settled", "Settled"),
+        ("disputed", "Disputed"),
+        ("cancelled", "Cancelled"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_partner_settlements",
+    )
+    business_entity = models.ForeignKey(
+        TicketingBusinessEntity,
+        on_delete=models.CASCADE,
+        related_name="settlements",
+    )
+    settlement_number = models.CharField(max_length=80, unique=True, blank=True)
+    period_start = models.DateField(db_index=True)
+    period_end = models.DateField(db_index=True)
+    currency = models.CharField(max_length=10, default="USD")
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="draft", db_index=True)
+
+    total_bookings = models.PositiveIntegerField(default=0)
+    total_guests_booked = models.PositiveIntegerField(default=0)
+    total_guests_admitted = models.PositiveIntegerField(default=0)
+    total_no_shows = models.PositiveIntegerField(default=0)
+
+    gross_sales = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    discounts = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    refunds = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    partner_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    platform_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    seller_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    collected_by_partner = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    collected_by_platform = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    collected_by_sellers = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    customer_balance_due = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    partner_owes_platform = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    platform_owes_partner = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    net_settlement_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Positive means the business entity owes the platform; negative means the platform owes the entity.",
+    )
+    paid_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    generated_at = models.DateTimeField(default=timezone.now)
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_settlements_generated",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_settlements_approved",
+    )
+    settled_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    calculation_data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def outstanding_amount(self):
+        target = abs(self.net_settlement_amount)
+        return max(target - self.paid_amount, Decimal("0.00"))
+
+    def save(self, *args, **kwargs):
+        if self.business_entity_id:
+            self.organisation = self.business_entity.organisation
+        if not self.settlement_number:
+            self.settlement_number = f"SET-{self.organisation_id}-{uuid.uuid4().hex[:10].upper()}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.settlement_number} - {self.business_entity}"
+
+    class Meta:
+        ordering = ["-period_end", "-created_at"]
+        unique_together = ("business_entity", "period_start", "period_end")
+        indexes = [
+            models.Index(fields=["organisation", "status", "period_end"]),
+            models.Index(fields=["business_entity", "period_start", "period_end"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(period_end__gte=models.F("period_start")),
+                name="partner_settlement_valid_date_range",
+            ),
+        ]
+
+
+class PartnerSettlementLine(models.Model):
+    settlement = models.ForeignKey(
+        PartnerSettlementPeriod,
+        on_delete=models.CASCADE,
+        related_name="lines",
+    )
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.PROTECT,
+        related_name="partner_settlement_lines",
+    )
+    booking_item = models.ForeignKey(
+        BookingItem,
+        on_delete=models.PROTECT,
+        related_name="partner_settlement_lines",
+    )
+    financial_snapshot = models.ForeignKey(
+        BookingFinancialSnapshot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="settlement_lines",
+    )
+
+    service_date = models.DateField(null=True, blank=True, db_index=True)
+    booked_quantity = models.PositiveIntegerField(default=0)
+    admitted_quantity = models.PositiveIntegerField(default=0)
+    settlement_quantity = models.PositiveIntegerField(default=0)
+
+    gross_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    discount_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    refund_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    partner_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    platform_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    seller_entitlement = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    collected_by_partner = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    collected_by_platform = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    collected_by_seller = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    customer_balance_due = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    partner_due_to_platform = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    platform_due_to_partner = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    net_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    calculation_data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.settlement.settlement_number} - {self.booking.booking_code}"
+
+    class Meta:
+        ordering = ["service_date", "booking_id", "booking_item_id"]
+        unique_together = ("settlement", "booking_item")
+        indexes = [
+            models.Index(fields=["settlement", "service_date"]),
+            models.Index(fields=["booking", "booking_item"]),
+        ]
+
+
+class PartnerSettlementPayment(models.Model):
+    PARTY_TYPE_CHOICES = (
+        ("platform", "Platform"),
+        ("partner", "Business Entity"),
+        ("seller", "Seller"),
+    )
+    METHOD_CHOICES = (
+        ("cash", "Cash"),
+        ("bank_transfer", "Bank Transfer"),
+        ("card", "Card"),
+        ("stripe", "Stripe"),
+        ("paypal", "PayPal"),
+        ("credit_note", "Credit Note"),
+        ("other", "Other"),
+    )
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("confirmed", "Confirmed"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
+        ("refunded", "Refunded"),
+    )
+
+    settlement = models.ForeignKey(
+        PartnerSettlementPeriod,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+    payer_type = models.CharField(max_length=20, choices=PARTY_TYPE_CHOICES)
+    payee_type = models.CharField(max_length=20, choices=PARTY_TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=10, default="USD")
+    payment_method = models.CharField(max_length=30, choices=METHOD_CHOICES, default="bank_transfer")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="confirmed", db_index=True)
+    reference = models.CharField(max_length=180, blank=True, db_index=True)
+    paid_at = models.DateTimeField(default=timezone.now, db_index=True)
+    notes = models.TextField(blank=True)
+    attachment = models.FileField(upload_to="ticketing/settlements/payments/", null=True, blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_settlement_payments_recorded",
+    )
+    ledger_entry_group = models.UUIDField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.settlement.settlement_number} - {self.amount} {self.currency}"
+
+    class Meta:
+        ordering = ["-paid_at"]
+        indexes = [
+            models.Index(fields=["settlement", "status", "paid_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=Decimal("0.00")),
+                name="partner_settlement_payment_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(payer_type=models.F("payee_type")),
+                name="partner_settlement_payer_differs_payee",
+            ),
+        ]

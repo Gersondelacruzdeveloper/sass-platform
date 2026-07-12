@@ -60,6 +60,17 @@ from .views import (
     PublicSitemapAPIView,
     PublicRobotsAPIView,
     WelletProductsAPIView,
+    TicketingBusinessEntityViewSet,
+    BusinessEntityUserAccessViewSet,
+    ProductBusinessAgreementViewSet,
+    BookingFinancialSnapshotViewSet,
+    AdmissionTokenViewSet,
+    TicketScannerViewSet,
+    TicketAdmissionViewSet,
+    TicketScanAttemptViewSet,
+    PartnerSettlementPeriodViewSet,
+    PartnerSettlementPaymentViewSet,
+    TicketingLedgerEntryViewSet,
 )
 
 
@@ -93,6 +104,18 @@ router.register("notifications", NotificationLogViewSet, basename="ticketing-not
 router.register("integrations", ExternalProviderConfigViewSet, basename="ticketing-integrations")
 router.register("external-snapshots", ExternalProviderProductSnapshotViewSet, basename="ticketing-external-snapshots")
 router.register("reviews", ProductReviewViewSet, basename="ticketing-reviews")
+
+router.register("business-entities", TicketingBusinessEntityViewSet, basename="ticketing-business-entities")
+router.register("business-entity-access", BusinessEntityUserAccessViewSet, basename="ticketing-business-entity-access")
+router.register("business-agreements", ProductBusinessAgreementViewSet, basename="ticketing-business-agreements")
+router.register("financial-snapshots", BookingFinancialSnapshotViewSet, basename="ticketing-financial-snapshots")
+router.register("admission-tokens", AdmissionTokenViewSet, basename="ticketing-admission-tokens")
+router.register("scanner", TicketScannerViewSet, basename="ticketing-scanner")
+router.register("admissions", TicketAdmissionViewSet, basename="ticketing-admissions")
+router.register("scan-attempts", TicketScanAttemptViewSet, basename="ticketing-scan-attempts")
+router.register("partner-settlements", PartnerSettlementPeriodViewSet, basename="ticketing-partner-settlements")
+router.register("partner-settlement-payments", PartnerSettlementPaymentViewSet, basename="ticketing-partner-settlement-payments")
+router.register("ledger", TicketingLedgerEntryViewSet, basename="ticketing-ledger")
 
 # Seller-only routes
 router.register("seller/products", SellerProductsViewSet, basename="ticketing-seller-products")

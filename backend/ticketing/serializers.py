@@ -34,6 +34,17 @@ from .models import (
     TransferPriceBand,
     EventTicketType,
     ProductReview,
+    TicketingBusinessEntity,
+    BusinessEntityUserAccess,
+    ProductBusinessAgreement,
+    BookingFinancialSnapshot,
+    AdmissionToken,
+    TicketScanAttempt,
+    TicketAdmission,
+    TicketingLedgerEntry,
+    PartnerSettlementPeriod,
+    PartnerSettlementLine,
+    PartnerSettlementPayment,
 )
 
 from .services import (
@@ -2682,3 +2693,912 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
         instance = booking_finance.recalculate_booking_payment_totals(instance)
 
         return instance
+
+# ============================================================================
+# Ticketing operations, admissions, partner access, ledger, and settlements
+# ============================================================================
+
+
+class TicketingBusinessEntitySerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    active_agreements_count = serializers.SerializerMethodField()
+    active_users_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketingBusinessEntity
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "name",
+            "slug",
+            "entity_type",
+            "legal_name",
+            "tax_identifier",
+            "contact_name",
+            "contact_email",
+            "contact_phone",
+            "contact_whatsapp",
+            "address",
+            "notes",
+            "currency",
+            "settlement_cycle_days",
+            "settlement_anchor_date",
+            "can_collect_customer_balance",
+            "can_scan_tickets",
+            "require_check_in_confirmation",
+            "allow_partial_admission",
+            "allow_offline_scanning",
+            "external_provider",
+            "external_entity_id",
+            "extra_settings",
+            "is_active",
+            "active_agreements_count",
+            "active_users_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "active_agreements_count",
+            "active_users_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_active_agreements_count(self, obj):
+        return obj.product_agreements.filter(is_active=True).count()
+
+    def get_active_users_count(self, obj):
+        return obj.user_accesses.filter(is_active=True).count()
+
+    def validate_settlement_cycle_days(self, value):
+        if value < 1:
+            raise serializers.ValidationError(
+                "Settlement cycle must be at least one day."
+            )
+        return value
+
+
+class BusinessEntityUserAccessSerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    user_name = serializers.SerializerMethodField()
+
+    business_entity_id = serializers.PrimaryKeyRelatedField(
+        source="business_entity",
+        queryset=TicketingBusinessEntity.objects.all(),
+        write_only=True,
+        required=False,
+    )
+    user_id = serializers.PrimaryKeyRelatedField(
+        source="user",
+        queryset=User.objects.all(),
+        write_only=True,
+        required=False,
+    )
+
+    class Meta:
+        model = BusinessEntityUserAccess
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "business_entity",
+            "business_entity_id",
+            "business_entity_name",
+            "user",
+            "user_id",
+            "user_name",
+            "user_email",
+            "role",
+            "can_access_dashboard",
+            "can_scan",
+            "can_view_today_bookings",
+            "can_view_admissions",
+            "can_view_customer_contact",
+            "can_view_financials",
+            "can_view_settlements",
+            "can_record_payments",
+            "can_reverse_admissions",
+            "can_manage_users",
+            "is_active",
+            "last_access_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "business_entity",
+            "business_entity_name",
+            "user",
+            "user_name",
+            "user_email",
+            "last_access_at",
+            "created_at",
+            "updated_at",
+        ]
+        validators = []
+
+    def get_user_name(self, obj):
+        user = obj.user
+        full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
+        return full_name or getattr(user, "username", "") or getattr(user, "email", "")
+
+    def validate(self, attrs):
+        entity = attrs.get("business_entity") or getattr(
+            self.instance,
+            "business_entity",
+            None,
+        )
+        user = attrs.get("user") or getattr(self.instance, "user", None)
+
+        if entity:
+            self.validate_same_organisation(entity, "business_entity_id")
+
+        organisation = self.get_current_organisation()
+        user_organisation = getattr(user, "organisation", None) if user else None
+        if organisation and user_organisation and user_organisation != organisation:
+            raise serializers.ValidationError(
+                {"user_id": "This user does not belong to the current organisation."}
+            )
+
+        if entity and user:
+            duplicate = BusinessEntityUserAccess.objects.filter(
+                business_entity=entity,
+                user=user,
+            )
+            if self.instance:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError(
+                    {"user_id": "This user already has access to this business entity."}
+                )
+
+        return attrs
+
+
+class ProductBusinessAgreementSerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    created_by_email = serializers.EmailField(
+        source="created_by.email",
+        read_only=True,
+    )
+
+    business_entity_id = serializers.PrimaryKeyRelatedField(
+        source="business_entity",
+        queryset=TicketingBusinessEntity.objects.all(),
+        write_only=True,
+        required=False,
+    )
+    product_id = serializers.PrimaryKeyRelatedField(
+        source="product",
+        queryset=ExperienceProduct.objects.all(),
+        write_only=True,
+        required=False,
+    )
+
+    class Meta:
+        model = ProductBusinessAgreement
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "business_entity",
+            "business_entity_id",
+            "business_entity_name",
+            "product",
+            "product_id",
+            "product_name",
+            "name",
+            "version",
+            "agreement_type",
+            "settlement_basis",
+            "collection_mode",
+            "partner_fixed_amount",
+            "partner_percentage",
+            "platform_fixed_amount",
+            "platform_percentage",
+            "seller_commission_included",
+            "settlement_cycle_days",
+            "payment_due_days",
+            "currency",
+            "effective_from",
+            "effective_until",
+            "terms",
+            "extra_rules",
+            "is_active",
+            "created_by",
+            "created_by_email",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "business_entity",
+            "business_entity_name",
+            "product",
+            "product_name",
+            "created_by",
+            "created_by_email",
+            "created_at",
+            "updated_at",
+        ]
+        validators = []
+
+    def validate(self, attrs):
+        entity = attrs.get("business_entity") or getattr(
+            self.instance,
+            "business_entity",
+            None,
+        )
+        product = attrs.get("product") or getattr(self.instance, "product", None)
+        effective_from = attrs.get(
+            "effective_from",
+            getattr(self.instance, "effective_from", None),
+        )
+        effective_until = attrs.get(
+            "effective_until",
+            getattr(self.instance, "effective_until", None),
+        )
+        partner_percentage = attrs.get(
+            "partner_percentage",
+            getattr(self.instance, "partner_percentage", Decimal("0.00")),
+        )
+        platform_percentage = attrs.get(
+            "platform_percentage",
+            getattr(self.instance, "platform_percentage", Decimal("0.00")),
+        )
+
+        if entity:
+            self.validate_same_organisation(entity, "business_entity_id")
+        if product:
+            self.validate_same_organisation(product, "product_id")
+
+        if (
+            entity
+            and product
+            and entity.organisation_id != product.organisation_id
+        ):
+            raise serializers.ValidationError(
+                "The business entity and product must belong to the same organisation."
+            )
+
+        if effective_from and effective_until and effective_until < effective_from:
+            raise serializers.ValidationError(
+                {"effective_until": "The end date cannot be before the start date."}
+            )
+
+        for field_name, value in (
+            ("partner_percentage", partner_percentage),
+            ("platform_percentage", platform_percentage),
+        ):
+            if value is not None and (value < 0 or value > 100):
+                raise serializers.ValidationError(
+                    {field_name: "Percentage must be between 0 and 100."}
+                )
+
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data.setdefault("created_by", request.user)
+        return super().create(validated_data)
+
+
+class BookingFinancialSnapshotSerializer(serializers.ModelSerializer):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    agreement_name = serializers.CharField(
+        source="agreement.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = BookingFinancialSnapshot
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "business_entity",
+            "business_entity_name",
+            "agreement",
+            "agreement_name",
+            "agreement_version",
+            "settlement_basis",
+            "currency",
+            "quantity",
+            "gross_amount",
+            "discount_amount",
+            "tax_amount",
+            "net_customer_amount",
+            "partner_entitlement",
+            "platform_entitlement",
+            "seller_entitlement",
+            "collected_by_platform",
+            "collected_by_partner",
+            "collected_by_seller",
+            "customer_balance_due",
+            "primary_collection_party",
+            "calculation_data",
+            "captured_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class AdmissionTokenSerializer(serializers.ModelSerializer):
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    remaining_admissions = serializers.IntegerField(read_only=True)
+    is_currently_valid = serializers.BooleanField(read_only=True)
+    token_url_value = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdmissionToken
+        fields = [
+            "id",
+            "organisation",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "business_entity",
+            "business_entity_name",
+            "token",
+            "token_url_value",
+            "status",
+            "valid_from",
+            "valid_until",
+            "total_admissions",
+            "admitted_quantity",
+            "remaining_admissions",
+            "is_currently_valid",
+            "is_primary",
+            "issued_at",
+            "revoked_at",
+            "revoked_by",
+            "revocation_reason",
+            "metadata",
+        ]
+        read_only_fields = fields
+
+    def get_token_url_value(self, obj):
+        return str(obj.token)
+
+
+class TicketScanAttemptSerializer(serializers.ModelSerializer):
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+    scanned_by_email = serializers.EmailField(
+        source="scanned_by.email",
+        read_only=True,
+    )
+
+    class Meta:
+        model = TicketScanAttempt
+        fields = [
+            "id",
+            "organisation",
+            "business_entity",
+            "business_entity_name",
+            "scanned_by",
+            "scanned_by_email",
+            "admission_token",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "scanned_value",
+            "result",
+            "requested_quantity",
+            "admitted_quantity",
+            "failure_reason",
+            "scanner_device_id",
+            "scanner_name",
+            "location_name",
+            "ip_address",
+            "user_agent",
+            "offline_event_id",
+            "metadata",
+            "scanned_at",
+        ]
+        read_only_fields = fields
+
+
+class TicketAdmissionSerializer(serializers.ModelSerializer):
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+    admitted_by_email = serializers.EmailField(
+        source="admitted_by.email",
+        read_only=True,
+    )
+    reversed_by_email = serializers.EmailField(
+        source="reversed_by.email",
+        read_only=True,
+    )
+    effective_quantity = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = TicketAdmission
+        fields = [
+            "id",
+            "organisation",
+            "business_entity",
+            "business_entity_name",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "admission_token",
+            "scan_attempt",
+            "quantity_admitted",
+            "effective_quantity",
+            "status",
+            "admitted_at",
+            "admitted_by",
+            "admitted_by_email",
+            "scanner_device_id",
+            "location_name",
+            "notes",
+            "metadata",
+            "reversed_at",
+            "reversed_by",
+            "reversed_by_email",
+            "reversal_reason",
+        ]
+        read_only_fields = fields
+
+
+class TicketingLedgerEntrySerializer(serializers.ModelSerializer):
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+    seller_name = serializers.CharField(
+        source="seller.full_name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    created_by_email = serializers.EmailField(
+        source="created_by.email",
+        read_only=True,
+    )
+    signed_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    class Meta:
+        model = TicketingLedgerEntry
+        fields = [
+            "id",
+            "organisation",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "booking_payment",
+            "seller",
+            "seller_name",
+            "business_entity",
+            "business_entity_name",
+            "entry_group",
+            "entry_type",
+            "direction",
+            "party_type",
+            "amount",
+            "signed_amount",
+            "currency",
+            "description",
+            "reference",
+            "effective_at",
+            "is_reversed",
+            "reverses_entry",
+            "metadata",
+            "created_by",
+            "created_by_email",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PartnerSettlementLineSerializer(serializers.ModelSerializer):
+    booking_code = serializers.CharField(
+        source="booking.booking_code",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="booking_item.product_name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PartnerSettlementLine
+        fields = [
+            "id",
+            "settlement",
+            "booking",
+            "booking_code",
+            "booking_item",
+            "product_name",
+            "financial_snapshot",
+            "service_date",
+            "booked_quantity",
+            "admitted_quantity",
+            "settlement_quantity",
+            "gross_amount",
+            "discount_amount",
+            "refund_amount",
+            "partner_entitlement",
+            "platform_entitlement",
+            "seller_entitlement",
+            "collected_by_partner",
+            "collected_by_platform",
+            "collected_by_seller",
+            "customer_balance_due",
+            "partner_due_to_platform",
+            "platform_due_to_partner",
+            "net_amount",
+            "calculation_data",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PartnerSettlementPaymentSerializer(MediaURLMixin, serializers.ModelSerializer):
+    settlement_number = serializers.CharField(
+        source="settlement.settlement_number",
+        read_only=True,
+    )
+    recorded_by_email = serializers.EmailField(
+        source="recorded_by.email",
+        read_only=True,
+    )
+    attachment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PartnerSettlementPayment
+        fields = [
+            "id",
+            "settlement",
+            "settlement_number",
+            "payer_type",
+            "payee_type",
+            "amount",
+            "currency",
+            "payment_method",
+            "status",
+            "reference",
+            "paid_at",
+            "notes",
+            "attachment",
+            "attachment_url",
+            "recorded_by",
+            "recorded_by_email",
+            "ledger_entry_group",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "settlement_number",
+            "attachment_url",
+            "recorded_by",
+            "recorded_by_email",
+            "ledger_entry_group",
+            "created_at",
+        ]
+
+    def get_attachment_url(self, obj):
+        return self.build_file_url(obj.attachment)
+
+    def validate(self, attrs):
+        payer_type = attrs.get(
+            "payer_type",
+            getattr(self.instance, "payer_type", None),
+        )
+        payee_type = attrs.get(
+            "payee_type",
+            getattr(self.instance, "payee_type", None),
+        )
+        amount = attrs.get("amount", getattr(self.instance, "amount", None))
+
+        if payer_type and payee_type and payer_type == payee_type:
+            raise serializers.ValidationError(
+                {"payee_type": "Payer and payee must be different parties."}
+            )
+        if amount is not None and amount <= 0:
+            raise serializers.ValidationError(
+                {"amount": "Settlement payment amount must be greater than zero."}
+            )
+        return attrs
+
+
+class PartnerSettlementPeriodSerializer(serializers.ModelSerializer):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    business_entity_name = serializers.CharField(
+        source="business_entity.name",
+        read_only=True,
+    )
+    generated_by_email = serializers.EmailField(
+        source="generated_by.email",
+        read_only=True,
+    )
+    approved_by_email = serializers.EmailField(
+        source="approved_by.email",
+        read_only=True,
+    )
+    outstanding_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+    )
+    lines = PartnerSettlementLineSerializer(many=True, read_only=True)
+    payments = PartnerSettlementPaymentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PartnerSettlementPeriod
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "business_entity",
+            "business_entity_name",
+            "settlement_number",
+            "period_start",
+            "period_end",
+            "currency",
+            "status",
+            "total_bookings",
+            "total_guests_booked",
+            "total_guests_admitted",
+            "total_no_shows",
+            "gross_sales",
+            "discounts",
+            "refunds",
+            "partner_entitlement",
+            "platform_entitlement",
+            "seller_entitlement",
+            "collected_by_partner",
+            "collected_by_platform",
+            "collected_by_sellers",
+            "customer_balance_due",
+            "partner_owes_platform",
+            "platform_owes_partner",
+            "net_settlement_amount",
+            "paid_amount",
+            "outstanding_amount",
+            "generated_at",
+            "generated_by",
+            "generated_by_email",
+            "approved_at",
+            "approved_by",
+            "approved_by_email",
+            "settled_at",
+            "notes",
+            "calculation_data",
+            "lines",
+            "payments",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+# Action/input serializers intentionally do not create database records directly.
+# Views and service classes must perform locking, authorization, ledger posting,
+# token updates, and settlement recalculation atomically.
+
+
+class AdmissionTokenIssueSerializer(serializers.Serializer):
+    booking_item_id = serializers.IntegerField(min_value=1)
+    business_entity_id = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        allow_null=True,
+    )
+    total_admissions = serializers.IntegerField(min_value=1, required=False)
+    valid_from = serializers.DateTimeField(required=False, allow_null=True)
+    valid_until = serializers.DateTimeField(required=False, allow_null=True)
+    is_primary = serializers.BooleanField(required=False, default=True)
+    metadata = serializers.JSONField(required=False)
+
+    def validate(self, attrs):
+        valid_from = attrs.get("valid_from")
+        valid_until = attrs.get("valid_until")
+        if valid_from and valid_until and valid_until <= valid_from:
+            raise serializers.ValidationError(
+                {"valid_until": "Valid-until must be later than valid-from."}
+            )
+        return attrs
+
+
+class TicketScanResolveSerializer(serializers.Serializer):
+    token = serializers.UUIDField()
+    requested_quantity = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        default=1,
+    )
+    scanner_device_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=150,
+    )
+    scanner_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=150,
+    )
+    location_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+    )
+    offline_event_id = serializers.UUIDField(required=False, allow_null=True)
+    metadata = serializers.JSONField(required=False)
+
+
+class TicketAdmissionCreateSerializer(TicketScanResolveSerializer):
+    notes = serializers.CharField(required=False, allow_blank=True)
+    confirm = serializers.BooleanField(required=False, default=True)
+
+
+class TicketAdmissionReverseSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        max_length=1000,
+    )
+
+
+class SettlementGenerateSerializer(serializers.Serializer):
+    business_entity_id = serializers.IntegerField(min_value=1)
+    period_start = serializers.DateField()
+    period_end = serializers.DateField()
+    regenerate_draft = serializers.BooleanField(required=False, default=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if attrs["period_end"] < attrs["period_start"]:
+            raise serializers.ValidationError(
+                {"period_end": "Period end cannot be before period start."}
+            )
+        return attrs
+
+
+class SettlementApprovalSerializer(serializers.Serializer):
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class SettlementPaymentCreateSerializer(serializers.Serializer):
+    payer_type = serializers.ChoiceField(
+        choices=PartnerSettlementPayment.PARTY_TYPE_CHOICES,
+    )
+    payee_type = serializers.ChoiceField(
+        choices=PartnerSettlementPayment.PARTY_TYPE_CHOICES,
+    )
+    amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
+    currency = serializers.CharField(required=False, max_length=10)
+    payment_method = serializers.ChoiceField(
+        choices=PartnerSettlementPayment.METHOD_CHOICES,
+        required=False,
+        default="bank_transfer",
+    )
+    status = serializers.ChoiceField(
+        choices=PartnerSettlementPayment.STATUS_CHOICES,
+        required=False,
+        default="confirmed",
+    )
+    reference = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=180,
+    )
+    paid_at = serializers.DateTimeField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if attrs["payer_type"] == attrs["payee_type"]:
+            raise serializers.ValidationError(
+                {"payee_type": "Payer and payee must be different parties."}
+            )
+        return attrs
+

@@ -75,6 +75,17 @@ from .models import (
     ProductReview,
     TicketingEmailSettings,
     ProductURLAlias,
+    TicketingBusinessEntity,
+    BusinessEntityUserAccess,
+    ProductBusinessAgreement,
+    BookingFinancialSnapshot,
+    AdmissionToken,
+    TicketScanAttempt,
+    TicketAdmission,
+    TicketingLedgerEntry,
+    PartnerSettlementPeriod,
+    PartnerSettlementLine,
+    PartnerSettlementPayment,
 )
 
 from .serializers import (
@@ -105,6 +116,24 @@ from .serializers import (
     EventTicketTypeSerializer,
     ProductReviewSerializer,
     TicketingEmailSettingsSerializer,
+    TicketingBusinessEntitySerializer,
+    BusinessEntityUserAccessSerializer,
+    ProductBusinessAgreementSerializer,
+    BookingFinancialSnapshotSerializer,
+    AdmissionTokenSerializer,
+    TicketScanAttemptSerializer,
+    TicketAdmissionSerializer,
+    TicketingLedgerEntrySerializer,
+    PartnerSettlementPeriodSerializer,
+    PartnerSettlementLineSerializer,
+    PartnerSettlementPaymentSerializer,
+    AdmissionTokenIssueSerializer,
+    TicketScanResolveSerializer,
+    TicketAdmissionCreateSerializer,
+    TicketAdmissionReverseSerializer,
+    SettlementGenerateSerializer,
+    SettlementApprovalSerializer,
+    SettlementPaymentCreateSerializer,
 )
 from .services import (
     fetch_wellet_products,
@@ -130,6 +159,66 @@ from .permissions import (
     CanAccessSellerDashboard,
     is_organisation_admin,
     get_user_seller,
+    get_business_entity_from_view,
+    get_user_business_entity_accesses,
+    HasBusinessEntityAccess,
+    HasTicketingPermission,
+    CanAccessOperationsDashboard,
+    CanScanTickets,
+    CanAdmitGuests,
+    CanReverseAdmissions,
+    CanViewTodayArrivals,
+    CanViewAdmissions,
+    CanViewPartnerFinancials,
+    CanViewSettlements,
+    CanRecordSettlementPayments,
+    CanManageBusinessEntityUsers,
+    CanManageBusinessEntities,
+    CanManageBusinessAgreements,
+    CanGenerateSettlements,
+    CanApproveSettlements,
+    CanViewTicketingLedger,
+    CanSyncOfflineScans,
+)
+
+from .operations.tokens import (
+    AdmissionTokenValidationError,
+    build_qr_payload,
+    issue_admission_token,
+    resolve_admission_token,
+    revoke_admission_token,
+    rotate_admission_token,
+)
+from .operations.admissions import (
+    AdmissionConflictError,
+    AdmissionValidationError,
+    admit_guests,
+    resolve_and_admit,
+    reverse_admission,
+)
+from .operations.snapshots import (
+    create_snapshot_for_item,
+    create_snapshots_for_booking,
+)
+from .operations.ledger import (
+    ledger_summary,
+    post_manual_adjustment,
+    reconcile_settlement_with_ledger,
+    reverse_entry_group,
+)
+from .operations.settlements import (
+    SettlementValidationError,
+    calculate_next_period,
+    ensure_snapshots_and_generate,
+    settlement_preview,
+)
+from .finance.settlements import (
+    approve_partner_settlement,
+    cancel_partner_settlement,
+    dispute_partner_settlement,
+    record_partner_settlement_payment,
+    submit_partner_settlement_for_review,
+    update_partner_settlement_payment_status,
 )
 
 
@@ -6816,5 +6905,1352 @@ class TicketingLiveAvailabilityAPIView(TicketingOrganisationMixin, APIView):
         return Response(result)
 
 
+# =============================================================================
+# Operations: business entities, QR scanner, admissions, ledger and settlements
+# =============================================================================
 
+
+class BusinessEntityScopedMixin:
+    """Resolve and enforce a business entity inside the current organisation."""
+
+    def get_business_entity(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return None
+
+        entity = get_business_entity_from_view(
+            self.request,
+            self,
+            organisation=organisation,
+        )
+
+        if entity:
+            return entity
+
+        pk = self.kwargs.get("pk")
+        if pk and getattr(self, "business_entity_from_pk", False):
+            return TicketingBusinessEntity.objects.filter(
+                pk=pk,
+                organisation=organisation,
+                is_active=True,
+            ).first()
+
+        return None
+
+    def require_business_entity(self):
+        entity = self.get_business_entity()
+        if not entity:
+            raise PermissionDenied("A valid business entity is required.")
+        return entity
+
+
+class TicketingBusinessEntityViewSet(
+    TicketingOrganisationMixin,
+    BusinessEntityScopedMixin,
+    viewsets.ModelViewSet,
+):
+    serializer_class = TicketingBusinessEntitySerializer
+    permission_classes = [HasTicketingOrganisationAccess]
+    business_entity_from_pk = True
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve", "dashboard", "mine"]:
+            return [HasTicketingOrganisationAccess()]
+        return [CanManageBusinessEntities()]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return TicketingBusinessEntity.objects.none()
+
+        queryset = TicketingBusinessEntity.objects.filter(
+            organisation=organisation,
+        )
+
+        if not self.is_admin_user():
+            allowed_ids = get_user_business_entity_accesses(
+                self.request.user,
+                organisation,
+            ).values_list("business_entity_id", flat=True)
+            queryset = queryset.filter(id__in=allowed_ids)
+
+        entity_type = self.request.query_params.get("entity_type")
+        is_active = self.request.query_params.get("is_active")
+        search = self.request.query_params.get("search")
+
+        if entity_type:
+            queryset = queryset.filter(entity_type=entity_type)
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(legal_name__icontains=search)
+                | Q(contact_name__icontains=search)
+                | Q(contact_email__icontains=search)
+            )
+
+        return queryset.order_by("name")
+
+    def perform_create(self, serializer):
+        serializer.save(organisation=self.require_organisation())
+
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+
+        if self.is_admin_user():
+            entities = TicketingBusinessEntity.objects.filter(
+                organisation=organisation,
+                is_active=True,
+            )
+        else:
+            entity_ids = get_user_business_entity_accesses(
+                request.user,
+                organisation,
+            ).values_list("business_entity_id", flat=True)
+            entities = TicketingBusinessEntity.objects.filter(
+                organisation=organisation,
+                id__in=entity_ids,
+                is_active=True,
+            )
+
+        return Response(
+            self.get_serializer(entities.order_by("name"), many=True).data
+        )
+
+    @action(detail=True, methods=["get"], url_path="dashboard")
+    def dashboard(self, request, pk=None):
+        entity = self.get_object()
+        today = timezone.localdate()
+
+        date_from = parse_date(
+            request.query_params.get("date_from", "")
+        ) or today
+        date_to = parse_date(
+            request.query_params.get("date_to", "")
+        ) or today
+
+        admissions = TicketAdmission.objects.filter(
+            organisation=entity.organisation,
+            business_entity=entity,
+            status="admitted",
+            admitted_at__date__range=(date_from, date_to),
+        )
+
+        expected_snapshots = BookingFinancialSnapshot.objects.filter(
+            organisation=entity.organisation,
+            business_entity=entity,
+        ).filter(
+            Q(booking_item__service_date__range=(date_from, date_to))
+            | Q(
+                booking_item__service_date__isnull=True,
+                booking__service_date__range=(date_from, date_to),
+            )
+        )
+
+        admission_totals = admissions.aggregate(
+            guests=Sum("quantity_admitted"),
+            admissions=Count("id"),
+        )
+        expected_totals = expected_snapshots.aggregate(
+            bookings=Count("booking_id", distinct=True),
+            guests=Sum("quantity"),
+            gross=Sum("gross_amount"),
+            partner_entitlement=Sum("partner_entitlement"),
+            platform_entitlement=Sum("platform_entitlement"),
+            collected_by_partner=Sum("collected_by_partner"),
+            collected_by_platform=Sum("collected_by_platform"),
+            customer_balance_due=Sum("customer_balance_due"),
+        )
+
+        latest_scans = TicketScanAttempt.objects.filter(
+            organisation=entity.organisation,
+            business_entity=entity,
+        ).select_related(
+            "booking",
+            "booking_item",
+            "scanned_by",
+        ).order_by("-scanned_at")[:20]
+
+        current_start, current_end = calculate_next_period(entity)
+        current_settlement = PartnerSettlementPeriod.objects.filter(
+            organisation=entity.organisation,
+            business_entity=entity,
+            period_start=current_start,
+            period_end=current_end,
+        ).first()
+
+        expected_guests = int(expected_totals["guests"] or 0)
+        admitted_guests = int(admission_totals["guests"] or 0)
+
+        return Response(
+            {
+                "business_entity": self.get_serializer(entity).data,
+                "date_from": str(date_from),
+                "date_to": str(date_to),
+                "totals": {
+                    "bookings": int(expected_totals["bookings"] or 0),
+                    "expected_guests": expected_guests,
+                    "admitted_guests": admitted_guests,
+                    "remaining_guests": max(expected_guests - admitted_guests, 0),
+                    "admission_events": int(admission_totals["admissions"] or 0),
+                    "gross_sales": str(expected_totals["gross"] or Decimal("0.00")),
+                    "partner_entitlement": str(expected_totals["partner_entitlement"] or Decimal("0.00")),
+                    "platform_entitlement": str(expected_totals["platform_entitlement"] or Decimal("0.00")),
+                    "collected_by_partner": str(expected_totals["collected_by_partner"] or Decimal("0.00")),
+                    "collected_by_platform": str(expected_totals["collected_by_platform"] or Decimal("0.00")),
+                    "customer_balance_due": str(expected_totals["customer_balance_due"] or Decimal("0.00")),
+                },
+                "current_period": {
+                    "period_start": str(current_start),
+                    "period_end": str(current_end),
+                    "settlement": (
+                        PartnerSettlementPeriodSerializer(
+                            current_settlement,
+                            context=self.get_serializer_context(),
+                        ).data
+                        if current_settlement
+                        else None
+                    ),
+                },
+                "latest_scans": TicketScanAttemptSerializer(
+                    latest_scans,
+                    many=True,
+                    context=self.get_serializer_context(),
+                ).data,
+            }
+        )
+
+
+class BusinessEntityUserAccessViewSet(
+    TicketingOrganisationMixin,
+    BusinessEntityScopedMixin,
+    viewsets.ModelViewSet,
+):
+    serializer_class = BusinessEntityUserAccessSerializer
+    permission_classes = [CanManageBusinessEntityUsers]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return BusinessEntityUserAccess.objects.none()
+
+        queryset = BusinessEntityUserAccess.objects.filter(
+            organisation=organisation,
+        ).select_related("organisation", "business_entity", "user")
+
+        entity_id = (
+            self.request.query_params.get("business_entity")
+            or self.request.query_params.get("business_entity_id")
+        )
+        is_active = self.request.query_params.get("is_active")
+        role = self.request.query_params.get("role")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+        if role:
+            queryset = queryset.filter(role=role)
+
+        return queryset.order_by("business_entity__name", "user__email")
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        entity = serializer.validated_data.get("business_entity")
+
+        if not entity:
+            entity = get_object_or_404(
+                TicketingBusinessEntity,
+                id=(
+                    self.request.data.get("business_entity")
+                    or self.request.data.get("business_entity_id")
+                ),
+                organisation=organisation,
+            )
+
+        serializer.save(
+            organisation=organisation,
+            business_entity=entity,
+        )
+
+
+class ProductBusinessAgreementViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ModelViewSet,
+):
+    serializer_class = ProductBusinessAgreementSerializer
+    permission_classes = [CanManageBusinessAgreements]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return ProductBusinessAgreement.objects.none()
+
+        queryset = ProductBusinessAgreement.objects.filter(
+            organisation=organisation,
+        ).select_related("business_entity", "product", "created_by")
+
+        entity_id = self.request.query_params.get("business_entity")
+        product_id = self.request.query_params.get("product")
+        is_active = self.request.query_params.get("is_active")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset.order_by(
+            "business_entity__name",
+            "product__name",
+            "-effective_from",
+            "-version",
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.require_organisation(),
+            created_by=self.request.user,
+        )
+
+
+class BookingFinancialSnapshotViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = BookingFinancialSnapshotSerializer
+    permission_classes = [CanViewTicketingLedger]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return BookingFinancialSnapshot.objects.none()
+
+        queryset = BookingFinancialSnapshot.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "booking",
+            "booking_item",
+            "business_entity",
+            "agreement",
+        )
+
+        booking_id = self.request.query_params.get("booking")
+        entity_id = self.request.query_params.get("business_entity")
+
+        if booking_id:
+            queryset = queryset.filter(booking_id=booking_id)
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+
+        return queryset.order_by("-captured_at")
+
+    @action(detail=False, methods=["post"], url_path="capture-booking")
+    def capture_booking(self, request):
+        organisation = self.require_organisation()
+        booking_id = request.data.get("booking") or request.data.get("booking_id")
+
+        booking = get_object_or_404(
+            Booking,
+            id=booking_id,
+            organisation=organisation,
+        )
+
+        snapshots = create_snapshots_for_booking(
+            booking,
+            force_refresh=str(
+                request.data.get("force_refresh") or "false"
+            ).lower() in ["true", "1", "yes"],
+        )
+
+        return Response(
+            self.get_serializer(snapshots, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdmissionTokenViewSet(
+    TicketingOrganisationMixin,
+    BusinessEntityScopedMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = AdmissionTokenSerializer
+    permission_classes = [HasTicketingOrganisationAccess]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return AdmissionToken.objects.none()
+
+        queryset = AdmissionToken.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "booking",
+            "booking_item",
+            "business_entity",
+            "revoked_by",
+        )
+
+        booking_id = self.request.query_params.get("booking")
+        item_id = self.request.query_params.get("booking_item")
+        entity_id = self.request.query_params.get("business_entity")
+        token_status = self.request.query_params.get("status")
+
+        if booking_id:
+            queryset = queryset.filter(booking_id=booking_id)
+        if item_id:
+            queryset = queryset.filter(booking_item_id=item_id)
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if token_status:
+            queryset = queryset.filter(status=token_status)
+
+        return queryset.order_by("-issued_at")
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="issue",
+        permission_classes=[CanManageBusinessEntities],
+    )
+    def issue(self, request):
+        organisation = self.require_organisation()
+        input_serializer = AdmissionTokenIssueSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        data = input_serializer.validated_data
+
+        item = get_object_or_404(
+            BookingItem,
+            id=data["booking_item_id"],
+            booking__organisation=organisation,
+        )
+
+        entity = None
+        if data.get("business_entity_id"):
+            entity = get_object_or_404(
+                TicketingBusinessEntity,
+                id=data["business_entity_id"],
+                organisation=organisation,
+            )
+
+        try:
+            token = issue_admission_token(
+                item,
+                business_entity=entity,
+                total_admissions=data.get("total_admissions"),
+                valid_from=data.get("valid_from"),
+                valid_until=data.get("valid_until"),
+                is_primary=data.get("is_primary", True),
+                metadata=data.get("metadata", {}),
+                replace_existing_primary=str(
+                    request.data.get("replace_existing_primary") or "false"
+                ).lower() in ["true", "1", "yes"],
+            )
+        except AdmissionTokenValidationError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_url = request.data.get("base_url")
+        response_data = self.get_serializer(token).data
+        response_data["qr_payload"] = build_qr_payload(
+            token,
+            base_url=base_url,
+        )
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="rotate",
+        permission_classes=[CanManageBusinessEntities],
+    )
+    def rotate(self, request, pk=None):
+        token = self.get_object()
+        rotated = rotate_admission_token(
+            token,
+            revoked_by=request.user,
+            reason=request.data.get("reason", "Admission token rotated."),
+            metadata=request.data.get("metadata", {}),
+        )
+        return Response(self.get_serializer(rotated).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="revoke",
+        permission_classes=[CanManageBusinessEntities],
+    )
+    def revoke(self, request, pk=None):
+        token = self.get_object()
+        revoked = revoke_admission_token(
+            token,
+            revoked_by=request.user,
+            reason=request.data.get("reason", "Admission token revoked."),
+        )
+        return Response(self.get_serializer(revoked).data)
+
+
+class TicketScannerViewSet(
+    TicketingOrganisationMixin,
+    BusinessEntityScopedMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [CanScanTickets]
+
+    def _entity_from_request(self):
+        organisation = self.require_organisation()
+        entity_id = (
+            self.request.data.get("business_entity_id")
+            or self.request.query_params.get("business_entity_id")
+        )
+
+        if entity_id:
+            return get_object_or_404(
+                TicketingBusinessEntity,
+                id=entity_id,
+                organisation=organisation,
+                is_active=True,
+            )
+
+        accesses = get_user_business_entity_accesses(
+            self.request.user,
+            organisation,
+        )
+        if accesses.count() == 1:
+            return accesses.first().business_entity
+
+        if self.is_admin_user():
+            return None
+
+        raise PermissionDenied(
+            "Select the business entity that is scanning this ticket."
+        )
+
+    @action(detail=False, methods=["post"], url_path="resolve")
+    def resolve(self, request):
+        organisation = self.require_organisation()
+        serializer = TicketScanResolveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        entity = self._entity_from_request()
+
+        resolution = resolve_admission_token(
+            data["token"],
+            organisation=organisation,
+            business_entity=entity,
+            scanned_by=request.user,
+            requested_quantity=data.get("requested_quantity", 1),
+            scanner_device_id=data.get("scanner_device_id", ""),
+            scanner_name=data.get("scanner_name", ""),
+            location_name=data.get("location_name", ""),
+            offline_event_id=data.get("offline_event_id"),
+            metadata=data.get("metadata", {}),
+            request=request,
+            record_attempt=True,
+        )
+
+        response_status = (
+            status.HTTP_200_OK
+            if resolution.ok
+            else status.HTTP_400_BAD_REQUEST
+        )
+        return Response(resolution.as_dict(), status=response_status)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="admit",
+        permission_classes=[CanAdmitGuests],
+    )
+    def admit(self, request):
+        organisation = self.require_organisation()
+        serializer = TicketAdmissionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        entity = self._entity_from_request()
+
+        try:
+            result = resolve_and_admit(
+                data["token"],
+                organisation=organisation,
+                business_entity=entity,
+                admitted_by=request.user,
+                requested_quantity=data.get("requested_quantity", 1),
+                scanner_device_id=data.get("scanner_device_id", ""),
+                scanner_name=data.get("scanner_name", ""),
+                location_name=data.get("location_name", ""),
+                notes=data.get("notes", ""),
+                offline_event_id=data.get("offline_event_id"),
+                metadata=data.get("metadata", {}),
+                request=request,
+            )
+        except AdmissionConflictError as exc:
+            return Response(
+                {"detail": str(exc), "result": "already_used"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except AdmissionValidationError as exc:
+            return Response(
+                {"detail": str(exc), "result": "invalid"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result.as_dict(), status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="sync-offline",
+        permission_classes=[CanSyncOfflineScans],
+    )
+    def sync_offline(self, request):
+        organisation = self.require_organisation()
+        entity = self._entity_from_request()
+        events = request.data.get("events")
+
+        if not isinstance(events, list):
+            return Response(
+                {"events": "A list of offline scan events is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+        for payload in events[:500]:
+            serializer = TicketAdmissionCreateSerializer(data=payload)
+            if not serializer.is_valid():
+                results.append(
+                    {
+                        "ok": False,
+                        "errors": serializer.errors,
+                        "offline_event_id": payload.get("offline_event_id"),
+                    }
+                )
+                continue
+
+            data = serializer.validated_data
+            try:
+                result = admit_guests(
+                    data["token"],
+                    organisation=organisation,
+                    business_entity=entity,
+                    admitted_by=request.user,
+                    requested_quantity=data.get("requested_quantity", 1),
+                    scanner_device_id=data.get("scanner_device_id", ""),
+                    scanner_name=data.get("scanner_name", ""),
+                    location_name=data.get("location_name", ""),
+                    notes=data.get("notes", ""),
+                    offline_event_id=data.get("offline_event_id"),
+                    metadata={
+                        **data.get("metadata", {}),
+                        "synced_offline": True,
+                    },
+                    request=request,
+                )
+                results.append(result.as_dict())
+            except (AdmissionConflictError, AdmissionValidationError) as exc:
+                results.append(
+                    {
+                        "ok": False,
+                        "detail": str(exc),
+                        "offline_event_id": str(
+                            data.get("offline_event_id") or ""
+                        ),
+                    }
+                )
+
+        return Response(
+            {
+                "processed": len(results),
+                "successful": sum(1 for item in results if item.get("ok")),
+                "failed": sum(1 for item in results if not item.get("ok")),
+                "results": results,
+            }
+        )
+
+
+class TicketAdmissionViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = TicketAdmissionSerializer
+    permission_classes = [CanViewAdmissions]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return TicketAdmission.objects.none()
+
+        queryset = TicketAdmission.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "business_entity",
+            "booking",
+            "booking_item",
+            "admission_token",
+            "scan_attempt",
+            "admitted_by",
+            "reversed_by",
+        )
+
+        if not self.is_admin_user():
+            entity_ids = get_user_business_entity_accesses(
+                self.request.user,
+                organisation,
+            ).values_list("business_entity_id", flat=True)
+            queryset = queryset.filter(business_entity_id__in=entity_ids)
+
+        entity_id = self.request.query_params.get("business_entity")
+        service_date = self.request.query_params.get("service_date")
+        admission_status = self.request.query_params.get("status")
+        booking_id = self.request.query_params.get("booking")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if service_date:
+            queryset = queryset.filter(admitted_at__date=service_date)
+        if admission_status:
+            queryset = queryset.filter(status=admission_status)
+        if booking_id:
+            queryset = queryset.filter(booking_id=booking_id)
+
+        return queryset.order_by("-admitted_at")
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="reverse",
+        permission_classes=[CanReverseAdmissions],
+    )
+    def reverse(self, request, pk=None):
+        admission = self.get_object()
+        serializer = TicketAdmissionReverseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            admission = reverse_admission(
+                admission,
+                reversed_by=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except AdmissionValidationError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(self.get_serializer(admission).data)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="dashboard",
+        permission_classes=[CanAccessOperationsDashboard],
+    )
+    def dashboard(self, request):
+        organisation = self.require_organisation()
+        target_date = parse_date(
+            request.query_params.get("date", "")
+        ) or timezone.localdate()
+
+        queryset = self.get_queryset().filter(
+            admitted_at__date=target_date,
+        )
+
+        totals = queryset.aggregate(
+            guests=Sum("quantity_admitted"),
+            admissions=Count("id"),
+        )
+
+        by_entity = (
+            queryset.values(
+                "business_entity_id",
+                "business_entity__name",
+            )
+            .annotate(
+                guests=Sum("quantity_admitted"),
+                admissions=Count("id"),
+            )
+            .order_by("-guests")
+        )
+
+        scan_results = (
+            TicketScanAttempt.objects.filter(
+                organisation=organisation,
+                scanned_at__date=target_date,
+            )
+            .values("result")
+            .annotate(total=Count("id"))
+            .order_by("result")
+        )
+
+        return Response(
+            {
+                "date": str(target_date),
+                "guests_admitted": int(totals["guests"] or 0),
+                "admission_events": int(totals["admissions"] or 0),
+                "by_business_entity": list(by_entity),
+                "scan_results": list(scan_results),
+                "latest_admissions": self.get_serializer(
+                    queryset[:25],
+                    many=True,
+                ).data,
+            }
+        )
+
+
+class TicketScanAttemptViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = TicketScanAttemptSerializer
+    permission_classes = [CanViewAdmissions]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return TicketScanAttempt.objects.none()
+
+        queryset = TicketScanAttempt.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "business_entity",
+            "scanned_by",
+            "admission_token",
+            "booking",
+            "booking_item",
+        )
+
+        if not self.is_admin_user():
+            entity_ids = get_user_business_entity_accesses(
+                self.request.user,
+                organisation,
+            ).values_list("business_entity_id", flat=True)
+            queryset = queryset.filter(business_entity_id__in=entity_ids)
+
+        entity_id = self.request.query_params.get("business_entity")
+        result = self.request.query_params.get("result")
+        date_value = self.request.query_params.get("date")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if result:
+            queryset = queryset.filter(result=result)
+        if date_value:
+            queryset = queryset.filter(scanned_at__date=date_value)
+
+        return queryset.order_by("-scanned_at")
+
+
+class PartnerSettlementPeriodViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = PartnerSettlementPeriodSerializer
+    permission_classes = [CanViewSettlements]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return PartnerSettlementPeriod.objects.none()
+
+        queryset = PartnerSettlementPeriod.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "business_entity",
+            "generated_by",
+            "approved_by",
+        ).prefetch_related("lines", "payments")
+
+        if not self.is_admin_user():
+            entity_ids = get_user_business_entity_accesses(
+                self.request.user,
+                organisation,
+            ).filter(
+                can_view_settlements=True,
+            ).values_list("business_entity_id", flat=True)
+            queryset = queryset.filter(business_entity_id__in=entity_ids)
+
+        entity_id = self.request.query_params.get("business_entity")
+        settlement_status = self.request.query_params.get("status")
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if settlement_status:
+            queryset = queryset.filter(status=settlement_status)
+        if date_from:
+            queryset = queryset.filter(period_end__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(period_start__lte=date_to)
+
+        return queryset.order_by("-period_start", "-id")
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview",
+        permission_classes=[CanGenerateSettlements],
+    )
+    def preview(self, request):
+        organisation = self.require_organisation()
+        serializer = SettlementGenerateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        entity = get_object_or_404(
+            TicketingBusinessEntity,
+            id=data["business_entity_id"],
+            organisation=organisation,
+        )
+
+        return Response(
+            settlement_preview(
+                organisation=organisation,
+                business_entity=entity,
+                period_start=data["period_start"],
+                period_end=data["period_end"],
+            )
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="generate",
+        permission_classes=[CanGenerateSettlements],
+    )
+    def generate(self, request):
+        organisation = self.require_organisation()
+        serializer = SettlementGenerateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        entity = get_object_or_404(
+            TicketingBusinessEntity,
+            id=data["business_entity_id"],
+            organisation=organisation,
+        )
+
+        try:
+            settlement = ensure_snapshots_and_generate(
+                organisation=organisation,
+                business_entity=entity,
+                period_start=data["period_start"],
+                period_end=data["period_end"],
+                generated_by=request.user,
+                notes=data.get("notes", ""),
+                regenerate_draft=data.get("regenerate_draft", False),
+            )
+        except SettlementValidationError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            self.get_serializer(settlement).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="submit-review",
+        permission_classes=[CanGenerateSettlements],
+    )
+    def submit_review(self, request, pk=None):
+        settlement = self.get_object()
+        try:
+            settlement = submit_partner_settlement_for_review(
+                settlement,
+                notes=request.data.get("notes", ""),
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(settlement).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="approve",
+        permission_classes=[CanApproveSettlements],
+    )
+    def approve(self, request, pk=None):
+        settlement = self.get_object()
+        serializer = SettlementApprovalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            settlement = approve_partner_settlement(
+                settlement,
+                approved_by=request.user,
+                notes=serializer.validated_data.get("notes", ""),
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(settlement).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="dispute",
+        permission_classes=[CanViewSettlements],
+    )
+    def dispute(self, request, pk=None):
+        settlement = self.get_object()
+        notes = str(request.data.get("notes") or "").strip()
+        if not notes:
+            return Response(
+                {"notes": "A dispute reason is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            settlement = dispute_partner_settlement(
+                settlement,
+                notes=notes,
+                disputed_by=request.user,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(settlement).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cancel",
+        permission_classes=[CanApproveSettlements],
+    )
+    def cancel(self, request, pk=None):
+        settlement = self.get_object()
+        try:
+            settlement = cancel_partner_settlement(
+                settlement,
+                notes=request.data.get("notes", ""),
+                cancelled_by=request.user,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(settlement).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="record-payment",
+        permission_classes=[CanRecordSettlementPayments],
+    )
+    def record_payment(self, request, pk=None):
+        settlement = self.get_object()
+        serializer = SettlementPaymentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            payment, settlement = record_partner_settlement_payment(
+                settlement,
+                payer_type=data["payer_type"],
+                payee_type=data["payee_type"],
+                amount=data["amount"],
+                payment_method=data.get("payment_method", "bank_transfer"),
+                status=data.get("status", "confirmed"),
+                reference=data.get("reference", ""),
+                paid_at=data.get("paid_at"),
+                notes=data.get("notes", ""),
+                attachment=request.FILES.get("attachment"),
+                recorded_by=request.user,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "payment": PartnerSettlementPaymentSerializer(
+                    payment,
+                    context=self.get_serializer_context(),
+                ).data,
+                "settlement": self.get_serializer(settlement).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="reconcile",
+        permission_classes=[CanViewTicketingLedger],
+    )
+    def reconcile(self, request, pk=None):
+        return Response(reconcile_settlement_with_ledger(self.get_object()))
+
+
+class PartnerSettlementPaymentViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = PartnerSettlementPaymentSerializer
+    permission_classes = [CanViewSettlements]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return PartnerSettlementPayment.objects.none()
+
+        queryset = PartnerSettlementPayment.objects.filter(
+            settlement__organisation=organisation,
+        ).select_related(
+            "settlement",
+            "settlement__business_entity",
+            "recorded_by",
+        )
+
+        settlement_id = self.request.query_params.get("settlement")
+        payment_status = self.request.query_params.get("status")
+
+        if settlement_id:
+            queryset = queryset.filter(settlement_id=settlement_id)
+        if payment_status:
+            queryset = queryset.filter(status=payment_status)
+
+        return queryset.order_by("-paid_at")
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="change-status",
+        permission_classes=[CanRecordSettlementPayments],
+    )
+    def change_status(self, request, pk=None):
+        payment = self.get_object()
+        new_status = request.data.get("status")
+
+        valid_statuses = {
+            value for value, _label in PartnerSettlementPayment.STATUS_CHOICES
+        }
+        if new_status not in valid_statuses:
+            return Response(
+                {"status": "A valid payment status is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payment, settlement = update_partner_settlement_payment_status(
+                payment,
+                status=new_status,
+                updated_by=request.user,
+                notes=request.data.get("notes", ""),
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "payment": self.get_serializer(payment).data,
+                "settlement": PartnerSettlementPeriodSerializer(
+                    settlement,
+                    context=self.get_serializer_context(),
+                ).data,
+            }
+        )
+
+
+class TicketingLedgerEntryViewSet(
+    TicketingOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = TicketingLedgerEntrySerializer
+    permission_classes = [CanViewTicketingLedger]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return TicketingLedgerEntry.objects.none()
+
+        queryset = TicketingLedgerEntry.objects.filter(
+            organisation=organisation,
+        ).select_related(
+            "booking",
+            "booking_item",
+            "booking_payment",
+            "seller",
+            "business_entity",
+            "created_by",
+            "reverses_entry",
+        )
+
+        entity_id = self.request.query_params.get("business_entity")
+        seller_id = self.request.query_params.get("seller")
+        booking_id = self.request.query_params.get("booking")
+        party_type = self.request.query_params.get("party_type")
+        entry_type = self.request.query_params.get("entry_type")
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+
+        if entity_id:
+            queryset = queryset.filter(business_entity_id=entity_id)
+        if seller_id:
+            queryset = queryset.filter(seller_id=seller_id)
+        if booking_id:
+            queryset = queryset.filter(booking_id=booking_id)
+        if party_type:
+            queryset = queryset.filter(party_type=party_type)
+        if entry_type:
+            queryset = queryset.filter(entry_type=entry_type)
+        if date_from:
+            queryset = queryset.filter(effective_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(effective_at__date__lte=date_to)
+
+        return queryset.order_by("-effective_at", "-id")
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        organisation = self.require_organisation()
+
+        entity = None
+        entity_id = request.query_params.get("business_entity")
+        if entity_id:
+            entity = get_object_or_404(
+                TicketingBusinessEntity,
+                id=entity_id,
+                organisation=organisation,
+            )
+
+        seller = None
+        seller_id = request.query_params.get("seller")
+        if seller_id:
+            seller = get_object_or_404(
+                Seller,
+                id=seller_id,
+                organisation=organisation,
+            )
+
+        data = ledger_summary(
+            organisation=organisation,
+            business_entity=entity,
+            seller=seller,
+            date_from=parse_date(request.query_params.get("date_from", "")),
+            date_to=parse_date(request.query_params.get("date_to", "")),
+        )
+
+        return Response(
+            {
+                key: str(value)
+                for key, value in data.items()
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="manual-adjustment")
+    def manual_adjustment(self, request):
+        organisation = self.require_organisation()
+
+        required = [
+            "debit_party",
+            "credit_party",
+            "amount",
+            "description",
+        ]
+        missing = [
+            field for field in required
+            if request.data.get(field) in [None, ""]
+        ]
+        if missing:
+            return Response(
+                {field: "This field is required." for field in missing},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        entity = None
+        if request.data.get("business_entity_id"):
+            entity = get_object_or_404(
+                TicketingBusinessEntity,
+                id=request.data["business_entity_id"],
+                organisation=organisation,
+            )
+
+        booking = None
+        if request.data.get("booking_id"):
+            booking = get_object_or_404(
+                Booking,
+                id=request.data["booking_id"],
+                organisation=organisation,
+            )
+
+        try:
+            entries = post_manual_adjustment(
+                organisation=organisation,
+                debit_party=request.data["debit_party"],
+                credit_party=request.data["credit_party"],
+                amount=request.data["amount"],
+                description=request.data["description"],
+                currency=request.data.get("currency", "USD"),
+                reference=request.data.get("reference", ""),
+                booking=booking,
+                business_entity=entity,
+                created_by=request.user,
+                metadata=request.data.get("metadata", {}),
+            )
+        except (ValueError, TypeError) as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            self.get_serializer(entries, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["post"], url_path="reverse-group")
+    def reverse_group(self, request):
+        entry_group = request.data.get("entry_group")
+        if not entry_group:
+            return Response(
+                {"entry_group": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        entries = self.get_queryset().filter(
+            entry_group=entry_group,
+            is_reversed=False,
+        )
+        if not entries.exists():
+            return Response(
+                {"detail": "Active ledger group was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        reversals = reverse_entry_group(
+            entry_group,
+            created_by=request.user,
+            reason=request.data.get("reason", "Ledger group reversed."),
+        )
+
+        return Response(
+            self.get_serializer(reversals, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
 
