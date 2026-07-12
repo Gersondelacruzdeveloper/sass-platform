@@ -29,6 +29,9 @@ from ticketing.models import (
     TicketingBusinessEntity,
 )
 
+ADMISSION_SERVICE_VERSION = "row-lock-fix-v2-2026-07-12"
+
+
 from .tokens import (
     AdmissionTokenValidationError,
     TokenResolution,
@@ -101,17 +104,17 @@ def _normalise_offline_event_id(value):
 
 
 def _load_locked_token(raw_value, organisation):
+    """
+    Lock only the AdmissionToken row.
+
+    Do not combine select_for_update() with select_related() here. Several
+    related fields are nullable, which makes PostgreSQL generate LEFT OUTER
+    JOINs and reject FOR UPDATE on the nullable side of those joins.
+    """
     token_uuid = extract_token_uuid(raw_value)
 
     token = (
         AdmissionToken.objects.select_for_update()
-        .select_related(
-            "organisation",
-            "booking",
-            "booking_item",
-            "booking_item__product",
-            "business_entity",
-        )
         .filter(
             token=token_uuid,
             organisation=organisation,
@@ -126,19 +129,18 @@ def _load_locked_token(raw_value, organisation):
 
 
 def _load_existing_offline_attempt(offline_event_id):
+    """
+    Lock only the scan-attempt row.
+
+    The admission relation is nullable, so joining it while using FOR UPDATE
+    causes PostgreSQL's nullable-side outer-join error.
+    """
     if not offline_event_id:
         return None
 
     return (
         TicketScanAttempt.objects.select_for_update()
         .filter(offline_event_id=offline_event_id)
-        .select_related(
-            "admission",
-            "admission_token",
-            "booking",
-            "booking_item",
-            "business_entity",
-        )
         .first()
     )
 
@@ -521,16 +523,10 @@ def reverse_admission(
     Reverse an admission and restore token capacity atomically.
     """
 
-    admission = (
-        TicketAdmission.objects.select_for_update()
-        .select_related(
-            "admission_token",
-            "scan_attempt",
-            "booking",
-            "booking_item",
-            "business_entity",
-        )
-        .get(pk=admission.pk)
+    # Lock only the TicketAdmission row. Nullable related objects such as
+    # scan_attempt must not be joined into a SELECT ... FOR UPDATE query.
+    admission = TicketAdmission.objects.select_for_update().get(
+        pk=admission.pk
     )
 
     if admission.status == "reversed":
@@ -542,9 +538,8 @@ def reverse_admission(
             "A reversal reason is required."
         )
 
-    token = (
-        AdmissionToken.objects.select_for_update()
-        .get(pk=admission.admission_token_id)
+    token = AdmissionToken.objects.select_for_update().get(
+        pk=admission.admission_token_id
     )
 
     token.admitted_quantity = max(
