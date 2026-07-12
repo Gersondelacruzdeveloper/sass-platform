@@ -34,6 +34,8 @@ from ticketing.models import (
 )
 
 
+ADMISSION_TOKEN_SERVICE_VERSION = "lock-fix-v2-2026-07-12"
+
 ACTIVE_BOOKING_STATUSES = {
     "confirmed",
     "ticket_generated",
@@ -166,14 +168,18 @@ def get_active_agreement(
         or timezone.localdate()
     )
 
+    product_id = getattr(booking_item, "product_id", None)
+    if not product_id:
+        return None
+
     queryset = ProductBusinessAgreement.objects.filter(
-        organisation=booking_item.booking.organisation,
-        product=booking_item.product,
+        organisation_id=booking_item.booking.organisation_id,
+        product_id=product_id,
         is_active=True,
         effective_from__lte=service_date,
     ).filter(
         models_q_effective_until(service_date)
-    ).select_related("business_entity", "product")
+    ).select_related("business_entity")
 
     if business_entity:
         queryset = queryset.filter(business_entity=business_entity)
@@ -271,10 +277,13 @@ def issue_admission_token(
     replace_existing_primary=True to revoke it and issue a new one.
     """
 
-    booking_item = (
-        BookingItem.objects.select_for_update()
-        .select_related("booking", "product")
-        .get(pk=booking_item.pk)
+    # Lock only the BookingItem row.
+    #
+    # Do not combine select_for_update() with select_related("product") here.
+    # BookingItem.product is nullable, so PostgreSQL creates a LEFT OUTER JOIN
+    # and rejects FOR UPDATE on the nullable side of that join.
+    booking_item = BookingItem.objects.select_for_update().get(
+        pk=booking_item.pk
     )
 
     entity = resolve_business_entity_for_item(booking_item, business_entity)
@@ -367,10 +376,10 @@ def rotate_admission_token(
     reason="Admission token rotated.",
     metadata: dict | None = None,
 ) -> AdmissionToken:
-    token = (
-        AdmissionToken.objects.select_for_update()
-        .select_related("booking_item", "business_entity")
-        .get(pk=token.pk)
+    # Lock only the AdmissionToken row. Related objects are loaded lazily
+    # after the lock, avoiding nullable OUTER JOIN targets in FOR UPDATE.
+    token = AdmissionToken.objects.select_for_update().get(
+        pk=token.pk
     )
 
     old_metadata = dict(token.metadata or {})
