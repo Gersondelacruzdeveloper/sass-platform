@@ -1,5 +1,5 @@
 // src/modules/ticketing/pages/operations/TicketingScannerPage.tsx
-// UI version: structured-scan-results-v3-2026-07-12
+// UI version: iphone-zxing-camera-v4-2026-07-12
 
 import type { FormEvent } from "react";
 import {
@@ -10,6 +10,10 @@ import {
   useState,
 } from "react";
 import { Link, useOutletContext } from "react-router-dom";
+import {
+  BrowserQRCodeReader,
+  type IScannerControls,
+} from "@zxing/browser";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -35,24 +39,6 @@ import type {
   TicketingBusinessEntity,
 } from "../../types/ticketingTypes";
 import type { TicketingDashboardOutletContext } from "../../layouts/TicketingDashboardLayout";
-
-type BarcodeDetection = {
-  rawValue?: string;
-};
-
-type BarcodeDetectorInstance = {
-  detect: (source: CanvasImageSource) => Promise<BarcodeDetection[]>;
-};
-
-type BarcodeDetectorConstructor = new (options?: {
-  formats?: string[];
-}) => BarcodeDetectorInstance;
-
-declare global {
-  interface Window {
-    BarcodeDetector?: BarcodeDetectorConstructor;
-  }
-}
 
 type ScannerStatus =
   | "idle"
@@ -291,8 +277,8 @@ export default function TicketingScannerPage() {
   } = useOutletContext<TicketingDashboardOutletContext>();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const zxingReaderRef = useRef<BrowserQRCodeReader | null>(null);
+  const zxingControlsRef = useRef<IScannerControls | null>(null);
   const lastDetectedValueRef = useRef<string>("");
   const detectionPausedRef = useRef(false);
 
@@ -328,20 +314,28 @@ export default function TicketingScannerPage() {
   }, [companyName]);
 
   const stopCamera = useCallback(() => {
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+    try {
+      zxingControlsRef.current?.stop();
+    } catch {
+      // The controls may already be stopped.
     }
 
-    cameraStreamRef.current?.getTracks().forEach((track) => {
-      track.stop();
-    });
-    cameraStreamRef.current = null;
+    zxingControlsRef.current = null;
+    zxingReaderRef.current = null;
 
     if (videoRef.current) {
+      const stream = videoRef.current.srcObject;
+
+      if (stream instanceof MediaStream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      videoRef.current.pause();
       videoRef.current.srcObject = null;
     }
 
+    detectionPausedRef.current = false;
+    lastDetectedValueRef.current = "";
     setCameraActive(false);
   }, []);
 
@@ -409,65 +403,26 @@ export default function TicketingScannerPage() {
     ],
   );
 
-  const runDetectionLoop = useCallback(
-    async (detector: BarcodeDetectorInstance) => {
-      const video = videoRef.current;
-
-      if (
-        !video ||
-        !cameraStreamRef.current ||
-        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-      ) {
-        animationFrameRef.current = requestAnimationFrame(() => {
-          void runDetectionLoop(detector);
-        });
-        return;
-      }
-
-      if (!detectionPausedRef.current) {
-        try {
-          const codes = await detector.detect(video);
-          const detectedValue = codes[0]?.rawValue?.trim();
-
-          if (
-            detectedValue &&
-            detectedValue !== lastDetectedValueRef.current
-          ) {
-            lastDetectedValueRef.current = detectedValue;
-            setManualValue(detectedValue);
-
-            if ("vibrate" in navigator) {
-              navigator.vibrate(100);
-            }
-
-            void resolveToken(detectedValue);
-          }
-        } catch {
-          // Continue scanning. Some browsers intermittently reject frames.
-        }
-      }
-
-      animationFrameRef.current = requestAnimationFrame(() => {
-        void runDetectionLoop(detector);
-      });
-    },
-    [resolveToken],
-  );
-
   const startCamera = useCallback(async () => {
     if (!selectedEntityId) {
-      setCameraError("Select a business entity before starting the scanner.");
+      setCameraError(
+        "Select a business entity before starting the scanner.",
+      );
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera access is not supported by this browser.");
+      setCameraError(
+        "Camera access is not supported by this browser.",
+      );
       return;
     }
 
-    if (!window.BarcodeDetector) {
+    const video = videoRef.current;
+
+    if (!video) {
       setCameraError(
-        "Automatic QR detection is not supported by this browser. Use manual entry below.",
+        "The camera preview is not ready. Reload the page and try again.",
       );
       return;
     }
@@ -476,54 +431,89 @@ export default function TicketingScannerPage() {
     stopCamera();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal: "environment",
-          },
-          width: {
-            ideal: 1280,
-          },
-          height: {
-            ideal: 720,
-          },
-        },
-        audio: false,
+      const reader = new BrowserQRCodeReader(undefined, {
+        delayBetweenScanAttempts: 120,
+        delayBetweenScanSuccess: 800,
       });
 
-      cameraStreamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      const detector = new window.BarcodeDetector({
-        formats: ["qr_code"],
-      });
-
-      setCameraActive(true);
-      setStatus("camera_ready");
+      zxingReaderRef.current = reader;
       detectionPausedRef.current = false;
       lastDetectedValueRef.current = "";
 
-      void runDetectionLoop(detector);
+      const controls = await reader.decodeFromConstraints(
+        {
+          audio: false,
+          video: {
+            facingMode: {
+              ideal: "environment",
+            },
+            width: {
+              ideal: 1280,
+            },
+            height: {
+              ideal: 720,
+            },
+          },
+        },
+        video,
+        (result) => {
+          if (!result || detectionPausedRef.current) {
+            return;
+          }
+
+          const detectedValue = result.getText().trim();
+
+          if (
+            !detectedValue ||
+            detectedValue === lastDetectedValueRef.current
+          ) {
+            return;
+          }
+
+          detectionPausedRef.current = true;
+          lastDetectedValueRef.current = detectedValue;
+          setManualValue(detectedValue);
+
+          if ("vibrate" in navigator) {
+            navigator.vibrate(100);
+          }
+
+          void resolveToken(detectedValue);
+        },
+      );
+
+      zxingControlsRef.current = controls;
+      setCameraActive(true);
+      setStatus("camera_ready");
     } catch (cameraRequestError) {
       stopCamera();
-      setCameraError(
+
+      const message =
         cameraRequestError instanceof Error
           ? cameraRequestError.message
-          : "The camera could not be started.",
-      );
+          : "The camera could not be started.";
+
+      if (
+        message.toLowerCase().includes("permission") ||
+        message.toLowerCase().includes("notallowed")
+      ) {
+        setCameraError(
+          "Camera permission was denied. Allow camera access for this website in Safari settings, then reload the page.",
+        );
+        return;
+      }
+
+      setCameraError(message);
     }
-  }, [runDetectionLoop, selectedEntityId, stopCamera]);
+  }, [resolveToken, selectedEntityId, stopCamera]);
 
   useEffect(() => {
     setDeviceId(createDeviceId());
     setCameraSupported(
       Boolean(
-        typeof navigator.mediaDevices?.getUserMedia === "function" &&
-          typeof window.BarcodeDetector === "function",
+        typeof navigator !== "undefined" &&
+          typeof navigator.mediaDevices?.getUserMedia ===
+            "function",
       ),
     );
   }, []);
@@ -733,6 +723,7 @@ export default function TicketingScannerPage() {
                 ref={videoRef}
                 muted
                 playsInline
+                autoPlay
                 className={`aspect-[4/3] w-full object-cover ${
                   cameraActive ? "block" : "hidden"
                 }`}
@@ -748,7 +739,7 @@ export default function TicketingScannerPage() {
                     Camera scanner is ready
                   </p>
                   <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/50">
-                    Select a business entity and start the camera.
+                    Select a business entity and start the rear camera.
                     You can also enter the ticket token manually.
                   </p>
                 </div>
