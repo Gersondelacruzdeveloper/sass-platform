@@ -41,6 +41,18 @@ import TicketingSellerCustomersPage from "../pages/seller/TicketingSellerCustome
 import TicketingSellerCommissionsPage from "../pages/seller/TicketingSellerCommissionsPage";
 import TicketingSellerProfilePage from "../pages/seller/TicketingSellerProfilePage";
 
+// Operations pages
+import TicketingOperationsDashboardPage from "../pages/operations/TicketingOperationsDashboardPage";
+import TicketingBusinessEntitiesPage from "../pages/operations/TicketingBusinessEntitiesPage";
+import TicketingBusinessEntityDetailPage from "../pages/operations/TicketingBusinessEntityDetailPage";
+import TicketingBusinessAgreementsPage from "../pages/operations/TicketingBusinessAgreementsPage";
+import TicketingScannerPage from "../pages/operations/TicketingScannerPage";
+import TicketingAdmissionsPage from "../pages/operations/TicketingAdmissionsPage";
+import TicketingScanAttemptsPage from "../pages/operations/TicketingScanAttemptsPage";
+import TicketingSettlementsPage from "../pages/operations/TicketingSettlementsPage";
+import TicketingSettlementDetailPage from "../pages/operations/TicketingSettlementDetailPage";
+import TicketingLedgerPage from "../pages/operations/TicketingLedgerPage";
+
 import PublicExperienceHomePage from "../pages/PublicExperienceHomePage";
 import PublicProductDetailPage from "../pages/PublicProductDetailPage";
 import PublicProductsListingPage from "../pages/PublicProductsListingPage";
@@ -299,6 +311,53 @@ export const ticketingRoutes = (
           element={<TicketingCommissionsPage />}
         />
         <Route path="reports" element={<TicketingReportsPage />} />
+
+        {/* Operations */}
+        <Route
+          path="operations"
+          element={<Navigate to="operations/dashboard" replace />}
+        />
+        <Route
+          path="operations/dashboard"
+          element={<TicketingOperationsDashboardPage />}
+        />
+        <Route
+          path="operations/business-entities"
+          element={<TicketingBusinessEntitiesPage />}
+        />
+        <Route
+          path="operations/business-entities/:businessEntityId"
+          element={<TicketingBusinessEntityDetailPage />}
+        />
+        <Route
+          path="operations/agreements"
+          element={<TicketingBusinessAgreementsPage />}
+        />
+        <Route
+          path="operations/scanner"
+          element={<TicketingScannerPage />}
+        />
+        <Route
+          path="operations/admissions"
+          element={<TicketingAdmissionsPage />}
+        />
+        <Route
+          path="operations/scan-attempts"
+          element={<TicketingScanAttemptsPage />}
+        />
+        <Route
+          path="operations/settlements"
+          element={<TicketingSettlementsPage />}
+        />
+        <Route
+          path="operations/settlements/:settlementId"
+          element={<TicketingSettlementDetailPage />}
+        />
+        <Route
+          path="operations/ledger"
+          element={<TicketingLedgerPage />}
+        />
+
         <Route path="settings" element={<TicketingSettingsPage />} />
         <Route path="branding" element={<TicketingBrandingPage />} />
         <Route path="domain" element={<TicketingDomainPage />} />

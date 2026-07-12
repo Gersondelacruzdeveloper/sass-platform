@@ -1,7 +1,12 @@
 // src/modules/ticketing/layouts/TicketingDashboardLayout.tsx
 
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import { Download } from "lucide-react";
 
 import api from "../../../api/axios";
@@ -50,6 +55,16 @@ type BeforeInstallPromptEvent = Event & {
     outcome: "accepted" | "dismissed";
     platform: string;
   }>;
+};
+
+export type TicketingDashboardOutletContext = {
+  slug: string;
+  organisationName: string;
+  companyName: string;
+  companyLogoUrl: string;
+  branding: OrganisationBranding | null;
+  isOperationsRoute: boolean;
+  portalLabel: string;
 };
 
 function getApiBaseUrl() {
@@ -103,7 +118,11 @@ function updateOrCreateLinkById(
   }
 }
 
-function updateOrCreateMetaById(id: string, name: string, content: string) {
+function updateOrCreateMetaById(
+  id: string,
+  name: string,
+  content: string,
+) {
   if (!content) return;
 
   let meta = document.getElementById(id) as HTMLMetaElement | null;
@@ -141,7 +160,8 @@ function getUserAvatarUrl(user: any) {
 
 export default function TicketingDashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [branding, setBranding] = useState<OrganisationBranding | null>(null);
+  const [branding, setBranding] =
+    useState<OrganisationBranding | null>(null);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -149,7 +169,10 @@ export default function TicketingDashboardLayout() {
 
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { organisationSlug } = useParams<{ organisationSlug: string }>();
+  const location = useLocation();
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
 
   const { user } = useAppSelector((state) => state.auth);
   const authUser = user as any;
@@ -159,6 +182,11 @@ export default function TicketingDashboardLayout() {
     authUser?.organisation?.slug ||
     authUser?.seller?.organisation_slug ||
     "";
+
+  const isOperationsRoute = location.pathname.includes("/operations");
+  const portalLabel = isOperationsRoute
+    ? "Operations Center"
+    : "Owner Portal";
 
   useEffect(() => {
     async function loadBranding() {
@@ -250,10 +278,17 @@ export default function TicketingDashboardLayout() {
       companyName ||
       "PCD Experiences";
 
-    document.title = appName;
+    document.title = isOperationsRoute
+      ? `${appName} · Operations`
+      : appName;
 
     if (faviconUrl) {
-      updateOrCreateLinkById("app-favicon", "icon", faviconUrl, "image/png");
+      updateOrCreateLinkById(
+        "app-favicon",
+        "icon",
+        faviconUrl,
+        "image/png",
+      );
       updateOrCreateLinkById(
         "app-shortcut-icon",
         "shortcut icon",
@@ -273,7 +308,9 @@ export default function TicketingDashboardLayout() {
     updateOrCreateMetaById(
       "app-theme-color",
       "theme-color",
-      branding.theme_color || branding.primary_color || "#020617",
+      branding.theme_color ||
+        branding.primary_color ||
+        "#020617",
     );
 
     updateOrCreateMetaById(
@@ -287,7 +324,17 @@ export default function TicketingDashboardLayout() {
       "mobile-web-app-capable",
       "yes",
     );
-  }, [branding, faviconUrl, appleTouchIconUrl, companyName]);
+  }, [
+    branding,
+    faviconUrl,
+    appleTouchIconUrl,
+    companyName,
+    isOperationsRoute,
+  ]);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const isStandalone =
@@ -306,7 +353,10 @@ export default function TicketingDashboardLayout() {
       setIsInstalled(true);
     }
 
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener(
+      "beforeinstallprompt",
+      handleBeforeInstallPrompt,
+    );
     window.addEventListener("appinstalled", handleAppInstalled);
 
     return () => {
@@ -314,7 +364,10 @@ export default function TicketingDashboardLayout() {
         "beforeinstallprompt",
         handleBeforeInstallPrompt,
       );
-      window.removeEventListener("appinstalled", handleAppInstalled);
+      window.removeEventListener(
+        "appinstalled",
+        handleAppInstalled,
+      );
     };
   }, []);
 
@@ -340,7 +393,30 @@ export default function TicketingDashboardLayout() {
     navigate(`/ticketing/${slug}/login`, { replace: true });
   }
 
-  const showInstallButton = Boolean(installPrompt && !isInstalled);
+  const showInstallButton = Boolean(
+    installPrompt && !isInstalled,
+  );
+
+  const outletContext = useMemo<TicketingDashboardOutletContext>(
+    () => ({
+      slug,
+      organisationName: rawOrganisationName,
+      companyName,
+      companyLogoUrl,
+      branding,
+      isOperationsRoute,
+      portalLabel,
+    }),
+    [
+      slug,
+      rawOrganisationName,
+      companyName,
+      companyLogoUrl,
+      branding,
+      isOperationsRoute,
+      portalLabel,
+    ],
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -353,7 +429,7 @@ export default function TicketingDashboardLayout() {
         organisationLogoUrl={companyLogoUrl}
         companyName={companyName}
         companyLogoUrl={companyLogoUrl}
-        portalLabel="Owner Portal"
+        portalLabel={portalLabel}
       />
 
       <div className="min-h-screen lg:pl-72">
@@ -366,7 +442,7 @@ export default function TicketingDashboardLayout() {
           organisationLogoUrl={companyLogoUrl}
           companyName={companyName}
           companyLogoUrl={companyLogoUrl}
-          portalLabel="Owner Portal"
+          portalLabel={portalLabel}
           onMenuClick={() => setMobileOpen(true)}
           onLogout={handleLogout}
         />
@@ -387,7 +463,7 @@ export default function TicketingDashboardLayout() {
               </div>
             )}
 
-            <Outlet />
+            <Outlet context={outletContext} />
           </div>
         </main>
       </div>

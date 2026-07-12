@@ -4,20 +4,28 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import {
   BadgeDollarSign,
   BarChart3,
+  Building2,
+  CalendarCheck2,
   CalendarClock,
   CalendarDays,
   Clock3,
   Globe2,
+  Handshake,
   Landmark,
+  LayoutDashboard,
+  ListChecks,
   Loader2,
   Package,
   Plane,
+  QrCode,
   Receipt,
+  ScanLine,
   Search,
   Settings,
   Sparkles,
   Ticket,
   Users,
+  WalletCards,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -42,11 +50,14 @@ type TicketingSidebarProps = {
   portalLabel?: string;
 };
 
+type NavSection = "main" | "operations" | "configuration";
+
 type NavItem = {
   label: string;
   path: string;
   icon: LucideIcon;
   permissions: TicketingPermissionKey[];
+  section: NavSection;
   ownerOnly?: boolean;
   sellerOnly?: boolean;
 };
@@ -127,6 +138,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/dashboard"),
       icon: BarChart3,
       permissions: ["can_access_dashboard"],
+      section: "main",
       ownerOnly: true,
     },
     {
@@ -134,6 +146,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/seller-dashboard"),
       icon: BarChart3,
       permissions: ["can_access_dashboard"],
+      section: "main",
       sellerOnly: true,
     },
     {
@@ -141,12 +154,14 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/bookings"),
       icon: Receipt,
       permissions: ["can_view_own_sales", "can_create_bookings"],
+      section: "main",
     },
     {
       label: "New Booking",
       path: buildPath(safeSlug, "/new-booking"),
       icon: Ticket,
       permissions: ["can_create_bookings"],
+      section: "main",
     },
     {
       label: "Products",
@@ -160,12 +175,14 @@ export default function TicketingSidebar({
         "can_sell_custom_tours",
         "can_sell_cocobongo",
       ],
+      section: "main",
     },
     {
       label: "Pickup Times",
       path: buildPath(safeSlug, "/pickup-schedules"),
       icon: Clock3,
       permissions: ["can_manage_products", "can_override_pickup_time"],
+      section: "main",
       ownerOnly: true,
     },
     {
@@ -173,6 +190,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/availability"),
       icon: CalendarDays,
       permissions: ["can_manage_products"],
+      section: "main",
       ownerOnly: true,
     },
     {
@@ -180,24 +198,28 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/excursions"),
       icon: Sparkles,
       permissions: ["can_manage_products", "can_sell_excursions"],
+      section: "main",
     },
     {
       label: "Transfers",
       path: buildPath(safeSlug, "/transfers"),
       icon: Plane,
       permissions: ["can_manage_products", "can_sell_transfers"],
+      section: "main",
     },
     {
       label: "Events",
       path: buildPath(safeSlug, "/events"),
       icon: CalendarClock,
       permissions: ["can_manage_products", "can_sell_events"],
+      section: "main",
     },
     {
       label: "Sellers",
       path: buildPath(safeSlug, "/sellers"),
       icon: Users,
       permissions: ["can_manage_sellers"],
+      section: "main",
       ownerOnly: true,
     },
     {
@@ -205,19 +227,90 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/commissions"),
       icon: BadgeDollarSign,
       permissions: ["can_view_own_commissions", "can_view_reports"],
+      section: "main",
     },
     {
       label: "Reports",
       path: buildPath(safeSlug, "/reports"),
       icon: BarChart3,
       permissions: ["can_view_reports"],
+      section: "main",
       ownerOnly: true,
     },
+
+    // Operations
+    {
+      label: "Operations Dashboard",
+      path: buildPath(safeSlug, "/operations/dashboard"),
+      icon: LayoutDashboard,
+      permissions: ["can_view_reports"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Business Entities",
+      path: buildPath(safeSlug, "/operations/business-entities"),
+      icon: Building2,
+      permissions: ["can_manage_settings"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Agreements",
+      path: buildPath(safeSlug, "/operations/agreements"),
+      icon: Handshake,
+      permissions: ["can_manage_settings"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "QR Scanner",
+      path: buildPath(safeSlug, "/operations/scanner"),
+      icon: ScanLine,
+      permissions: ["can_access_dashboard"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Admissions",
+      path: buildPath(safeSlug, "/operations/admissions"),
+      icon: CalendarCheck2,
+      permissions: ["can_view_reports"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Scan History",
+      path: buildPath(safeSlug, "/operations/scan-attempts"),
+      icon: QrCode,
+      permissions: ["can_view_reports"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Settlements",
+      path: buildPath(safeSlug, "/operations/settlements"),
+      icon: WalletCards,
+      permissions: ["can_view_reports"],
+      section: "operations",
+      ownerOnly: true,
+    },
+    {
+      label: "Ledger",
+      path: buildPath(safeSlug, "/operations/ledger"),
+      icon: ListChecks,
+      permissions: ["can_view_reports"],
+      section: "operations",
+      ownerOnly: true,
+    },
+
+    // Configuration
     {
       label: "Branding",
       path: buildPath(safeSlug, "/branding"),
       icon: Globe2,
       permissions: ["can_manage_settings"],
+      section: "configuration",
       ownerOnly: true,
     },
     {
@@ -225,6 +318,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/domain"),
       icon: Landmark,
       permissions: ["can_manage_settings"],
+      section: "configuration",
       ownerOnly: true,
     },
     {
@@ -232,6 +326,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/integrations"),
       icon: Settings,
       permissions: ["can_manage_integrations"],
+      section: "configuration",
       ownerOnly: true,
     },
     {
@@ -239,6 +334,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/seo"),
       icon: Search,
       permissions: ["can_manage_settings"],
+      section: "configuration",
       ownerOnly: true,
     },
     {
@@ -246,6 +342,7 @@ export default function TicketingSidebar({
       path: buildPath(safeSlug, "/settings"),
       icon: Settings,
       permissions: ["can_manage_settings"],
+      section: "configuration",
       ownerOnly: true,
     },
   ];
@@ -264,6 +361,19 @@ export default function TicketingSidebar({
             return hasAnyPermission(currentSeller, item.permissions);
           })
         : [];
+
+  const sectionLabels: Record<NavSection, string> = {
+    main: "Ticketing",
+    operations: "Operations",
+    configuration: "Configuration",
+  };
+
+  const groupedVisibleItems = (["main", "operations", "configuration"] as NavSection[])
+    .map((section) => ({
+      section,
+      items: visibleItems.filter((item) => item.section === section),
+    }))
+    .filter((group) => group.items.length > 0);
 
   const sellerName =
     currentSeller?.full_name ||
@@ -330,28 +440,36 @@ export default function TicketingSidebar({
             <span>Loading permissions...</span>
           </div>
         ) : (
-          visibleItems.map((item) => {
-            const Icon = item.icon;
-            const active =
-              location.pathname === item.path ||
-              location.pathname.startsWith(`${item.path}/`);
+          groupedVisibleItems.map((group) => (
+            <div key={group.section} className="space-y-1">
+              <div className="px-4 pb-1 pt-4 text-[11px] font-black uppercase tracking-[0.18em] text-white/30 first:pt-0">
+                {sectionLabels[group.section]}
+              </div>
 
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={onClose}
-                className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition ${
-                  active
-                    ? "bg-white text-slate-950 shadow-sm"
-                    : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                <span className="truncate">{item.label}</span>
-              </Link>
-            );
-          })
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const active =
+                  location.pathname === item.path ||
+                  location.pathname.startsWith(`${item.path}/`);
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={onClose}
+                    className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition ${
+                      active
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "text-white/70 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))
         )}
       </nav>
 

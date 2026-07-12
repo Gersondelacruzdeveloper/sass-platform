@@ -39,6 +39,32 @@ import type {
   TransferRoute,
   UpdatePayload,
   WelletProductsResponse,
+  TicketingBusinessEntity,
+  BusinessEntityUserAccess,
+  ProductBusinessAgreement,
+  BookingFinancialSnapshot,
+  AdmissionToken,
+  TicketScanAttempt,
+  TicketAdmission,
+  TicketingLedgerEntry,
+  PartnerSettlementPeriod,
+  PartnerSettlementPayment,
+  AdmissionTokenIssuePayload,
+  TicketScanResolvePayload,
+  TicketAdmissionCreatePayload,
+  TicketAdmissionReversePayload,
+  TicketScanResolution,
+  OfflineScanEvent,
+  OfflineScanSyncResponse,
+  SettlementGeneratePayload,
+  SettlementApprovalPayload,
+  SettlementPaymentCreatePayload,
+  SettlementPreview,
+  BusinessEntityDashboard,
+  AdmissionsDashboard,
+  LedgerSummary,
+  ManualLedgerAdjustmentPayload,
+  SettlementReconciliation,
 } from "../types/ticketingTypes";
 
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
@@ -1029,6 +1055,696 @@ export const ticketingApi = {
       "/ticketing/live-availability/",
       {
         params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+
+  // ==========================================================================
+  // Operations: business entities, admissions, settlements and ledger
+  // ==========================================================================
+
+  // Business entities
+  getBusinessEntities: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<TicketingBusinessEntity[]> => {
+    const response = await api.get<TicketingBusinessEntity[]>(
+      "/ticketing/business-entities/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getMyBusinessEntities: async (
+    slug?: string
+  ): Promise<TicketingBusinessEntity[]> => {
+    const response = await api.get<TicketingBusinessEntity[]>(
+      "/ticketing/business-entities/mine/",
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getBusinessEntity: async (
+    id: number,
+    slug?: string
+  ): Promise<TicketingBusinessEntity> => {
+    const response = await api.get<TicketingBusinessEntity>(
+      `/ticketing/business-entities/${id}/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  createBusinessEntity: async (
+    payload: CreatePayload<TicketingBusinessEntity>,
+    slug?: string
+  ): Promise<TicketingBusinessEntity> => {
+    const response = await api.post<TicketingBusinessEntity>(
+      "/ticketing/business-entities/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updateBusinessEntity: async (
+    id: number,
+    payload: UpdatePayload<TicketingBusinessEntity>,
+    slug?: string
+  ): Promise<TicketingBusinessEntity> => {
+    const response = await api.patch<TicketingBusinessEntity>(
+      `/ticketing/business-entities/${id}/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  deleteBusinessEntity: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/business-entities/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  getBusinessEntityDashboard: async (
+    id: number,
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BusinessEntityDashboard> => {
+    const response = await api.get<BusinessEntityDashboard>(
+      `/ticketing/business-entities/${id}/dashboard/`,
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Business entity user access
+  getBusinessEntityUsers: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BusinessEntityUserAccess[]> => {
+    const response = await api.get<BusinessEntityUserAccess[]>(
+      "/ticketing/business-entity-access/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  createBusinessEntityUser: async (
+    payload: CreatePayload<BusinessEntityUserAccess> & {
+      business_entity_id: number;
+      user_id: number;
+    },
+    slug?: string
+  ): Promise<BusinessEntityUserAccess> => {
+    const response = await api.post<BusinessEntityUserAccess>(
+      "/ticketing/business-entity-access/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updateBusinessEntityUser: async (
+    id: number,
+    payload: UpdatePayload<BusinessEntityUserAccess>,
+    slug?: string
+  ): Promise<BusinessEntityUserAccess> => {
+    const response = await api.patch<BusinessEntityUserAccess>(
+      `/ticketing/business-entity-access/${id}/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  deleteBusinessEntityUser: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/business-entity-access/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  // Product/business agreements
+  getBusinessAgreements: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<ProductBusinessAgreement[]> => {
+    const response = await api.get<ProductBusinessAgreement[]>(
+      "/ticketing/business-agreements/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getBusinessAgreement: async (
+    id: number,
+    slug?: string
+  ): Promise<ProductBusinessAgreement> => {
+    const response = await api.get<ProductBusinessAgreement>(
+      `/ticketing/business-agreements/${id}/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  createBusinessAgreement: async (
+    payload: CreatePayload<ProductBusinessAgreement> & {
+      business_entity_id: number;
+      product_id: number;
+    },
+    slug?: string
+  ): Promise<ProductBusinessAgreement> => {
+    const response = await api.post<ProductBusinessAgreement>(
+      "/ticketing/business-agreements/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updateBusinessAgreement: async (
+    id: number,
+    payload: UpdatePayload<ProductBusinessAgreement>,
+    slug?: string
+  ): Promise<ProductBusinessAgreement> => {
+    const response = await api.patch<ProductBusinessAgreement>(
+      `/ticketing/business-agreements/${id}/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  deleteBusinessAgreement: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/business-agreements/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  // Financial snapshots
+  getFinancialSnapshots: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BookingFinancialSnapshot[]> => {
+    const response = await api.get<BookingFinancialSnapshot[]>(
+      "/ticketing/financial-snapshots/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  captureBookingSnapshots: async (
+    bookingId: number,
+    slug?: string,
+    forceRefresh = false
+  ): Promise<BookingFinancialSnapshot[]> => {
+    const response = await api.post<BookingFinancialSnapshot[]>(
+      "/ticketing/financial-snapshots/capture-booking/",
+      {
+        booking_id: bookingId,
+        force_refresh: forceRefresh,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Admission tokens
+  getAdmissionTokens: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<AdmissionToken[]> => {
+    const response = await api.get<AdmissionToken[]>(
+      "/ticketing/admission-tokens/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  issueAdmissionToken: async (
+    payload: AdmissionTokenIssuePayload,
+    slug?: string
+  ): Promise<AdmissionToken & { qr_payload?: string }> => {
+    const response = await api.post<AdmissionToken & { qr_payload?: string }>(
+      "/ticketing/admission-tokens/issue/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  rotateAdmissionToken: async (
+    id: number,
+    payload: {
+      reason?: string;
+      metadata?: Record<string, unknown>;
+    } = {},
+    slug?: string
+  ): Promise<AdmissionToken> => {
+    const response = await api.post<AdmissionToken>(
+      `/ticketing/admission-tokens/${id}/rotate/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  revokeAdmissionToken: async (
+    id: number,
+    reason = "Admission token revoked.",
+    slug?: string
+  ): Promise<AdmissionToken> => {
+    const response = await api.post<AdmissionToken>(
+      `/ticketing/admission-tokens/${id}/revoke/`,
+      { reason },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // QR scanner
+  resolveTicket: async (
+    payload: TicketScanResolvePayload,
+    slug?: string
+  ): Promise<TicketScanResolution> => {
+    const response = await api.post<TicketScanResolution>(
+      "/ticketing/scanner/resolve/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  admitTicket: async (
+    payload: TicketAdmissionCreatePayload,
+    slug?: string
+  ): Promise<TicketScanResolution> => {
+    const response = await api.post<TicketScanResolution>(
+      "/ticketing/scanner/admit/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  syncOfflineScans: async (
+    businessEntityId: number,
+    events: OfflineScanEvent[],
+    slug?: string
+  ): Promise<OfflineScanSyncResponse> => {
+    const response = await api.post<OfflineScanSyncResponse>(
+      "/ticketing/scanner/sync-offline/",
+      {
+        business_entity_id: businessEntityId,
+        events,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Admissions and scan audit
+  getAdmissions: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<TicketAdmission[]> => {
+    const response = await api.get<TicketAdmission[]>(
+      "/ticketing/admissions/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getAdmission: async (
+    id: number,
+    slug?: string
+  ): Promise<TicketAdmission> => {
+    const response = await api.get<TicketAdmission>(
+      `/ticketing/admissions/${id}/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  reverseAdmission: async (
+    id: number,
+    payload: TicketAdmissionReversePayload,
+    slug?: string
+  ): Promise<TicketAdmission> => {
+    const response = await api.post<TicketAdmission>(
+      `/ticketing/admissions/${id}/reverse/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getAdmissionsDashboard: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<AdmissionsDashboard> => {
+    const response = await api.get<AdmissionsDashboard>(
+      "/ticketing/admissions/dashboard/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getScanAttempts: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<TicketScanAttempt[]> => {
+    const response = await api.get<TicketScanAttempt[]>(
+      "/ticketing/scan-attempts/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Partner settlements
+  getPartnerSettlements: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<PartnerSettlementPeriod[]> => {
+    const response = await api.get<PartnerSettlementPeriod[]>(
+      "/ticketing/partner-settlements/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getPartnerSettlement: async (
+    id: number,
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.get<PartnerSettlementPeriod>(
+      `/ticketing/partner-settlements/${id}/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  previewPartnerSettlement: async (
+    payload: SettlementGeneratePayload,
+    slug?: string
+  ): Promise<SettlementPreview> => {
+    const response = await api.post<SettlementPreview>(
+      "/ticketing/partner-settlements/preview/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  generatePartnerSettlement: async (
+    payload: SettlementGeneratePayload,
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.post<PartnerSettlementPeriod>(
+      "/ticketing/partner-settlements/generate/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  submitPartnerSettlementForReview: async (
+    id: number,
+    payload: SettlementApprovalPayload = {},
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.post<PartnerSettlementPeriod>(
+      `/ticketing/partner-settlements/${id}/submit-review/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  approvePartnerSettlement: async (
+    id: number,
+    payload: SettlementApprovalPayload = {},
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.post<PartnerSettlementPeriod>(
+      `/ticketing/partner-settlements/${id}/approve/`,
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  disputePartnerSettlement: async (
+    id: number,
+    notes: string,
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.post<PartnerSettlementPeriod>(
+      `/ticketing/partner-settlements/${id}/dispute/`,
+      { notes },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  cancelPartnerSettlement: async (
+    id: number,
+    notes = "",
+    slug?: string
+  ): Promise<PartnerSettlementPeriod> => {
+    const response = await api.post<PartnerSettlementPeriod>(
+      `/ticketing/partner-settlements/${id}/cancel/`,
+      { notes },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  recordPartnerSettlementPayment: async (
+    id: number,
+    payload: SettlementPaymentCreatePayload,
+    slug?: string
+  ): Promise<{
+    payment: PartnerSettlementPayment;
+    settlement: PartnerSettlementPeriod;
+  }> => {
+    const requestPayload =
+      payload.attachment instanceof File
+        ? (() => {
+            const form = new FormData();
+            Object.entries(payload).forEach(([key, value]) => {
+              if (value === undefined || value === null || value === "") return;
+              if (key === "attachment" && value instanceof File) {
+                form.append(key, value);
+              } else {
+                form.append(key, String(value));
+              }
+            });
+            return form;
+          })()
+        : payload;
+
+    const response = await api.post<{
+      payment: PartnerSettlementPayment;
+      settlement: PartnerSettlementPeriod;
+    }>(
+      `/ticketing/partner-settlements/${id}/record-payment/`,
+      requestPayload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  reconcilePartnerSettlement: async (
+    id: number,
+    slug?: string
+  ): Promise<SettlementReconciliation> => {
+    const response = await api.get<SettlementReconciliation>(
+      `/ticketing/partner-settlements/${id}/reconcile/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Settlement payments
+  getPartnerSettlementPayments: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<PartnerSettlementPayment[]> => {
+    const response = await api.get<PartnerSettlementPayment[]>(
+      "/ticketing/partner-settlement-payments/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  changePartnerSettlementPaymentStatus: async (
+    id: number,
+    paymentStatus: PartnerSettlementPayment["status"],
+    notes = "",
+    slug?: string
+  ): Promise<{
+    payment: PartnerSettlementPayment;
+    settlement: PartnerSettlementPeriod;
+  }> => {
+    const response = await api.post<{
+      payment: PartnerSettlementPayment;
+      settlement: PartnerSettlementPeriod;
+    }>(
+      `/ticketing/partner-settlement-payments/${id}/change-status/`,
+      {
+        status: paymentStatus,
+        notes,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  // Ledger
+  getLedgerEntries: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<TicketingLedgerEntry[]> => {
+    const response = await api.get<TicketingLedgerEntry[]>(
+      "/ticketing/ledger/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  getLedgerSummary: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<LedgerSummary> => {
+    const response = await api.get<LedgerSummary>(
+      "/ticketing/ledger/summary/",
+      {
+        params: withSlug(params, slug),
+      }
+    );
+    return response.data;
+  },
+
+  createManualLedgerAdjustment: async (
+    payload: ManualLedgerAdjustmentPayload,
+    slug?: string
+  ): Promise<TicketingLedgerEntry[]> => {
+    const response = await api.post<TicketingLedgerEntry[]>(
+      "/ticketing/ledger/manual-adjustment/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  reverseLedgerGroup: async (
+    entryGroup: string,
+    reason = "Ledger group reversed.",
+    slug?: string
+  ): Promise<TicketingLedgerEntry[]> => {
+    const response = await api.post<TicketingLedgerEntry[]>(
+      "/ticketing/ledger/reverse-group/",
+      {
+        entry_group: entryGroup,
+        reason,
+      },
+      {
+        params: withSlug(undefined, slug),
       }
     );
     return response.data;

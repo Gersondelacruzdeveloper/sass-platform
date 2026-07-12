@@ -980,4 +980,594 @@ export interface ProductReview {
 export type CreatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 export type UpdatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 
+// =============================================================================
+// Operations, partner access, admissions, settlements, and ledger
+// =============================================================================
+
+export type BusinessEntityType =
+  | "partner"
+  | "venue"
+  | "operator"
+  | "transport_company"
+  | "driver"
+  | "guide"
+  | "event_organizer"
+  | "other";
+
+export type BusinessEntityRole =
+  | "admin"
+  | "manager"
+  | "finance"
+  | "scanner"
+  | "driver"
+  | "guide"
+  | "viewer";
+
+export type AgreementType =
+  | "fixed_partner_net"
+  | "percentage_split"
+  | "fixed_platform_commission"
+  | "percentage_platform_commission"
+  | "custom";
+
+export type SettlementBasis =
+  | "checked_in"
+  | "confirmed_booking"
+  | "fully_paid_booking"
+  | "provider_confirmation";
+
+export type CollectionMode =
+  | "platform_collects"
+  | "partner_collects"
+  | "seller_collects"
+  | "customer_pays_partner"
+  | "mixed";
+
+export type AdmissionTokenStatus = "active" | "consumed" | "revoked" | "expired";
+
+export type ScanResult =
+  | "valid"
+  | "admitted"
+  | "partially_used"
+  | "already_used"
+  | "wrong_date"
+  | "cancelled"
+  | "refunded"
+  | "wrong_partner"
+  | "expired"
+  | "revoked"
+  | "unauthorised"
+  | "not_found"
+  | "invalid";
+
+export type AdmissionStatus = "admitted" | "reversed";
+
+export type SettlementStatus =
+  | "draft"
+  | "review"
+  | "approved"
+  | "partially_paid"
+  | "settled"
+  | "disputed"
+  | "cancelled";
+
+export type SettlementParty = "platform" | "partner" | "seller" | "customer";
+export type LedgerDirection = "debit" | "credit";
+export type LedgerEntryType =
+  | "booking"
+  | "payment"
+  | "commission"
+  | "settlement"
+  | "refund"
+  | "adjustment"
+  | "reversal"
+  | "admission";
+
+export interface TicketingBusinessEntity {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  name: string;
+  slug: string;
+  entity_type: BusinessEntityType;
+  legal_name: string;
+  tax_identifier: string;
+  contact_name: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  contact_whatsapp?: string | null;
+  address: string;
+  notes: string;
+  currency: string;
+  settlement_cycle_days: number;
+  settlement_anchor_date?: string | null;
+  can_collect_customer_balance: boolean;
+  can_scan_tickets: boolean;
+  require_check_in_confirmation: boolean;
+  allow_partial_admission: boolean;
+  allow_offline_scanning: boolean;
+  external_provider: string;
+  external_entity_id: string;
+  extra_settings: Record<string, unknown>;
+  is_active: boolean;
+  active_agreements_count?: number;
+  active_users_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BusinessEntityUserAccess {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  business_entity: ID;
+  business_entity_name?: string;
+  user: ID;
+  user_name?: string;
+  user_email?: string;
+  role: BusinessEntityRole;
+  can_access_dashboard: boolean;
+  can_scan: boolean;
+  can_view_today_bookings: boolean;
+  can_view_admissions: boolean;
+  can_view_customer_contact: boolean;
+  can_view_financials: boolean;
+  can_view_settlements: boolean;
+  can_record_payments: boolean;
+  can_reverse_admissions: boolean;
+  can_manage_users: boolean;
+  is_active: boolean;
+  last_access_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductBusinessAgreement {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  business_entity: ID;
+  business_entity_name?: string;
+  product: ID;
+  product_name?: string;
+  name: string;
+  version: number;
+  agreement_type: AgreementType;
+  settlement_basis: SettlementBasis;
+  collection_mode: CollectionMode;
+  partner_fixed_amount: Money;
+  partner_percentage: Money;
+  platform_fixed_amount: Money;
+  platform_percentage: Money;
+  seller_commission_included: boolean;
+  settlement_cycle_days: number;
+  payment_due_days: number;
+  currency: string;
+  effective_from: string;
+  effective_until?: string | null;
+  terms: string;
+  extra_rules: Record<string, unknown>;
+  is_active: boolean;
+  created_by?: ID | null;
+  created_by_email?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BookingFinancialSnapshot {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  booking: ID;
+  booking_code?: string;
+  booking_item: ID;
+  product_name?: string;
+  business_entity?: ID | null;
+  business_entity_name?: string | null;
+  agreement?: ID | null;
+  agreement_name?: string | null;
+  agreement_version: number;
+  settlement_basis: SettlementBasis;
+  currency: string;
+  quantity: number;
+  gross_amount: Money;
+  discount_amount: Money;
+  tax_amount: Money;
+  net_customer_amount: Money;
+  partner_entitlement: Money;
+  platform_entitlement: Money;
+  seller_entitlement: Money;
+  collected_by_platform: Money;
+  collected_by_partner: Money;
+  collected_by_seller: Money;
+  customer_balance_due: Money;
+  primary_collection_party: SettlementParty | "mixed" | "none";
+  calculation_data: Record<string, unknown>;
+  captured_at?: string;
+  updated_at?: string;
+}
+
+export interface AdmissionToken {
+  id: ID;
+  organisation: ID;
+  booking: ID;
+  booking_code?: string;
+  booking_item: ID;
+  product_name?: string;
+  business_entity?: ID | null;
+  business_entity_name?: string | null;
+  token: string;
+  token_url_value?: string;
+  status: AdmissionTokenStatus;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  total_admissions: number;
+  admitted_quantity: number;
+  remaining_admissions: number;
+  is_currently_valid: boolean;
+  is_primary: boolean;
+  issued_at?: string;
+  revoked_at?: string | null;
+  revoked_by?: ID | null;
+  revocation_reason: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface TicketScanAttempt {
+  id: ID;
+  organisation: ID;
+  business_entity?: ID | null;
+  business_entity_name?: string | null;
+  scanned_by?: ID | null;
+  scanned_by_email?: string | null;
+  admission_token?: ID | null;
+  booking?: ID | null;
+  booking_code?: string | null;
+  booking_item?: ID | null;
+  product_name?: string | null;
+  scanned_value: string;
+  result: ScanResult;
+  requested_quantity: number;
+  admitted_quantity: number;
+  failure_reason: string;
+  scanner_device_id: string;
+  scanner_name: string;
+  location_name: string;
+  ip_address?: string | null;
+  user_agent: string;
+  offline_event_id?: string | null;
+  metadata: Record<string, unknown>;
+  scanned_at?: string;
+}
+
+export interface TicketAdmission {
+  id: ID;
+  organisation: ID;
+  business_entity?: ID | null;
+  business_entity_name?: string | null;
+  booking: ID;
+  booking_code?: string;
+  booking_item: ID;
+  product_name?: string;
+  admission_token: ID;
+  scan_attempt?: ID | null;
+  quantity_admitted: number;
+  effective_quantity: number;
+  status: AdmissionStatus;
+  admitted_at?: string;
+  admitted_by?: ID | null;
+  admitted_by_email?: string | null;
+  scanner_device_id: string;
+  location_name: string;
+  notes: string;
+  metadata: Record<string, unknown>;
+  reversed_at?: string | null;
+  reversed_by?: ID | null;
+  reversed_by_email?: string | null;
+  reversal_reason: string;
+}
+
+export interface TicketingLedgerEntry {
+  id: ID;
+  organisation: ID;
+  booking?: ID | null;
+  booking_code?: string | null;
+  booking_item?: ID | null;
+  product_name?: string | null;
+  booking_payment?: ID | null;
+  seller?: ID | null;
+  seller_name?: string | null;
+  business_entity?: ID | null;
+  business_entity_name?: string | null;
+  entry_group: string;
+  entry_type: LedgerEntryType;
+  direction: LedgerDirection;
+  party_type: SettlementParty;
+  amount: Money;
+  signed_amount: Money;
+  currency: string;
+  description: string;
+  reference: string;
+  effective_at: string;
+  is_reversed: boolean;
+  reverses_entry?: ID | null;
+  metadata: Record<string, unknown>;
+  created_by?: ID | null;
+  created_by_email?: string | null;
+  created_at?: string;
+}
+
+export interface PartnerSettlementLine {
+  id: ID;
+  settlement: ID;
+  booking: ID;
+  booking_code?: string;
+  booking_item: ID;
+  product_name?: string;
+  financial_snapshot?: ID | null;
+  service_date?: string | null;
+  booked_quantity: number;
+  admitted_quantity: number;
+  settlement_quantity: number;
+  gross_amount: Money;
+  discount_amount: Money;
+  refund_amount: Money;
+  partner_entitlement: Money;
+  platform_entitlement: Money;
+  seller_entitlement: Money;
+  collected_by_partner: Money;
+  collected_by_platform: Money;
+  collected_by_seller: Money;
+  customer_balance_due: Money;
+  partner_due_to_platform: Money;
+  platform_due_to_partner: Money;
+  net_amount: Money;
+  calculation_data: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface PartnerSettlementPayment {
+  id: ID;
+  settlement: ID;
+  settlement_number?: string;
+  payer_type: SettlementParty;
+  payee_type: SettlementParty;
+  amount: Money;
+  currency: string;
+  payment_method: string;
+  status: "pending" | "confirmed" | "failed" | "cancelled";
+  reference: string;
+  paid_at: string;
+  notes: string;
+  attachment?: string | null;
+  attachment_url?: string | null;
+  recorded_by?: ID | null;
+  recorded_by_email?: string | null;
+  ledger_entry_group?: string | null;
+  created_at?: string;
+}
+
+export interface PartnerSettlementPeriod {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  business_entity: ID;
+  business_entity_name?: string;
+  settlement_number: string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  status: SettlementStatus;
+  total_bookings: number;
+  total_guests_booked: number;
+  total_guests_admitted: number;
+  total_no_shows: number;
+  gross_sales: Money;
+  discounts: Money;
+  refunds: Money;
+  partner_entitlement: Money;
+  platform_entitlement: Money;
+  seller_entitlement: Money;
+  collected_by_partner: Money;
+  collected_by_platform: Money;
+  collected_by_sellers: Money;
+  customer_balance_due: Money;
+  partner_owes_platform: Money;
+  platform_owes_partner: Money;
+  net_settlement_amount: Money;
+  paid_amount: Money;
+  outstanding_amount: Money;
+  generated_at?: string;
+  generated_by?: ID | null;
+  generated_by_email?: string | null;
+  approved_at?: string | null;
+  approved_by?: ID | null;
+  approved_by_email?: string | null;
+  settled_at?: string | null;
+  notes: string;
+  calculation_data: Record<string, unknown>;
+  lines: PartnerSettlementLine[];
+  payments: PartnerSettlementPayment[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AdmissionTokenIssuePayload {
+  booking_item_id: ID;
+  business_entity_id?: ID | null;
+  total_admissions?: number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  is_primary?: boolean;
+  metadata?: Record<string, unknown>;
+  replace_existing_primary?: boolean;
+  base_url?: string;
+}
+
+export interface TicketScanResolvePayload {
+  token: string;
+  business_entity_id?: ID;
+  requested_quantity?: number;
+  scanner_device_id?: string;
+  scanner_name?: string;
+  location_name?: string;
+  offline_event_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TicketAdmissionCreatePayload extends TicketScanResolvePayload {
+  notes?: string;
+  confirm?: boolean;
+}
+
+export interface TicketAdmissionReversePayload {
+  reason: string;
+}
+
+export interface TicketScanResolution {
+  ok: boolean;
+  result: ScanResult;
+  message: string;
+  token?: string | null;
+  token_id?: ID | null;
+  booking_id?: ID | null;
+  booking_code?: string;
+  booking_status?: BookingStatus | string;
+  booking_item_id?: ID | null;
+  product_name?: string;
+  product_type?: ProductType | string;
+  business_entity_id?: ID | null;
+  business_entity_name?: string;
+  service_date?: string | null;
+  total_admissions?: number;
+  admitted_quantity?: number;
+  remaining_admissions?: number;
+  requested_quantity?: number;
+  scan_attempt_id?: ID | null;
+  admission_id?: ID | null;
+  already_processed?: boolean;
+}
+
+export interface OfflineScanEvent extends TicketAdmissionCreatePayload {
+  offline_event_id: string;
+  captured_at?: string;
+}
+
+export interface OfflineScanSyncResponse {
+  processed: number;
+  successful: number;
+  failed: number;
+  results: TicketScanResolution[];
+}
+
+export interface SettlementGeneratePayload {
+  business_entity_id: ID;
+  period_start: string;
+  period_end: string;
+  regenerate_draft?: boolean;
+  notes?: string;
+}
+
+export interface SettlementApprovalPayload {
+  notes?: string;
+}
+
+export interface SettlementPaymentCreatePayload {
+  payer_type: SettlementParty;
+  payee_type: SettlementParty;
+  amount: Money;
+  currency?: string;
+  payment_method?: string;
+  status?: PartnerSettlementPayment["status"];
+  reference?: string;
+  paid_at?: string;
+  notes?: string;
+  attachment?: File | null;
+}
+
+export interface SettlementPreviewLine extends Omit<PartnerSettlementLine, "id" | "settlement" | "financial_snapshot" | "created_at"> {}
+
+export interface SettlementPreview {
+  business_entity_id: ID;
+  business_entity_name: string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  total_bookings: number;
+  total_guests_booked: number;
+  total_guests_admitted: number;
+  total_no_shows: number;
+  totals: Record<string, Money>;
+  lines: Array<Record<string, unknown>>;
+}
+
+export interface BusinessEntityDashboard {
+  business_entity: TicketingBusinessEntity;
+  date_from: string;
+  date_to: string;
+  totals: {
+    bookings: number;
+    expected_guests: number;
+    admitted_guests: number;
+    remaining_guests: number;
+    admission_events: number;
+    gross_sales: Money;
+    partner_entitlement: Money;
+    platform_entitlement: Money;
+    collected_by_partner: Money;
+    collected_by_platform: Money;
+    customer_balance_due: Money;
+  };
+  current_period: {
+    period_start: string;
+    period_end: string;
+    settlement: PartnerSettlementPeriod | null;
+  };
+  latest_scans: TicketScanAttempt[];
+}
+
+export interface AdmissionsDashboard {
+  date: string;
+  guests_admitted: number;
+  admission_events: number;
+  by_business_entity: Array<{
+    business_entity_id: ID;
+    business_entity__name: string;
+    guests: number;
+    admissions: number;
+  }>;
+  scan_results: Array<{
+    result: ScanResult;
+    total: number;
+  }>;
+  latest_admissions: TicketAdmission[];
+}
+
+export interface LedgerSummary {
+  platform: Money;
+  partner: Money;
+  seller: Money;
+  customer: Money;
+}
+
+export interface ManualLedgerAdjustmentPayload {
+  debit_party: SettlementParty;
+  credit_party: SettlementParty;
+  amount: Money;
+  description: string;
+  currency?: string;
+  reference?: string;
+  booking_id?: ID;
+  business_entity_id?: ID;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SettlementReconciliation {
+  settlement_id: ID;
+  settlement_number: string;
+  payment_total: Money;
+  ledger_total: Money;
+  difference: Money;
+  is_reconciled: boolean;
+}
 
