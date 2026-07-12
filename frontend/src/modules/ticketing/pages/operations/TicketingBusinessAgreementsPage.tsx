@@ -1,4 +1,4 @@
-// src/modules/ticketing/pages/operations/TicketingBusinessEntityDetailPage.tsx
+// src/modules/ticketing/pages/operations/TicketingBusinessAgreementsPage.tsx
 
 import {
   useCallback,
@@ -6,36 +6,29 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  Link,
-  useOutletContext,
-  useParams,
-} from "react-router-dom";
+import type { FormEvent } from "react";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   ArrowLeft,
-  ArrowRight,
   Building2,
-  CalendarCheck2,
   CircleAlert,
-  Clock3,
+  Edit3,
   Handshake,
   Loader2,
-  Mail,
-  MapPin,
-  Phone,
-  QrCode,
+  Plus,
   RefreshCw,
-  ScanLine,
-  ShieldCheck,
-  Users,
-  WalletCards,
+  Search,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import ticketingApi from "../../api/ticketingApi";
 import type {
-  BusinessEntityDashboard,
+  CreatePayload,
+  ExperienceProduct,
   ProductBusinessAgreement,
-  TicketScanAttempt,
+  TicketingBusinessEntity,
+  UpdatePayload,
 } from "../../types/ticketingTypes";
 import type { TicketingDashboardOutletContext } from "../../layouts/TicketingDashboardLayout";
 
@@ -44,9 +37,49 @@ type LoadState = {
   error: string;
 };
 
-function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+type AgreementFormState = {
+  business_entity_id: number | "";
+  product_id: number | "";
+  name: string;
+  version: number;
+  agreement_type: string;
+  settlement_basis: string;
+  collection_mode: string;
+  partner_fixed_amount: string;
+  partner_percentage: string;
+  platform_fixed_amount: string;
+  platform_percentage: string;
+  seller_commission_included: boolean;
+  settlement_cycle_days: number;
+  payment_due_days: number;
+  currency: string;
+  effective_from: string;
+  effective_until: string;
+  terms: string;
+  is_active: boolean;
+};
+
+const initialFormState: AgreementFormState = {
+  business_entity_id: "",
+  product_id: "",
+  name: "",
+  version: 1,
+  agreement_type: "percentage_split",
+  settlement_basis: "confirmed_booking",
+  collection_mode: "platform_collects",
+  partner_fixed_amount: "0.00",
+  partner_percentage: "0.00",
+  platform_fixed_amount: "0.00",
+  platform_percentage: "0.00",
+  seller_commission_included: false,
+  settlement_cycle_days: 10,
+  payment_due_days: 0,
+  currency: "USD",
+  effective_from: new Date().toISOString().slice(0, 10),
+  effective_until: "",
+  terms: "",
+  is_active: true,
+};
 
 function getErrorMessage(error: unknown): string {
   if (
@@ -60,6 +93,7 @@ function getErrorMessage(error: unknown): string {
           data?: {
             detail?: string;
             message?: string;
+            non_field_errors?: string[];
           };
         };
       }
@@ -68,7 +102,8 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not load the business entity."
+      response?.data?.non_field_errors?.[0] ||
+      "Could not save the agreement."
     );
   }
 
@@ -76,75 +111,65 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not load the business entity.";
+  return "Could not save the agreement.";
 }
 
-function toNumber(value: string | number | null | undefined): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+function formatAgreementType(value?: string | null): string {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
 ): string {
+  const amount = Number(value ?? 0);
+
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
     maximumFractionDigits: 2,
-  }).format(toNumber(value));
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
-function formatDateTime(value?: string | null): string {
-  if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function scanTone(result?: string | null) {
-  const value = String(result || "");
-
-  if (["valid", "admitted", "partially_used"].includes(value)) {
-    return "bg-emerald-100 text-emerald-700";
-  }
-
-  if (["already_used", "wrong_date"].includes(value)) {
-    return "bg-amber-100 text-amber-700";
-  }
-
-  return "bg-rose-100 text-rose-700";
-}
-
-export default function TicketingBusinessEntityDetailPage() {
+export default function TicketingBusinessAgreementsPage() {
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
-  const { businessEntityId } = useParams<{
-    businessEntityId: string;
-  }>();
-
-  const entityId = Number(businessEntityId);
-
-  const [dashboard, setDashboard] =
-    useState<BusinessEntityDashboard | null>(null);
   const [agreements, setAgreements] = useState<
     ProductBusinessAgreement[]
   >([]);
+  const [entities, setEntities] = useState<
+    TicketingBusinessEntity[]
+  >([]);
+  const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [state, setState] = useState<LoadState>({
     loading: true,
     error: "",
   });
 
-  const today = useMemo(() => getToday(), []);
+  const [search, setSearch] = useState("");
+  const [selectedEntityId, setSelectedEntityId] = useState<
+    number | ""
+  >("");
+  const [selectedProductId, setSelectedProductId] = useState<
+    number | ""
+  >("");
+  const [selectedStatus, setSelectedStatus] = useState("");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingAgreement, setEditingAgreement] =
+    useState<ProductBusinessAgreement | null>(null);
+  const [form, setForm] =
+    useState<AgreementFormState>(initialFormState);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(
+    null,
+  );
 
   const loadData = useCallback(async () => {
-    if (!slug || !entityId) return;
+    if (!slug) return;
 
     setState({
       loading: true,
@@ -152,23 +177,25 @@ export default function TicketingBusinessEntityDetailPage() {
     });
 
     try {
-      const [dashboardData, agreementData] = await Promise.all([
-        ticketingApi.getBusinessEntityDashboard(
-          entityId,
-          slug,
-          {
-            date_from: today,
-            date_to: today,
-          },
-        ),
-        ticketingApi.getBusinessAgreements(slug, {
-          business_entity: entityId,
-          is_active: true,
-        }),
-      ]);
+      const [agreementData, entityData, productData] =
+        await Promise.all([
+          ticketingApi.getBusinessAgreements(slug, {
+            business_entity: selectedEntityId || undefined,
+            product: selectedProductId || undefined,
+            is_active:
+              selectedStatus === ""
+                ? undefined
+                : selectedStatus === "active",
+          }),
+          ticketingApi.getBusinessEntities(slug, {
+            is_active: true,
+          }),
+          ticketingApi.getProducts(slug),
+        ]);
 
-      setDashboard(dashboardData);
       setAgreements(agreementData);
+      setEntities(entityData);
+      setProducts(productData);
       setState({
         loading: false,
         error: "",
@@ -179,107 +206,252 @@ export default function TicketingBusinessEntityDetailPage() {
         error: getErrorMessage(error),
       });
     }
-  }, [entityId, slug, today]);
+  }, [
+    selectedEntityId,
+    selectedProductId,
+    selectedStatus,
+    slug,
+  ]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const entity = dashboard?.business_entity;
-  const currency = entity?.currency || "USD";
-  const currentSettlement =
-    dashboard?.current_period?.settlement || null;
+  const filteredAgreements = useMemo(() => {
+    const needle = search.trim().toLowerCase();
 
-  const recentScans = useMemo<TicketScanAttempt[]>(
-    () => dashboard?.latest_scans?.slice(0, 8) || [],
-    [dashboard],
-  );
+    if (!needle) return agreements;
 
-  if (state.loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-          <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
-          <span className="text-sm font-black text-slate-700">
-            Loading business entity...
-          </span>
-        </div>
-      </div>
+    return agreements.filter((agreement) => {
+      const haystack = [
+        agreement.name,
+        agreement.product_name,
+        agreement.business_entity_name,
+        agreement.agreement_type,
+        agreement.settlement_basis,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(needle);
+    });
+  }, [agreements, search]);
+
+  const summary = useMemo(() => {
+    return filteredAgreements.reduce(
+      (accumulator, agreement) => {
+        accumulator.total += 1;
+        if (agreement.is_active) accumulator.active += 1;
+        if (agreement.settlement_basis === "checked_in") {
+          accumulator.checkedIn += 1;
+        }
+        if (agreement.collection_mode === "partner_collects") {
+          accumulator.partnerCollects += 1;
+        }
+        return accumulator;
+      },
+      {
+        total: 0,
+        active: 0,
+        checkedIn: 0,
+        partnerCollects: 0,
+      },
     );
+  }, [filteredAgreements]);
+
+  function openCreateModal() {
+    setEditingAgreement(null);
+    setForm(initialFormState);
+    setModalOpen(true);
   }
 
-  if (!dashboard || !entity) {
-    return (
-      <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-rose-800">
-        <div className="flex items-start gap-3">
-          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-black">
-              Business entity could not be loaded
-            </p>
-            <p className="mt-1 text-sm font-semibold">
-              {state.error || "Entity not found."}
-            </p>
-          </div>
-        </div>
-      </div>
+  function openEditModal(
+    agreement: ProductBusinessAgreement,
+  ) {
+    setEditingAgreement(agreement);
+    setForm({
+      business_entity_id: agreement.business_entity,
+      product_id: agreement.product,
+      name: agreement.name || "",
+      version: Number(agreement.version) || 1,
+      agreement_type:
+        agreement.agreement_type || "percentage_split",
+      settlement_basis:
+        agreement.settlement_basis || "confirmed_booking",
+      collection_mode:
+        agreement.collection_mode || "platform_collects",
+      partner_fixed_amount: String(
+        agreement.partner_fixed_amount ?? "0.00",
+      ),
+      partner_percentage: String(
+        agreement.partner_percentage ?? "0.00",
+      ),
+      platform_fixed_amount: String(
+        agreement.platform_fixed_amount ?? "0.00",
+      ),
+      platform_percentage: String(
+        agreement.platform_percentage ?? "0.00",
+      ),
+      seller_commission_included: Boolean(
+        agreement.seller_commission_included,
+      ),
+      settlement_cycle_days:
+        Number(agreement.settlement_cycle_days) || 10,
+      payment_due_days:
+        Number(agreement.payment_due_days) || 0,
+      currency: agreement.currency || "USD",
+      effective_from: agreement.effective_from || "",
+      effective_until: agreement.effective_until || "",
+      terms: agreement.terms || "",
+      is_active: Boolean(agreement.is_active),
+    });
+    setModalOpen(true);
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+
+    if (!form.business_entity_id || !form.product_id) {
+      setState((current) => ({
+        ...current,
+        error:
+          "Select both a business entity and a product.",
+      }));
+      return;
+    }
+
+    const payload = {
+      business_entity_id: Number(form.business_entity_id),
+      product_id: Number(form.product_id),
+      name: form.name.trim(),
+      version: Math.max(1, Number(form.version) || 1),
+      agreement_type: form.agreement_type,
+      settlement_basis: form.settlement_basis,
+      collection_mode: form.collection_mode,
+      partner_fixed_amount: form.partner_fixed_amount || "0.00",
+      partner_percentage: form.partner_percentage || "0.00",
+      platform_fixed_amount:
+        form.platform_fixed_amount || "0.00",
+      platform_percentage:
+        form.platform_percentage || "0.00",
+      seller_commission_included:
+        form.seller_commission_included,
+      settlement_cycle_days: Math.max(
+        1,
+        Number(form.settlement_cycle_days) || 10,
+      ),
+      payment_due_days: Math.max(
+        0,
+        Number(form.payment_due_days) || 0,
+      ),
+      currency: form.currency.trim().toUpperCase() || "USD",
+      effective_from: form.effective_from,
+      effective_until: form.effective_until || null,
+      terms: form.terms,
+      is_active: form.is_active,
+    };
+
+    setSaving(true);
+    setState((current) => ({
+      ...current,
+      error: "",
+    }));
+
+    try {
+      if (editingAgreement) {
+        await ticketingApi.updateBusinessAgreement(
+          editingAgreement.id,
+          payload as UpdatePayload<ProductBusinessAgreement>,
+          slug,
+        );
+      } else {
+        await ticketingApi.createBusinessAgreement(
+          payload as CreatePayload<ProductBusinessAgreement> & {
+            business_entity_id: number;
+            product_id: number;
+          },
+          slug,
+        );
+      }
+
+      setModalOpen(false);
+      setEditingAgreement(null);
+      setForm(initialFormState);
+      await loadData();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: getErrorMessage(error),
+      }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(
+    agreement: ProductBusinessAgreement,
+  ) {
+    const confirmed = window.confirm(
+      `Delete agreement "${agreement.name}"? Historical snapshots will remain unchanged.`,
     );
+
+    if (!confirmed) return;
+
+    setDeletingId(agreement.id);
+
+    try {
+      await ticketingApi.deleteBusinessAgreement(
+        agreement.id,
+        slug,
+      );
+      await loadData();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: getErrorMessage(error),
+      }));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] bg-slate-950 px-6 py-7 text-white shadow-xl sm:px-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <Link
-              to={`/ticketing/${slug}/operations/business-entities`}
-              className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Business entities
-            </Link>
+      <section className="flex flex-col gap-5 rounded-[2rem] bg-slate-950 px-6 py-7 text-white shadow-xl sm:px-8 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <Link
+            to={`/ticketing/${slug}/operations/dashboard`}
+            className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Operations dashboard
+          </Link>
 
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-white/10">
-                <Building2 className="h-7 w-7" />
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
+              <Handshake className="h-6 w-6" />
+            </div>
 
-              <div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-3xl font-black tracking-tight">
-                    {entity.name}
-                  </h1>
-
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-black ${
-                      entity.is_active
-                        ? "bg-emerald-400/20 text-emerald-200"
-                        : "bg-white/10 text-white/50"
-                    }`}
-                  >
-                    {entity.is_active ? "Active" : "Inactive"}
-                  </span>
-                </div>
-
-                <p className="mt-2 text-sm font-semibold capitalize text-white/50">
-                  {String(entity.entity_type || "partner").replaceAll(
-                    "_",
-                    " ",
-                  )}
-                </p>
-              </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight">
+                Business Agreements
+              </h1>
+              <p className="mt-1 text-sm font-semibold text-white/50">
+                Define commercial rules between products and partners.
+              </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={() => void loadData()}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
         </div>
+
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
+        >
+          <Plus className="h-4 w-4" />
+          Add agreement
+        </button>
       </section>
 
       {state.error && (
@@ -287,7 +459,7 @@ export default function TicketingBusinessEntityDetailPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Some entity information could not be loaded
+              Agreement operation failed
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -299,441 +471,740 @@ export default function TicketingBusinessEntityDetailPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Expected guests today
+            Total agreements
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
-            {dashboard.totals.expected_guests}
+            {summary.total}
           </p>
         </article>
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Guests admitted
+            Active agreements
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
-            {dashboard.totals.admitted_guests}
+            {summary.active}
           </p>
         </article>
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Remaining guests
+            Checked-in basis
+          </p>
+          <p className="mt-2 text-2xl font-black text-blue-700">
+            {summary.checkedIn}
+          </p>
+        </article>
+
+        <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-500">
+            Partner collects
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
-            {dashboard.totals.remaining_guests}
-          </p>
-        </article>
-
-        <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-slate-500">
-            Customer balance due
-          </p>
-          <p className="mt-2 text-2xl font-black text-rose-700">
-            {formatMoney(
-              dashboard.totals.customer_balance_due,
-              currency,
-            )}
+            {summary.partnerCollects}
           </p>
         </article>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <article className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Operations
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">
-                Entity configuration
-              </h2>
+      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_auto]">
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700">
+              Search
+            </span>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
+                placeholder="Agreement, product or partner"
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              />
             </div>
+          </label>
 
-            <ShieldCheck className="h-6 w-6 text-slate-300" />
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700">
+              Business entity
+            </span>
+            <select
+              value={selectedEntityId}
+              onChange={(event) =>
+                setSelectedEntityId(
+                  event.target.value
+                    ? Number(event.target.value)
+                    : "",
+                )
+              }
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">All entities</option>
+              {entities.map((entity) => (
+                <option key={entity.id} value={entity.id}>
+                  {entity.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700">
+              Product
+            </span>
+            <select
+              value={selectedProductId}
+              onChange={(event) =>
+                setSelectedProductId(
+                  event.target.value
+                    ? Number(event.target.value)
+                    : "",
+                )
+              }
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">All products</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700">
+              Status
+            </span>
+            <select
+              value={selectedStatus}
+              onChange={(event) =>
+                setSelectedStatus(event.target.value)
+              }
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
+          <h2 className="text-xl font-black text-slate-950">
+            Agreement directory
+          </h2>
+          <p className="mt-1 text-sm font-semibold text-slate-400">
+            {filteredAgreements.length} record
+            {filteredAgreements.length === 1 ? "" : "s"}
+          </p>
+        </div>
+
+        {state.loading ? (
+          <div className="flex min-h-72 items-center justify-center">
+            <div className="flex items-center gap-3 text-sm font-black text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading agreements...
+            </div>
           </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Can scan tickets
-              </p>
-              <p className="mt-2 font-black text-slate-900">
-                {entity.can_scan_tickets ? "Yes" : "No"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Partial admission
-              </p>
-              <p className="mt-2 font-black text-slate-900">
-                {entity.allow_partial_admission ? "Allowed" : "Disabled"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Offline scanning
-              </p>
-              <p className="mt-2 font-black text-slate-900">
-                {entity.allow_offline_scanning ? "Allowed" : "Disabled"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Settlement cycle
-              </p>
-              <p className="mt-2 font-black text-slate-900">
-                {entity.settlement_cycle_days || 10} days
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            <div className="flex items-start gap-3 rounded-2xl border border-slate-100 p-4">
-              <Mail className="mt-0.5 h-5 w-5 text-slate-400" />
-              <div>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                  Email
-                </p>
-                <p className="mt-1 font-bold text-slate-800">
-                  {entity.contact_email || "Not provided"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 rounded-2xl border border-slate-100 p-4">
-              <Phone className="mt-0.5 h-5 w-5 text-slate-400" />
-              <div>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                  Phone
-                </p>
-                <p className="mt-1 font-bold text-slate-800">
-                  {entity.contact_phone ||
-                    entity.contact_whatsapp ||
-                    "Not provided"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 rounded-2xl border border-slate-100 p-4">
-              <MapPin className="mt-0.5 h-5 w-5 text-slate-400" />
-              <div>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                  Address
-                </p>
-                <p className="mt-1 font-bold leading-6 text-slate-800">
-                  {entity.address || "Not provided"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Finance
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">
-                Current settlement period
-              </h2>
-            </div>
-
-            <WalletCards className="h-6 w-6 text-slate-300" />
-          </div>
-
-          <div className="mt-6 rounded-3xl bg-slate-950 p-5 text-white">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-white/40">
-              Period
+        ) : filteredAgreements.length === 0 ? (
+          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
+            <Handshake className="h-10 w-10 text-slate-300" />
+            <p className="mt-4 text-lg font-black text-slate-700">
+              No agreements found
             </p>
-            <p className="mt-2 text-lg font-black">
-              {dashboard.current_period.period_start} —{" "}
-              {dashboard.current_period.period_end}
+            <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
+              Create a commercial agreement between a product and business entity.
             </p>
-
-            {currentSettlement ? (
-              <>
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-white/5 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-white/40">
-                      Net settlement
+          </div>
+        ) : (
+          <div className="grid gap-4 p-5 lg:grid-cols-2">
+            {filteredAgreements.map((agreement) => (
+              <article
+                key={agreement.id}
+                className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-black text-slate-950">
+                      {agreement.name ||
+                        agreement.product_name}
                     </p>
-                    <p className="mt-2 text-lg font-black">
-                      {formatMoney(
-                        currentSettlement.net_settlement_amount,
-                        currentSettlement.currency,
+                    <p className="mt-1 truncate text-sm font-bold text-slate-500">
+                      {agreement.product_name}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
+                      agreement.is_active
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {agreement.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2 text-sm font-bold text-slate-600">
+                  <Building2 className="h-4 w-4 text-slate-400" />
+                  {agreement.business_entity_name}
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Agreement type
+                    </p>
+                    <p className="mt-2 font-black text-slate-900">
+                      {formatAgreementType(
+                        agreement.agreement_type,
                       )}
                     </p>
                   </div>
 
-                  <div className="rounded-2xl bg-white/5 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-white/40">
-                      Outstanding
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Settlement basis
                     </p>
-                    <p className="mt-2 text-lg font-black">
-                      {formatMoney(
-                        currentSettlement.outstanding_amount,
-                        currentSettlement.currency,
+                    <p className="mt-2 font-black text-slate-900">
+                      {formatAgreementType(
+                        agreement.settlement_basis,
                       )}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Partner share
+                    </p>
+                    <p className="mt-2 font-black text-slate-900">
+                      {Number(agreement.partner_percentage) > 0
+                        ? `${agreement.partner_percentage}%`
+                        : formatMoney(
+                            agreement.partner_fixed_amount,
+                            agreement.currency,
+                          )}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Platform share
+                    </p>
+                    <p className="mt-2 font-black text-slate-900">
+                      {Number(agreement.platform_percentage) > 0
+                        ? `${agreement.platform_percentage}%`
+                        : formatMoney(
+                            agreement.platform_fixed_amount,
+                            agreement.currency,
+                          )}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <span className="text-sm font-bold text-white/50">
-                    Status
-                  </span>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black capitalize">
-                    {String(currentSettlement.status).replaceAll(
-                      "_",
-                      " ",
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                    {formatAgreementType(
+                      agreement.collection_mode,
                     )}
                   </span>
+
+                  <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                    v{agreement.version}
+                  </span>
+
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                    {agreement.settlement_cycle_days} days
+                  </span>
                 </div>
 
-                <Link
-                  to={`/ticketing/${slug}/operations/settlements/${currentSettlement.id}`}
-                  className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white text-sm font-black text-slate-950 transition hover:bg-slate-100"
-                >
-                  Open settlement
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </>
-            ) : (
-              <div className="mt-5 rounded-2xl border border-dashed border-white/20 px-4 py-8 text-center">
-                <p className="font-black">
-                  No settlement generated
-                </p>
-                <p className="mt-2 text-sm font-semibold text-white/50">
-                  Generate this period from the Settlement Center.
-                </p>
-              </div>
-            )}
-          </div>
+                <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openEditModal(agreement)
+                    }
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                    Edit
+                  </button>
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-emerald-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-emerald-600">
-                Partner entitlement
-              </p>
-              <p className="mt-2 text-lg font-black text-emerald-800">
-                {formatMoney(
-                  dashboard.totals.partner_entitlement,
-                  currency,
-                )}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-blue-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-blue-600">
-                Platform entitlement
-              </p>
-              <p className="mt-2 text-lg font-black text-blue-800">
-                {formatMoney(
-                  dashboard.totals.platform_entitlement,
-                  currency,
-                )}
-              </p>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void handleDelete(agreement)
+                    }
+                    disabled={deletingId === agreement.id}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                  >
+                    {deletingId === agreement.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
-        </article>
+        )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <article className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Commercial rules
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">
-                Active agreements
-              </h2>
-            </div>
-
-            <Handshake className="h-6 w-6 text-slate-300" />
-          </div>
-
-          <div className="mt-6 space-y-3">
-            {agreements.length ? (
-              agreements.slice(0, 6).map((agreement) => (
-                <div
-                  key={agreement.id}
-                  className="rounded-3xl border border-slate-100 bg-slate-50 p-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="truncate font-black text-slate-950">
-                        {agreement.product_name ||
-                          agreement.name}
-                      </p>
-                      <p className="mt-1 text-xs font-bold capitalize text-slate-400">
-                        {String(
-                          agreement.agreement_type,
-                        ).replaceAll("_", " ")}
-                      </p>
-                    </div>
-
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
-                      v{agreement.version}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-                      {String(
-                        agreement.settlement_basis,
-                      ).replaceAll("_", " ")}
-                    </span>
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
-                      {agreement.currency}
-                    </span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-center">
-                <Handshake className="mx-auto h-8 w-8 text-slate-300" />
-                <p className="mt-3 font-black text-slate-700">
-                  No active agreements
-                </p>
+      {modalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5">
+              <div>
+                <h2 className="text-xl font-black text-slate-950">
+                  {editingAgreement
+                    ? "Edit agreement"
+                    : "Add agreement"}
+                </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Link products and commercial rules to this entity.
+                  Define settlement, collection and entitlement rules.
                 </p>
               </div>
-            )}
-          </div>
 
-          <Link
-            to={`/ticketing/${slug}/operations/agreements`}
-            className="mt-5 inline-flex items-center gap-2 text-sm font-black text-slate-700 transition hover:text-slate-950"
-          >
-            Manage agreements
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </article>
-
-        <article className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Scanner activity
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">
-                Recent scans
-              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalOpen(false);
+                  setEditingAgreement(null);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <QrCode className="h-6 w-6 text-slate-300" />
-          </div>
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-6 p-6"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Business entity
+                  </span>
+                  <select
+                    value={form.business_entity_id}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        business_entity_id:
+                          Number(event.target.value) || "",
+                      }))
+                    }
+                    required
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  >
+                    <option value="">Select entity</option>
+                    {entities.map((entity) => (
+                      <option key={entity.id} value={entity.id}>
+                        {entity.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-          <div className="mt-6 divide-y divide-slate-100">
-            {recentScans.length ? (
-              recentScans.map((scan) => (
-                <div
-                  key={scan.id}
-                  className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-black text-slate-900">
-                      {scan.booking_code ||
-                        "Unresolved ticket"}
-                    </p>
-                    <p className="mt-1 truncate text-xs font-semibold text-slate-400">
-                      {scan.product_name ||
-                        scan.failure_reason ||
-                        scan.scanner_name ||
-                        "Scan attempt"}
-                    </p>
-                  </div>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Product
+                  </span>
+                  <select
+                    value={form.product_id}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product_id:
+                          Number(event.target.value) || "",
+                      }))
+                    }
+                    required
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  >
+                    <option value="">Select product</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-                  <div className="shrink-0 text-right">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-black capitalize ${scanTone(
-                        scan.result,
-                      )}`}
-                    >
-                      {String(scan.result).replaceAll("_", " ")}
-                    </span>
-                    <p className="mt-2 flex items-center justify-end gap-1 text-xs font-bold text-slate-400">
-                      <Clock3 className="h-3.5 w-3.5" />
-                      {formatDateTime(scan.scanned_at)}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="py-10 text-center">
-                <ScanLine className="mx-auto h-8 w-8 text-slate-300" />
-                <p className="mt-3 text-sm font-bold text-slate-400">
-                  No recent scans.
-                </p>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Agreement name
+                  </span>
+                  <input
+                    value={form.name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Version
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.version}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        version:
+                          Number(event.target.value) || 1,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
               </div>
-            )}
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Agreement type
+                  </span>
+                  <select
+                    value={form.agreement_type}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        agreement_type: event.target.value,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  >
+                    <option value="fixed_partner_net">
+                      Fixed partner net
+                    </option>
+                    <option value="percentage_split">
+                      Percentage split
+                    </option>
+                    <option value="fixed_platform_commission">
+                      Fixed platform commission
+                    </option>
+                    <option value="percentage_platform_commission">
+                      Percentage platform commission
+                    </option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Settlement basis
+                  </span>
+                  <select
+                    value={form.settlement_basis}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        settlement_basis:
+                          event.target.value,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  >
+                    <option value="confirmed_booking">
+                      Confirmed booking
+                    </option>
+                    <option value="checked_in">
+                      Checked in
+                    </option>
+                    <option value="fully_paid_booking">
+                      Fully paid booking
+                    </option>
+                    <option value="provider_confirmation">
+                      Provider confirmation
+                    </option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Collection mode
+                  </span>
+                  <select
+                    value={form.collection_mode}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        collection_mode: event.target.value,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  >
+                    <option value="platform_collects">
+                      Platform collects
+                    </option>
+                    <option value="partner_collects">
+                      Partner collects
+                    </option>
+                    <option value="seller_collects">
+                      Seller collects
+                    </option>
+                    <option value="customer_pays_partner">
+                      Customer pays partner
+                    </option>
+                    <option value="mixed">Mixed</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  [
+                    "partner_fixed_amount",
+                    "Partner fixed amount",
+                  ],
+                  [
+                    "partner_percentage",
+                    "Partner percentage",
+                  ],
+                  [
+                    "platform_fixed_amount",
+                    "Platform fixed amount",
+                  ],
+                  [
+                    "platform_percentage",
+                    "Platform percentage",
+                  ],
+                ].map(([key, label]) => (
+                  <label key={key} className="block">
+                    <span className="mb-2 block text-sm font-black text-slate-700">
+                      {label}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={
+                        key.includes("percentage")
+                          ? "100"
+                          : undefined
+                      }
+                      value={
+                        form[key as keyof AgreementFormState] as string
+                      }
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          [key]: event.target.value,
+                        }))
+                      }
+                      className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Currency
+                  </span>
+                  <input
+                    value={form.currency}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        currency:
+                          event.target.value.toUpperCase(),
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-black uppercase text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Settlement cycle
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.settlement_cycle_days}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        settlement_cycle_days:
+                          Number(event.target.value) || 10,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Payment due days
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.payment_due_days}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        payment_due_days:
+                          Number(event.target.value) || 0,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4">
+                  <span className="text-sm font-black text-slate-700">
+                    Seller commission included
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.seller_commission_included
+                    }
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        seller_commission_included:
+                          event.target.checked,
+                      }))
+                    }
+                    className="h-5 w-5 rounded border-slate-300"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Effective from
+                  </span>
+                  <input
+                    type="date"
+                    value={form.effective_from}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        effective_from: event.target.value,
+                      }))
+                    }
+                    required
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">
+                    Effective until
+                  </span>
+                  <input
+                    type="date"
+                    value={form.effective_until}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        effective_until: event.target.value,
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-black text-slate-700">
+                  Terms
+                </span>
+                <textarea
+                  value={form.terms}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      terms: event.target.value,
+                    }))
+                  }
+                  rows={5}
+                  className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4">
+                <span className="text-sm font-black text-slate-700">
+                  Agreement is active
+                </span>
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      is_active: event.target.checked,
+                    }))
+                  }
+                  className="h-5 w-5 rounded border-slate-300"
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalOpen(false);
+                    setEditingAgreement(null);
+                  }}
+                  className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    !form.name.trim() ||
+                    !form.business_entity_id ||
+                    !form.product_id
+                  }
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving && (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  )}
+                  {editingAgreement
+                    ? "Save changes"
+                    : "Create agreement"}
+                </button>
+              </div>
+            </form>
           </div>
-        </article>
-      </section>
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Link
-          to={`/ticketing/${slug}/operations/scanner`}
-          className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <ScanLine className="h-6 w-6 text-slate-500" />
-          <p className="mt-4 font-black text-slate-950">
-            Open scanner
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-400">
-            Validate and admit guests.
-          </p>
-          <ArrowRight className="mt-4 h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
-        </Link>
-
-        <Link
-          to={`/ticketing/${slug}/operations/admissions?business_entity=${entity.id}`}
-          className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <CalendarCheck2 className="h-6 w-6 text-slate-500" />
-          <p className="mt-4 font-black text-slate-950">
-            Admissions
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-400">
-            Review guest check-ins.
-          </p>
-          <ArrowRight className="mt-4 h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
-        </Link>
-
-        <Link
-          to={`/ticketing/${slug}/operations/settlements?business_entity=${entity.id}`}
-          className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <WalletCards className="h-6 w-6 text-slate-500" />
-          <p className="mt-4 font-black text-slate-950">
-            Settlements
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-400">
-            Review amounts owed and paid.
-          </p>
-          <ArrowRight className="mt-4 h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
-        </Link>
-
-        <Link
-          to={`/ticketing/${slug}/operations/scan-attempts?business_entity=${entity.id}`}
-          className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <Users className="h-6 w-6 text-slate-500" />
-          <p className="mt-4 font-black text-slate-950">
-            Scan audit
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-400">
-            Inspect successful and blocked scans.
-          </p>
-          <ArrowRight className="mt-4 h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
-        </Link>
-      </section>
+        </div>
+      )}
     </div>
   );
 }
