@@ -2645,14 +2645,10 @@ class BookingViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
-            try:
-                BookingNotificationService.payment_confirmed(booking)
-            except Exception:
-                logger.exception(
-                    "Failed sending payment confirmation notifications for booking %s",
-                    booking.booking_code,
-                )
+        # Payment-confirmed notifications are triggered centrally by the
+        # finance/Celery pipeline when payment_status first transitions to
+        # deposit_paid or paid. Do not send them directly from this view,
+        # otherwise Stripe, PayPal, and manual payments can create duplicates.
 
         payment_serializer = BookingPaymentSerializer(
             payment,
