@@ -13,6 +13,8 @@ This allows views, serializers, Stripe/PayPal webhooks, seller dashboards,
 and reports to migrate safely without breaking all at once.
 """
 
+import logging
+
 from django.db import transaction
 
 from ticketing.finance.calculator import (
@@ -65,6 +67,69 @@ from ticketing.finance.constants import (
     PAYMENT_TYPE_FULL,
 )
 
+logger = logging.getLogger(__name__)
+
+CONFIRMED_PAYMENT_STATUSES = {"deposit_paid", "paid"}
+
+
+def _extract_booking_from_payment_result(result, fallback_booking):
+    """
+    Normalize finance service return values.
+
+    Most payment functions return ``(payment, booking)``. This compatibility
+    helper also supports a direct Booking return so older/newer finance engine
+    implementations remain safe.
+    """
+    if isinstance(result, tuple):
+        for value in reversed(result):
+            if hasattr(value, "payment_status") and hasattr(value, "booking_code"):
+                return value
+
+    if hasattr(result, "payment_status") and hasattr(result, "booking_code"):
+        return result
+
+    fallback_booking.refresh_from_db()
+    return fallback_booking
+
+
+def _queue_payment_confirmed_notification_if_transitioned(
+    *,
+    booking,
+    previous_payment_status,
+):
+    """
+    Queue customer notifications only on the first transition into a confirmed
+    payment state.
+
+    transaction.on_commit prevents Celery from reading the booking before the
+    surrounding database transaction has committed.
+    """
+    current_payment_status = str(
+        getattr(booking, "payment_status", "") or ""
+    )
+
+    if (
+        previous_payment_status not in CONFIRMED_PAYMENT_STATUSES
+        and current_payment_status in CONFIRMED_PAYMENT_STATUSES
+    ):
+        booking_id = booking.id
+
+        def enqueue():
+            try:
+                from ticketing.tasks import (
+                    send_payment_confirmed_notifications_task,
+                )
+
+                send_payment_confirmed_notifications_task.delay(booking_id)
+            except Exception:
+                logger.exception(
+                    "Could not queue payment-confirmed notifications for "
+                    "booking id=%s.",
+                    booking_id,
+                )
+
+        transaction.on_commit(enqueue)
+
 
 # ==========================================================
 # Legacy-compatible names
@@ -83,13 +148,21 @@ def recalculate_booking_payment_totals(booking):
         - delegates to finance.calculator.recalculate_booking()
         - syncs commission
         - recomputes seller totals
+        - queues customer notifications only when payment first becomes
+          deposit_paid or paid
     """
+    previous_payment_status = str(booking.payment_status or "")
 
     booking = recalculate_booking(booking)
     sync_commission_for_booking(booking)
 
     if booking.seller:
         recompute_seller_totals(booking.seller)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=booking,
+        previous_payment_status=previous_payment_status,
+    )
 
     return booking
 
@@ -98,7 +171,6 @@ def sync_seller_commission_for_booking(booking):
     """
     Legacy alias.
     """
-
     return sync_commission_for_booking(booking)
 
 
@@ -120,10 +192,13 @@ def mark_booking_payment_confirmed(
 
     Used by Stripe/PayPal confirmation flows.
 
-    This is now delegated to finance.payments.mark_provider_payment_confirmed().
+    This delegates to finance.payments.mark_provider_payment_confirmed() and
+    queues customer confirmation notifications after the transaction commits,
+    but only when payment_status first becomes deposit_paid or paid.
     """
+    previous_payment_status = str(booking.payment_status or "")
 
-    return mark_provider_payment_confirmed(
+    result = mark_provider_payment_confirmed(
         booking=booking,
         amount=amount,
         provider=provider,
@@ -136,17 +211,34 @@ def mark_booking_payment_confirmed(
         provider_response=provider_response or {},
     )
 
+    updated_booking = _extract_booking_from_payment_result(result, booking)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=updated_booking,
+        previous_payment_status=previous_payment_status,
+    )
+
+    return result
+
 
 # ==========================================================
 # Convenience wrappers for new code
 # ==========================================================
 
+@transaction.atomic
 def recalculate_booking_finance(booking):
+    previous_payment_status = str(booking.payment_status or "")
+
     booking = recalculate_booking(booking)
     sync_commission_for_booking(booking)
 
     if booking.seller:
         recompute_seller_totals(booking.seller)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=booking,
+        previous_payment_status=previous_payment_status,
+    )
 
     return booking
 
@@ -155,16 +247,25 @@ def calculate_booking_snapshot(booking):
     return calculate_booking_financial_snapshot(booking)
 
 
+@transaction.atomic
 def apply_booking_snapshot(booking, snapshot):
+    previous_payment_status = str(booking.payment_status or "")
+
     booking = apply_booking_financial_snapshot(booking, snapshot)
     sync_commission_for_booking(booking)
 
     if booking.seller:
         recompute_seller_totals(booking.seller)
 
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=booking,
+        previous_payment_status=previous_payment_status,
+    )
+
     return booking
 
 
+@transaction.atomic
 def record_customer_cash_to_seller(
     booking,
     amount,
@@ -183,10 +284,10 @@ def record_customer_cash_to_seller(
 
     It does NOT mean owner has received the money.
     """
-
+    previous_payment_status = str(booking.payment_status or "")
     seller = seller or booking.seller
 
-    return record_customer_payment(
+    result = record_customer_payment(
         booking=booking,
         amount=amount,
         payment_type=payment_type,
@@ -198,7 +299,17 @@ def record_customer_cash_to_seller(
         collected_by_party="seller",
     )
 
+    updated_booking = _extract_booking_from_payment_result(result, booking)
 
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=updated_booking,
+        previous_payment_status=previous_payment_status,
+    )
+
+    return result
+
+
+@transaction.atomic
 def record_customer_cash_to_owner(
     booking,
     amount,
@@ -212,8 +323,9 @@ def record_customer_cash_to_owner(
 
     This increases owner_received_amount.
     """
+    previous_payment_status = str(booking.payment_status or "")
 
-    return record_customer_payment(
+    result = record_customer_payment(
         booking=booking,
         amount=amount,
         payment_type=payment_type,
@@ -225,7 +337,17 @@ def record_customer_cash_to_owner(
         collected_by_party="owner",
     )
 
+    updated_booking = _extract_booking_from_payment_result(result, booking)
 
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=updated_booking,
+        previous_payment_status=previous_payment_status,
+    )
+
+    return result
+
+
+@transaction.atomic
 def record_customer_online_payment(
     booking,
     amount,
@@ -241,8 +363,9 @@ def record_customer_online_payment(
     """
     Customer pays online through Stripe/PayPal.
     """
+    previous_payment_status = str(booking.payment_status or "")
 
-    return mark_provider_payment_confirmed(
+    result = mark_provider_payment_confirmed(
         booking=booking,
         amount=amount,
         provider=provider,
@@ -255,6 +378,15 @@ def record_customer_online_payment(
         provider_response=provider_response or {},
     )
 
+    updated_booking = _extract_booking_from_payment_result(result, booking)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=updated_booking,
+        previous_payment_status=previous_payment_status,
+    )
+
+    return result
+
 
 def record_seller_company_settlement(
     booking,
@@ -266,8 +398,10 @@ def record_seller_company_settlement(
 ):
     """
     Seller pays the company what they owe.
-    """
 
+    This is a company settlement, not a customer payment, so no customer
+    confirmation notification is queued here.
+    """
     return record_seller_settlement_payment(
         booking=booking,
         amount=amount,
@@ -286,8 +420,10 @@ def settle_seller_booking_balance(
 ):
     """
     Fully settle the seller/company balance for this booking.
-    """
 
+    This does not represent a new customer payment, so it does not trigger a
+    customer confirmation.
+    """
     return settle_booking_fully(
         booking=booking,
         collected_by=collected_by,
@@ -307,7 +443,6 @@ def debug_booking_finance(booking):
         from ticketing import booking_finance_service as f
         f.debug_booking_finance(booking)
     """
-
     snapshot = calculate_booking_financial_snapshot(booking)
 
     return {

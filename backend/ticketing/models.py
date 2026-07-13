@@ -1964,6 +1964,169 @@ class TicketingEmailSettings(models.Model):
         verbose_name = "Ticketing Email Settings"
         verbose_name_plural = "Ticketing Email Settings"
 
+
+class TicketingWhatsAppSettings(models.Model):
+    """Per-organisation WhatsApp Business Platform configuration.
+
+    The connected WhatsApp number is the sender. Customer and supplier recipient
+    numbers remain on Booking/Customer and TicketingBusinessEntity or agreement
+    overrides respectively.
+    """
+
+    PROVIDER_CHOICES = (
+        ("meta_cloud_api", "Meta WhatsApp Cloud API"),
+    )
+
+    CONNECTION_STATUS_CHOICES = (
+        ("not_configured", "Not Configured"),
+        ("pending", "Pending"),
+        ("connected", "Connected"),
+        ("failed", "Failed"),
+        ("disconnected", "Disconnected"),
+    )
+
+    organisation = models.OneToOneField(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_whatsapp_settings",
+    )
+
+    provider = models.CharField(
+        max_length=30,
+        choices=PROVIDER_CHOICES,
+        default="meta_cloud_api",
+    )
+    is_active = models.BooleanField(default=False)
+
+    # Meta application and WhatsApp Business identifiers.
+    meta_app_id = models.CharField(max_length=255, blank=True)
+    meta_app_secret = models.CharField(max_length=255, blank=True)
+    business_account_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Meta WhatsApp Business Account ID (WABA ID).",
+    )
+    phone_number_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Meta phone number ID used to send WhatsApp messages.",
+    )
+
+    # Store secrets encrypted at rest at the service/deployment layer.
+    access_token = models.TextField(blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Human-readable sender details returned by Meta after connection/testing.
+    display_phone_number = models.CharField(max_length=40, blank=True)
+    verified_business_name = models.CharField(max_length=255, blank=True)
+
+    # Webhook configuration for delivery/read/failure status callbacks.
+    webhook_verify_token = models.CharField(max_length=255, blank=True)
+    webhook_subscribed = models.BooleanField(default=False)
+    webhook_subscribed_at = models.DateTimeField(null=True, blank=True)
+
+    # Approved utility template names and languages configured in Meta.
+    customer_confirmation_template = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Approved Meta template name for customer booking confirmations.",
+    )
+    customer_confirmation_language = models.CharField(max_length=20, default="en_US")
+
+    supplier_booking_template = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Approved Meta template name for supplier reservation reports.",
+    )
+    supplier_booking_language = models.CharField(max_length=20, default="en_US")
+
+    customer_reminder_template = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Approved Meta template name for customer booking reminders.",
+    )
+    customer_reminder_language = models.CharField(max_length=20, default="en_US")
+
+    # Organisation-level channel switches. Supplier-level switches and recipient
+    # details will be added to TicketingBusinessEntity/ProductBusinessAgreement.
+    send_customer_confirmation = models.BooleanField(default=True)
+    send_supplier_booking_notification = models.BooleanField(default=True)
+    send_customer_reminder = models.BooleanField(default=False)
+    attach_customer_ticket = models.BooleanField(default=True)
+    attach_supplier_voucher = models.BooleanField(default=True)
+
+    connection_status = models.CharField(
+        max_length=30,
+        choices=CONNECTION_STATUS_CHOICES,
+        default="not_configured",
+        db_index=True,
+    )
+    connected_at = models.DateTimeField(null=True, blank=True)
+    last_test_recipient = models.CharField(max_length=40, blank=True)
+    last_test_at = models.DateTimeField(null=True, blank=True)
+    last_error_message = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def has_credentials(self):
+        return bool(
+            self.is_active
+            and self.business_account_id
+            and self.phone_number_id
+            and self.access_token
+        )
+
+    @property
+    def is_connected(self):
+        return bool(
+            self.has_credentials
+            and self.connection_status == "connected"
+        )
+
+    @property
+    def masked_phone_number_id(self):
+        value = str(self.phone_number_id or "")
+        if len(value) <= 4:
+            return value
+        return f"{'*' * (len(value) - 4)}{value[-4:]}"
+
+    def mark_connected(self, save=True):
+        self.connection_status = "connected"
+        self.connected_at = timezone.now()
+        self.last_error_message = ""
+
+        if save:
+            self.save(
+                update_fields=[
+                    "connection_status",
+                    "connected_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+    def mark_failed(self, message, save=True):
+        self.connection_status = "failed"
+        self.last_error_message = str(message or "")
+
+        if save:
+            self.save(
+                update_fields=[
+                    "connection_status",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+    def __str__(self):
+        return f"WhatsApp Settings - {self.organisation.name}"
+
+    class Meta:
+        verbose_name = "Ticketing WhatsApp Settings"
+        verbose_name_plural = "Ticketing WhatsApp Settings"
+
 class ExternalProviderProductSnapshot(models.Model):
     organisation = models.ForeignKey(
         Organisation,
