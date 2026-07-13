@@ -35,6 +35,10 @@ import TicketingEmailSettingsPanel, {
   initialEmailSettings,
   type TicketingEmailSettings,
 } from "../components/settings/TicketingEmailSettingsPanel";
+import TicketingWhatsAppSettingsPanel, {
+  initialWhatsAppSettings,
+  type TicketingWhatsAppSettings,
+} from "../components/settings/TicketingWhatsAppSettingsPanel";
 
 type OrganisationBranding = {
   id?: number;
@@ -563,6 +567,13 @@ export default function TicketingSettingsPage() {
     useState<TicketingPaymentProviderSettings>(initialPaymentProviders);
   const [emailSettings, setEmailSettings] =
     useState<TicketingEmailSettings>(initialEmailSettings);
+  const [whatsappSettings, setWhatsAppSettings] =
+    useState<TicketingWhatsAppSettings>(initialWhatsAppSettings);
+  const [testingWhatsAppConnection, setTestingWhatsAppConnection] =
+    useState(false);
+  const [sendingWhatsAppTest, setSendingWhatsAppTest] = useState(false);
+  const [disconnectingWhatsApp, setDisconnectingWhatsApp] = useState(false);
+  const [whatsappTestRecipient, setWhatsAppTestRecipient] = useState("");
   const [testingEmail, setTestingEmail] = useState(false);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
@@ -605,6 +616,7 @@ export default function TicketingSettingsPage() {
           settingsResponse,
           paymentProvidersResponse,
           emailSettingsResponse,
+          whatsappSettingsResponse,
           publicSiteResponse,
         ] = await Promise.all([
           api.get<OrganisationBranding>(
@@ -625,6 +637,12 @@ export default function TicketingSettingsPage() {
               params: requestParams,
             },
           ),
+          api.get<TicketingWhatsAppSettings>(
+            "/ticketing/whatsapp-settings/mine/",
+            {
+              params: requestParams,
+            },
+          ),
           api.get<TicketingPublicSiteSettings>(
             "/ticketing/public-site-settings/mine/",
             {
@@ -637,6 +655,7 @@ export default function TicketingSettingsPage() {
         const settingsData = settingsResponse.data;
         const paymentProvidersData = paymentProvidersResponse.data;
         const emailSettingsData = emailSettingsResponse.data;
+        const whatsappSettingsData = whatsappSettingsResponse.data;
         const publicSiteData = publicSiteResponse.data;
 
         setBranding({
@@ -869,6 +888,95 @@ export default function TicketingSettingsPage() {
             emailSettingsData.last_test_email ||
               emailSettingsData.sender_email ||
               emailSettingsData.smtp_username,
+          ),
+        );
+
+        setWhatsAppSettings({
+          ...initialWhatsAppSettings,
+          ...whatsappSettingsData,
+          provider: "meta_cloud_api",
+          is_active: normalizeBoolean(whatsappSettingsData.is_active, false),
+          meta_app_id: normalizeText(whatsappSettingsData.meta_app_id),
+          meta_app_secret: "",
+          business_account_id: normalizeText(
+            whatsappSettingsData.business_account_id,
+          ),
+          phone_number_id: normalizeText(whatsappSettingsData.phone_number_id),
+          access_token: "",
+          display_phone_number: normalizeText(
+            whatsappSettingsData.display_phone_number,
+          ),
+          verified_business_name: normalizeText(
+            whatsappSettingsData.verified_business_name,
+          ),
+          webhook_verify_token: "",
+          webhook_subscribed: normalizeBoolean(
+            whatsappSettingsData.webhook_subscribed,
+            false,
+          ),
+          customer_confirmation_template: normalizeText(
+            whatsappSettingsData.customer_confirmation_template,
+          ),
+          customer_confirmation_language: normalizeText(
+            whatsappSettingsData.customer_confirmation_language,
+            "en_US",
+          ),
+          supplier_booking_template: normalizeText(
+            whatsappSettingsData.supplier_booking_template,
+          ),
+          supplier_booking_language: normalizeText(
+            whatsappSettingsData.supplier_booking_language,
+            "en_US",
+          ),
+          customer_reminder_template: normalizeText(
+            whatsappSettingsData.customer_reminder_template,
+          ),
+          customer_reminder_language: normalizeText(
+            whatsappSettingsData.customer_reminder_language,
+            "en_US",
+          ),
+          send_customer_confirmation: normalizeBoolean(
+            whatsappSettingsData.send_customer_confirmation,
+            true,
+          ),
+          send_supplier_booking_notification: normalizeBoolean(
+            whatsappSettingsData.send_supplier_booking_notification,
+            true,
+          ),
+          send_customer_reminder: normalizeBoolean(
+            whatsappSettingsData.send_customer_reminder,
+            false,
+          ),
+          attach_customer_ticket: normalizeBoolean(
+            whatsappSettingsData.attach_customer_ticket,
+            true,
+          ),
+          attach_supplier_voucher: normalizeBoolean(
+            whatsappSettingsData.attach_supplier_voucher,
+            true,
+          ),
+          connection_status:
+            whatsappSettingsData.connection_status || "not_configured",
+          configured: normalizeBoolean(
+            whatsappSettingsData.configured,
+            false,
+          ),
+          connected: normalizeBoolean(
+            whatsappSettingsData.connected,
+            false,
+          ),
+          last_test_recipient: normalizeText(
+            whatsappSettingsData.last_test_recipient,
+          ),
+          last_error_message: normalizeText(
+            whatsappSettingsData.last_error_message,
+          ),
+        });
+
+        setWhatsAppTestRecipient(
+          normalizeText(
+            whatsappSettingsData.last_test_recipient ||
+              whatsappSettingsData.display_phone_number,
           ),
         );
 
@@ -1162,6 +1270,15 @@ export default function TicketingSettingsPage() {
   }
 
 
+  function updateWhatsAppSettingsField<
+    K extends keyof TicketingWhatsAppSettings,
+  >(field: K, value: TicketingWhatsAppSettings[K]) {
+    setWhatsAppSettings((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
   function updatePublicSiteFieldLoose(field: string, value: unknown) {
     setPublicSite((current) => ({
       ...current,
@@ -1266,6 +1383,45 @@ export default function TicketingSettingsPage() {
 
       if (emailSettings.smtp_password) {
         emailSettingsPayload.smtp_password = emailSettings.smtp_password;
+      }
+
+      const whatsappSettingsPayload: Partial<TicketingWhatsAppSettings> = {
+        provider: "meta_cloud_api",
+        is_active: whatsappSettings.is_active,
+        meta_app_id: whatsappSettings.meta_app_id,
+        business_account_id: whatsappSettings.business_account_id,
+        phone_number_id: whatsappSettings.phone_number_id,
+        customer_confirmation_template:
+          whatsappSettings.customer_confirmation_template,
+        customer_confirmation_language:
+          whatsappSettings.customer_confirmation_language,
+        supplier_booking_template: whatsappSettings.supplier_booking_template,
+        supplier_booking_language: whatsappSettings.supplier_booking_language,
+        customer_reminder_template:
+          whatsappSettings.customer_reminder_template,
+        customer_reminder_language:
+          whatsappSettings.customer_reminder_language,
+        send_customer_confirmation:
+          whatsappSettings.send_customer_confirmation,
+        send_supplier_booking_notification:
+          whatsappSettings.send_supplier_booking_notification,
+        send_customer_reminder: whatsappSettings.send_customer_reminder,
+        attach_customer_ticket: whatsappSettings.attach_customer_ticket,
+        attach_supplier_voucher: whatsappSettings.attach_supplier_voucher,
+      };
+
+      if (whatsappSettings.meta_app_secret) {
+        whatsappSettingsPayload.meta_app_secret =
+          whatsappSettings.meta_app_secret;
+      }
+
+      if (whatsappSettings.access_token) {
+        whatsappSettingsPayload.access_token = whatsappSettings.access_token;
+      }
+
+      if (whatsappSettings.webhook_verify_token) {
+        whatsappSettingsPayload.webhook_verify_token =
+          whatsappSettings.webhook_verify_token;
       }
 
       const publicSiteFormData = new FormData();
@@ -1592,6 +1748,7 @@ export default function TicketingSettingsPage() {
         settingsResponse,
         paymentProvidersResponse,
         emailSettingsResponse,
+        whatsappSettingsResponse,
         publicSiteResponse,
       ] = await Promise.all([
         api.patch<OrganisationBranding>(
@@ -1615,6 +1772,13 @@ export default function TicketingSettingsPage() {
         api.patch<TicketingEmailSettings>(
           "/ticketing/email-settings/mine/",
           emailSettingsPayload,
+          {
+            params: requestParams,
+          },
+        ),
+        api.patch<TicketingWhatsAppSettings>(
+          "/ticketing/whatsapp-settings/mine/",
+          whatsappSettingsPayload,
           {
             params: requestParams,
           },
@@ -1658,6 +1822,14 @@ export default function TicketingSettingsPage() {
         ...current,
         ...emailSettingsResponse.data,
         smtp_password: "",
+      }));
+
+      setWhatsAppSettings((current) => ({
+        ...current,
+        ...whatsappSettingsResponse.data,
+        meta_app_secret: "",
+        access_token: "",
+        webhook_verify_token: "",
       }));
 
       setPublicSite((current) => ({
@@ -1826,6 +1998,161 @@ export default function TicketingSettingsPage() {
       );
     } finally {
       setTestingEmail(false);
+    }
+  }
+
+  async function handleTestWhatsAppConnection() {
+    try {
+      setTestingWhatsAppConnection(true);
+      setError("");
+      setSavedMessage("");
+
+      const payload: Partial<TicketingWhatsAppSettings> = {
+        provider: "meta_cloud_api",
+        is_active: whatsappSettings.is_active,
+        meta_app_id: whatsappSettings.meta_app_id,
+        business_account_id: whatsappSettings.business_account_id,
+        phone_number_id: whatsappSettings.phone_number_id,
+      };
+
+      if (whatsappSettings.meta_app_secret) {
+        payload.meta_app_secret = whatsappSettings.meta_app_secret;
+      }
+
+      if (whatsappSettings.access_token) {
+        payload.access_token = whatsappSettings.access_token;
+      }
+
+      if (whatsappSettings.webhook_verify_token) {
+        payload.webhook_verify_token =
+          whatsappSettings.webhook_verify_token;
+      }
+
+      const response = await api.post<{
+        ok: boolean;
+        detail?: string;
+        whatsapp_settings: TicketingWhatsAppSettings;
+      }>("/ticketing/whatsapp-settings/test/", payload, {
+        params: requestParams,
+      });
+
+      setWhatsAppSettings((current) => ({
+        ...current,
+        ...response.data.whatsapp_settings,
+        meta_app_secret: "",
+        access_token: "",
+        webhook_verify_token: "",
+      }));
+
+      setSavedMessage(
+        response.data.detail || "WhatsApp connection verified successfully.",
+      );
+    } catch (err: any) {
+      console.error("Could not test WhatsApp connection:", err);
+
+      const returnedSettings = err?.response?.data?.whatsapp_settings;
+
+      if (returnedSettings) {
+        setWhatsAppSettings((current) => ({
+          ...current,
+          ...returnedSettings,
+          meta_app_secret: "",
+          access_token: "",
+          webhook_verify_token: "",
+        }));
+      }
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not verify the WhatsApp connection.",
+      );
+    } finally {
+      setTestingWhatsAppConnection(false);
+    }
+  }
+
+  async function handleSendWhatsAppTest() {
+    try {
+      setSendingWhatsAppTest(true);
+      setError("");
+      setSavedMessage("");
+
+      const response = await api.post<{
+        ok: boolean;
+        detail?: string;
+        whatsapp_settings: TicketingWhatsAppSettings;
+      }>(
+        "/ticketing/whatsapp-settings/send-test/",
+        {
+          recipient: whatsappTestRecipient,
+          test_recipient: whatsappTestRecipient,
+        },
+        {
+          params: requestParams,
+        },
+      );
+
+      setWhatsAppSettings((current) => ({
+        ...current,
+        ...response.data.whatsapp_settings,
+        meta_app_secret: "",
+        access_token: "",
+        webhook_verify_token: "",
+      }));
+
+      setSavedMessage(
+        response.data.detail || "WhatsApp test message sent successfully.",
+      );
+    } catch (err: any) {
+      console.error("Could not send WhatsApp test message:", err);
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not send the WhatsApp test message.",
+      );
+    } finally {
+      setSendingWhatsAppTest(false);
+    }
+  }
+
+  async function handleDisconnectWhatsApp() {
+    try {
+      setDisconnectingWhatsApp(true);
+      setError("");
+      setSavedMessage("");
+
+      const { data } = await api.post<TicketingWhatsAppSettings>(
+        "/ticketing/whatsapp-settings/disconnect/",
+        {},
+        {
+          params: requestParams,
+        },
+      );
+
+      setWhatsAppSettings({
+        ...initialWhatsAppSettings,
+        ...data,
+        meta_app_secret: "",
+        access_token: "",
+        webhook_verify_token: "",
+      });
+
+      setSavedMessage("WhatsApp Business account disconnected.");
+    } catch (err: any) {
+      console.error("Could not disconnect WhatsApp:", err);
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not disconnect the WhatsApp Business account.",
+      );
+    } finally {
+      setDisconnectingWhatsApp(false);
     }
   }
 
@@ -2223,6 +2550,19 @@ export default function TicketingSettingsPage() {
           onChange={updateEmailSettingsField}
           onTestRecipientChange={setTestRecipient}
           onTestEmail={handleTestEmail}
+        />
+
+        <TicketingWhatsAppSettingsPanel
+          whatsappSettings={whatsappSettings}
+          testRecipient={whatsappTestRecipient}
+          testingConnection={testingWhatsAppConnection}
+          sendingTest={sendingWhatsAppTest}
+          disconnecting={disconnectingWhatsApp}
+          onChange={updateWhatsAppSettingsField}
+          onTestRecipientChange={setWhatsAppTestRecipient}
+          onTestConnection={handleTestWhatsAppConnection}
+          onSendTest={handleSendWhatsAppTest}
+          onDisconnect={handleDisconnectWhatsApp}
         />
 
         <PublicWebsiteSettings
