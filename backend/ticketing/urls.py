@@ -6,6 +6,7 @@ from .views import (
     TicketingPublicSiteSettingsViewSet,
     TicketingPaymentProviderSettingsViewSet,
     TicketingEmailSettingsViewSet,
+    TicketingWhatsAppSettingsViewSet,
     ExperienceCategoryViewSet,
     ExperienceProductViewSet,
     ProductGalleryImageViewSet,
@@ -83,6 +84,7 @@ router.register("settings", TicketingSettingsViewSet, basename="ticketing-settin
 router.register("public-site-settings", TicketingPublicSiteSettingsViewSet, basename="ticketing-public-site-settings")
 router.register("payment-provider-settings", TicketingPaymentProviderSettingsViewSet, basename="ticketing-payment-provider-settings")
 router.register("email-settings", TicketingEmailSettingsViewSet, basename="ticketing-email-settings")
+router.register("whatsapp-settings", TicketingWhatsAppSettingsViewSet, basename="ticketing-whatsapp-settings")
 router.register("categories", ExperienceCategoryViewSet, basename="ticketing-categories")
 router.register("products", ExperienceProductViewSet, basename="ticketing-products")
 router.register("product-gallery-images", ProductGalleryImageViewSet, basename="ticketing-product-gallery-images")
