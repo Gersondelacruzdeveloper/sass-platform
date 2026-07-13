@@ -8,6 +8,8 @@ It does not calculate prices directly.
 It does not calculate commissions directly.
 """
 
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -31,6 +33,62 @@ from .constants import (
     SETTLEMENT_SETTLED,
 )
 from .utils import money
+
+
+logger = logging.getLogger(__name__)
+
+CONFIRMED_BOOKING_PAYMENT_STATUSES = {"deposit_paid", "paid"}
+
+
+def _queue_payment_confirmed_notification_if_transitioned(
+    *,
+    booking,
+    previous_payment_status,
+    payer_type,
+    payment_type,
+    payment_status,
+):
+    """Queue once when a confirmed customer payment first confirms a booking."""
+    current_payment_status = str(
+        getattr(booking, "payment_status", "") or ""
+    )
+    previous_payment_status = str(previous_payment_status or "")
+    normalized_payment_status = str(payment_status or "").lower()
+    normalized_payment_type = str(payment_type or "").lower()
+    normalized_payer_type = str(payer_type or "").lower()
+
+    if not (
+        normalized_payer_type == PAYER_CUSTOMER
+        and normalized_payment_status == "confirmed"
+        and normalized_payment_type not in {
+            PAYMENT_TYPE_REFUND,
+            PAYMENT_TYPE_SETTLEMENT,
+        }
+        and previous_payment_status
+        not in CONFIRMED_BOOKING_PAYMENT_STATUSES
+        and current_payment_status
+        in CONFIRMED_BOOKING_PAYMENT_STATUSES
+    ):
+        return
+
+    booking_id = booking.id
+    booking_code = getattr(booking, "booking_code", booking_id)
+
+    def enqueue():
+        try:
+            from ticketing.tasks import (
+                send_payment_confirmed_notifications_task,
+            )
+
+            send_payment_confirmed_notifications_task.delay(booking_id)
+        except Exception:
+            logger.exception(
+                "Could not queue payment-confirmed notifications for "
+                "booking %s.",
+                booking_code,
+            )
+
+    transaction.on_commit(enqueue)
 
 
 def receiver_for_method(method="", provider="", seller=None):
@@ -118,6 +176,9 @@ def record_payment(
     from .calculator import recalculate_booking
     from .commissions import sync_commission_for_booking, recompute_seller_totals
 
+    previous_payment_status = str(
+        getattr(booking, "payment_status", "") or ""
+    )
     amount = money(amount)
 
     if amount <= ZERO:
@@ -158,6 +219,14 @@ def record_payment(
 
     if booking.seller:
         recompute_seller_totals(booking.seller)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=booking,
+        previous_payment_status=previous_payment_status,
+        payer_type=payer_type,
+        payment_type=payment_type,
+        payment_status=status,
+    )
 
     return payment, booking
 
@@ -340,6 +409,10 @@ def mark_provider_payment_confirmed(
     from .calculator import recalculate_booking
     from .commissions import sync_commission_for_booking, recompute_seller_totals
 
+    previous_payment_status = str(
+        getattr(booking, "payment_status", "") or ""
+    )
+
     lookup = {
         "booking": booking,
         "provider": provider,
@@ -410,5 +483,13 @@ def mark_provider_payment_confirmed(
 
     if booking.seller:
         recompute_seller_totals(booking.seller)
+
+    _queue_payment_confirmed_notification_if_transitioned(
+        booking=booking,
+        previous_payment_status=previous_payment_status,
+        payer_type=PAYER_CUSTOMER,
+        payment_type=payment_type,
+        payment_status="confirmed",
+    )
 
     return payment, booking
