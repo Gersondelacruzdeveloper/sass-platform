@@ -71,6 +71,8 @@ from .views import (
     PartnerSettlementPeriodViewSet,
     PartnerSettlementPaymentViewSet,
     TicketingLedgerEntryViewSet,
+    PartnerPortalBootstrapAPIView,
+    PartnerPortalLoginAPIView,
 )
 
 
@@ -132,6 +134,19 @@ router.register("public/pickup-locations", PublicPickupLocationViewSet, basename
 
 
 urlpatterns = [
+
+    # Partner Portal
+    path(
+        "partner/bootstrap/",
+        PartnerPortalBootstrapAPIView.as_view(),
+        name="ticketing-partner-bootstrap",
+    ),
+    path(
+        "partner/login/",
+        PartnerPortalLoginAPIView.as_view(),
+        name="ticketing-partner-login",
+    ),
+
     # Private dashboard / reports
     path("dashboard/", TicketingDashboardAPIView.as_view(), name="ticketing-dashboard"),
     path("reports/", TicketingReportsAPIView.as_view(), name="ticketing-reports"),

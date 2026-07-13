@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+# Permissions version: partner-portal-full-v2-2026-07-13
+
 from organisations.models import Membership, Organisation
 
 from .models import BusinessEntityUserAccess, Seller, TicketingBusinessEntity
@@ -791,7 +793,20 @@ class HasTicketingPermission(permissions.BasePermission):
 
 
 class HasBusinessEntityAccess(permissions.BasePermission):
+    """
+    Require active access to a business entity.
+
+    Partner bootstrap actions such as ``mine`` and ``bootstrap`` do not include
+    a business_entity_id yet, so they are allowed when the authenticated user
+    has at least one active business-entity access in the organisation.
+    """
+
     message = "You do not have access to this business entity."
+
+    ENTITY_OPTIONAL_ACTIONS = {
+        "mine",
+        "bootstrap",
+    }
 
     def has_permission(self, request, view):
         organisation = get_organisation_from_view(request, view)
@@ -801,12 +816,21 @@ class HasBusinessEntityAccess(permissions.BasePermission):
         if is_organisation_admin(request.user, organisation):
             return True
 
+        action = getattr(view, "action", None)
+
         business_entity = get_business_entity_from_view(
             request,
             view,
             organisation=organisation,
         )
+
         if not business_entity:
+            if action in self.ENTITY_OPTIONAL_ACTIONS:
+                return get_user_business_entity_accesses(
+                    request.user,
+                    organisation,
+                ).exists()
+
             return False
 
         return get_user_business_entity_access(
@@ -814,6 +838,55 @@ class HasBusinessEntityAccess(permissions.BasePermission):
             organisation,
             business_entity,
         ) is not None
+
+    def has_object_permission(self, request, view, obj):
+        organisation = get_organisation_from_view(request, view)
+        if not organisation:
+            return False
+
+        if is_organisation_admin(request.user, organisation):
+            return True
+
+        business_entity = None
+
+        if isinstance(obj, TicketingBusinessEntity):
+            business_entity = obj
+        else:
+            business_entity = getattr(obj, "business_entity", None)
+
+        if not business_entity:
+            return False
+
+        if business_entity.organisation_id != organisation.id:
+            return False
+
+        return get_user_business_entity_access(
+            request.user,
+            organisation,
+            business_entity,
+        ) is not None
+
+
+class CanAccessPartnerPortal(permissions.BasePermission):
+    """
+    Allow an organisation admin or a user with at least one active partner
+    assignment that includes dashboard access.
+    """
+
+    message = "You do not have access to the Partner Portal."
+
+    def has_permission(self, request, view):
+        organisation = get_organisation_from_view(request, view)
+        if not organisation:
+            return False
+
+        if is_organisation_admin(request.user, organisation):
+            return True
+
+        return get_user_business_entity_accesses(
+            request.user,
+            organisation,
+        ).filter(can_access_dashboard=True).exists()
 
 
 class CanAccessOperationsDashboard(permissions.BasePermission):
@@ -1031,6 +1104,34 @@ class CanManageBusinessEntityUsers(permissions.BasePermission):
             organisation=organisation,
         )
 
+        # A partner administrator must always be scoped to one of their
+        # assigned entities when listing, creating, updating, or disabling
+        # another partner user.
+        if not business_entity:
+            self.message = (
+                "A valid business entity is required to manage partner users."
+            )
+            return False
+
+        return user_has_ticketing_permission(
+            request.user,
+            organisation,
+            "can_manage_business_users",
+            business_entity,
+        )
+
+    def has_object_permission(self, request, view, obj):
+        organisation = get_organisation_from_view(request, view)
+        if not organisation:
+            return False
+
+        if is_organisation_admin(request.user, organisation):
+            return True
+
+        business_entity = getattr(obj, "business_entity", None)
+        if not business_entity:
+            return False
+
         return user_has_ticketing_permission(
             request.user,
             organisation,
@@ -1102,13 +1203,25 @@ class CanSyncOfflineScans(permissions.BasePermission):
         if not organisation:
             return False
 
+        if is_organisation_admin(request.user, organisation):
+            return True
+
         business_entity = get_business_entity_from_view(
             request,
             view,
             organisation=organisation,
         )
 
-        if business_entity and not business_entity.allow_offline_scanning:
+        if not business_entity:
+            self.message = (
+                "A valid business entity is required to synchronize offline scans."
+            )
+            return False
+
+        if not business_entity.allow_offline_scanning:
+            self.message = (
+                "Offline scanning is disabled for this business entity."
+            )
             return False
 
         return user_has_ticketing_permission(

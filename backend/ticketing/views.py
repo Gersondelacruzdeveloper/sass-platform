@@ -1,4 +1,5 @@
 from decimal import Decimal
+# Views version: partner-portal-step1-v2-2026-07-13
 import csv
 import io
 import json
@@ -10,6 +11,7 @@ import requests
 import stripe
 
 from django.conf import settings
+from django.contrib.auth import authenticate, get_user_model, login
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
@@ -163,6 +165,7 @@ from .permissions import (
     get_user_business_entity_accesses,
     HasBusinessEntityAccess,
     HasTicketingPermission,
+    CanAccessPartnerPortal,
     CanAccessOperationsDashboard,
     CanScanTickets,
     CanAdmitGuests,
@@ -278,6 +281,434 @@ class TicketingOrganisationMixin:
         context = super().get_serializer_context()
         context["organisation"] = self.get_organisation()
         return context
+
+
+PARTNER_PORTAL_PERMISSION_FIELDS = (
+    "can_access_dashboard",
+    "can_scan",
+    "can_view_today_bookings",
+    "can_view_admissions",
+    "can_view_customer_contact",
+    "can_view_financials",
+    "can_view_settlements",
+    "can_record_payments",
+    "can_reverse_admissions",
+    "can_manage_users",
+)
+
+
+def build_partner_access_payload(access):
+    permissions_payload = {
+        field: bool(getattr(access, field, False))
+        for field in PARTNER_PORTAL_PERMISSION_FIELDS
+    }
+
+    entity = access.business_entity
+
+    return {
+        "id": access.id,
+        "role": access.role,
+        "is_active": access.is_active,
+        "last_access_at": access.last_access_at,
+        "business_entity": {
+            "id": entity.id,
+            "name": entity.name,
+            "slug": entity.slug,
+            "entity_type": entity.entity_type,
+            "currency": entity.currency,
+            "can_scan_tickets": entity.can_scan_tickets,
+            "require_check_in_confirmation": (
+                entity.require_check_in_confirmation
+            ),
+            "allow_partial_admission": entity.allow_partial_admission,
+            "allow_offline_scanning": entity.allow_offline_scanning,
+        },
+        "permissions": permissions_payload,
+    }
+
+
+def build_partner_branding_payload(organisation):
+    branding = getattr(organisation, "branding", None)
+
+    def file_url(field_name):
+        field = getattr(branding, field_name, None) if branding else None
+
+        try:
+            return field.url if field else ""
+        except (ValueError, AttributeError):
+            return ""
+
+    return {
+        "company_name": (
+            getattr(branding, "company_name", "")
+            or organisation.name
+        ),
+        "platform_name": getattr(branding, "platform_name", "") if branding else "",
+        "logo_url": file_url("logo"),
+        "favicon_url": file_url("favicon"),
+        "app_icon_192_url": file_url("app_icon_192"),
+        "app_icon_512_url": file_url("app_icon_512"),
+        "primary_color": (
+            getattr(branding, "primary_color", "#111827")
+            if branding
+            else "#111827"
+        ),
+        "secondary_color": (
+            getattr(branding, "secondary_color", "#6B7280")
+            if branding
+            else "#6B7280"
+        ),
+        "accent_color": (
+            getattr(branding, "accent_color", "#F59E0B")
+            if branding
+            else "#F59E0B"
+        ),
+    }
+
+
+def build_partner_portal_payload(
+    *,
+    user,
+    organisation,
+    accesses,
+    selected_access=None,
+):
+    accesses = list(accesses)
+
+    if not accesses:
+        return None
+
+    selected_access = selected_access or accesses[0]
+
+    if selected_access.id not in {access.id for access in accesses}:
+        selected_access = accesses[0]
+
+    full_name = ""
+    if hasattr(user, "get_full_name"):
+        full_name = user.get_full_name() or ""
+
+    selected_permissions = {
+        field: bool(getattr(selected_access, field, False))
+        for field in PARTNER_PORTAL_PERMISSION_FIELDS
+    }
+
+    return {
+        "portal_type": "partner",
+        "user": {
+            "id": user.id,
+            "name": (
+                full_name
+                or getattr(user, "username", "")
+                or getattr(user, "email", "")
+            ),
+            "email": getattr(user, "email", ""),
+            "username": getattr(user, "username", ""),
+        },
+        "organisation": {
+            "id": organisation.id,
+            "name": organisation.name,
+            "slug": organisation.slug,
+        },
+        "branding": build_partner_branding_payload(organisation),
+        "default_access_id": selected_access.id,
+        "default_business_entity_id": selected_access.business_entity_id,
+        "default_business_entity": {
+            "id": selected_access.business_entity_id,
+            "name": selected_access.business_entity.name,
+            "slug": selected_access.business_entity.slug,
+            "entity_type": selected_access.business_entity.entity_type,
+        },
+        "role": selected_access.role,
+        "permissions": selected_permissions,
+        "accesses": [
+            build_partner_access_payload(access)
+            for access in accesses
+        ],
+        "routes": {
+            "dashboard": (
+                f"/ticketing/{organisation.slug}/partner/dashboard"
+            ),
+            "scanner": (
+                f"/ticketing/{organisation.slug}/partner/scanner"
+            ),
+            "admissions": (
+                f"/ticketing/{organisation.slug}/partner/admissions"
+            ),
+            "scan_history": (
+                f"/ticketing/{organisation.slug}/partner/scan-history"
+            ),
+            "settlements": (
+                f"/ticketing/{organisation.slug}/partner/settlements"
+            ),
+            "users": (
+                f"/ticketing/{organisation.slug}/partner/users"
+            ),
+            "profile": (
+                f"/ticketing/{organisation.slug}/partner/profile"
+            ),
+        },
+    }
+
+
+def get_active_partner_accesses(user, organisation):
+    return (
+        BusinessEntityUserAccess.objects
+        .filter(
+            organisation=organisation,
+            user=user,
+            is_active=True,
+            business_entity__is_active=True,
+        )
+        .select_related(
+            "organisation",
+            "business_entity",
+            "user",
+        )
+        .order_by("business_entity__name", "id")
+    )
+
+
+class PartnerPortalBootstrapAPIView(
+    TicketingOrganisationMixin,
+    APIView,
+):
+    permission_classes = [
+        HasTicketingOrganisationAccess,
+        CanAccessPartnerPortal,
+    ]
+
+    def get(self, request):
+        organisation = self.require_organisation()
+        accesses = list(
+            get_active_partner_accesses(
+                request.user,
+                organisation,
+            )
+        )
+
+        if not accesses:
+            return Response(
+                {
+                    "detail": (
+                        "This account does not have active Partner Portal access."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        requested_access_id = (
+            request.query_params.get("access_id")
+            or request.query_params.get("business_entity_access_id")
+        )
+        requested_entity_id = (
+            request.query_params.get("business_entity_id")
+            or request.query_params.get("entity_id")
+        )
+
+        selected_access = None
+
+        for access in accesses:
+            if (
+                requested_access_id
+                and str(access.id) == str(requested_access_id)
+            ):
+                selected_access = access
+                break
+
+            if (
+                requested_entity_id
+                and str(access.business_entity_id) == str(requested_entity_id)
+            ):
+                selected_access = access
+                break
+
+        now = timezone.now()
+        BusinessEntityUserAccess.objects.filter(
+            id__in=[access.id for access in accesses],
+        ).update(last_access_at=now)
+
+        payload = build_partner_portal_payload(
+            user=request.user,
+            organisation=organisation,
+            accesses=accesses,
+            selected_access=selected_access,
+        )
+
+        return Response(payload)
+
+
+class PartnerPortalLoginAPIView(APIView):
+    """
+    Authenticate a Partner Portal user and start the normal Django session.
+
+    Request body:
+    {
+        "organisation_slug": "punta-cana-discovery",
+        "email": "doorstaff@example.com",
+        "password": "temporary-password"
+    }
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def _resolve_organisation(self, request):
+        organisation_slug = (
+            request.data.get("organisation_slug")
+            or request.data.get("slug")
+            or request.query_params.get("organisation_slug")
+            or request.query_params.get("slug")
+        )
+
+        if not organisation_slug:
+            return None
+
+        return Organisation.objects.filter(
+            slug=organisation_slug,
+            is_active=True,
+        ).first()
+
+    def _authenticate_user(self, request, identifier, password):
+        UserModel = get_user_model()
+        username_field = getattr(UserModel, "USERNAME_FIELD", "username")
+
+        credentials = {
+            username_field: identifier,
+            "password": password,
+        }
+
+        user = authenticate(
+            request=request,
+            **credentials,
+        )
+
+        if user:
+            return user
+
+        # Compatibility fallback when the login form sends an email but the
+        # custom user model authenticates with username.
+        matching_user = (
+            UserModel._default_manager
+            .filter(email__iexact=identifier)
+            .first()
+        )
+
+        if not matching_user:
+            return None
+
+        fallback_identifier = getattr(
+            matching_user,
+            username_field,
+            None,
+        )
+
+        if not fallback_identifier:
+            return None
+
+        return authenticate(
+            request=request,
+            **{
+                username_field: fallback_identifier,
+                "password": password,
+            },
+        )
+
+    def post(self, request):
+        organisation = self._resolve_organisation(request)
+
+        if not organisation:
+            return Response(
+                {
+                    "organisation_slug": (
+                        "A valid active organisation is required."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        identifier = str(
+            request.data.get("email")
+            or request.data.get("username")
+            or request.data.get("identifier")
+            or ""
+        ).strip()
+
+        password = str(request.data.get("password") or "")
+
+        if not identifier:
+            return Response(
+                {"email": "Email or username is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not password:
+            return Response(
+                {"password": "Password is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = self._authenticate_user(
+            request,
+            identifier,
+            password,
+        )
+
+        if not user or not getattr(user, "is_active", True):
+            return Response(
+                {
+                    "detail": (
+                        "The email/username or password is incorrect."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        accesses = list(
+            get_active_partner_accesses(
+                user,
+                organisation,
+            )
+        )
+
+        if not accesses:
+            return Response(
+                {
+                    "detail": (
+                        "This account does not have active Partner Portal "
+                        "access for this organisation."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not any(access.can_access_dashboard for access in accesses):
+            return Response(
+                {
+                    "detail": (
+                        "Partner Portal dashboard access is disabled for "
+                        "this account."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        login(request, user)
+
+        now = timezone.now()
+        BusinessEntityUserAccess.objects.filter(
+            id__in=[access.id for access in accesses],
+        ).update(last_access_at=now)
+
+        payload = build_partner_portal_payload(
+            user=user,
+            organisation=organisation,
+            accesses=accesses,
+        )
+        payload["authenticated"] = True
+        payload["redirect_to"] = payload["routes"]["scanner"]
+
+        return Response(payload)
+
 
 class PublicDomainResolveAPIView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -7128,8 +7559,38 @@ class BusinessEntityUserAccessViewSet(
     BusinessEntityScopedMixin,
     viewsets.ModelViewSet,
 ):
+    """
+    Owner-managed partner users plus partner-portal bootstrap endpoints.
+
+    Management actions require ``CanManageBusinessEntityUsers``.
+    Logged-in partner users may call ``mine`` and ``bootstrap`` to discover
+    only their own active business-entity access.
+    """
+
     serializer_class = BusinessEntityUserAccessSerializer
     permission_classes = [CanManageBusinessEntityUsers]
+
+    PARTNER_PERMISSION_FIELDS = (
+        "can_access_dashboard",
+        "can_scan",
+        "can_view_today_bookings",
+        "can_view_admissions",
+        "can_view_customer_contact",
+        "can_view_financials",
+        "can_view_settlements",
+        "can_record_payments",
+        "can_reverse_admissions",
+        "can_manage_users",
+    )
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in {"mine", "bootstrap"}:
+            return [
+                HasTicketingOrganisationAccess(),
+                HasBusinessEntityAccess(),
+            ]
+
+        return [CanManageBusinessEntityUsers()]
 
     def get_queryset(self):
         organisation = self.get_organisation()
@@ -7140,21 +7601,40 @@ class BusinessEntityUserAccessViewSet(
             organisation=organisation,
         ).select_related("organisation", "business_entity", "user")
 
+        # Non-admin partner users must never enumerate another partner's users.
+        if not self.is_admin_user():
+            queryset = queryset.filter(user=self.request.user)
+
         entity_id = (
             self.request.query_params.get("business_entity")
             or self.request.query_params.get("business_entity_id")
         )
         is_active = self.request.query_params.get("is_active")
         role = self.request.query_params.get("role")
+        search = self.request.query_params.get("search")
 
         if entity_id:
             queryset = queryset.filter(business_entity_id=entity_id)
+
         if is_active in ["true", "false"]:
             queryset = queryset.filter(is_active=is_active == "true")
+
         if role:
             queryset = queryset.filter(role=role)
 
-        return queryset.order_by("business_entity__name", "user__email")
+        if search:
+            queryset = queryset.filter(
+                Q(user__email__icontains=search)
+                | Q(user__username__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+                | Q(business_entity__name__icontains=search)
+            )
+
+        return queryset.order_by(
+            "business_entity__name",
+            "user__email",
+        )
 
     def perform_create(self, serializer):
         organisation = self.require_organisation()
@@ -7174,6 +7654,234 @@ class BusinessEntityUserAccessViewSet(
             organisation=organisation,
             business_entity=entity,
         )
+
+    def _build_access_payload(self, access):
+        return build_partner_access_payload(access)
+
+    @staticmethod
+    def _generate_temporary_password(length=16):
+        alphabet = (
+            "ABCDEFGHJKLMNPQRSTUVWXYZ"
+            "abcdefghijkmnopqrstuvwxyz"
+            "23456789"
+            "!@#$%&*"
+        )
+
+        while True:
+            password = "".join(
+                secrets.choice(alphabet)
+                for _ in range(length)
+            )
+
+            if (
+                any(character.islower() for character in password)
+                and any(character.isupper() for character in password)
+                and any(character.isdigit() for character in password)
+                and any(character in "!@#$%&*" for character in password)
+            ):
+                return password
+
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request):
+        """
+        Return every active partner access assigned to the logged-in user.
+        """
+
+        organisation = self.require_organisation()
+
+        accesses = (
+            BusinessEntityUserAccess.objects
+            .filter(
+                organisation=organisation,
+                user=request.user,
+                is_active=True,
+                business_entity__is_active=True,
+            )
+            .select_related(
+                "organisation",
+                "business_entity",
+                "user",
+            )
+            .order_by("business_entity__name", "id")
+        )
+
+        if not accesses.exists():
+            return Response(
+                {
+                    "detail": (
+                        "No active Partner Portal access was found for this user."
+                    ),
+                    "portal_type": "partner",
+                    "organisation_slug": organisation.slug,
+                    "accesses": [],
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        now = timezone.now()
+        accesses.update(last_access_at=now)
+
+        refreshed_accesses = list(
+            accesses.select_related(
+                "organisation",
+                "business_entity",
+                "user",
+            )
+        )
+
+        return Response(
+            {
+                "portal_type": "partner",
+                "organisation": {
+                    "id": organisation.id,
+                    "name": organisation.name,
+                    "slug": organisation.slug,
+                },
+                "default_access_id": refreshed_accesses[0].id,
+                "accesses": [
+                    self._build_access_payload(access)
+                    for access in refreshed_accesses
+                ],
+            }
+        )
+
+    @action(detail=False, methods=["get"], url_path="bootstrap")
+    def bootstrap(self, request):
+        organisation = self.require_organisation()
+        accesses = list(
+            get_active_partner_accesses(
+                request.user,
+                organisation,
+            )
+        )
+
+        if not accesses:
+            return Response(
+                {
+                    "detail": (
+                        "This account does not have active Partner Portal access."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        now = timezone.now()
+        BusinessEntityUserAccess.objects.filter(
+            id__in=[access.id for access in accesses],
+        ).update(last_access_at=now)
+
+        return Response(
+            build_partner_portal_payload(
+                user=request.user,
+                organisation=organisation,
+                accesses=accesses,
+            )
+        )
+
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        """
+        Set a new temporary password.
+
+        The password is returned only in this response and is never stored in
+        plain text.
+        """
+
+        access = self.get_object()
+        user = access.user
+
+        requested_password = str(
+            request.data.get("temporary_password")
+            or request.data.get("password")
+            or ""
+        )
+
+        generate_password = str(
+            request.data.get("generate_password", "true")
+        ).lower() in {"true", "1", "yes"}
+
+        if requested_password and len(requested_password) < 10:
+            return Response(
+                {
+                    "temporary_password": (
+                        "Temporary password must be at least 10 characters."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        temporary_password = requested_password
+
+        if generate_password or not temporary_password:
+            temporary_password = self._generate_temporary_password()
+
+        user.set_password(temporary_password)
+        user.save(update_fields=["password"])
+
+        return Response(
+            {
+                "detail": "Partner login password reset successfully.",
+                "access_id": access.id,
+                "user_id": user.id,
+                "user_name": (
+                    user.get_full_name()
+                    if hasattr(user, "get_full_name")
+                    else getattr(user, "username", "")
+                ),
+                "user_email": getattr(user, "email", ""),
+                "username": getattr(user, "username", ""),
+                "business_entity": {
+                    "id": access.business_entity_id,
+                    "name": access.business_entity.name,
+                },
+                "partner_login_url": (
+                    f"/ticketing/{access.organisation.slug}/partner/login"
+                ),
+                "temporary_password": temporary_password,
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="activate")
+    def activate(self, request, pk=None):
+        access = self.get_object()
+
+        access.is_active = True
+        access.save(update_fields=["is_active", "updated_at"])
+
+        user = access.user
+        if hasattr(user, "is_active") and not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+
+        return Response(self.get_serializer(access).data)
+
+    @action(detail=True, methods=["post"], url_path="deactivate")
+    def deactivate(self, request, pk=None):
+        access = self.get_object()
+
+        access.is_active = False
+        access.save(update_fields=["is_active", "updated_at"])
+
+        # Do not disable the underlying Django user automatically because that
+        # account may still have seller, owner, or another entity assignment.
+        return Response(self.get_serializer(access).data)
+
+    @action(detail=True, methods=["post"], url_path="apply-role-defaults")
+    def apply_role_defaults(self, request, pk=None):
+        access = self.get_object()
+
+        serializer = self.get_serializer(
+            access,
+            data={
+                "role": request.data.get("role", access.role),
+                "apply_role_defaults": True,
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
 
 
 class ProductBusinessAgreementViewSet(

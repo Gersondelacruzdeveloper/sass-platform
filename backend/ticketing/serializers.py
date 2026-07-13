@@ -1,6 +1,9 @@
 from decimal import Decimal
+import secrets
+import string
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import serializers
 from .notifications import BookingNotificationService
@@ -2772,16 +2775,130 @@ class BusinessEntityUserAccessSerializer(
     OrganisationScopedSerializerMixin,
     serializers.ModelSerializer,
 ):
+    """
+    Partner portal user access.
+
+    Supports either:
+    1. linking an existing organisation user with ``user_id``; or
+    2. creating a new login using ``create_login=True``.
+
+    Generated passwords are returned only in the immediate create response and
+    are never stored in plain text.
+    """
+
+    PERMISSION_FIELDS = (
+        "can_access_dashboard",
+        "can_scan",
+        "can_view_today_bookings",
+        "can_view_admissions",
+        "can_view_customer_contact",
+        "can_view_financials",
+        "can_view_settlements",
+        "can_record_payments",
+        "can_reverse_admissions",
+        "can_manage_users",
+    )
+
+    ROLE_DEFAULT_PERMISSIONS = {
+        "administrator": {
+            field: True for field in PERMISSION_FIELDS
+        },
+        "finance": {
+            "can_access_dashboard": True,
+            "can_scan": False,
+            "can_view_today_bookings": True,
+            "can_view_admissions": True,
+            "can_view_customer_contact": False,
+            "can_view_financials": True,
+            "can_view_settlements": True,
+            "can_record_payments": True,
+            "can_reverse_admissions": False,
+            "can_manage_users": False,
+        },
+        "supervisor": {
+            "can_access_dashboard": True,
+            "can_scan": True,
+            "can_view_today_bookings": True,
+            "can_view_admissions": True,
+            "can_view_customer_contact": True,
+            "can_view_financials": False,
+            "can_view_settlements": False,
+            "can_record_payments": False,
+            "can_reverse_admissions": True,
+            "can_manage_users": False,
+        },
+        "scanner": {
+            "can_access_dashboard": True,
+            "can_scan": True,
+            "can_view_today_bookings": True,
+            "can_view_admissions": True,
+            "can_view_customer_contact": False,
+            "can_view_financials": False,
+            "can_view_settlements": False,
+            "can_record_payments": False,
+            "can_reverse_admissions": False,
+            "can_manage_users": False,
+        },
+        "driver": {
+            "can_access_dashboard": True,
+            "can_scan": True,
+            "can_view_today_bookings": True,
+            "can_view_admissions": False,
+            "can_view_customer_contact": True,
+            "can_view_financials": False,
+            "can_view_settlements": False,
+            "can_record_payments": False,
+            "can_reverse_admissions": False,
+            "can_manage_users": False,
+        },
+        "guide": {
+            "can_access_dashboard": True,
+            "can_scan": True,
+            "can_view_today_bookings": True,
+            "can_view_admissions": True,
+            "can_view_customer_contact": True,
+            "can_view_financials": False,
+            "can_view_settlements": False,
+            "can_record_payments": False,
+            "can_reverse_admissions": False,
+            "can_manage_users": False,
+        },
+        "viewer": {
+            "can_access_dashboard": True,
+            "can_scan": False,
+            "can_view_today_bookings": True,
+            "can_view_admissions": True,
+            "can_view_customer_contact": False,
+            "can_view_financials": False,
+            "can_view_settlements": False,
+            "can_record_payments": False,
+            "can_reverse_admissions": False,
+            "can_manage_users": False,
+        },
+    }
+
     organisation_name = serializers.CharField(
         source="organisation.name",
+        read_only=True,
+    )
+    organisation_slug = serializers.CharField(
+        source="organisation.slug",
         read_only=True,
     )
     business_entity_name = serializers.CharField(
         source="business_entity.name",
         read_only=True,
     )
+    business_entity_slug = serializers.CharField(
+        source="business_entity.slug",
+        read_only=True,
+    )
     user_email = serializers.EmailField(source="user.email", read_only=True)
     user_name = serializers.SerializerMethodField()
+    username = serializers.CharField(source="user.username", read_only=True)
+    permissions = serializers.SerializerMethodField()
+    partner_login_url = serializers.SerializerMethodField()
+    generated_password = serializers.SerializerMethodField()
 
     business_entity_id = serializers.PrimaryKeyRelatedField(
         source="business_entity",
@@ -2796,19 +2913,62 @@ class BusinessEntityUserAccessSerializer(
         required=False,
     )
 
+    create_login = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+    )
+    login_name = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=150,
+    )
+    login_email = serializers.EmailField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+    )
+    login_username = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=150,
+    )
+    temporary_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        min_length=10,
+        style={"input_type": "password"},
+    )
+    generate_password = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=True,
+    )
+    apply_role_defaults = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=True,
+    )
+
     class Meta:
         model = BusinessEntityUserAccess
         fields = [
             "id",
             "organisation",
             "organisation_name",
+            "organisation_slug",
             "business_entity",
             "business_entity_id",
             "business_entity_name",
+            "business_entity_slug",
             "user",
             "user_id",
             "user_name",
             "user_email",
+            "username",
             "role",
             "can_access_dashboard",
             "can_scan",
@@ -2820,8 +2980,18 @@ class BusinessEntityUserAccessSerializer(
             "can_record_payments",
             "can_reverse_admissions",
             "can_manage_users",
+            "permissions",
             "is_active",
             "last_access_at",
+            "partner_login_url",
+            "generated_password",
+            "create_login",
+            "login_name",
+            "login_email",
+            "login_username",
+            "temporary_password",
+            "generate_password",
+            "apply_role_defaults",
             "created_at",
             "updated_at",
         ]
@@ -2829,12 +2999,18 @@ class BusinessEntityUserAccessSerializer(
             "id",
             "organisation",
             "organisation_name",
+            "organisation_slug",
             "business_entity",
             "business_entity_name",
+            "business_entity_slug",
             "user",
             "user_name",
             "user_email",
+            "username",
+            "permissions",
             "last_access_at",
+            "partner_login_url",
+            "generated_password",
             "created_at",
             "updated_at",
         ]
@@ -2845,6 +3021,62 @@ class BusinessEntityUserAccessSerializer(
         full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
         return full_name or getattr(user, "username", "") or getattr(user, "email", "")
 
+    def get_permissions(self, obj):
+        return {
+            field: bool(getattr(obj, field, False))
+            for field in self.PERMISSION_FIELDS
+        }
+
+    def get_partner_login_url(self, obj):
+        slug = getattr(obj.organisation, "slug", "")
+        return f"/ticketing/{slug}/partner/login" if slug else ""
+
+    def get_generated_password(self, obj):
+        # This transient attribute exists only on the newly created instance.
+        return getattr(obj, "_generated_password", "")
+
+    @staticmethod
+    def _generate_secure_password(length=16):
+        alphabet = string.ascii_letters + string.digits + "!@#$%&*"
+
+        while True:
+            password = "".join(secrets.choice(alphabet) for _ in range(length))
+            if (
+                any(char.islower() for char in password)
+                and any(char.isupper() for char in password)
+                and any(char.isdigit() for char in password)
+                and any(char in "!@#$%&*" for char in password)
+            ):
+                return password
+
+    @staticmethod
+    def _split_name(full_name):
+        parts = str(full_name or "").strip().split()
+        if not parts:
+            return "", ""
+        if len(parts) == 1:
+            return parts[0], ""
+        return parts[0], " ".join(parts[1:])
+
+    @staticmethod
+    def _unique_username(raw_username, email):
+        base = str(raw_username or "").strip()
+        if not base:
+            base = str(email or "partner").split("@", 1)[0]
+
+        base = "".join(
+            char for char in base.lower().replace(" ", ".")
+            if char.isalnum() or char in "._-"
+        ).strip("._-") or "partner"
+
+        candidate = base[:140]
+        counter = 2
+        while User.objects.filter(username__iexact=candidate).exists():
+            suffix = f"-{counter}"
+            candidate = f"{base[:140 - len(suffix)]}{suffix}"
+            counter += 1
+        return candidate
+
     def validate(self, attrs):
         entity = attrs.get("business_entity") or getattr(
             self.instance,
@@ -2852,6 +3084,10 @@ class BusinessEntityUserAccessSerializer(
             None,
         )
         user = attrs.get("user") or getattr(self.instance, "user", None)
+        create_login = attrs.get("create_login", False)
+        login_email = str(attrs.get("login_email") or "").strip().lower()
+        generate_password = attrs.get("generate_password", True)
+        temporary_password = attrs.get("temporary_password") or ""
 
         if entity:
             self.validate_same_organisation(entity, "business_entity_id")
@@ -2862,6 +3098,36 @@ class BusinessEntityUserAccessSerializer(
             raise serializers.ValidationError(
                 {"user_id": "This user does not belong to the current organisation."}
             )
+
+        if create_login and user:
+            raise serializers.ValidationError(
+                {"user_id": "Choose an existing user or create a new login, not both."}
+            )
+
+        if not self.instance and not create_login and not user:
+            raise serializers.ValidationError(
+                {"user_id": "Choose an existing user or enable create_login."}
+            )
+
+        if create_login:
+            if not login_email:
+                raise serializers.ValidationError(
+                    {"login_email": "Email is required to create a partner login."}
+                )
+
+            if User.objects.filter(email__iexact=login_email).exists():
+                raise serializers.ValidationError(
+                    {"login_email": "A user with this email already exists."}
+                )
+
+            if not generate_password and not temporary_password:
+                raise serializers.ValidationError(
+                    {
+                        "temporary_password": (
+                            "Enter a temporary password or enable automatic password generation."
+                        )
+                    }
+                )
 
         if entity and user:
             duplicate = BusinessEntityUserAccess.objects.filter(
@@ -2876,6 +3142,107 @@ class BusinessEntityUserAccessSerializer(
                 )
 
         return attrs
+
+    def _apply_role_defaults(self, validated_data):
+        role = validated_data.get("role", "scanner")
+        defaults = self.ROLE_DEFAULT_PERMISSIONS.get(
+            role,
+            self.ROLE_DEFAULT_PERMISSIONS["scanner"],
+        )
+
+        # Explicit permission values sent by the client override role defaults.
+        explicit_permissions = {
+            field: validated_data[field]
+            for field in self.PERMISSION_FIELDS
+            if field in validated_data
+        }
+
+        for field, value in defaults.items():
+            validated_data[field] = value
+
+        validated_data.update(explicit_permissions)
+        return validated_data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        create_login = validated_data.pop("create_login", False)
+        login_name = validated_data.pop("login_name", "")
+        login_email = str(validated_data.pop("login_email", "") or "").strip().lower()
+        login_username = validated_data.pop("login_username", "")
+        temporary_password = validated_data.pop("temporary_password", "")
+        generate_password = validated_data.pop("generate_password", True)
+        apply_role_defaults = validated_data.pop("apply_role_defaults", True)
+
+        organisation = (
+            validated_data.get("organisation")
+            or self.get_current_organisation()
+        )
+        entity = validated_data.get("business_entity")
+
+        if entity:
+            organisation = entity.organisation
+            validated_data["organisation"] = organisation
+
+        generated_password = ""
+
+        if create_login:
+            password = temporary_password
+            if generate_password or not password:
+                password = self._generate_secure_password()
+                generated_password = password
+
+            username = self._unique_username(login_username, login_email)
+            first_name, last_name = self._split_name(login_name)
+
+            user_kwargs = {
+                "username": username,
+                "email": login_email,
+                "password": password,
+            }
+
+            user_field_names = {
+                field.name for field in User._meta.get_fields()
+            }
+            if "organisation" in user_field_names:
+                user_kwargs["organisation"] = organisation
+            if "first_name" in user_field_names:
+                user_kwargs["first_name"] = first_name
+            if "last_name" in user_field_names:
+                user_kwargs["last_name"] = last_name
+
+            user = User.objects.create_user(**user_kwargs)
+            validated_data["user"] = user
+
+        if apply_role_defaults:
+            validated_data = self._apply_role_defaults(validated_data)
+
+        access = BusinessEntityUserAccess.objects.create(**validated_data)
+
+        # Make the auto-generated password available only to this response.
+        if generated_password:
+            access._generated_password = generated_password
+
+        return access
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        # Login creation fields are intentionally create-only.
+        for field in (
+            "create_login",
+            "login_name",
+            "login_email",
+            "login_username",
+            "temporary_password",
+            "generate_password",
+        ):
+            validated_data.pop(field, None)
+
+        apply_role_defaults = validated_data.pop("apply_role_defaults", False)
+
+        if apply_role_defaults:
+            validated_data = self._apply_role_defaults(validated_data)
+
+        return super().update(instance, validated_data)
 
 
 class ProductBusinessAgreementSerializer(
