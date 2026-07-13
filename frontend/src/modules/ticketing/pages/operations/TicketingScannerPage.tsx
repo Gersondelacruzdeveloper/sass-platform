@@ -1,5 +1,5 @@
 // src/modules/ticketing/pages/operations/TicketingScannerPage.tsx
-// UI version: iphone-zxing-camera-v4-2026-07-12
+// UI version: stop-camera-show-result-v5-2026-07-12
 
 import type { FormEvent } from "react";
 import {
@@ -277,6 +277,7 @@ export default function TicketingScannerPage() {
   } = useOutletContext<TicketingDashboardOutletContext>();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const resultSectionRef = useRef<HTMLDivElement | null>(null);
   const zxingReaderRef = useRef<BrowserQRCodeReader | null>(null);
   const zxingControlsRef = useRef<IScannerControls | null>(null);
   const lastDetectedValueRef = useRef<string>("");
@@ -478,6 +479,9 @@ export default function TicketingScannerPage() {
             navigator.vibrate(100);
           }
 
+          // Stop the camera as soon as a QR is captured so staff can
+          // review the ticket result without the preview continuing below.
+          stopCamera();
           void resolveToken(detectedValue);
         },
       );
@@ -546,6 +550,27 @@ export default function TicketingScannerPage() {
       stopCamera();
     };
   }, [stopCamera]);
+
+  useEffect(() => {
+    if (
+      !resolution &&
+      !error &&
+      !["resolving", "admitting"].includes(status)
+    ) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      resultSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [error, resolution, status]);
 
   async function handleManualSubmit(event: FormEvent) {
     event.preventDefault();
@@ -736,11 +761,14 @@ export default function TicketingScannerPage() {
                   </div>
 
                   <p className="mt-5 text-lg font-black">
-                    Camera scanner is ready
+                    {resolution
+                      ? "QR captured successfully"
+                      : "Camera scanner is ready"}
                   </p>
                   <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/50">
-                    Select a business entity and start the rear camera.
-                    You can also enter the ticket token manually.
+                    {resolution
+                      ? "The camera has stopped. Review the ticket result and confirm entry."
+                      : "Select a business entity and start the rear camera. You can also enter the ticket token manually."}
                   </p>
                 </div>
               )}
@@ -838,7 +866,10 @@ export default function TicketingScannerPage() {
           </article>
         </div>
 
-        <div className="space-y-6">
+        <div
+          ref={resultSectionRef}
+          className="scroll-mt-24 space-y-6"
+        >
           {!resolution && !error && (
             <article className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-500">

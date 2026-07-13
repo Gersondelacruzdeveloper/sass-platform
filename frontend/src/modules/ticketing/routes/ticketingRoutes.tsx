@@ -1,9 +1,11 @@
 // src/modules/ticketing/routes/ticketingRoutes.tsx
+// Route version: dynamic-organisation-launcher-v2-2026-07-12
 
 import type { ReactElement } from "react";
 import { Navigate, Route, useParams } from "react-router-dom";
 
 import ProtectedRoute from "../../../components/ProtectedRoute";
+import { useAppSelector } from "../../../store/hooks";
 
 import TicketingDashboardLayout from "../layouts/TicketingDashboardLayout";
 import TicketingSellerLayout from "../layouts/TicketingSellerLayout";
@@ -87,6 +89,44 @@ function CustomDomainOnly({ children }: { children: ReactElement }) {
   return children;
 }
 
+function TicketingAppLauncher() {
+  const user = useAppSelector((state) => state.auth.user) as any;
+
+  const savedSlug =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("last_ticketing_slug") || ""
+      : "";
+
+  const organisationSlug =
+    user?.organisation?.slug ||
+    user?.organisation_slug ||
+    user?.membership?.organisation?.slug ||
+    user?.membership?.organisation_slug ||
+    user?.seller?.organisation_slug ||
+    savedSlug;
+
+  if (!organisationSlug) {
+    return <TicketingLandingPage />;
+  }
+
+  const isSeller =
+    Boolean(user?.seller) ||
+    user?.role === "seller" ||
+    user?.membership?.role === "seller";
+
+  return (
+    <Navigate
+      to={
+        isSeller
+          ? `/ticketing/${organisationSlug}/seller/dashboard`
+          : `/ticketing/${organisationSlug}/dashboard`
+      }
+      replace
+    />
+  );
+}
+
+
 function SellerDashboardFallback() {
   const { organisationSlug } = useParams<{
     organisationSlug: string;
@@ -106,8 +146,9 @@ function SellerDashboardFallback() {
 
 export const ticketingRoutes = (
   <>
-    {/* Platform landing page */}
-    <Route path="/ticketing" element={<TicketingLandingPage />} />
+    {/* Dynamic PWA / platform launcher */}
+    <Route path="/ticketing" element={<TicketingAppLauncher />} />
+    <Route path="/ticketing/" element={<TicketingAppLauncher />} />
 
     {/* Custom-domain public website routes */}
     <Route
