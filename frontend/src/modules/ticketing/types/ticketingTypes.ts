@@ -995,9 +995,9 @@ export type BusinessEntityType =
   | "other";
 
 export type BusinessEntityRole =
-  | "admin"
-  | "manager"
+  | "administrator"
   | "finance"
+  | "supervisor"
   | "scanner"
   | "driver"
   | "guide"
@@ -1102,9 +1102,11 @@ export interface BusinessEntityUserAccess {
   organisation_name?: string;
   business_entity: ID;
   business_entity_name?: string;
+  business_entity_slug?: string;
   user: ID;
   user_name?: string;
   user_email?: string;
+  username?: string;
   role: BusinessEntityRole;
   can_access_dashboard: boolean;
   can_scan: boolean;
@@ -1118,8 +1120,46 @@ export interface BusinessEntityUserAccess {
   can_manage_users: boolean;
   is_active: boolean;
   last_access_at?: string | null;
+  partner_login_url?: string;
+  generated_password?: string;
+  temporary_password?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface BusinessEntityUserCreatePayload {
+  business_entity_id: ID;
+  create_login?: boolean;
+  login_name: string;
+  login_email: string;
+  login_username?: string;
+  login_password?: string;
+  generate_password?: boolean;
+  apply_role_defaults?: boolean;
+  role: BusinessEntityRole;
+  is_active?: boolean;
+  can_access_dashboard?: boolean;
+  can_scan?: boolean;
+  can_view_today_bookings?: boolean;
+  can_view_admissions?: boolean;
+  can_view_customer_contact?: boolean;
+  can_view_financials?: boolean;
+  can_view_settlements?: boolean;
+  can_record_payments?: boolean;
+  can_reverse_admissions?: boolean;
+  can_manage_users?: boolean;
+}
+
+export interface BusinessEntityPasswordResetResponse {
+  detail: string;
+  access_id: ID;
+  user_id: ID;
+  user_name?: string;
+  user_email?: string;
+  username?: string;
+  business_entity?: { id: ID; name: string };
+  partner_login_url?: string;
+  temporary_password: string;
 }
 
 export interface ProductBusinessAgreement {

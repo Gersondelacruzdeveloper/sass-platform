@@ -41,6 +41,8 @@ import type {
   WelletProductsResponse,
   TicketingBusinessEntity,
   BusinessEntityUserAccess,
+  BusinessEntityUserCreatePayload,
+  BusinessEntityPasswordResetResponse,
   ProductBusinessAgreement,
   BookingFinancialSnapshot,
   AdmissionToken,
@@ -1171,10 +1173,7 @@ export const ticketingApi = {
   },
 
   createBusinessEntityUser: async (
-    payload: CreatePayload<BusinessEntityUserAccess> & {
-      business_entity_id: number;
-      user_id: number;
-    },
+    payload: BusinessEntityUserCreatePayload,
     slug?: string
   ): Promise<BusinessEntityUserAccess> => {
     const response = await api.post<BusinessEntityUserAccess>(
@@ -1209,6 +1208,57 @@ export const ticketingApi = {
     await api.delete(`/ticketing/business-entity-access/${id}/`, {
       params: withSlug(undefined, slug),
     });
+  },
+
+
+  resetBusinessEntityUserPassword: async (
+    id: number,
+    payload: { temporary_password?: string; generate_password?: boolean } = { generate_password: true },
+    slug?: string
+  ): Promise<BusinessEntityPasswordResetResponse> => {
+    const response = await api.post<BusinessEntityPasswordResetResponse>(
+      `/ticketing/business-entity-access/${id}/reset-password/`,
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  activateBusinessEntityUser: async (
+    id: number,
+    slug?: string
+  ): Promise<BusinessEntityUserAccess> => {
+    const response = await api.post<BusinessEntityUserAccess>(
+      `/ticketing/business-entity-access/${id}/activate/`,
+      {},
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  deactivateBusinessEntityUser: async (
+    id: number,
+    slug?: string
+  ): Promise<BusinessEntityUserAccess> => {
+    const response = await api.post<BusinessEntityUserAccess>(
+      `/ticketing/business-entity-access/${id}/deactivate/`,
+      {},
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  applyBusinessEntityUserRoleDefaults: async (
+    id: number,
+    role: BusinessEntityUserAccess["role"],
+    slug?: string
+  ): Promise<BusinessEntityUserAccess> => {
+    const response = await api.post<BusinessEntityUserAccess>(
+      `/ticketing/business-entity-access/${id}/apply-role-defaults/`,
+      { role },
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
   },
 
   // Product/business agreements
