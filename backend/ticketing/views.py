@@ -2645,10 +2645,14 @@ class BookingViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Payment-confirmed notifications are triggered centrally by the
-        # finance/Celery pipeline when payment_status first transitions to
-        # deposit_paid or paid. Do not send them directly from this view,
-        # otherwise Stripe, PayPal, and manual payments can create duplicates.
+        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
+            try:
+                BookingNotificationService.payment_confirmed(booking)
+            except Exception:
+                logger.exception(
+                    "Failed sending payment confirmation notifications for booking %s",
+                    booking.booking_code,
+                )
 
         payment_serializer = BookingPaymentSerializer(
             payment,
@@ -6594,31 +6598,10 @@ class StripeWebhookAPIView(APIView):
             payment_status=payment.status,
         )
 
-        # Send customer confirmation email after payment is confirmed
-        try:
-            self.webhook_log(
-                "SENDING_CUSTOMER_CONFIRMATION",
-                booking_code=updated_booking.booking_code,
-                payment_status=updated_booking.payment_status,
-            )
-
-            notification_logs = BookingNotificationService.payment_confirmed(
-                updated_booking
-            )
-
-            self.webhook_log(
-                "CUSTOMER_CONFIRMATION_SENT",
-                booking_code=updated_booking.booking_code,
-                notification_count=len(notification_logs or []),
-            )
-
-        except Exception as exc:
-            self.webhook_log(
-                "CUSTOMER_CONFIRMATION_FAILED",
-                booking_code=updated_booking.booking_code,
-                error=str(exc),
-                traceback=traceback.format_exc(),
-            )
+        # Payment-confirmed notifications are queued centrally by the finance
+        # service after the transaction commits. Do not send them directly
+        # from the webhook, because Stripe may deliver the same event more than
+        # once and the public confirmation endpoint may run as well.
 
         self.webhook_log("END_OK")
 
@@ -6786,13 +6769,8 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
             provider_response=session_data,
         )
 
-        try:
-            BookingNotificationService.payment_confirmed(booking)
-        except Exception:
-            logger.exception(
-                "Failed sending payment confirmation notifications for booking %s",
-                booking.booking_code,
-            )
+        # Notification delivery is handled centrally by the finance/Celery
+        # transition pipeline. Do not send directly from this fallback endpoint.
 
         serializer = BookingSerializer(
             booking,

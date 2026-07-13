@@ -330,7 +330,26 @@ def send_gmail_email(
         attachments=attachments,
     )
 
-    return service.users().messages().send(
-        userId="me",
-        body=message,
-    ).execute()
+    try:
+        return service.users().messages().send(
+            userId="me",
+            body=message,
+        ).execute()
+    except RefreshError as exc:
+        error_text = str(exc)
+        message_text = (
+            "Google authorization has expired or was revoked. "
+            "Reconnect the Google account in Email Settings."
+        )
+
+        logger.warning(
+            "Google OAuth send failed for organisation id=%s: %s",
+            getattr(email_settings, "organisation_id", None),
+            error_text,
+        )
+
+        mark_google_reconnect_required(
+            email_settings,
+            f"{message_text} Google response: {error_text}",
+        )
+        raise GoogleOAuthReconnectRequired(message_text) from exc
