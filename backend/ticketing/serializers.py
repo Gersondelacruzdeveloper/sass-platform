@@ -10,6 +10,7 @@ from .notifications import BookingNotificationService
 
 from .models import (
     TicketingEmailSettings,
+    TicketingWhatsAppSettings,
     TicketingSettings,
     TicketingPublicSiteSettings,
     TicketingPaymentProviderSettings,
@@ -1033,6 +1034,176 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
             validated_data.pop("smtp_password")
 
         return super().update(instance, validated_data)
+
+
+class TicketingWhatsAppSettingsSerializer(serializers.ModelSerializer):
+    """
+    Per-organisation Meta WhatsApp Cloud API settings.
+
+    Secret credentials are write-only and are preserved when the frontend
+    submits an empty string. This allows the settings form to save ordinary
+    fields without erasing previously stored credentials.
+    """
+
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+
+    configured = serializers.SerializerMethodField()
+    connected = serializers.SerializerMethodField()
+    has_credentials = serializers.SerializerMethodField()
+    is_connected = serializers.SerializerMethodField()
+    masked_phone_number_id = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = TicketingWhatsAppSettings
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+
+            "provider",
+            "is_active",
+
+            # Meta application and WhatsApp Business identifiers
+            "meta_app_id",
+            "meta_app_secret",
+            "business_account_id",
+            "phone_number_id",
+            "access_token",
+            "token_expires_at",
+
+            # Sender details returned by Meta
+            "display_phone_number",
+            "verified_business_name",
+
+            # Webhook configuration
+            "webhook_verify_token",
+            "webhook_subscribed",
+            "webhook_subscribed_at",
+
+            # Approved templates
+            "customer_confirmation_template",
+            "customer_confirmation_language",
+            "supplier_booking_template",
+            "supplier_booking_language",
+            "customer_reminder_template",
+            "customer_reminder_language",
+
+            # Notification rules
+            "send_customer_confirmation",
+            "send_supplier_booking_notification",
+            "send_customer_reminder",
+            "attach_customer_ticket",
+            "attach_supplier_voucher",
+
+            # Connection and test status
+            "connection_status",
+            "connected_at",
+            "last_test_recipient",
+            "last_test_at",
+            "last_error_message",
+
+            # Computed frontend helpers
+            "configured",
+            "connected",
+            "has_credentials",
+            "is_connected",
+            "masked_phone_number_id",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+
+            # Populated by Meta/test/webhook actions
+            "display_phone_number",
+            "verified_business_name",
+            "webhook_subscribed",
+            "webhook_subscribed_at",
+            "connection_status",
+            "connected_at",
+            "last_test_recipient",
+            "last_test_at",
+            "last_error_message",
+
+            # Computed properties
+            "configured",
+            "connected",
+            "has_credentials",
+            "is_connected",
+            "masked_phone_number_id",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        extra_kwargs = {
+            "meta_app_secret": {
+                "write_only": True,
+                "required": False,
+                "allow_blank": True,
+            },
+            "access_token": {
+                "write_only": True,
+                "required": False,
+                "allow_blank": True,
+            },
+            "webhook_verify_token": {
+                "write_only": True,
+                "required": False,
+                "allow_blank": True,
+            },
+        }
+
+    def get_configured(self, obj):
+        return obj.has_credentials
+
+    def get_connected(self, obj):
+        return obj.is_connected
+
+    def get_has_credentials(self, obj):
+        return obj.has_credentials
+
+    def get_is_connected(self, obj):
+        return obj.is_connected
+
+    def update(self, instance, validated_data):
+        # Do not erase stored secrets when password fields are left blank.
+        for secret_field in [
+            "meta_app_secret",
+            "access_token",
+            "webhook_verify_token",
+        ]:
+            if secret_field in validated_data and not validated_data[secret_field]:
+                validated_data.pop(secret_field)
+
+        # Changing credentials means the integration should be tested again.
+        credential_fields = {
+            "meta_app_id",
+            "meta_app_secret",
+            "business_account_id",
+            "phone_number_id",
+            "access_token",
+        }
+
+        credentials_changed = any(
+            field in validated_data
+            and validated_data[field] != getattr(instance, field)
+            for field in credential_fields
+        )
+
+        if credentials_changed:
+            validated_data["connection_status"] = "pending"
+            validated_data["last_error_message"] = ""
+
+        return super().update(instance, validated_data)
+
 
 class ExternalProviderConfigSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(

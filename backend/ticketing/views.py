@@ -76,6 +76,7 @@ from .models import (
     EventTicketType,
     ProductReview,
     TicketingEmailSettings,
+    TicketingWhatsAppSettings,
     ProductURLAlias,
     TicketingBusinessEntity,
     BusinessEntityUserAccess,
@@ -118,6 +119,7 @@ from .serializers import (
     EventTicketTypeSerializer,
     ProductReviewSerializer,
     TicketingEmailSettingsSerializer,
+    TicketingWhatsAppSettingsSerializer,
     TicketingBusinessEntitySerializer,
     BusinessEntityUserAccessSerializer,
     ProductBusinessAgreementSerializer,
@@ -1013,6 +1015,36 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
             }
         )
 
+
+
+class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
+    serializer_class = TicketingWhatsAppSettingsSerializer
+    permission_classes = [CanManageTicketingIntegrations]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return TicketingWhatsAppSettings.objects.none()
+        return TicketingWhatsAppSettings.objects.filter(organisation=organisation)
+
+    @action(detail=False, methods=["get", "patch"], url_path="mine")
+    def mine(self, request):
+        organisation = self.require_organisation()
+        settings_obj, _ = TicketingWhatsAppSettings.objects.get_or_create(
+            organisation=organisation
+        )
+
+        if request.method == "PATCH":
+            serializer = self.get_serializer(
+                settings_obj,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(self.get_serializer(settings_obj).data)
 
 class ExperienceCategoryViewSet(
     TicketingProductManagementPermissionMixin,
