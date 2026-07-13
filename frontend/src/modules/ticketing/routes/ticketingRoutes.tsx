@@ -1,14 +1,27 @@
 // src/modules/ticketing/routes/ticketingRoutes.tsx
-// Route version: dynamic-organisation-launcher-v2-2026-07-12
+// Route version: dedicated-partner-layout-v4-2026-07-13
 
 import type { ReactElement } from "react";
-import { Navigate, Route, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  useParams,
+} from "react-router-dom";
 
 import ProtectedRoute from "../../../components/ProtectedRoute";
+import api from "../../../api/axios";
 import { useAppSelector } from "../../../store/hooks";
 
 import TicketingDashboardLayout from "../layouts/TicketingDashboardLayout";
 import TicketingSellerLayout from "../layouts/TicketingSellerLayout";
+import TicketingPartnerLayout from "../layouts/TicketingPartnerLayout";
+
+import {
+  Loader2,
+  ShieldCheck,
+} from "lucide-react";
 
 import TicketingLandingPage from "../pages/TicketingLandingPage";
 import TicketingLoginPage from "../pages/TicketingLoginPage";
@@ -89,6 +102,281 @@ function CustomDomainOnly({ children }: { children: ReactElement }) {
   return children;
 }
 
+
+type PartnerPermissions = {
+  can_access_dashboard: boolean;
+  can_scan: boolean;
+  can_view_today_bookings: boolean;
+  can_view_admissions: boolean;
+  can_view_customer_contact: boolean;
+  can_view_financials: boolean;
+  can_view_settlements: boolean;
+  can_record_payments: boolean;
+  can_reverse_admissions: boolean;
+  can_manage_users: boolean;
+};
+
+type PartnerBootstrap = {
+  portal_type: "partner";
+  organisation: {
+    id: number;
+    name: string;
+    slug: string;
+  };
+  default_business_entity_id: number;
+  default_business_entity: {
+    id: number;
+    name: string;
+    slug: string;
+    entity_type: string;
+  };
+  role: string;
+  permissions: PartnerPermissions;
+  routes?: Record<string, string>;
+};
+
+type PartnerAccessState = {
+  loading: boolean;
+  isPartner: boolean;
+  data: PartnerBootstrap | null;
+};
+
+const EMPTY_PARTNER_ACCESS: PartnerAccessState = {
+  loading: true,
+  isPartner: false,
+  data: null,
+};
+
+function getPartnerDestination(
+  organisationSlug: string,
+  permissions?: Partial<PartnerPermissions> | null,
+): string {
+  const base = `/ticketing/${organisationSlug}/partner`;
+
+  if (permissions?.can_scan) {
+    return `${base}/scanner`;
+  }
+
+  if (permissions?.can_view_admissions) {
+    return `${base}/admissions`;
+  }
+
+  if (permissions?.can_view_settlements) {
+    return `${base}/settlements`;
+  }
+
+  if (permissions?.can_view_today_bookings) {
+    return `${base}/scan-history`;
+  }
+
+  return `${base}/access-denied`;
+}
+
+function usePartnerAccess(
+  organisationSlug?: string,
+): PartnerAccessState {
+  const [state, setState] =
+    useState<PartnerAccessState>(EMPTY_PARTNER_ACCESS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPartnerAccess() {
+      if (!organisationSlug) {
+        setState({
+          loading: false,
+          isPartner: false,
+          data: null,
+        });
+        return;
+      }
+
+      setState(EMPTY_PARTNER_ACCESS);
+
+      try {
+        const response = await api.get<PartnerBootstrap>(
+          "/ticketing/partner/bootstrap/",
+          {
+            params: {
+              slug: organisationSlug,
+              organisation_slug: organisationSlug,
+            },
+          },
+        );
+
+        if (!cancelled) {
+          setState({
+            loading: false,
+            isPartner: response.data?.portal_type === "partner",
+            data: response.data,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setState({
+            loading: false,
+            isPartner: false,
+            data: null,
+          });
+        }
+      }
+    }
+
+    void loadPartnerAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationSlug]);
+
+  return state;
+}
+
+function RouteLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+        <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
+        <span className="text-sm font-black text-slate-700">
+          Checking portal access...
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function OwnerPortalGuard({ children }: { children: ReactElement }) {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const partnerAccess = usePartnerAccess(organisationSlug);
+
+  if (partnerAccess.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (partnerAccess.isPartner && organisationSlug) {
+    return (
+      <Navigate
+        to={getPartnerDestination(
+          organisationSlug,
+          partnerAccess.data?.permissions,
+        )}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
+function PartnerPermissionGate({
+  permission,
+  children,
+}: {
+  permission: keyof PartnerPermissions;
+  children: ReactElement;
+}) {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const partnerAccess = usePartnerAccess(organisationSlug);
+
+  if (partnerAccess.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (!partnerAccess.isPartner || !partnerAccess.data) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug || ""}/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (!partnerAccess.data.permissions[permission]) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/partner/access-denied`}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
+function PartnerAccessDeniedPage() {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const partnerAccess = usePartnerAccess(organisationSlug);
+
+  if (partnerAccess.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  const fallback = organisationSlug
+    ? getPartnerDestination(
+        organisationSlug,
+        partnerAccess.data?.permissions,
+      )
+    : "/ticketing";
+
+  return (
+    <div className="mx-auto max-w-xl rounded-[2rem] border border-amber-200 bg-amber-50 p-6 text-center shadow-sm">
+      <ShieldCheck className="mx-auto h-10 w-10 text-amber-700" />
+      <h1 className="mt-4 text-2xl font-black text-slate-950">
+        Access restricted
+      </h1>
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+        Your partner account does not have permission to open this page.
+        Contact the organisation owner if your role needs additional access.
+      </p>
+
+      {fallback !==
+        `/ticketing/${organisationSlug}/partner/access-denied` && (
+        <Link
+          to={fallback}
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
+        >
+          Return to an allowed page
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function PartnerPortalIndex() {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const partnerAccess = usePartnerAccess(organisationSlug);
+
+  if (partnerAccess.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (!organisationSlug || !partnerAccess.data) {
+    return <Navigate to="/ticketing" replace />;
+  }
+
+  return (
+    <Navigate
+      to={getPartnerDestination(
+        organisationSlug,
+        partnerAccess.data.permissions,
+      )}
+      replace
+    />
+  );
+}
+
 function TicketingAppLauncher() {
   const user = useAppSelector((state) => state.auth.user) as any;
 
@@ -105,8 +393,26 @@ function TicketingAppLauncher() {
     user?.seller?.organisation_slug ||
     savedSlug;
 
+  const partnerAccess = usePartnerAccess(organisationSlug);
+
   if (!organisationSlug) {
     return <TicketingLandingPage />;
+  }
+
+  if (partnerAccess.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (partnerAccess.isPartner) {
+    return (
+      <Navigate
+        to={getPartnerDestination(
+          organisationSlug,
+          partnerAccess.data?.permissions,
+        )}
+        replace
+      />
+    );
   }
 
   const isSeller =
@@ -125,7 +431,6 @@ function TicketingAppLauncher() {
     />
   );
 }
-
 
 function SellerDashboardFallback() {
   const { organisationSlug } = useParams<{
@@ -325,10 +630,77 @@ export const ticketingRoutes = (
         element={<SellerDashboardFallback />}
       />
 
+      {/* Restricted Partner Portal */}
+      <Route
+        path="/ticketing/:organisationSlug/partner"
+        element={<TicketingPartnerLayout />}
+      >
+        <Route index element={<PartnerPortalIndex />} />
+
+        <Route
+          path="scanner"
+          element={
+            <PartnerPermissionGate permission="can_scan">
+              <TicketingScannerPage />
+            </PartnerPermissionGate>
+          }
+        />
+
+        <Route
+          path="admissions"
+          element={
+            <PartnerPermissionGate permission="can_view_admissions">
+              <TicketingAdmissionsPage />
+            </PartnerPermissionGate>
+          }
+        />
+
+        <Route
+          path="scan-history"
+          element={
+            <PartnerPermissionGate permission="can_view_today_bookings">
+              <TicketingScanAttemptsPage />
+            </PartnerPermissionGate>
+          }
+        />
+
+        <Route
+          path="settlements"
+          element={
+            <PartnerPermissionGate permission="can_view_settlements">
+              <TicketingSettlementsPage />
+            </PartnerPermissionGate>
+          }
+        />
+
+        <Route
+          path="settlements/:settlementId"
+          element={
+            <PartnerPermissionGate permission="can_view_settlements">
+              <TicketingSettlementDetailPage />
+            </PartnerPermissionGate>
+          }
+        />
+
+        <Route
+          path="access-denied"
+          element={<PartnerAccessDeniedPage />}
+        />
+
+        <Route
+          path="*"
+          element={<PartnerPortalIndex />}
+        />
+      </Route>
+
       {/* Owner/admin portal */}
       <Route
         path="/ticketing/:organisationSlug"
-        element={<TicketingDashboardLayout />}
+        element={
+          <OwnerPortalGuard>
+            <TicketingDashboardLayout />
+          </OwnerPortalGuard>
+        }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<TicketingDashboardPage />} />

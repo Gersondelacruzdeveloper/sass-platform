@@ -1,13 +1,15 @@
 // src/modules/ticketing/layouts/TicketingDashboardLayout.tsx
+// Layout version: portal-router-v2-2026-07-13
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Navigate,
   Outlet,
   useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 
 import api from "../../../api/axios";
 import { logoutUser } from "../../../features/auth/authSlice";
@@ -57,6 +59,47 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
+export type PartnerPortalPermissions = {
+  can_access_dashboard: boolean;
+  can_scan: boolean;
+  can_view_today_bookings: boolean;
+  can_view_admissions: boolean;
+  can_view_customer_contact: boolean;
+  can_view_financials: boolean;
+  can_view_settlements: boolean;
+  can_record_payments: boolean;
+  can_reverse_admissions: boolean;
+  can_manage_users: boolean;
+};
+
+type PartnerPortalBootstrap = {
+  portal_type: "partner";
+  organisation: {
+    id: number;
+    name: string;
+    slug: string;
+  };
+  default_business_entity_id: number;
+  default_business_entity?: {
+    id: number;
+    name: string;
+    slug: string;
+    entity_type: string;
+  };
+  role: string;
+  permissions: PartnerPortalPermissions;
+};
+
+type PortalResolution =
+  | { loading: true; portalType: "unknown"; partner: null }
+  | { loading: false; portalType: "owner"; partner: null }
+  | { loading: false; portalType: "seller"; partner: null }
+  | {
+      loading: false;
+      portalType: "partner";
+      partner: PartnerPortalBootstrap;
+    };
+
 export type TicketingDashboardOutletContext = {
   slug: string;
   organisationName: string;
@@ -65,6 +108,11 @@ export type TicketingDashboardOutletContext = {
   branding: OrganisationBranding | null;
   isOperationsRoute: boolean;
   portalLabel: string;
+  portalType: "owner";
+  isOwner: true;
+  isSeller: false;
+  isPartner: false;
+  partnerPermissions: null;
 };
 
 function getApiBaseUrl() {
@@ -158,6 +206,45 @@ function getUserAvatarUrl(user: any) {
   );
 }
 
+
+function getPartnerDestination(
+  slug: string,
+  permissions: PartnerPortalPermissions,
+) {
+  const base = `/ticketing/${slug}/partner`;
+
+  if (permissions.can_scan) {
+    return `${base}/scanner`;
+  }
+
+  if (permissions.can_view_admissions) {
+    return `${base}/admissions`;
+  }
+
+  if (permissions.can_view_settlements) {
+    return `${base}/settlements`;
+  }
+
+  if (permissions.can_view_today_bookings) {
+    return `${base}/scan-history`;
+  }
+
+  return `${base}/access-denied`;
+}
+
+function PortalLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+        <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
+        <span className="text-sm font-black text-slate-700">
+          Checking portal access...
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function TicketingDashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [branding, setBranding] =
@@ -166,6 +253,12 @@ export default function TicketingDashboardLayout() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [portalResolution, setPortalResolution] =
+    useState<PortalResolution>({
+      loading: true,
+      portalType: "unknown",
+      partner: null,
+    });
 
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -182,6 +275,75 @@ export default function TicketingDashboardLayout() {
     authUser?.organisation?.slug ||
     authUser?.seller?.organisation_slug ||
     "";
+
+  const isSellerAccount =
+    Boolean(authUser?.seller) ||
+    authUser?.role === "seller" ||
+    authUser?.membership?.role === "seller";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolvePortal() {
+      if (!slug) {
+        setPortalResolution({
+          loading: false,
+          portalType: "owner",
+          partner: null,
+        });
+        return;
+      }
+
+      if (isSellerAccount) {
+        setPortalResolution({
+          loading: false,
+          portalType: "seller",
+          partner: null,
+        });
+        return;
+      }
+
+      setPortalResolution({
+        loading: true,
+        portalType: "unknown",
+        partner: null,
+      });
+
+      try {
+        const response = await api.get<PartnerPortalBootstrap>(
+          "/ticketing/partner/bootstrap/",
+          {
+            params: {
+              slug,
+              organisation_slug: slug,
+            },
+          },
+        );
+
+        if (!cancelled && response.data?.portal_type === "partner") {
+          setPortalResolution({
+            loading: false,
+            portalType: "partner",
+            partner: response.data,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setPortalResolution({
+            loading: false,
+            portalType: "owner",
+            partner: null,
+          });
+        }
+      }
+    }
+
+    void resolvePortal();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSellerAccount, slug]);
 
   const isOperationsRoute = location.pathname.includes("/operations");
   const portalLabel = isOperationsRoute
@@ -406,6 +568,11 @@ export default function TicketingDashboardLayout() {
       branding,
       isOperationsRoute,
       portalLabel,
+      portalType: "owner",
+      isOwner: true,
+      isSeller: false,
+      isPartner: false,
+      partnerPermissions: null,
     }),
     [
       slug,
@@ -417,6 +584,34 @@ export default function TicketingDashboardLayout() {
       portalLabel,
     ],
   );
+
+  if (portalResolution.loading) {
+    return <PortalLoadingScreen />;
+  }
+
+  if (portalResolution.portalType === "seller") {
+    return (
+      <Navigate
+        to={`/ticketing/${slug}/seller/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (
+    portalResolution.portalType === "partner" &&
+    portalResolution.partner
+  ) {
+    return (
+      <Navigate
+        to={getPartnerDestination(
+          slug,
+          portalResolution.partner.permissions,
+        )}
+        replace
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
