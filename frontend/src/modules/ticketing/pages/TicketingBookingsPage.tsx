@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   AlertCircle,
+  Banknote,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -123,6 +124,7 @@ type Booking = {
   primary_product_detail?: BookingProductDetail | null;
   product_name?: string;
 
+  seller?: number | null;
   seller_name?: string | null;
   created_by_name?: string | null;
 
@@ -137,6 +139,24 @@ type Booking = {
 type StatusOption = {
   value: string;
   label: string;
+};
+
+type PaymentMethod =
+  | "cash"
+  | "card"
+  | "bank_transfer"
+  | "stripe"
+  | "paypal"
+  | "other";
+
+type CollectedByParty = "owner" | "seller";
+
+type ReceivePaymentForm = {
+  amount: string;
+  method: PaymentMethod;
+  collected_by_party: CollectedByParty;
+  reference: string;
+  note: string;
 };
 
 const bookingStatusOptions: StatusOption[] = [
@@ -372,6 +392,15 @@ export default function TicketingBookingsPage() {
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [paymentBooking, setPaymentBooking] = useState<Booking | null>(null);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentForm, setPaymentForm] = useState<ReceivePaymentForm>({
+    amount: "",
+    method: "cash",
+    collected_by_party: "owner",
+    reference: "",
+    note: "",
+  });
 
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -527,6 +556,147 @@ export default function TicketingBookingsPage() {
       console.error("Could not update booking:", err);
       setError(getErrorMessage(err, "Could not update booking."));
     } finally {
+      setSavingId(null);
+    }
+  }
+
+  function openReceivePayment(booking: Booking) {
+    const balance = Math.max(Number(booking.balance_due || 0), 0);
+
+    setError("");
+    setSavedMessage("");
+    setPaymentBooking(booking);
+    setPaymentForm({
+      amount: balance.toFixed(2),
+      method: "cash",
+      collected_by_party: booking.seller ? "seller" : "owner",
+      reference: "",
+      note: "Remaining customer balance received.",
+    });
+  }
+
+  function closeReceivePayment() {
+    if (paymentSaving) return;
+
+    setPaymentBooking(null);
+    setPaymentForm({
+      amount: "",
+      method: "cash",
+      collected_by_party: "owner",
+      reference: "",
+      note: "",
+    });
+  }
+
+  async function receivePayment() {
+    if (!paymentBooking) return;
+
+    const amount = Number(paymentForm.amount);
+    const balanceDue = Number(paymentBooking.balance_due || 0);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid payment amount greater than zero.");
+      return;
+    }
+
+    if (amount > balanceDue + 0.01) {
+      setError(
+        `The payment cannot be greater than the outstanding balance of ${formatMoney(
+          balanceDue,
+        )}.`,
+      );
+      return;
+    }
+
+    if (
+      paymentForm.collected_by_party === "seller" &&
+      !paymentBooking.seller
+    ) {
+      setError("This booking does not have a seller assigned.");
+      return;
+    }
+
+    const isFullBalance = Math.abs(amount - balanceDue) < 0.01;
+
+    try {
+      setPaymentSaving(true);
+      setSavingId(paymentBooking.id);
+      setError("");
+      setSavedMessage("");
+
+      const payload: Record<string, unknown> = {
+        amount: amount.toFixed(2),
+        payment_type: isFullBalance ? "full" : "partial",
+        payer_type: "customer",
+        method: paymentForm.method,
+        status: "confirmed",
+        collected_by_party: paymentForm.collected_by_party,
+        reference: paymentForm.reference.trim(),
+        note:
+          paymentForm.note.trim() ||
+          (isFullBalance
+            ? "Remaining customer balance received."
+            : "Partial customer balance payment received."),
+      };
+
+      if (
+        paymentForm.collected_by_party === "seller" &&
+        paymentBooking.seller
+      ) {
+        payload.seller_id = paymentBooking.seller;
+      }
+
+      const response = await api.post(
+        `/ticketing/bookings/${paymentBooking.id}/add-payment/`,
+        payload,
+        { params: requestParams },
+      );
+
+      const responseBooking =
+        response.data?.booking ||
+        response.data?.data?.booking ||
+        response.data;
+
+      let updatedBooking: Booking;
+
+      if (
+        responseBooking &&
+        typeof responseBooking === "object" &&
+        Number(responseBooking.id) === paymentBooking.id
+      ) {
+        updatedBooking = responseBooking as Booking;
+      } else {
+        const refreshed = await api.get(
+          `/ticketing/bookings/${paymentBooking.id}/`,
+          { params: requestParams },
+        );
+        updatedBooking = refreshed.data as Booking;
+      }
+
+      setBookings((current) =>
+        current.map((item) =>
+          item.id === updatedBooking.id ? updatedBooking : item,
+        ),
+      );
+
+      setSelectedBooking((current) =>
+        current?.id === updatedBooking.id ? updatedBooking : current,
+      );
+
+      setSavedMessage(
+        Number(updatedBooking.balance_due || 0) <= 0
+          ? "Payment received. The booking is now fully paid and the updated ticket can use the same QR code."
+          : `Payment received. Remaining balance: ${formatMoney(
+              updatedBooking.balance_due,
+            )}.`,
+      );
+
+      closeReceivePayment();
+    } catch (err: any) {
+      console.error("Could not receive payment:", err);
+      setError(getErrorMessage(err, "Could not record the payment."));
+    } finally {
+      setPaymentSaving(false);
       setSavingId(null);
     }
   }
@@ -766,6 +936,9 @@ export default function TicketingBookingsPage() {
                             <p className="font-black text-slate-950">
                               {formatMoney(booking.total_amount)}
                             </p>
+                            <p className="mt-1 text-xs font-bold text-emerald-600">
+                              Paid: {formatMoney(booking.deposit_paid)}
+                            </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               Balance: {formatMoney(booking.balance_due)}
                             </p>
@@ -811,6 +984,23 @@ export default function TicketingBookingsPage() {
                               View
                             </button>
 
+                            {Number(booking.balance_due || 0) > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => openReceivePayment(booking)}
+                                disabled={savingId === booking.id}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Banknote className="h-4 w-4" />
+                                Receive Payment
+                              </button>
+                            ) : (
+                              <span className="inline-flex h-10 items-center gap-2 rounded-2xl bg-emerald-50 px-3 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
+                                <CheckCircle2 className="h-4 w-4" />
+                                Paid
+                              </span>
+                            )}
+
                             {savingId === booking.id && (
                               <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
                             )}
@@ -831,7 +1021,19 @@ export default function TicketingBookingsPage() {
           booking={selectedBooking}
           onClose={() => setSelectedBooking(null)}
           onUpdate={updateBooking}
+          onReceivePayment={openReceivePayment}
           saving={savingId === selectedBooking.id}
+        />
+      )}
+
+      {paymentBooking && (
+        <ReceivePaymentModal
+          booking={paymentBooking}
+          form={paymentForm}
+          saving={paymentSaving}
+          onChange={setPaymentForm}
+          onClose={closeReceivePayment}
+          onSubmit={receivePayment}
         />
       )}
     </TicketingPageShell>
@@ -842,6 +1044,7 @@ function BookingDetailModal({
   booking,
   onClose,
   onUpdate,
+  onReceivePayment,
   saving,
 }: {
   booking: Booking;
@@ -850,6 +1053,7 @@ function BookingDetailModal({
     booking: Booking,
     payload: Partial<Pick<Booking, "status">>
   ) => void;
+  onReceivePayment: (booking: Booking) => void;
   saving: boolean;
 }) {
   const transferBooking = isTransferBooking(booking);
@@ -1005,10 +1209,27 @@ function BookingDetailModal({
                 <SummaryLine label="Subtotal" value={formatMoney(booking.subtotal_amount)} />
                 <SummaryLine label="Total" value={formatMoney(booking.total_amount)} />
                 <SummaryLine label="Deposit required" value={formatMoney(booking.deposit_required)} />
-                <SummaryLine label="Deposit paid" value={formatMoney(booking.deposit_paid)} />
+                <SummaryLine label="Paid" value={formatMoney(booking.deposit_paid)} />
                 <SummaryLine label="Balance due" value={formatMoney(booking.balance_due)} />
                 <SummaryLine label="Payment mode" value={statusLabel(booking.payment_mode)} />
               </div>
+
+              {Number(booking.balance_due || 0) > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => onReceivePayment(booking)}
+                  disabled={saving}
+                  className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Banknote className="h-5 w-5" />
+                  Receive Payment
+                </button>
+              ) : (
+                <div className="mt-4 flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 text-sm font-black text-emerald-700 ring-1 ring-emerald-200">
+                  <CheckCircle2 className="h-5 w-5" />
+                  Fully Paid
+                </div>
+              )}
             </div>
           </section>
 
@@ -1095,6 +1316,213 @@ function BookingDetailModal({
               </div>
             </section>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReceivePaymentModal({
+  booking,
+  form,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  booking: Booking;
+  form: ReceivePaymentForm;
+  saving: boolean;
+  onChange: (form: ReceivePaymentForm) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const balanceDue = Number(booking.balance_due || 0);
+  const hasSeller = Boolean(booking.seller);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+      <div className="max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-600">
+              Record confirmed payment
+            </p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">
+              Receive Payment
+            </h2>
+            <p className="mt-1 text-sm font-bold text-slate-500">
+              {booking.booking_code || `#${booking.id}`} ·{" "}
+              {booking.customer_name || "Customer"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-2xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 disabled:opacity-60"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <div className="rounded-3xl bg-slate-950 p-5 text-white">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-300">
+              Outstanding balance
+            </p>
+            <p className="mt-2 text-3xl font-black">
+              {formatMoney(balanceDue)}
+            </p>
+            <p className="mt-2 text-sm font-semibold text-slate-300">
+              The amount is prefilled with the full remaining balance. You may
+              reduce it to record a partial payment.
+            </p>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              Amount received
+            </span>
+            <input
+              type="number"
+              min="0.01"
+              max={balanceDue}
+              step="0.01"
+              value={form.amount}
+              onChange={(event) =>
+                onChange({ ...form, amount: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none focus:border-emerald-400 focus:bg-white"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              Payment method
+            </span>
+            <select
+              value={form.method}
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  method: event.target.value as PaymentMethod,
+                })
+              }
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none focus:border-emerald-400 focus:bg-white"
+            >
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank transfer</option>
+              <option value="stripe">Stripe</option>
+              <option value="paypal">PayPal</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+
+          <div>
+            <span className="text-sm font-bold text-slate-700">
+              Collected by
+            </span>
+
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() =>
+                  onChange({ ...form, collected_by_party: "owner" })
+                }
+                className={`rounded-2xl border p-4 text-left transition ${
+                  form.collected_by_party === "owner"
+                    ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-100"
+                    : "border-slate-200 bg-white hover:bg-slate-50"
+                }`}
+              >
+                <p className="text-sm font-black text-slate-950">Company</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  Money received directly by the owner or company.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                disabled={!hasSeller}
+                onClick={() =>
+                  onChange({ ...form, collected_by_party: "seller" })
+                }
+                className={`rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  form.collected_by_party === "seller"
+                    ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-100"
+                    : "border-slate-200 bg-white hover:bg-slate-50"
+                }`}
+              >
+                <p className="text-sm font-black text-slate-950">Seller</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  {hasSeller
+                    ? booking.seller_name || "Assigned seller collected it."
+                    : "No seller is assigned to this booking."}
+                </p>
+              </button>
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              Reference
+            </span>
+            <input
+              value={form.reference}
+              onChange={(event) =>
+                onChange({ ...form, reference: event.target.value })
+              }
+              placeholder="Optional receipt, transfer or transaction reference"
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-emerald-400 focus:bg-white"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">Note</span>
+            <textarea
+              value={form.note}
+              onChange={(event) =>
+                onChange({ ...form, note: event.target.value })
+              }
+              placeholder="Optional internal payment note"
+              className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-400 focus:bg-white"
+            />
+          </label>
+
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-800">
+            The backend will create a real confirmed payment, recalculate the
+            booking balance and payment status, and keep the existing QR code.
+            Your existing payment-confirmation notification flow can generate
+            the refreshed ticket.
+          </div>
+        </div>
+
+        <div className="flex flex-col justify-end gap-3 border-t border-slate-200 p-5 sm:flex-row">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={saving}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Banknote className="h-5 w-5" />
+            )}
+            {saving ? "Recording payment..." : "Receive Payment"}
+          </button>
         </div>
       </div>
     </div>

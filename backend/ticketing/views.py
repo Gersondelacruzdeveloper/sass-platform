@@ -2573,6 +2573,12 @@ class BookingViewSet(TicketingPrivateViewSet):
 
     @action(detail=True, methods=["post"], url_path="add-payment")
     def add_payment(self, request, pk=None):
+        """
+        Record a real booking payment and optionally send a refreshed ticket.
+
+        The refreshed PDF keeps the existing admission-token UUID and QR code.
+        Only the current booking/payment information changes.
+        """
         booking = self.get_object()
         organisation = self.require_organisation()
 
@@ -2591,10 +2597,40 @@ class BookingViewSet(TicketingPrivateViewSet):
             or request.data.get("receiver")
             or None
         )
+        send_updated_ticket = str(
+            request.data.get("send_updated_ticket", "true")
+        ).strip().lower() in {"true", "1", "yes", "on"}
 
         if amount in [None, ""]:
             return Response(
                 {"amount": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            amount_decimal = Decimal(str(amount))
+        except Exception:
+            return Response(
+                {"amount": "Enter a valid payment amount."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if amount_decimal <= Decimal("0.00"):
+            return Response(
+                {"amount": "Payment amount must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_balance = Decimal(str(booking.balance_due or "0.00"))
+
+        if payer_type == "customer" and amount_decimal > current_balance:
+            return Response(
+                {
+                    "amount": (
+                        "Payment amount cannot be greater than the current "
+                        f"balance of {current_balance:.2f}."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2607,8 +2643,28 @@ class BookingViewSet(TicketingPrivateViewSet):
                 organisation=organisation,
             )
 
+        # For owner-entered payments on seller bookings, keep the booking seller
+        # available to the finance engine when the seller collected the money.
+        if (
+            not seller
+            and collected_by_party == "seller"
+            and getattr(booking, "seller_id", None)
+        ):
+            seller = booking.seller
+
         if not seller and not self.is_admin_user():
             seller = self.get_current_seller()
+
+        if collected_by_party == "seller" and not seller:
+            return Response(
+                {
+                    "seller": (
+                        "A seller must be assigned when the payment was "
+                        "collected by a seller."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if not self.is_admin_user():
             permission_error = self.validate_seller_payment_permission(
@@ -2629,7 +2685,7 @@ class BookingViewSet(TicketingPrivateViewSet):
                 booking=booking,
                 seller=seller,
                 collected_by=request.user,
-                amount=amount,
+                amount=amount_decimal,
                 payment_type=payment_type,
                 payer_type=payer_type,
                 method=method,
@@ -2645,12 +2701,30 @@ class BookingViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if payment.status == "confirmed" and booking.payment_status in ["paid", "deposit_paid"]:
+        ticket_notification_sent = False
+        ticket_notification_error = ""
+
+        should_send_updated_ticket = (
+            send_updated_ticket
+            and payer_type == "customer"
+            and payment.status == "confirmed"
+            and booking.payment_status
+            in {
+                "deposit_paid",
+                "partial",
+                "partially_paid",
+                "paid",
+            }
+        )
+
+        if should_send_updated_ticket:
             try:
                 BookingNotificationService.payment_confirmed(booking)
-            except Exception:
+                ticket_notification_sent = True
+            except Exception as exc:
+                ticket_notification_error = str(exc)
                 logger.exception(
-                    "Failed sending payment confirmation notifications for booking %s",
+                    "Failed sending updated ticket after payment for booking %s",
                     booking.booking_code,
                 )
 
@@ -2664,6 +2738,12 @@ class BookingViewSet(TicketingPrivateViewSet):
             {
                 "payment": payment_serializer.data,
                 "booking": booking_serializer.data,
+                "updated_ticket": {
+                    "requested": send_updated_ticket,
+                    "sent": ticket_notification_sent,
+                    "error": ticket_notification_error,
+                    "same_qr": True,
+                },
             },
             status=status.HTTP_201_CREATED,
         )
