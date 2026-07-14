@@ -521,6 +521,17 @@ class ExperienceProduct(models.Model):
     start_time = models.TimeField(blank=True, null=True)
     end_time = models.TimeField(blank=True, null=True)
 
+    ticket_information = models.TextField(
+        blank=True,
+        help_text=(
+            "Optional information printed on the customer's ticket. "
+            "Use this field for return transportation details, meeting points, "
+            "boarding instructions, dress code, recommendations, important reminders, "
+            "pickup notes, or any other information the customer should receive "
+            "after booking."
+        ),
+    )
+
     location = models.CharField(max_length=255, blank=True)
     address = models.TextField(blank=True)
     google_maps_link = models.URLField(blank=True)

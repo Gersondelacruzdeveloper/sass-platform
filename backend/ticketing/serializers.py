@@ -1437,6 +1437,7 @@ class ExperienceProductSerializer(
             "duration_text",
             "start_time",
             "end_time",
+            "ticket_information",
             "location",
             "address",
             "google_maps_link",
