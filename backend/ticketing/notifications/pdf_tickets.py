@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "admission-fix-v2-2026-07-12"
+PDF_TICKET_GENERATOR_VERSION = "ticket-information-v3-2026-07-14"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -155,6 +155,36 @@ def _get_container_product_name(booking: Any) -> str:
         return _first_attr(product, ["title", "name", "display_name"], "")
 
     return _first_attr(booking, ["product_name", "tour_name", "title"], "")
+
+
+def _get_ticket_information(booking: Any) -> str:
+    """
+    Return optional product-specific information that should be printed on the
+    customer's ticket.
+
+    Pickup times are intentionally not resolved here. They continue to come
+    from BookingPickupInfo / ProductPickupSchedule.
+    """
+    product = (
+        getattr(booking, "primary_product", None)
+        or getattr(booking, "product", None)
+        or getattr(booking, "tour", None)
+    )
+
+    if product:
+        value = _safe_text(getattr(product, "ticket_information", ""))
+        if value:
+            return value
+
+    first_item = _get_first_booking_item(booking)
+    item_product = _get_item_product(first_item) if first_item else None
+
+    if item_product:
+        value = _safe_text(getattr(item_product, "ticket_information", ""))
+        if value:
+            return value
+
+    return ""
 
 
 def _get_product_name(booking: Any) -> str:
@@ -1087,6 +1117,14 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         pdf.setFont("Helvetica-Bold", 12)
         pdf.drawString(x, y - 6 * mm, value)
 
+    payment_status_label = _get_payment_status(booking)
+    pdf.setFillColor(_hex(muted))
+    pdf.setFont("Helvetica-Bold", 7)
+    pdf.drawRightString(content_right, y, "STATUS")
+    pdf.setFillColor(_hex(text_color))
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawRightString(content_right, y - 5 * mm, payment_status_label[:28])
+
     y -= 14 * mm
 
     breakdown = _get_passenger_price_breakdown(
@@ -1111,29 +1149,42 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         )
 
     # Important information
+    #
+    # Product-specific ticket information takes priority. This allows products
+    # such as Coco Bongo to print return-bus or boarding instructions without
+    # duplicating the automatic hotel pickup schedule.
     y -= 3 * mm
-    pdf.setFillColor(_hex(accent))
-    pdf.roundRect(
-        content_x,
-        max(y - 23 * mm, ticket_y + 21 * mm),
-        content_w,
-        23 * mm,
-        4 * mm,
-        fill=1,
-        stroke=0,
-    )
-    info_y = max(y - 23 * mm, ticket_y + 21 * mm) + 16 * mm
-    pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(content_x + 5 * mm, info_y, "Important information")
+    product_ticket_information = _get_ticket_information(booking)
 
-    info_text = (
+    default_info_text = (
         "Be ready at the selected pickup location and keep your phone or "
         "WhatsApp available. Show this QR code to the assigned operator."
         if is_transfer
         else "Show this QR code when checking in. Arrive on time and keep "
         "the booking code available in case manual verification is needed."
     )
+
+    info_text = product_ticket_information or default_info_text
+    info_lines = _split_text(info_text, 92)
+    info_box_h = min(max(23 * mm, (13 + min(len(info_lines), 6) * 4) * mm), 38 * mm)
+    info_box_y = max(y - info_box_h, ticket_y + 21 * mm)
+
+    pdf.setFillColor(_hex(accent))
+    pdf.roundRect(
+        content_x,
+        info_box_y,
+        content_w,
+        info_box_h,
+        4 * mm,
+        fill=1,
+        stroke=0,
+    )
+
+    info_y = info_box_y + info_box_h - 7 * mm
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(content_x + 5 * mm, info_y, "Important information")
+
     _draw_text_block(
         pdf,
         info_text,
@@ -1144,7 +1195,7 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         size=8,
         color="#FFFFFF",
         line_height=4 * mm,
-        max_lines=3,
+        max_lines=6,
     )
 
     # Footer

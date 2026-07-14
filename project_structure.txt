@@ -142,7 +142,8 @@
 │   │   │   ├── 0011_transferpriceband.py
 │   │   │   ├── 0012_experienceproduct_imported_from_domain_and_more.py
 │   │   │   ├── 0013_experienceproduct_adult_cost_price_and_more.py
-│   │   │   └── 0014_ticketingbusinessentity_productbusinessagreement_and_more.py
+│   │   │   ├── 0014_ticketingbusinessentity_productbusinessagreement_and_more.py
+│   │   │   └── 0015_ticketingwhatsappsettings.py
 │   │   ├── models.py
 │   │   ├── notifications
 │   │   │   ├── __init__.py
@@ -376,7 +377,8 @@
 │   │   │   │   │   │   ├── PublicSiteThemeSettings.tsx
 │   │   │   │   │   │   ├── PublicWebsiteSettings.tsx
 │   │   │   │   │   │   ├── SeoSettings.tsx
-│   │   │   │   │   │   └── TicketingEmailSettingsPanel.tsx
+│   │   │   │   │   │   ├── TicketingEmailSettingsPanel.tsx
+│   │   │   │   │   │   └── TicketingWhatsAppSettingsPanel.tsx
 │   │   │   │   │   ├── TicketingPageShell.tsx
 │   │   │   │   │   ├── TicketingSellerSidebar.tsx
 │   │   │   │   │   ├── TicketingSidebar.tsx
@@ -521,4 +523,4 @@
 │   └── yarn.lock
 └── project_structure.txt
 
-96 directories, 426 files
+96 directories, 428 files

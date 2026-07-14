@@ -9,9 +9,9 @@ import {
   Copy,
   DollarSign,
   Edit3,
+  Filter,
   ExternalLink,
   Eye,
-  Filter,
   Image,
   Loader2,
   MapPin,
@@ -62,6 +62,7 @@ type ProductFormState = {
   google_maps_link: string;
   cancellation_policy: string;
   instructions: string;
+  ticket_information: string;
   pickup_instructions: string;
   supports_pickup: boolean;
   requires_pickup_location: boolean;
@@ -133,6 +134,7 @@ const emptyForm: ProductFormState = {
   google_maps_link: "",
   cancellation_policy: "",
   instructions: "",
+  ticket_information: "",
   pickup_instructions: "",
   supports_pickup: false,
   requires_pickup_location: false,
@@ -203,7 +205,9 @@ function formatMoney(value: unknown, symbol = "US$") {
 
 function getProfit(product: ExperienceProduct) {
   const price = Number((product as any).adult_price ?? product.base_price ?? 0);
-  const cost = Number((product as any).adult_cost_price ?? product.cost_price ?? 0);
+  const cost = Number(
+    (product as any).adult_cost_price ?? product.cost_price ?? 0,
+  );
 
   return price - cost;
 }
@@ -221,7 +225,9 @@ function getTypeLabel(value: ProductType | string) {
 }
 
 function getStatusLabel(value: ProductStatus | string) {
-  return productStatuses.find((status) => status.value === value)?.label || value;
+  return (
+    productStatuses.find((status) => status.value === value)?.label || value
+  );
 }
 
 function getGalleryImages(product: ExperienceProduct): ProductGalleryImage[] {
@@ -273,7 +279,10 @@ async function compressImageFile(file: File, maxWidth = 1600, quality = 0.84) {
       lastModified: Date.now(),
     });
   } catch (error) {
-    console.warn("Product image compression failed, using original file.", error);
+    console.warn(
+      "Product image compression failed, using original file.",
+      error,
+    );
     return file;
   }
 }
@@ -289,8 +298,12 @@ function getProductForm(product?: ExperienceProduct | null): ProductFormState {
     sku: text(product.sku),
     short_description: text(product.short_description),
     long_description: text(product.long_description),
-    adult_price: moneyToString((product as any).adult_price ?? product.base_price),
-    adult_cost_price: moneyToString((product as any).adult_cost_price ?? product.cost_price),
+    adult_price: moneyToString(
+      (product as any).adult_price ?? product.base_price,
+    ),
+    adult_cost_price: moneyToString(
+      (product as any).adult_cost_price ?? product.cost_price,
+    ),
     child_price: moneyToString((product as any).child_price),
     child_cost_price: moneyToString((product as any).child_cost_price),
     infant_price: moneyToString((product as any).infant_price),
@@ -306,6 +319,7 @@ function getProductForm(product?: ExperienceProduct | null): ProductFormState {
     google_maps_link: text(product.google_maps_link),
     cancellation_policy: text(product.cancellation_policy),
     instructions: text(product.instructions),
+    ticket_information: text((product as any).ticket_information),
     pickup_instructions: text(product.pickup_instructions),
     supports_pickup: bool(product.supports_pickup),
     requires_pickup_location: bool(product.requires_pickup_location),
@@ -367,12 +381,12 @@ function buildProductPayload(form: ProductFormState, imageFile: File | null) {
   appendText(
     formData,
     "external_provider",
-    form.is_cocobongo_product ? "wellet" : "local"
+    form.is_cocobongo_product ? "wellet" : "local",
   );
   appendText(
     formData,
     "external_product_id",
-    form.is_cocobongo_product ? form.external_product_id.trim() : ""
+    form.is_cocobongo_product ? form.external_product_id.trim() : "",
   );
   appendBoolean(formData, "is_cocobongo_product", form.is_cocobongo_product);
   appendText(formData, "sku", form.sku);
@@ -402,10 +416,15 @@ function buildProductPayload(form: ProductFormState, imageFile: File | null) {
 
   appendText(formData, "cancellation_policy", form.cancellation_policy);
   appendText(formData, "instructions", form.instructions);
+  appendText(formData, "ticket_information", form.ticket_information);
   appendText(formData, "pickup_instructions", form.pickup_instructions);
 
   appendBoolean(formData, "supports_pickup", form.supports_pickup);
-  appendBoolean(formData, "requires_pickup_location", form.requires_pickup_location);
+  appendBoolean(
+    formData,
+    "requires_pickup_location",
+    form.requires_pickup_location,
+  );
   appendBoolean(formData, "allow_full_payment", form.allow_full_payment);
   appendBoolean(formData, "allow_deposit_payment", form.allow_deposit_payment);
   appendBoolean(formData, "allow_pending_payment", form.allow_pending_payment);
@@ -449,11 +468,9 @@ function buildPublicProductUrl(organisationSlug: string, productSlug: string) {
 
   return `${window.location.origin}${buildPublicProductPath(
     organisationSlug,
-    productSlug
+    productSlug,
   )}`;
 }
-
-
 
 export default function TicketingProductsPage() {
   const params = useParams();
@@ -470,9 +487,12 @@ export default function TicketingProductsPage() {
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ProductType | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">("all");
-  const [visibilityFilter, setVisibilityFilter] =
-    useState<"all" | "public" | "seller" | "pickup">("all");
+  const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">(
+    "all",
+  );
+  const [visibilityFilter, setVisibilityFilter] = useState<
+    "all" | "public" | "seller" | "pickup"
+  >("all");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] =
@@ -503,7 +523,7 @@ export default function TicketingProductsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not load products."
+          "Could not load products.",
       );
     } finally {
       setLoading(false);
@@ -550,7 +570,8 @@ export default function TicketingProductsPage() {
       public: products.filter((product) => product.public_enabled).length,
       seller: products.filter((product) => product.seller_enabled).length,
       pickup: products.filter(
-        (product) => product.supports_pickup || product.requires_pickup_location
+        (product) =>
+          product.supports_pickup || product.requires_pickup_location,
       ).length,
     };
   }, [products]);
@@ -594,11 +615,11 @@ export default function TicketingProductsPage() {
     const updated = await ticketingApi.getProduct(productId, slug);
 
     setProducts((current) =>
-      current.map((product) => (product.id === updated.id ? updated : product))
+      current.map((product) => (product.id === updated.id ? updated : product)),
     );
 
     setGalleryProduct((current) =>
-      current && current.id === updated.id ? updated : current
+      current && current.id === updated.id ? updated : current,
     );
 
     return updated;
@@ -629,7 +650,7 @@ export default function TicketingProductsPage() {
         formData.append("image", compressed);
         formData.append(
           "alt_text",
-          galleryProduct.image_alt_text || galleryProduct.name
+          galleryProduct.image_alt_text || galleryProduct.name,
         );
         formData.append("caption", galleryProduct.name);
         formData.append("sort_order", String(existingCount + index));
@@ -651,7 +672,7 @@ export default function TicketingProductsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.image?.[0] ||
           err?.response?.data?.message ||
-          "Could not upload gallery images."
+          "Could not upload gallery images.",
       );
     } finally {
       setGallerySaving(false);
@@ -675,7 +696,7 @@ export default function TicketingProductsPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not update cover image."
+          "Could not update cover image.",
       );
     } finally {
       setGallerySaving(false);
@@ -703,7 +724,7 @@ export default function TicketingProductsPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not delete gallery image."
+          "Could not delete gallery image.",
       );
     } finally {
       setGallerySaving(false);
@@ -712,7 +733,7 @@ export default function TicketingProductsPage() {
 
   function updateForm<K extends keyof ProductFormState>(
     field: K,
-    value: ProductFormState[K]
+    value: ProductFormState[K],
   ) {
     setForm((current) => {
       const next = {
@@ -769,7 +790,7 @@ export default function TicketingProductsPage() {
       setProducts((current) => {
         if (editingProduct) {
           return current.map((product) =>
-            product.id === savedProduct.id ? savedProduct : product
+            product.id === savedProduct.id ? savedProduct : product,
           );
         }
 
@@ -779,7 +800,7 @@ export default function TicketingProductsPage() {
       setSavedMessage(
         editingProduct
           ? "Product updated successfully."
-          : "Product created successfully."
+          : "Product created successfully.",
       );
 
       closeModal();
@@ -792,7 +813,7 @@ export default function TicketingProductsPage() {
           err?.response?.data?.slug?.[0] ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not save product."
+          "Could not save product.",
       );
     } finally {
       setSaving(false);
@@ -827,17 +848,15 @@ export default function TicketingProductsPage() {
           status: nextStatus,
           is_active: nextStatus === "active",
         },
-        slug
+        slug,
       );
 
       setProducts((current) =>
-        current.map((item) => (item.id === product.id ? updated : item))
+        current.map((item) => (item.id === product.id ? updated : item)),
       );
 
       setSavedMessage(
-        nextStatus === "active"
-          ? "Product activated."
-          : "Product deactivated."
+        nextStatus === "active" ? "Product activated." : "Product deactivated.",
       );
     } catch (err: any) {
       console.error("Could not update product status:", err);
@@ -845,14 +864,14 @@ export default function TicketingProductsPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not update product status."
+          "Could not update product status.",
       );
     }
   }
 
   async function handleDeleteProduct(product: ExperienceProduct) {
     const confirmed = window.confirm(
-      `Delete "${product.name}"? This action cannot be undone.`
+      `Delete "${product.name}"? This action cannot be undone.`,
     );
 
     if (!confirmed) return;
@@ -864,7 +883,9 @@ export default function TicketingProductsPage() {
 
       await ticketingApi.deleteProduct(product.id, slug);
 
-      setProducts((current) => current.filter((item) => item.id !== product.id));
+      setProducts((current) =>
+        current.filter((item) => item.id !== product.id),
+      );
       setSavedMessage("Product deleted.");
     } catch (err: any) {
       console.error("Could not delete ticketing product:", err);
@@ -872,7 +893,7 @@ export default function TicketingProductsPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not delete product."
+          "Could not delete product.",
       );
     } finally {
       setDeletingId(null);
@@ -1001,10 +1022,7 @@ export default function TicketingProductsPage() {
             label="Type"
             value={typeFilter}
             onChange={(value) => setTypeFilter(value as ProductType | "all")}
-            options={[
-              { value: "all", label: "All types" },
-              ...productTypes,
-            ]}
+            options={[{ value: "all", label: "All types" }, ...productTypes]}
           />
 
           <Select
@@ -1024,7 +1042,7 @@ export default function TicketingProductsPage() {
             value={visibilityFilter}
             onChange={(value) =>
               setVisibilityFilter(
-                value as "all" | "public" | "seller" | "pickup"
+                value as "all" | "public" | "seller" | "pickup",
               )
             }
             options={[
@@ -1198,12 +1216,16 @@ function ProductCard({
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
             <MiniMetric
               label="Price"
-              value={formatMoney((product as any).adult_price ?? product.base_price)}
+              value={formatMoney(
+                (product as any).adult_price ?? product.base_price,
+              )}
               icon={DollarSign}
             />
             <MiniMetric
               label="Cost"
-              value={formatMoney((product as any).adult_cost_price ?? product.cost_price)}
+              value={formatMoney(
+                (product as any).adult_cost_price ?? product.cost_price,
+              )}
               icon={Tag}
             />
             <MiniMetric
@@ -1218,48 +1240,54 @@ function ProductCard({
             />
           </div>
 
-          {product.public_enabled && product.status === "active" && publicPath && (
-            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-                    Public page
-                  </p>
-                  <p className="mt-1 truncate text-xs font-bold text-blue-900">
-                    {publicPath}
-                  </p>
-                </div>
+          {product.public_enabled &&
+            product.status === "active" &&
+            publicPath && (
+              <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                      Public page
+                    </p>
+                    <p className="mt-1 truncate text-xs font-bold text-blue-900">
+                      {publicPath}
+                    </p>
+                  </div>
 
-                <div className="flex shrink-0 gap-2">
-                  <a
-                    href={publicPath}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white transition hover:bg-blue-700"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    View Page
-                  </a>
+                  <div className="flex shrink-0 gap-2">
+                    <a
+                      href={publicPath}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white transition hover:bg-blue-700"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      View Page
+                    </a>
 
-                  <button
-                    type="button"
-                    onClick={onCopyPublicUrl}
-                    className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-50"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    Copy URL
-                  </button>
+                    <button
+                      type="button"
+                      onClick={onCopyPublicUrl}
+                      className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 transition hover:bg-blue-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy URL
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs font-bold text-slate-400">
-              {product.location ? `Location: ${product.location}` : "No location"}
+              {product.location
+                ? `Location: ${product.location}`
+                : "No location"}
               {product.capacity ? ` · Capacity: ${product.capacity}` : ""}
               {` · Gallery: ${getGalleryCount(product)}`}
-              {product.booking_count ? ` · Bookings: ${product.booking_count}` : ""}
+              {product.booking_count
+                ? ` · Bookings: ${product.booking_count}`
+                : ""}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -1309,7 +1337,6 @@ function ProductCard({
     </article>
   );
 }
-
 
 function ProductGalleryModal({
   product,
@@ -1468,7 +1495,6 @@ function ProductGalleryModal({
   );
 }
 
-
 function ProductModal({
   title,
   product,
@@ -1493,7 +1519,7 @@ function ProductModal({
   onSave: () => void;
   onChange: <K extends keyof ProductFormState>(
     field: K,
-    value: ProductFormState[K]
+    value: ProductFormState[K],
   ) => void;
   onImageChange: (file: File | null) => void;
 }) {
@@ -1546,7 +1572,9 @@ function ProductModal({
               <Select
                 label="Product type"
                 value={form.product_type}
-                onChange={(value) => onChange("product_type", value as ProductType)}
+                onChange={(value) =>
+                  onChange("product_type", value as ProductType)
+                }
                 options={productTypes}
               />
 
@@ -1661,7 +1689,8 @@ function ProductModal({
 
                 {imageFile && (
                   <p className="mt-3 text-xs font-bold text-slate-500">
-                    Selected: {imageFile.name} · {formatFileSize(imageFile.size)}
+                    Selected: {imageFile.name} ·{" "}
+                    {formatFileSize(imageFile.size)}
                   </p>
                 )}
 
@@ -1873,7 +1902,9 @@ function ProductModal({
                 label="Requires pickup location"
                 description="Customer must select hotel/location."
                 checked={form.requires_pickup_location}
-                onChange={(value) => onChange("requires_pickup_location", value)}
+                onChange={(value) =>
+                  onChange("requires_pickup_location", value)
+                }
               />
             </div>
 
@@ -1891,6 +1922,26 @@ function ProductModal({
                 onChange={(value) => onChange("instructions", value)}
                 placeholder="Bring ID, comfortable clothes, towel, etc."
               />
+              <div className="lg:col-span-2">
+                <Textarea
+                  label="Ticket information"
+                  value={form.ticket_information}
+                  onChange={(value) => onChange("ticket_information", value)}
+                  placeholder={`Information printed on the customer's ticket.
+
+Examples:
+• Return buses leave at approximately 1:00 AM and 2:00 AM.
+• Meet the transport coordinator at the main entrance.
+• Bring a valid photo ID.
+• Dress code: Smart casual.
+• Arrive 30 minutes before the show.`}
+                />
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  Optional. This information will be printed on the PDF ticket
+                  for this product. Hotel pickup times continue to come from
+                  Pickup Schedules automatically.
+                </p>
+              </div>
             </div>
           </FormSection>
 
