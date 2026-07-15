@@ -13,6 +13,7 @@ import {
   Filter,
   Flame,
   HeartHandshake,
+  Languages,
   Loader2,
   MapPin,
   MessageCircle,
@@ -27,12 +28,19 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
+import {
+  ticketingLanguageOptions,
+  useTicketingTranslation,
+  type TicketingLanguage,
+} from "../i18n";
 import type {
   ExperienceCategory,
   ExperienceProduct,
   ProductType,
   PublicBrandingResponse,
 } from "../types/ticketingTypes";
+
+type Translate = (key: string, fallback?: string) => string;
 
 type PublicTheme = {
   primary: string;
@@ -187,15 +195,33 @@ function getProductTypeIcon(type: ProductType | string) {
   return Package;
 }
 
-function getProductTypeLabel(type: ProductType | string) {
-  return productTypeLabels[type as ProductType] || type;
+function getProductTypeLabel(
+  type: ProductType | string,
+  t: Translate
+) {
+  const keyByType: Partial<Record<ProductType, string>> = {
+    excursion: "public.type.excursion",
+    transfer: "public.type.transfer",
+    ticket: "public.type.ticket",
+    event: "public.type.event",
+    nightlife: "public.type.nightlife",
+    custom: "public.type.custom",
+  };
+
+  const fallback = productTypeLabels[type as ProductType] || String(type);
+  const key = keyByType[type as ProductType];
+
+  return key ? t(key, fallback) : fallback;
 }
 
-function getBestDescription(product: ExperienceProduct) {
+function getBestDescription(product: ExperienceProduct, t: Translate) {
   return (
     product.short_description ||
     product.long_description ||
-    "Book this experience online with fast confirmation and local support."
+    t(
+      "public.product_default_description",
+      "Book this experience online with fast confirmation and local support."
+    )
   );
 }
 
@@ -249,7 +275,10 @@ function getFeaturedRank(product: ExperienceProduct) {
   return score;
 }
 
-function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+function usePublicTicketingOrganisation(
+  organisationSlugFromUrl: string | undefined,
+  t: Translate
+) {
   const hostname = useMemo(() => getCurrentHostname(), []);
   const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
 
@@ -272,7 +301,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 
       if (!customDomain || !hostname) {
         setLoading(false);
-        setError("Organisation slug is missing.");
+        setError(t("public.organisation_missing", "Organisation slug is missing."));
         return;
       }
 
@@ -295,7 +324,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data?.detail || "Unable to resolve this domain.");
+          throw new Error(data?.detail || t("public.domain_resolve_error", "Unable to resolve this domain."));
         }
 
         if (!cancelled) {
@@ -308,7 +337,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
           setError(
             err instanceof Error
               ? err.message
-              : "Unable to resolve this domain."
+              : t("public.domain_resolve_error", "Unable to resolve this domain.")
           );
         }
       } finally {
@@ -323,7 +352,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
     return () => {
       cancelled = true;
     };
-  }, [hostname, customDomain, organisationSlugFromUrl]);
+  }, [hostname, customDomain, organisationSlugFromUrl, t]);
 
   return {
     organisationSlug: organisationSlugFromUrl || resolvedDomain?.organisation_slug || "",
@@ -335,6 +364,8 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 }
 
 export default function PublicExperienceHomePage() {
+  const { language, setLanguage, t } = useTicketingTranslation();
+
   const params = useParams<{
     organisationSlug?: string;
     slug?: string;
@@ -344,12 +375,16 @@ export default function PublicExperienceHomePage() {
   const slugFromUrl = params.organisationSlug || params.slug || "";
   const sellerCodeFromUrl = String(params.sellerCode || "").trim();
 
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
   const {
     organisationSlug,
     loading: organisationLoading,
     error: organisationError,
     isCustomDomain,
-  } = usePublicTicketingOrganisation(slugFromUrl);
+  } = usePublicTicketingOrganisation(slugFromUrl, t);
 
   const sellerStorageKey = organisationSlug
     ? `ticketing_seller_slug:${organisationSlug}`
@@ -441,7 +476,7 @@ export default function PublicExperienceHomePage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "We could not load the public booking site."
+          t("public.load_error", "We could not load the public booking site.")
       );
     } finally {
       setLoading(false);
@@ -492,28 +527,28 @@ export default function PublicExperienceHomePage() {
   const heroTitle =
     publicSite?.hero_title ||
     publicSite?.seo_title ||
-    `Discover ${brandName}`;
+    `${t("public.discover", "Discover")} ${brandName}`;
 
   const heroSubtitle =
     publicSite?.hero_subtitle ||
     publicSite?.public_description ||
-    "Book excursions, airport transfers, events, nightlife and tickets with fast confirmation and local support.";
+    t("public.hero_default_subtitle", "Book excursions, airport transfers, events, nightlife and tickets with fast confirmation and local support.");
 
-  const primaryCtaLabel = publicSite?.primary_cta_label || "Explore experiences";
-  const secondaryCtaLabel = publicSite?.whatsapp_cta_label || "Ask by WhatsApp";
+  const primaryCtaLabel = publicSite?.primary_cta_label || t("public.explore_experiences", "Explore experiences");
+  const secondaryCtaLabel = publicSite?.whatsapp_cta_label || t("public.ask_whatsapp", "Ask by WhatsApp");
 
   const whatsappUrl = getWhatsappUrl(
     publicSite?.public_whatsapp,
-    `Hi, I want information about ${brandName}.`
+    `${t("public.whatsapp_message", "Hi, I want information about")} ${brandName}.`
   );
 
   const trustBadges = Array.isArray(publicSite?.trust_badges)
     ? publicSite.trust_badges
     : [
-        "Local support",
-        "Hotel pickup available",
-        "Secure reservation",
-        "Fast confirmation",
+        t("public.local_support", "Local support"),
+        t("public.hotel_pickup_available", "Hotel pickup available"),
+        t("public.secure_reservation", "Secure reservation"),
+        t("public.fast_confirmation", "Fast confirmation"),
       ];
 
   useEffect(() => {
@@ -729,7 +764,7 @@ export default function PublicExperienceHomePage() {
             style={{ color: theme.accent }}
           />
           <p className="mt-4 text-sm font-black" style={{ color: theme.muted }}>
-            Preparing your experience site...
+            {t("public.preparing_site", "Preparing your experience site...")}
           </p>
         </div>
       </div>
@@ -766,7 +801,7 @@ export default function PublicExperienceHomePage() {
           </div>
 
           <h1 className="mt-5 text-2xl font-black" style={{ color: theme.text }}>
-            Public site unavailable
+            {t("public.site_unavailable", "Public site unavailable")}
           </h1>
           <p
             className="mt-2 text-sm font-semibold leading-6"
@@ -781,7 +816,7 @@ export default function PublicExperienceHomePage() {
             className="mt-6 rounded-2xl px-5 py-3 text-sm font-black text-white"
             style={{ backgroundColor: theme.button }}
           >
-            Try again
+            {t("common.retry", "Try again")}
           </button>
         </div>
       </div>
@@ -942,7 +977,7 @@ export default function PublicExperienceHomePage() {
                 {brandName}
               </p>
               <p className="text-xs font-bold" style={{ color: theme.muted }}>
-                Tours · Tickets · Transfers
+                {t("public.brand_tagline", "Tours · Tickets · Transfers")}
               </p>
             </div>
           </Link>
@@ -956,7 +991,7 @@ export default function PublicExperienceHomePage() {
                 color: theme.text,
               }}
             >
-              Explore
+              {t("public.explore", "Explore")}
             </a>
 
             <Link
@@ -967,8 +1002,36 @@ export default function PublicExperienceHomePage() {
                 color: theme.text,
               }}
             >
-              All experiences
+              {t("public.all_experiences", "All experiences")}
             </Link>
+
+            <label
+              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-black"
+              style={{
+                backgroundColor: hexToRgba(theme.primary, 0.06),
+                color: theme.text,
+              }}
+            >
+              <Languages className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">
+                {t("common.language", "Language")}
+              </span>
+              <select
+                value={language}
+                onChange={(event) =>
+                  setLanguage(event.target.value as TicketingLanguage)
+                }
+                aria-label={t("common.language", "Language")}
+                className="cursor-pointer bg-transparent text-sm font-black outline-none"
+                style={{ color: theme.text }}
+              >
+                {ticketingLanguageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             {whatsappUrl && (
               <a
@@ -1055,7 +1118,7 @@ export default function PublicExperienceHomePage() {
                 }}
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Secure booking
+                {t("public.secure_booking", "Secure booking")}
               </span>
             </div>
 
@@ -1138,9 +1201,9 @@ export default function PublicExperienceHomePage() {
                   <Star className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-black text-white">Top picks</p>
+                  <p className="text-sm font-black text-white">{t("public.top_picks", "Top picks")}</p>
                   <p className="text-xs font-bold text-white/70">
-                    {featuredProducts.length} recommended
+                    {featuredProducts.length} {t("public.recommended", "recommended")}
                   </p>
                 </div>
               </div>
@@ -1164,9 +1227,9 @@ export default function PublicExperienceHomePage() {
                   <HeartHandshake className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-black text-white">Local support</p>
+                  <p className="text-sm font-black text-white">{t("public.local_support", "Local support")}</p>
                   <p className="text-xs font-bold text-white/70">
-                    Fast confirmation
+                    {t("public.fast_confirmation", "Fast confirmation")}
                   </p>
                 </div>
               </div>
@@ -1198,7 +1261,7 @@ export default function PublicExperienceHomePage() {
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   <div className="mb-3 flex flex-wrap gap-2">
                     <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black text-white backdrop-blur">
-                      Featured experience
+                      {t("public.featured_experience", "Featured experience")}
                     </span>
                     {heroProduct?.location && (
                       <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black text-white backdrop-blur">
@@ -1214,7 +1277,7 @@ export default function PublicExperienceHomePage() {
                   <div className="mt-4 flex items-end justify-between gap-3">
                     <div>
                       <p className="text-xs font-black uppercase tracking-wide text-white/60">
-                        From
+                        {t("public.from", "From")}
                       </p>
                       <p className="text-2xl font-black text-white">
                         {formatMoney(
@@ -1250,30 +1313,30 @@ export default function PublicExperienceHomePage() {
           }}
         >
           <MetricCard
-            label="Experiences"
+            label={t("public.experiences", "Experiences")}
             value={String(stats.products)}
-            helper="Ready to book"
+            helper={t("public.ready_to_book", "Ready to book")}
             icon={<Compass className="h-5 w-5" />}
             theme={theme}
           />
           <MetricCard
-            label="Categories"
+            label={t("public.categories", "Categories")}
             value={String(stats.categories || typeOrder.length)}
-            helper="Easy discovery"
+            helper={t("public.easy_discovery", "Easy discovery")}
             icon={<Filter className="h-5 w-5" />}
             theme={theme}
           />
           <MetricCard
-            label="Pickup"
+            label={t("public.pickup", "Pickup")}
             value={String(stats.pickup)}
-            helper="Hotel pickup options"
+            helper={t("public.hotel_pickup_options", "Hotel pickup options")}
             icon={<MapPin className="h-5 w-5" />}
             theme={theme}
           />
           <MetricCard
-            label="Starting at"
-            value={stats.fromPrice ? formatMoney(stats.fromPrice, currencySymbol) : "Ask"}
-            helper="Best available price"
+            label={t("public.starting_at", "Starting at")}
+            value={stats.fromPrice ? formatMoney(stats.fromPrice, currencySymbol) : t("public.ask", "Ask")}
+            helper={t("public.best_available_price", "Best available price")}
             icon={<Flame className="h-5 w-5" />}
             theme={theme}
           />
@@ -1298,7 +1361,7 @@ export default function PublicExperienceHomePage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search excursions, Coco Bongo, transfers, events..."
+                placeholder={t("public.search_placeholder", "Search excursions, Coco Bongo, transfers, events...")}
                 className="h-full flex-1 bg-transparent text-sm font-bold outline-none"
                 style={{ color: theme.text }}
               />
@@ -1316,13 +1379,13 @@ export default function PublicExperienceHomePage() {
                 borderColor: hexToRgba(theme.primary, 0.12),
               }}
             >
-              <option value="all">All types</option>
-              <option value="excursion">Excursions</option>
-              <option value="transfer">Transfers</option>
-              <option value="ticket">Tickets</option>
-              <option value="event">Events</option>
-              <option value="nightlife">Nightlife</option>
-              <option value="custom">Custom</option>
+              <option value="all">{t("public.all_types", "All types")}</option>
+              <option value="excursion">{t("public.excursions", "Excursions")}</option>
+              <option value="transfer">{t("public.transfers", "Transfers")}</option>
+              <option value="ticket">{t("public.tickets", "Tickets")}</option>
+              <option value="event">{t("public.events", "Events")}</option>
+              <option value="nightlife">{t("public.nightlife", "Nightlife")}</option>
+              <option value="custom">{t("public.custom", "Custom")}</option>
             </select>
 
             <select
@@ -1335,7 +1398,7 @@ export default function PublicExperienceHomePage() {
                 borderColor: hexToRgba(theme.primary, 0.12),
               }}
             >
-              <option value="all">All categories</option>
+              <option value="all">{t("public.all_categories", "All categories")}</option>
               {categories.map((category) => (
                 <option key={category.id} value={String(category.id)}>
                   {category.name}
@@ -1348,9 +1411,9 @@ export default function PublicExperienceHomePage() {
         {showCategoryGrid && (
           <section className="mt-10">
             <SectionTitle
-              eyebrow="Explore by type"
-              title="Choose your kind of experience"
-              description="Jump straight into excursions, tickets, nightlife, transfers or private experiences."
+              eyebrow={t("public.explore_by_type", "Explore by type")}
+              title={t("public.choose_experience_type", "Choose your kind of experience")}
+              description={t("public.choose_experience_description", "Jump straight into excursions, tickets, nightlife, transfers or private experiences.")}
               theme={theme}
             />
 
@@ -1387,20 +1450,20 @@ export default function PublicExperienceHomePage() {
                       className="mt-4 text-sm font-black"
                       style={{ color: theme.text }}
                     >
-                      {productTypeLabels[type]}
+                      {getProductTypeLabel(type, t)}
                     </p>
                     <p
                       className="mt-1 text-xs font-bold"
                       style={{ color: theme.muted }}
                     >
-                      {count} available
+                      {count} {t("public.available", "available")}
                     </p>
 
                     <div
                       className="mt-4 inline-flex items-center gap-2 text-xs font-black transition group-hover:translate-x-1"
                       style={{ color: theme.accent }}
                     >
-                      View {productTypeLabels[type]}
+                      View {getProductTypeLabel(type, t)}
                       <ArrowRight className="h-3.5 w-3.5" />
                     </div>
                   </Link>
@@ -1413,9 +1476,9 @@ export default function PublicExperienceHomePage() {
         {featuredProducts.length > 0 && (
           <section className="mt-12">
             <SectionTitle
-              eyebrow="Featured"
-              title="Recommended experiences"
-              description="Premium picks designed to convert faster and look stronger on your public site."
+              eyebrow={t("public.featured", "Featured")}
+              title={t("public.recommended_experiences", "Recommended experiences")}
+              description={t("public.recommended_description", "Premium picks selected for an unforgettable experience.")}
               theme={theme}
             />
 
@@ -1429,6 +1492,7 @@ export default function PublicExperienceHomePage() {
                   theme={theme}
                   featured
                   index={index}
+                  t={t}
                 />
               ))}
             </div>
@@ -1438,9 +1502,9 @@ export default function PublicExperienceHomePage() {
         <section className="mt-12">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <SectionTitle
-              eyebrow="Available now"
-              title="Book your experience"
-              description="Search, compare and reserve directly online."
+              eyebrow={t("public.available_now", "Available now")}
+              title={t("public.book_your_experience", "Book your experience")}
+              description={t("public.search_compare_reserve", "Search, compare and reserve directly online.")}
               theme={theme}
             />
 
@@ -1452,8 +1516,11 @@ export default function PublicExperienceHomePage() {
               }}
             >
               <Waves className="h-4 w-4" style={{ color: theme.accent }} />
-              {filteredProducts.length} product
-              {filteredProducts.length === 1 ? "" : "s"} found
+              {filteredProducts.length} {
+                filteredProducts.length === 1
+                  ? t("public.product", "product")
+                  : t("public.products", "products")
+              } {t("public.found", "found")}
             </div>
           </div>
 
@@ -1470,14 +1537,13 @@ export default function PublicExperienceHomePage() {
                 style={{ color: theme.muted }}
               />
               <h3 className="mt-4 text-xl font-black" style={{ color: theme.text }}>
-                No public products found
+                {t("public.no_products_found", "No public products found")}
               </h3>
               <p
                 className="mt-2 text-sm font-semibold"
                 style={{ color: theme.muted }}
               >
-                Try changing the filters, or make sure the product status is Active
-                and Public enabled is ON.
+                {t("public.no_products_help", "Try changing the filters or search for another experience.")}
               </p>
             </div>
           ) : (
@@ -1490,6 +1556,7 @@ export default function PublicExperienceHomePage() {
                   currencySymbol={currencySymbol}
                   theme={theme}
                   index={index}
+                  t={t}
                 />
               ))}
             </div>
@@ -1529,7 +1596,7 @@ export default function PublicExperienceHomePage() {
                   {brandName}
                 </p>
                 <p className="text-xs font-bold" style={{ color: theme.muted }}>
-                  Powered by PCD Experiences
+                  {t("public.powered_by", "Powered by PCD Experiences")}
                 </p>
               </div>
             </div>
@@ -1540,7 +1607,7 @@ export default function PublicExperienceHomePage() {
             style={{ color: theme.muted }}
           >
             <p>© {new Date().getFullYear()} {brandName}</p>
-            <p className="mt-1">Tours, tickets, transfers and experiences.</p>
+            <p className="mt-1">{t("public.footer_tagline", "Tours, tickets, transfers and experiences.")}</p>
           </div>
         </div>
       </footer>
@@ -1640,6 +1707,7 @@ function PublicProductCard({
   theme,
   featured = false,
   index = 0,
+  t,
 }: {
   product: ExperienceProduct;
   publicPath: (path: string) => string;
@@ -1647,11 +1715,12 @@ function PublicProductCard({
   theme: PublicTheme;
   featured?: boolean;
   index?: number;
+  t: Translate;
 }) {
   const Icon = getProductTypeIcon(product.product_type);
   const imageUrl = getGalleryImage(product);
   const detailPath = publicPath(`/product/${product.slug}`);
-  const description = getBestDescription(product);
+  const description = getBestDescription(product, t);
   const isTop =
     product.is_best_seller ||
     product.is_recommended ||
@@ -1700,7 +1769,7 @@ function PublicProductCard({
                 }}
               >
                 <Icon className="h-3.5 w-3.5" />
-                {getProductTypeLabel(product.product_type)}
+                {getProductTypeLabel(product.product_type, t)}
               </span>
 
               {(featured || isTop) && (
@@ -1712,7 +1781,7 @@ function PublicProductCard({
                   }}
                 >
                   <Star className="h-3.5 w-3.5" />
-                  Featured
+                  {t("public.featured", "Featured")}
                 </span>
               )}
             </div>
@@ -1727,7 +1796,7 @@ function PublicProductCard({
                 )}
 
                 <p className="text-xs font-black uppercase tracking-wide text-white/70">
-                  From
+                  {t("public.from", "From")}
                 </p>
                 <p className="text-2xl font-black text-white">
                   {formatMoney(product.base_price, currencySymbol)}
@@ -1773,7 +1842,7 @@ function PublicProductCard({
             {(product.supports_pickup || product.requires_pickup_location) && (
               <InfoPill
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                label="Pickup"
+                label={t("public.pickup", "Pickup")}
                 theme={theme}
               />
             )}
@@ -1793,10 +1862,10 @@ function PublicProductCard({
                 className="text-xs font-black uppercase tracking-wide"
                 style={{ color: theme.muted }}
               >
-                Ready to book
+                {t("public.ready_to_book", "Ready to book")}
               </p>
               <p className="text-sm font-black" style={{ color: theme.text }}>
-                Instant request
+                {t("public.instant_request", "Instant request")}
               </p>
             </div>
 
@@ -1805,7 +1874,7 @@ function PublicProductCard({
               className="pcd-shine inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5"
               style={{ backgroundColor: theme.button }}
             >
-              View details
+              {t("public.view_details", "View details")}
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>

@@ -38,4 +38,4 @@ export const validationTranslations = {
     "validation.select_date": "Wählen Sie ein Buchungsdatum.",
     "validation.generic": "Überprüfen Sie die Angaben und versuchen Sie es erneut.",
   },
-} as const;
+};

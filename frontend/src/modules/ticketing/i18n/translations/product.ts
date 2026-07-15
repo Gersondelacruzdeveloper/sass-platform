@@ -83,4 +83,4 @@ export const productTranslations = {
     "product.available": "Verfügbar",
     "product.sold_out": "Ausverkauft",
   },
-} as const;
+};

@@ -20,6 +20,11 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
+import {
+  ticketingLanguageOptions,
+  useTicketingTranslation,
+  type TicketingLanguage,
+} from "../i18n";
 import type {
   Booking,
   ExperienceProduct,
@@ -152,10 +157,22 @@ function getPublicTheme(publicSite: any): PublicTheme {
   };
 }
 
-function money(value: unknown, symbol = "US$") {
+function getLocale(language: TicketingLanguage) {
+  if (language === "es") return "es-DO";
+  if (language === "pt") return "pt-BR";
+  if (language === "fr") return "fr-FR";
+  if (language === "de") return "de-DE";
+  return "en-US";
+}
+
+function money(
+  value: unknown,
+  symbol = "US$",
+  language: TicketingLanguage = "en"
+) {
   const amount = Number(value || 0);
 
-  return `${symbol} ${amount.toLocaleString("en-US", {
+  return `${symbol} ${amount.toLocaleString(getLocale(language), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -199,28 +216,43 @@ function normalizeTime(value: string | null) {
   return null;
 }
 
-function formatTime(value?: string | null) {
+function formatTime(
+  value?: string | null,
+  language: TicketingLanguage = "en"
+) {
   if (!value) return "—";
 
-  const [hoursRaw, minutesRaw] = value.split(":");
+  const cleanValue = String(value).trim();
+
+  if (/\b(am|pm)\b/i.test(cleanValue)) {
+    return cleanValue;
+  }
+
+  const [hoursRaw, minutesRaw] = cleanValue.split(":");
   const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw || 0);
 
-  if (Number.isNaN(hours)) return value;
+  if (Number.isNaN(hours)) return cleanValue;
 
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const hour12 = hours % 12 || 12;
+  const date = new Date(2000, 0, 1, hours, minutes);
 
-  return `${hour12}:${minutesRaw || "00"} ${suffix}`;
+  return new Intl.DateTimeFormat(getLocale(language), {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
-function formatDate(value?: string | null) {
+function formatDate(
+  value?: string | null,
+  language: TicketingLanguage = "en"
+) {
   if (!value) return "—";
 
   const date = new Date(`${value}T00:00:00`);
 
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString(getLocale(language), {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -246,21 +278,36 @@ function paymentStatusFor(choice: PaymentChoice) {
   return "unpaid";
 }
 
-function paymentLabel(choice: PaymentChoice) {
-  if (choice === "full") return "Pay total amount";
-  if (choice === "deposit") return "Pay deposit";
-  if (choice === "cash") return "Pay in person";
-  return "Reserve now, pay later";
+function paymentLabel(
+  choice: PaymentChoice,
+  t: (key: string, fallback?: string) => string
+) {
+  if (choice === "full") {
+    return t("checkout.payment.full", "Pay total amount");
+  }
+
+  if (choice === "deposit") {
+    return t("checkout.payment.deposit", "Pay deposit");
+  }
+
+  if (choice === "cash") {
+    return t("checkout.payment.cash", "Pay in person");
+  }
+
+  return t("checkout.payment.pending", "Reserve now, pay later");
 }
 
 function shouldCreatePendingPayment(choice: PaymentChoice) {
   return choice === "full" || choice === "deposit";
 }
 
-function getFormErrorMessage(err: any) {
+function getFormErrorMessage(
+  err: any,
+  t: (key: string, fallback?: string) => string
+) {
   const data = err?.response?.data;
 
-  if (!data) return "Could not create booking. Please try again.";
+  if (!data) return t("checkout.error.create_failed", "Could not create booking. Please try again.");
   if (typeof data === "string") return data;
   if (data.detail) return String(data.detail);
   if (data.message) return String(data.message);
@@ -274,7 +321,7 @@ function getFormErrorMessage(err: any) {
     return `${firstKey}: ${String(value)}`;
   }
 
-  return "Could not create booking. Please check the information and try again.";
+  return t("checkout.error.check_information", "Could not create booking. Please check the information and try again.");
 }
 
 function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
@@ -363,6 +410,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 }
 
 export default function PublicCheckoutPage() {
+  const { language, setLanguage, t } = useTicketingTranslation();
   const { organisationSlug: organisationSlugFromUrl = "" } = useParams<{
     organisationSlug?: string;
   }>();
@@ -531,7 +579,7 @@ export default function PublicCheckoutPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "We could not load checkout."
+          t("checkout.error.load", "We could not load checkout.")
       );
     } finally {
       setLoading(false);
@@ -680,33 +728,77 @@ export default function PublicCheckoutPage() {
   }
 
   function validateForm() {
-    if (!product) return "Product was not found.";
-    if (!serviceDate) return "Service date is required.";
-    if (!form.full_name.trim()) return "Full name is required.";
-    if (!form.whatsapp.trim()) return "WhatsApp number is required.";
+    if (!product) {
+      return t("checkout.validation.product_missing", "Product was not found.");
+    }
+
+    if (!serviceDate) {
+      return t("checkout.validation.service_date", "Service date is required.");
+    }
+
+    if (!form.full_name.trim()) {
+      return t("checkout.validation.full_name", "Full name is required.");
+    }
+
+    if (!form.whatsapp.trim()) {
+      return t("checkout.validation.whatsapp", "WhatsApp number is required.");
+    }
 
     if (isTransfer) {
-      if (!transferRouteId) return "Transfer route is required.";
+      if (!transferRouteId) {
+        return t("checkout.validation.transfer_route", "Transfer route is required.");
+      }
+
       if (!form.pickup_name.trim() && !form.pickup_address.trim()) {
-        return "Pickup location or address is required.";
+        return t(
+          "checkout.validation.pickup_location",
+          "Pickup location or address is required."
+        );
       }
+
       if (!form.dropoff_name.trim() && !form.dropoff_address.trim()) {
-        return "Drop-off location or address is required.";
+        return t(
+          "checkout.validation.dropoff_location",
+          "Drop-off location or address is required."
+        );
       }
-    } else if ((product.requires_pickup_location || product.supports_pickup) && !pickupLocationId) {
-      return "Pickup location is required.";
+    } else if (
+      (product.requires_pickup_location || product.supports_pickup) &&
+      !pickupLocationId
+    ) {
+      return t(
+        "checkout.validation.pickup_required",
+        "Pickup location is required."
+      );
     }
 
     if (onlinePaymentSelected && !hasOnlineGateway) {
-      return "Online payment is not configured yet. Choose pay later or pay in person.";
+      return t(
+        "checkout.validation.gateway_missing",
+        "Online payment is not configured yet. Choose pay later or pay in person."
+      );
     }
 
-    if (onlinePaymentSelected && selectedGateway === "stripe" && !stripeAvailable) {
-      return "Stripe is not available for this business.";
+    if (
+      onlinePaymentSelected &&
+      selectedGateway === "stripe" &&
+      !stripeAvailable
+    ) {
+      return t(
+        "checkout.validation.stripe_unavailable",
+        "Stripe is not available for this business."
+      );
     }
 
-    if (onlinePaymentSelected && selectedGateway === "paypal" && !paypalAvailable) {
-      return "PayPal is not available for this business.";
+    if (
+      onlinePaymentSelected &&
+      selectedGateway === "paypal" &&
+      !paypalAvailable
+    ) {
+      return t(
+        "checkout.validation.paypal_unavailable",
+        "PayPal is not available for this business."
+      );
     }
 
     return "";
@@ -802,6 +894,7 @@ export default function PublicCheckoutPage() {
         payment_status: paymentStatusFor(paymentChoice),
         payment_mode: paymentModeFor(paymentChoice),
         payment_method: paymentMethodFor(paymentChoice),
+        customer_language: language,
         service_date: serviceDate,
         service_time: pickupTime,
         customer_name: form.full_name.trim(),
@@ -866,7 +959,7 @@ export default function PublicCheckoutPage() {
           );
 
           if (!checkoutSession.checkout_url) {
-            throw new Error("Stripe checkout URL was not returned.");
+            throw new Error(t("checkout.error.stripe_url", "Stripe checkout URL was not returned."));
           }
 
           window.location.href = checkoutSession.checkout_url;
@@ -880,7 +973,7 @@ export default function PublicCheckoutPage() {
           );
 
           if (!paypalOrder.approve_url) {
-            throw new Error("PayPal approval URL was not returned.");
+            throw new Error(t("checkout.error.paypal_url", "PayPal approval URL was not returned."));
           }
 
           window.location.href = paypalOrder.approve_url;
@@ -894,7 +987,7 @@ export default function PublicCheckoutPage() {
       });
     } catch (err: any) {
       console.error("Could not create public booking:", err);
-      setError(getFormErrorMessage(err));
+      setError(getFormErrorMessage(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -907,6 +1000,9 @@ export default function PublicCheckoutPage() {
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
       >
         <div
           className="rounded-3xl border p-10 text-center"
@@ -931,6 +1027,9 @@ export default function PublicCheckoutPage() {
         brandName={brandName}
         logoUrl={logoUrl}
         theme={theme}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
       >
         <div
           className="rounded-3xl border p-10 text-center"
@@ -944,7 +1043,7 @@ export default function PublicCheckoutPage() {
             style={{ color: theme.accent }}
           />
           <p className="mt-3 text-sm font-bold" style={{ color: theme.muted }}>
-            Loading checkout...
+            {t("checkout.loading", "Loading checkout...")}
           </p>
         </div>
       </PublicShell>
@@ -957,6 +1056,9 @@ export default function PublicCheckoutPage() {
       brandName={brandName}
       logoUrl={logoUrl}
       theme={theme}
+      language={language}
+      setLanguage={setLanguage}
+      t={t}
     >
       <div className="mb-6">
         <Link
@@ -969,7 +1071,7 @@ export default function PublicCheckoutPage() {
           }}
         >
           <ArrowLeft className="h-4 w-4" />
-          Back
+          {t("common.back", "Back")}
         </Link>
       </div>
 
@@ -1003,7 +1105,7 @@ export default function PublicCheckoutPage() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <Input
-              label="Full name"
+              label={t("checkout.full_name", "Full name")}
               value={form.full_name}
               onChange={(value) => updateField("full_name", value)}
               placeholder="John Smith"
@@ -1013,7 +1115,7 @@ export default function PublicCheckoutPage() {
             />
 
             <Input
-              label="WhatsApp"
+              label={t("checkout.whatsapp", "WhatsApp")}
               value={form.whatsapp}
               onChange={(value) => updateField("whatsapp", value)}
               placeholder="+1 829 000 0000"
@@ -1023,7 +1125,7 @@ export default function PublicCheckoutPage() {
             />
 
             <Input
-              label="Email"
+              label={t("checkout.email", "Email")}
               type="email"
               value={form.email}
               onChange={(value) => updateField("email", value)}
@@ -1033,12 +1135,12 @@ export default function PublicCheckoutPage() {
             />
 
             <Input
-              label={isTransfer ? "Pickup name" : "Hotel / pickup location"}
+              label={isTransfer ? t("checkout.pickup_name", "Pickup name") : t("checkout.hotel_pickup", "Hotel / pickup location")}
               value={isTransfer ? form.pickup_name : form.hotel_name}
               onChange={(value) =>
                 isTransfer ? updateField("pickup_name", value) : updateField("hotel_name", value)
               }
-              placeholder={isTransfer ? "Hotel, Airbnb, villa, airport..." : "Hotel name"}
+              placeholder={isTransfer ? t("checkout.placeholder.pickup_name", "Hotel, Airbnb, villa, airport...") : t("checkout.placeholder.hotel", "Hotel name")}
               icon={<MapPin className="h-4 w-4" />}
               theme={theme}
             />
@@ -1058,47 +1160,47 @@ export default function PublicCheckoutPage() {
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <Input
-                  label="Pickup address"
+                  label={t("checkout.pickup_address", "Pickup address")}
                   value={form.pickup_address}
                   onChange={(value) => updateField("pickup_address", value)}
-                  placeholder="Full hotel, Airbnb or villa address"
+                  placeholder={t("checkout.placeholder.pickup_address", "Full hotel, Airbnb or villa address")}
                   icon={<MapPin className="h-4 w-4" />}
                   theme={theme}
                 />
 
                 <Input
-                  label="Pickup Google Maps link"
+                  label={t("checkout.pickup_maps_link", "Pickup Google Maps link")}
                   value={form.pickup_maps_link}
                   onChange={(value) => updateField("pickup_maps_link", value)}
-                  placeholder="Optional map link"
+                  placeholder={t("checkout.placeholder.map_link", "Optional map link")}
                   icon={<MapPin className="h-4 w-4" />}
                   theme={theme}
                 />
 
                 <Input
-                  label="Drop-off name"
+                  label={t("checkout.dropoff_name", "Drop-off name")}
                   value={form.dropoff_name}
                   onChange={(value) => updateField("dropoff_name", value)}
-                  placeholder="Bayahibe port, hotel, airport..."
+                  placeholder={t("checkout.placeholder.dropoff_name", "Bayahibe port, hotel, airport...")}
                   icon={<MapPin className="h-4 w-4" />}
                   required
                   theme={theme}
                 />
 
                 <Input
-                  label="Drop-off address"
+                  label={t("checkout.dropoff_address", "Drop-off address")}
                   value={form.dropoff_address}
                   onChange={(value) => updateField("dropoff_address", value)}
-                  placeholder="Full destination address if needed"
+                  placeholder={t("checkout.placeholder.dropoff_address", "Full destination address if needed")}
                   icon={<MapPin className="h-4 w-4" />}
                   theme={theme}
                 />
 
                 <Input
-                  label="Drop-off Google Maps link"
+                  label={t("checkout.dropoff_maps_link", "Drop-off Google Maps link")}
                   value={form.dropoff_maps_link}
                   onChange={(value) => updateField("dropoff_maps_link", value)}
-                  placeholder="Optional map link"
+                  placeholder={t("checkout.placeholder.map_link", "Optional map link")}
                   icon={<MapPin className="h-4 w-4" />}
                   theme={theme}
                 />
@@ -1107,10 +1209,10 @@ export default function PublicCheckoutPage() {
           )}
 
           <Textarea
-            label="Notes"
+            label={t("checkout.notes", "Notes")}
             value={form.notes}
             onChange={(value) => updateField("notes", value)}
-            placeholder={isTransfer ? "Room number, luggage, child seats, flight info, pickup instructions..." : "Room number, special requests, allergies, flight info..."}
+            placeholder={isTransfer ? t("checkout.placeholder.transfer_notes", "Room number, luggage, child seats, flight info, pickup instructions...") : t("checkout.placeholder.notes", "Room number, special requests, allergies, flight info...")}
             theme={theme}
           />
 
@@ -1180,7 +1282,7 @@ export default function PublicCheckoutPage() {
             style={{ backgroundColor: theme.button }}
           >
             {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            {onlinePaymentSelected ? "Continue to Secure Payment" : "Confirm Booking"}
+            {onlinePaymentSelected ? t("checkout.continue_secure_payment", "Continue to Secure Payment") : t("checkout.confirm_booking", "Confirm Booking")}
           </button>
         </form>
 
@@ -1200,67 +1302,76 @@ export default function PublicCheckoutPage() {
           </h2>
 
           <div className="mt-5 space-y-3">
-            <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Product" value={product?.name || productSlug} theme={theme} />
+            <SummaryRow icon={<Ticket className="h-4 w-4" />} label={t("checkout.summary.product", "Product")} value={product?.name || productSlug} theme={theme} />
             {isTransfer && (transferOrigin || transferDestination) && (
               <SummaryRow
                 icon={<MapPin className="h-4 w-4" />}
-                label="Transfer route"
-                value={`${transferOrigin || "Pickup"} → ${transferDestination || "Drop-off"}`}
+                label={t("checkout.summary.transfer_route", "Transfer route")}
+                value={`${transferOrigin || t("checkout.summary.pickup", "Pickup")} → ${transferDestination || t("checkout.summary.dropoff", "Drop-off")}`}
                 theme={theme}
               />
             )}
             {isTransfer && transferVehicleType && (
-              <SummaryRow icon={<Users className="h-4 w-4" />} label="Vehicle" value={transferVehicleType} theme={theme} />
+              <SummaryRow icon={<Users className="h-4 w-4" />} label={t("checkout.summary.vehicle", "Vehicle")} value={transferVehicleType} theme={theme} />
             )}
             {externalOptionName && (
-              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket option" value={externalOptionName} theme={theme} />
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label={t("checkout.summary.ticket_option", "Ticket option")} value={externalOptionName} theme={theme} />
             )}
             {externalOptionDescription && (
-              <SummaryRow icon={<Ticket className="h-4 w-4" />} label="Ticket details" value={externalOptionDescription} theme={theme} />
+              <SummaryRow icon={<Ticket className="h-4 w-4" />} label={t("checkout.summary.ticket_details", "Ticket details")} value={externalOptionDescription} theme={theme} />
             )}
             {externalOptionFeatures.length > 0 && (
-              <SummaryRow icon={<CheckCircle2 className="h-4 w-4" />} label="Includes" value={externalOptionFeatures.join(", ")} theme={theme} />
+              <SummaryRow icon={<CheckCircle2 className="h-4 w-4" />} label={t("checkout.summary.includes", "Includes")} value={externalOptionFeatures.join(", ")} theme={theme} />
             )}
-            <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Date" value={formatDate(serviceDate)} theme={theme} />
+            <SummaryRow icon={<Clock3 className="h-4 w-4" />} label={t("checkout.summary.date", "Date")} value={formatDate(serviceDate, language)} theme={theme} />
             {externalCheckinTime && (
-              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Check-in time" value={formatTime(externalCheckinTime)} theme={theme} />
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label={t("checkout.summary.checkin_time", "Check-in time")} value={formatTime(externalCheckinTime, language)} theme={theme} />
             )}
             {externalStartTime && (
-              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Show time" value={formatTime(externalStartTime)} theme={theme} />
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label={t("checkout.summary.show_time", "Show time")} value={formatTime(externalStartTime, language)} theme={theme} />
             )}
-            <SummaryRow icon={<Users className="h-4 w-4" />} label={isTransfer ? "Passengers" : "Guests"} value={`${guests} total · ${adults} adults, ${children} children, ${infants} infants`} theme={theme} />
+            <SummaryRow icon={<Users className="h-4 w-4" />} label={isTransfer ? t("checkout.summary.passengers", "Passengers") : t("checkout.summary.guests", "Guests")} value={`${guests} ${t("checkout.total_guests", "total")} · ${adults} ${t(
+                  adults === 1 ? "checkout.passenger.adult" : "checkout.passenger.adults",
+                  adults === 1 ? "adult" : "adults"
+                )}, ${children} ${t(
+                  children === 1 ? "checkout.passenger.child" : "checkout.passenger.children",
+                  children === 1 ? "child" : "children"
+                )}, ${infants} ${t(
+                  infants === 1 ? "checkout.passenger.infant" : "checkout.passenger.infants",
+                  infants === 1 ? "infant" : "infants"
+                )}`} theme={theme} />
             {!isTransfer && !isExternalTicket && (
               <SummaryRow
                 icon={<Ticket className="h-4 w-4" />}
-                label="Price breakdown"
+                label={t("checkout.summary.price_breakdown", "Price breakdown")}
                 value={[
-                  `${adults} adult${adults === 1 ? "" : "s"} × ${money(adultUnitPrice, currencySymbol)}`,
-                  children > 0 ? `${children} child${children === 1 ? "" : "ren"} × ${money(childUnitPrice, currencySymbol)}` : "",
-                  infants > 0 ? `${infants} infant${infants === 1 ? "" : "s"} × ${money(infantUnitPrice, currencySymbol)}` : "",
+                  `${adults} ${t(adults === 1 ? "checkout.passenger.adult" : "checkout.passenger.adults", adults === 1 ? "adult" : "adults")} × ${money(adultUnitPrice, currencySymbol, language)}`,
+                  children > 0 ? `${children} ${t(children === 1 ? "checkout.passenger.child" : "checkout.passenger.children", children === 1 ? "child" : "children")} × ${money(childUnitPrice, currencySymbol, language)}` : "",
+                  infants > 0 ? `${infants} ${t(infants === 1 ? "checkout.passenger.infant" : "checkout.passenger.infants", infants === 1 ? "infant" : "infants")} × ${money(infantUnitPrice, currencySymbol, language)}` : "",
                 ].filter(Boolean).join(" · ")}
                 theme={theme}
               />
             )}
             {isTransfer && (form.pickup_name || transferPickupName || hotelFromQuery) && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup" value={form.pickup_name || transferPickupName || hotelFromQuery} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.summary.pickup", "Pickup")} value={form.pickup_name || transferPickupName || hotelFromQuery} theme={theme} />
             )}
             {isTransfer && (form.pickup_address || transferPickupAddress) && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup address" value={form.pickup_address || transferPickupAddress} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.pickup_address", "Pickup address")} value={form.pickup_address || transferPickupAddress} theme={theme} />
             )}
             {isTransfer && (form.dropoff_name || transferDropoffName) && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Drop-off" value={form.dropoff_name || transferDropoffName} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.summary.dropoff", "Drop-off")} value={form.dropoff_name || transferDropoffName} theme={theme} />
             )}
             {isTransfer && (form.dropoff_address || transferDropoffAddress) && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Drop-off address" value={form.dropoff_address || transferDropoffAddress} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.dropoff_address", "Drop-off address")} value={form.dropoff_address || transferDropoffAddress} theme={theme} />
             )}
             {!isTransfer && hotelFromQuery && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup hotel" value={hotelFromQuery} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.summary.pickup_hotel", "Pickup hotel")} value={hotelFromQuery} theme={theme} />
             )}
             {pickupTime && (
-              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label="Pickup time" value={formatTime(pickupTime)} theme={theme} />
+              <SummaryRow icon={<Clock3 className="h-4 w-4" />} label={t("checkout.summary.pickup_time", "Pickup time")} value={formatTime(pickupTime, language)} theme={theme} />
             )}
             {pickupPoint && (
-              <SummaryRow icon={<MapPin className="h-4 w-4" />} label="Pickup point" value={pickupPoint} theme={theme} />
+              <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.summary.pickup_point", "Pickup point")} value={pickupPoint} theme={theme} />
             )}
           </div>
 
@@ -1272,23 +1383,23 @@ export default function PublicCheckoutPage() {
             }}
           >
             <div className="flex items-center justify-between text-sm font-black">
-              <span style={{ color: theme.text }}>Payment option</span>
-              <span style={{ color: theme.text }}>{paymentLabel(paymentChoice)}</span>
+              <span style={{ color: theme.text }}>{t("checkout.payment_option", "Payment option")}</span>
+              <span style={{ color: theme.text }}>{paymentLabel(paymentChoice, t)}</span>
             </div>
 
             <div className="mt-3 flex items-center justify-between text-sm font-bold">
-              <span style={{ color: theme.muted }}>Total</span>
-              <span style={{ color: theme.text }}>{money(totalFull, currencySymbol)}</span>
+              <span style={{ color: theme.muted }}>{t("checkout.total", "Total")}</span>
+              <span style={{ color: theme.text }}>{money(totalFull, currencySymbol, language)}</span>
             </div>
 
             <div className="mt-2 flex items-center justify-between text-sm font-bold">
-              <span style={{ color: theme.muted }}>Pay now</span>
-              <span style={{ color: theme.text }}>{money(payNow, currencySymbol)}</span>
+              <span style={{ color: theme.muted }}>{t("checkout.pay_now", "Pay now")}</span>
+              <span style={{ color: theme.text }}>{money(payNow, currencySymbol, language)}</span>
             </div>
 
             <div className="mt-2 flex items-center justify-between text-sm font-bold">
-              <span style={{ color: theme.muted }}>Pay later</span>
-              <span style={{ color: theme.text }}>{money(payLater, currencySymbol)}</span>
+              <span style={{ color: theme.muted }}>{t("checkout.pay_later", "Pay later")}</span>
+              <span style={{ color: theme.text }}>{money(payLater, currencySymbol, language)}</span>
             </div>
           </div>
         </aside>
@@ -1302,12 +1413,18 @@ function PublicShell({
   brandName,
   logoUrl,
   theme,
+  language,
+  setLanguage,
+  t,
   children,
 }: {
   publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
+  language: TicketingLanguage;
+  setLanguage: (language: TicketingLanguage, manuallySelected?: boolean) => void;
+  t: (key: string, fallback?: string) => string;
   children: ReactNode;
 }) {
   return (
@@ -1346,22 +1463,44 @@ function PublicShell({
                 {brandName}
               </p>
               <p className="text-xs font-bold" style={{ color: theme.muted }}>
-                Secure checkout
+                {t("checkout.secure_checkout", "Secure checkout")}
               </p>
             </div>
           </Link>
 
-          <Link
-            to={publicPath("/")}
-            className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
-            style={{
-              backgroundColor: theme.card,
-              borderColor: hexToRgba(theme.primary, 0.12),
-              color: theme.text,
-            }}
-          >
-            Home
-          </Link>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label={t("common.language", "Language")}
+              value={language}
+              onChange={(event) =>
+                setLanguage(event.target.value as TicketingLanguage, true)
+              }
+              className="h-10 rounded-2xl border px-3 text-sm font-extrabold outline-none"
+              style={{
+                backgroundColor: theme.card,
+                borderColor: hexToRgba(theme.primary, 0.12),
+                color: theme.text,
+              }}
+            >
+              {ticketingLanguageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.shortLabel}
+                </option>
+              ))}
+            </select>
+
+            <Link
+              to={publicPath("/")}
+              className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
+              style={{
+                backgroundColor: theme.card,
+                borderColor: hexToRgba(theme.primary, 0.12),
+                color: theme.text,
+              }}
+            >
+              {t("public.home", "Home")}
+            </Link>
+          </div>
         </div>
       </header>
 

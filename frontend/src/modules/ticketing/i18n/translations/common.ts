@@ -78,4 +78,4 @@ export const commonTranslations = {
     "common.select": "Auswählen",
     "common.language": "Sprache",
   },
-} as const;
+};

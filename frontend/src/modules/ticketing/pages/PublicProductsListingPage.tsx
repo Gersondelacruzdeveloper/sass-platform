@@ -26,6 +26,11 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
+import {
+  ticketingLanguageOptions,
+  useTicketingTranslation,
+  type TicketingLanguage,
+} from "../i18n";
 import type {
   ExperienceCategory,
   ExperienceProduct,
@@ -80,6 +85,8 @@ type ProductSegment =
   | "custom"
   | "all";
 
+type Translate = (key: string, fallback?: string) => string;
+
 type FilterChip = {
   label: string;
   onRemove: () => void;
@@ -95,76 +102,61 @@ const segmentToProductType: Record<ProductSegment, ProductType | "all"> = {
   custom: "custom",
 };
 
-const segmentLabels: Record<
-  ProductSegment,
-  {
-    eyebrow: string;
-    title: string;
-    subtitle: string;
-    emptyTitle: string;
-    emptyText: string;
-  }
-> = {
-  all: {
-    eyebrow: "All experiences",
-    title: "Experiences in Punta Cana",
-    subtitle:
-      "Discover excursions, transfers, tickets, events and custom experiences.",
-    emptyTitle: "No products found",
-    emptyText:
-      "Try removing a filter, changing the category, or widening the price range.",
-  },
-  excursions: {
-    eyebrow: "Curated excursions",
-    title: "Excursions in Punta Cana",
-    subtitle:
-      "Choose islands, buggies, culture, nightlife and unforgettable local adventures.",
-    emptyTitle: "No excursions found",
-    emptyText:
-      "Try removing a filter, changing the category, or widening the price range.",
-  },
-  transfers: {
-    eyebrow: "Private transfers",
-    title: "Transfers in Punta Cana",
-    subtitle:
-      "Airport transfers, hotel transfers and private rides with clear pricing.",
-    emptyTitle: "No transfers found",
-    emptyText:
-      "Try changing your filters or checking another pickup/drop-off option.",
-  },
-  tickets: {
-    eyebrow: "Tickets",
-    title: "Tickets and attractions",
-    subtitle:
-      "Book entry tickets and attraction passes with secure reservation options.",
-    emptyTitle: "No tickets found",
-    emptyText: "Try removing filters or checking another date.",
-  },
-  events: {
-    eyebrow: "Events",
-    title: "Events in Punta Cana",
-    subtitle:
-      "Find local events, parties, shows and limited-date experiences.",
-    emptyTitle: "No events found",
-    emptyText: "Try removing filters or checking another event category.",
-  },
-  nightlife: {
-    eyebrow: "Nightlife",
-    title: "Nightlife experiences",
-    subtitle:
-      "Discover nightlife tickets, premium experiences and evening activities.",
-    emptyTitle: "No nightlife experiences found",
-    emptyText: "Try removing filters or checking another date.",
-  },
-  custom: {
-    eyebrow: "Custom experiences",
-    title: "Custom tours and private experiences",
-    subtitle:
-      "Private, custom and special experiences created for your trip.",
-    emptyTitle: "No custom experiences found",
-    emptyText: "Try removing filters or checking another category.",
-  },
-};
+function getSegmentLabels(segment: ProductSegment, t: Translate) {
+  const labels = {
+    all: {
+      eyebrow: t("listing.segment.all.eyebrow", "All experiences"),
+      title: t("listing.segment.all.title", "Experiences in Punta Cana"),
+      subtitle: t("listing.segment.all.subtitle", "Discover excursions, transfers, tickets, events and custom experiences."),
+      emptyTitle: t("listing.segment.all.empty_title", "No products found"),
+      emptyText: t("listing.segment.all.empty_text", "Try removing a filter, changing the category, or widening the price range."),
+    },
+    excursions: {
+      eyebrow: t("listing.segment.excursions.eyebrow", "Curated excursions"),
+      title: t("listing.segment.excursions.title", "Excursions in Punta Cana"),
+      subtitle: t("listing.segment.excursions.subtitle", "Choose islands, buggies, culture, nightlife and unforgettable local adventures."),
+      emptyTitle: t("listing.segment.excursions.empty_title", "No excursions found"),
+      emptyText: t("listing.segment.excursions.empty_text", "Try removing a filter, changing the category, or widening the price range."),
+    },
+    transfers: {
+      eyebrow: t("listing.segment.transfers.eyebrow", "Private transfers"),
+      title: t("listing.segment.transfers.title", "Transfers in Punta Cana"),
+      subtitle: t("listing.segment.transfers.subtitle", "Airport transfers, hotel transfers and private rides with clear pricing."),
+      emptyTitle: t("listing.segment.transfers.empty_title", "No transfers found"),
+      emptyText: t("listing.segment.transfers.empty_text", "Try changing your filters or checking another pickup/drop-off option."),
+    },
+    tickets: {
+      eyebrow: t("listing.segment.tickets.eyebrow", "Tickets"),
+      title: t("listing.segment.tickets.title", "Tickets and attractions"),
+      subtitle: t("listing.segment.tickets.subtitle", "Book entry tickets and attraction passes with secure reservation options."),
+      emptyTitle: t("listing.segment.tickets.empty_title", "No tickets found"),
+      emptyText: t("listing.segment.tickets.empty_text", "Try removing filters or checking another date."),
+    },
+    events: {
+      eyebrow: t("listing.segment.events.eyebrow", "Events"),
+      title: t("listing.segment.events.title", "Events in Punta Cana"),
+      subtitle: t("listing.segment.events.subtitle", "Find local events, parties, shows and limited-date experiences."),
+      emptyTitle: t("listing.segment.events.empty_title", "No events found"),
+      emptyText: t("listing.segment.events.empty_text", "Try removing filters or checking another event category."),
+    },
+    nightlife: {
+      eyebrow: t("listing.segment.nightlife.eyebrow", "Nightlife"),
+      title: t("listing.segment.nightlife.title", "Nightlife experiences"),
+      subtitle: t("listing.segment.nightlife.subtitle", "Discover nightlife tickets, premium experiences and evening activities."),
+      emptyTitle: t("listing.segment.nightlife.empty_title", "No nightlife experiences found"),
+      emptyText: t("listing.segment.nightlife.empty_text", "Try removing filters or checking another date."),
+    },
+    custom: {
+      eyebrow: t("listing.segment.custom.eyebrow", "Custom experiences"),
+      title: t("listing.segment.custom.title", "Custom tours and private experiences"),
+      subtitle: t("listing.segment.custom.subtitle", "Private, custom and special experiences created for your trip."),
+      emptyTitle: t("listing.segment.custom.empty_title", "No custom experiences found"),
+      emptyText: t("listing.segment.custom.empty_text", "Try removing filters or checking another category."),
+    },
+  };
+
+  return labels[segment];
+}
 
 function getApiBaseUrl() {
   const baseUrl =
@@ -354,14 +346,8 @@ function getCategoryName(product: ExperienceProduct) {
   return product.category_detail?.name || "";
 }
 
-function getTypeLabel(type: ProductType | string) {
-  if (type === "excursion") return "Excursion";
-  if (type === "transfer") return "Transfer";
-  if (type === "ticket") return "Ticket";
-  if (type === "event") return "Event";
-  if (type === "nightlife") return "Nightlife";
-  if (type === "custom") return "Custom";
-  return String(type);
+function getTypeLabel(type: ProductType | string, t: Translate) {
+  return t(`public.type.${type}`, String(type));
 }
 
 function getWhatsappUrl(value?: string | null, message?: string) {
@@ -439,6 +425,7 @@ function BadgePill({
 
 type FiltersPanelProps = {
   compact?: boolean;
+  t: Translate;
   theme: PublicTheme;
 
   q: string;
@@ -503,6 +490,7 @@ function inactiveButtonStyle(theme: PublicTheme): React.CSSProperties {
 
 function FiltersPanel({
   compact = false,
+  t,
   theme,
 
   q,
@@ -544,7 +532,7 @@ function FiltersPanel({
     <div className={compact ? "space-y-4" : "space-y-6"}>
       <div>
         <label className="block text-sm font-black" style={{ color: theme.text }}>
-          Search
+          {t("listing.search", "Search")}
         </label>
 
         <div
@@ -558,7 +546,7 @@ function FiltersPanel({
           <input
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Saona, buggy, airport, nightlife..."
+            placeholder={t("listing.search_placeholder", "Saona, buggy, airport, nightlife...")}
             className="h-12 w-full bg-transparent py-3 pl-10 pr-4 text-sm font-bold outline-none"
             style={{ color: theme.text }}
           />
@@ -568,7 +556,7 @@ function FiltersPanel({
       {categories.length > 0 && (
         <div>
           <label className="block text-sm font-black" style={{ color: theme.text }}>
-            Category
+            {t("listing.category", "Category")}
           </label>
 
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -578,7 +566,7 @@ function FiltersPanel({
               className="rounded-2xl border px-3 py-2 text-sm font-black transition hover:-translate-y-0.5"
               style={categoryId === "all" ? activeButtonStyle(theme) : inactiveButtonStyle(theme)}
             >
-              All
+              {t("listing.all", "All")}
             </button>
 
             {categories.slice(0, 9).map((category) => {
@@ -608,28 +596,28 @@ function FiltersPanel({
         }}
       >
         <div className="text-sm font-black" style={{ color: theme.text }}>
-          Quick picks
+          {t("listing.quick_picks", "Quick picks")}
         </div>
 
         <div className="mt-3 space-y-2">
           <ToggleLine
             checked={onlyRecommended}
             onChange={setOnlyRecommended}
-            label="Recommended / featured"
+            label={t("listing.recommended_featured", "Recommended / featured")}
             theme={theme}
           />
 
           <ToggleLine
             checked={pickupIncludedOnly}
             onChange={setPickupIncludedOnly}
-            label="Pickup available"
+            label={t("listing.pickup_available", "Pickup available")}
             theme={theme}
           />
 
           <ToggleLine
             checked={depositOnly}
             onChange={setDepositOnly}
-            label="Deposit available"
+            label={t("listing.deposit_available", "Deposit available")}
             theme={theme}
           />
         </div>
@@ -637,7 +625,7 @@ function FiltersPanel({
 
       <div>
         <label className="block text-sm font-black" style={{ color: theme.text }}>
-          Location
+          {t("listing.location", "Location")}
         </label>
 
         <select
@@ -648,7 +636,7 @@ function FiltersPanel({
         >
           {locations.map((locationItem) => (
             <option key={locationItem} value={locationItem}>
-              {locationItem === "all" ? "All locations" : locationItem}
+              {locationItem === "all" ? t("listing.all_locations", "All locations") : locationItem}
             </option>
           ))}
         </select>
@@ -657,11 +645,11 @@ function FiltersPanel({
       <div>
         <div className="flex items-center justify-between">
           <label className="block text-sm font-black" style={{ color: theme.text }}>
-            Price
+            {t("listing.price", "Price")}
           </label>
 
           <span className="text-xs font-bold" style={{ color: theme.muted }}>
-            Range: ${priceStats.min}–${priceStats.max}
+            {t("listing.range", "Range")}: ${priceStats.min}–${priceStats.max}
           </span>
         </div>
 
@@ -672,7 +660,7 @@ function FiltersPanel({
             onChange={(event) =>
               setMinPrice(event.target.value === "" ? "" : Number(event.target.value))
             }
-            placeholder="Min"
+            placeholder={t("listing.min", "Min")}
             className="h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
             style={inputStyle(theme)}
           />
@@ -683,7 +671,7 @@ function FiltersPanel({
             onChange={(event) =>
               setMaxPrice(event.target.value === "" ? "" : Number(event.target.value))
             }
-            placeholder="Max"
+            placeholder={t("listing.max", "Max")}
             className="h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
             style={inputStyle(theme)}
           />
@@ -703,13 +691,13 @@ function FiltersPanel({
             className="rounded-xl border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
             style={inactiveButtonStyle(theme)}
           >
-            Apply
+            {t("listing.apply", "Apply")}
           </button>
 
           {[
-            { label: "Under $50", min: "", max: 50 },
-            { label: "$50–$90", min: 50, max: 90 },
-            { label: "$90+", min: 90, max: "" },
+            { label: t("listing.under_50", "Under $50"), min: "", max: 50 },
+            { label: t("listing.50_90", "$50–$90"), min: 50, max: 90 },
+            { label: t("listing.90_plus", "$90+"), min: 90, max: "" },
           ].map((range) => (
             <button
               key={range.label}
@@ -729,15 +717,15 @@ function FiltersPanel({
 
       <div>
         <label className="block text-sm font-black" style={{ color: theme.text }}>
-          Duration
+          {t("listing.duration", "Duration")}
         </label>
 
         <div className="mt-2 grid grid-cols-2 gap-2">
           {[
-            { key: "all", label: "All" },
-            { key: "short", label: "Up to 4h" },
-            { key: "half", label: "5–7h" },
-            { key: "full", label: "8h+" },
+            { key: "all", label: t("listing.all", "All") },
+            { key: "short", label: t("listing.up_to_4h", "Up to 4h") },
+            { key: "half", label: t("listing.5_7h", "5–7h") },
+            { key: "full", label: t("listing.8h_plus", "8h+") },
           ].map((duration) => {
             const active = durationBucket === (duration.key as DurationBucket);
 
@@ -760,7 +748,7 @@ function FiltersPanel({
 
       <div>
         <label className="block text-sm font-black" style={{ color: theme.text }}>
-          Sort by
+          {t("listing.sort_by", "Sort by")}
         </label>
 
         <select
@@ -769,12 +757,12 @@ function FiltersPanel({
           className="mt-2 h-12 w-full rounded-2xl border px-4 text-sm font-bold outline-none"
           style={inputStyle(theme)}
         >
-          <option value="recommended">Recommended</option>
-          <option value="rating_high">Rating: high to low</option>
-          <option value="price_low">Price: low to high</option>
-          <option value="price_high">Price: high to low</option>
-          <option value="duration_low">Duration: short to long</option>
-          <option value="duration_high">Duration: long to short</option>
+          <option value="recommended">{t("listing.recommended", "Recommended")}</option>
+          <option value="rating_high">{t("listing.rating_high_low", "Rating: high to low")}</option>
+          <option value="price_low">{t("listing.price_low_high", "Price: low to high")}</option>
+          <option value="price_high">{t("listing.price_high_low", "Price: high to low")}</option>
+          <option value="duration_low">{t("listing.duration_short_long", "Duration: short to long")}</option>
+          <option value="duration_high">{t("listing.duration_long_short", "Duration: long to short")}</option>
         </select>
       </div>
 
@@ -785,11 +773,11 @@ function FiltersPanel({
           className="rounded-xl border px-4 py-2 text-sm font-black transition hover:-translate-y-0.5"
           style={inactiveButtonStyle(theme)}
         >
-          Clear filters
+          {t("listing.clear_filters", "Clear filters")}
         </button>
 
         <span className="text-xs font-bold" style={{ color: theme.muted }}>
-          {hasActiveFilters ? "Filters active" : "No filters"}
+          {hasActiveFilters ? t("listing.filters_active", "Filters active") : t("listing.no_filters", "No filters")}
         </span>
       </div>
     </div>
@@ -797,6 +785,7 @@ function FiltersPanel({
 }
 
 function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
+  const { t } = useTicketingTranslation();
   const hostname = useMemo(() => getCurrentHostname(), []);
   const customDomain = useMemo(() => isCustomTicketingDomain(hostname), [hostname]);
 
@@ -819,7 +808,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 
       if (!customDomain || !hostname) {
         setLoading(false);
-        setError("Organisation slug is missing.");
+        setError(t("public.organisation_missing", "Organisation slug is missing."));
         return;
       }
 
@@ -842,7 +831,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data?.detail || "Unable to resolve this domain.");
+          throw new Error(data?.detail || t("public.domain_resolve_error", "Unable to resolve this domain."));
         }
 
         if (!cancelled) {
@@ -855,7 +844,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
           setError(
             err instanceof Error
               ? err.message
-              : "Unable to resolve this domain."
+              : t("public.domain_resolve_error", "Unable to resolve this domain.")
           );
         }
       } finally {
@@ -883,6 +872,7 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
 
 export default function PublicProductsListingPage() {
   const params = useParams();
+  const { language, setLanguage, t } = useTicketingTranslation();
 
   const organisationSlugFromUrl = params.organisationSlug || params.slug || "";
   const {
@@ -907,7 +897,10 @@ export default function PublicProductsListingPage() {
 
   const listingSegment = getListingSegment(params.listingType);
   const targetProductType = segmentToProductType[listingSegment];
-  const labels = segmentLabels[listingSegment];
+  const labels = useMemo(
+    () => getSegmentLabels(listingSegment, t),
+    [listingSegment, t]
+  );
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
@@ -961,7 +954,7 @@ export default function PublicProductsListingPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "We could not load this page."
+          t("listing.load_error", "We could not load this page.")
       );
     } finally {
       setLoading(false);
@@ -989,12 +982,13 @@ export default function PublicProductsListingPage() {
   const logoUrl = resolveAssetUrl(publicSite?.logo_url || publicSite?.logo);
   const whatsappUrl = getWhatsappUrl(
     publicSite?.public_whatsapp,
-    `Hi, I want information about ${brandName}.`
+    `${t("public.whatsapp_message", "Hi, I want information about")} ${brandName}.`
   );
 
   useEffect(() => {
     document.title = `${labels.title} | ${brandName}`;
-  }, [labels.title, brandName]);
+    document.documentElement.lang = language;
+  }, [labels.title, brandName, language]);
 
   const locations = useMemo(() => {
     const set = new Set<string>();
@@ -1168,7 +1162,7 @@ export default function PublicProductsListingPage() {
 
     if (q.trim()) {
       chips.push({
-        label: `Search: "${q.trim()}"`,
+        label: `${t("listing.search", "Search")}: "${q.trim()}"`,
         onRemove: () => setQ(""),
       });
     }
@@ -1177,24 +1171,24 @@ export default function PublicProductsListingPage() {
       const category = categories.find((item) => String(item.id) === categoryId);
 
       chips.push({
-        label: `Category: ${category?.name || categoryId}`,
+        label: `${t("listing.category", "Category")}: ${category?.name || categoryId}`,
         onRemove: () => setCategoryId("all"),
       });
     }
 
     if (location !== "all") {
       chips.push({
-        label: `Location: ${location}`,
+        label: `${t("listing.location", "Location")}: ${location}`,
         onRemove: () => setLocation("all"),
       });
     }
 
     if (minPrice !== "" || maxPrice !== "") {
-      const minLabel = minPrice === "" ? "Any" : `$${Number(minPrice)}`;
-      const maxLabel = maxPrice === "" ? "Any" : `$${Number(maxPrice)}`;
+      const minLabel = minPrice === "" ? t("listing.any", "Any") : `$${Number(minPrice)}`;
+      const maxLabel = maxPrice === "" ? t("listing.any", "Any") : `$${Number(maxPrice)}`;
 
       chips.push({
-        label: `Price: ${minLabel} – ${maxLabel}`,
+        label: `${t("listing.price", "Price")}: ${minLabel} – ${maxLabel}`,
         onRemove: () => {
           setMinPrice("");
           setMaxPrice("");
@@ -1206,31 +1200,31 @@ export default function PublicProductsListingPage() {
       chips.push({
         label:
           durationBucket === "short"
-            ? "Duration: up to 4h"
+            ? `${t("listing.duration", "Duration")}: ${t("listing.up_to_4h", "Up to 4h")}`
             : durationBucket === "half"
-              ? "Duration: 5–7h"
-              : "Duration: 8h+",
+              ? `${t("listing.duration", "Duration")}: ${t("listing.5_7h", "5–7h")}`
+              : `${t("listing.duration", "Duration")}: ${t("listing.8h_plus", "8h+")}`,
         onRemove: () => setDurationBucket("all"),
       });
     }
 
     if (onlyRecommended) {
       chips.push({
-        label: "Recommended",
+        label: t("listing.recommended", "Recommended"),
         onRemove: () => setOnlyRecommended(false),
       });
     }
 
     if (pickupIncludedOnly) {
       chips.push({
-        label: "Pickup available",
+        label: t("listing.pickup_available", "Pickup available"),
         onRemove: () => setPickupIncludedOnly(false),
       });
     }
 
     if (depositOnly) {
       chips.push({
-        label: "Deposit available",
+        label: t("listing.deposit_available", "Deposit available"),
         onRemove: () => setDepositOnly(false),
       });
     }
@@ -1264,6 +1258,7 @@ export default function PublicProductsListingPage() {
     pickupIncludedOnly,
     depositOnly,
     sort,
+    t,
   ]);
 
   if (organisationError) {
@@ -1296,7 +1291,7 @@ export default function PublicProductsListingPage() {
           </div>
 
           <h1 className="mt-5 text-2xl font-black" style={{ color: theme.text }}>
-            Public site unavailable
+            {t("public.site_unavailable", "Public site unavailable")}
           </h1>
 
           <p className="mt-3 text-sm font-bold leading-6" style={{ color: theme.muted }}>
@@ -1335,7 +1330,7 @@ export default function PublicProductsListingPage() {
             style={{ color: theme.accent }}
           />
           <p className="mt-4 text-sm font-black" style={{ color: theme.muted }}>
-            Loading experiences...
+            {t("listing.loading_experiences", "Loading experiences...")}
           </p>
         </div>
       </div>
@@ -1431,6 +1426,9 @@ export default function PublicProductsListingPage() {
         logoUrl={logoUrl}
         theme={theme}
         whatsappUrl={whatsappUrl}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
       />
 
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -1556,7 +1554,7 @@ export default function PublicProductsListingPage() {
                 style={inactiveButtonStyle(theme)}
               >
                 <SlidersHorizontal className="h-4 w-4" />
-                Filters
+                {t("listing.filters", "Filters")}
               </button>
             </div>
           </div>
@@ -1570,7 +1568,7 @@ export default function PublicProductsListingPage() {
                   key={chip.label}
                   type="button"
                   onClick={chip.onRemove}
-                  title="Remove filter"
+                  title={t("listing.remove_filter", "Remove filter")}
                   className="group inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
                   style={inactiveButtonStyle(theme)}
                 >
@@ -1591,7 +1589,7 @@ export default function PublicProductsListingPage() {
                 className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-black text-white transition hover:-translate-y-0.5"
                 style={{ backgroundColor: theme.button }}
               >
-                Clear all
+                {t("listing.clear_all", "Clear all")}
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1605,7 +1603,7 @@ export default function PublicProductsListingPage() {
             className="flex-1 rounded-2xl px-4 py-3 text-sm font-black text-white"
             style={{ backgroundColor: theme.button }}
           >
-            Filters
+            {t("listing.filters", "Filters")}
           </button>
 
           <div
@@ -1616,7 +1614,7 @@ export default function PublicProductsListingPage() {
               color: theme.muted,
             }}
           >
-            {filtered.length} results
+            {filtered.length} {t("listing.results", "results")}
           </div>
         </div>
 
@@ -1637,15 +1635,16 @@ export default function PublicProductsListingPage() {
             >
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-black" style={{ color: theme.text }}>
-                  Filters
+                  {t("listing.filters", "Filters")}
                 </h2>
 
                 <span className="text-sm font-bold" style={{ color: theme.muted }}>
-                  {filtered.length} results
+                  {filtered.length} {t("listing.results", "results")}
                 </span>
               </div>
 
               <FiltersPanel
+                t={t}
                 theme={theme}
                 q={q}
                 setQ={setQ}
@@ -1687,27 +1686,27 @@ export default function PublicProductsListingPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-bold" style={{ color: theme.muted }}>
-                    Showing{" "}
+                    {t("listing.showing", "Showing")}{" "}
                     <span className="font-black" style={{ color: theme.text }}>
                       {filtered.length}
                     </span>{" "}
-                    result{filtered.length === 1 ? "" : "s"}
+                    {filtered.length === 1 ? t("listing.result", "result") : t("listing.results", "results")}
                   </div>
 
                   <div className="mt-2 flex flex-wrap gap-2">
                     <BadgePill theme={theme} tone="green">
                       <CheckCircle2 className="h-4 w-4" />
-                      Deposit booking
+                      {t("listing.deposit_booking", "Deposit booking")}
                     </BadgePill>
 
                     <BadgePill theme={theme} tone="blue">
                       <Clock3 className="h-4 w-4" />
-                      Easy reservation
+                      {t("listing.easy_reservation", "Easy reservation")}
                     </BadgePill>
 
                     <BadgePill theme={theme} tone="accent">
                       <BadgeDollarSign className="h-4 w-4" />
-                      Local prices
+                      {t("listing.local_prices", "Local prices")}
                     </BadgePill>
                   </div>
                 </div>
@@ -1717,7 +1716,7 @@ export default function PublicProductsListingPage() {
                     className="text-xs font-black uppercase tracking-wide"
                     style={{ color: theme.muted }}
                   >
-                    Sort
+                    {t("listing.sort", "Sort")}
                   </label>
 
                   <select
@@ -1726,12 +1725,12 @@ export default function PublicProductsListingPage() {
                     className="rounded-2xl border px-4 py-2.5 text-sm font-black outline-none"
                     style={inputStyle(theme)}
                   >
-                    <option value="recommended">Recommended</option>
-                    <option value="rating_high">Rating</option>
-                    <option value="price_low">Price low</option>
-                    <option value="price_high">Price high</option>
-                    <option value="duration_low">Duration short</option>
-                    <option value="duration_high">Duration long</option>
+                    <option value="recommended">{t("listing.recommended", "Recommended")}</option>
+                    <option value="rating_high">{t("listing.rating", "Rating")}</option>
+                    <option value="price_low">{t("listing.price_low", "Price low")}</option>
+                    <option value="price_high">{t("listing.price_high", "Price high")}</option>
+                    <option value="duration_low">{t("listing.duration_short", "Duration short")}</option>
+                    <option value="duration_high">{t("listing.duration_long", "Duration long")}</option>
                   </select>
                 </div>
               </div>
@@ -1748,7 +1747,7 @@ export default function PublicProductsListingPage() {
                         : inactiveButtonStyle(theme)
                     }
                   >
-                    All
+                    {t("listing.all", "All")}
                   </button>
 
                   {categories.slice(0, 8).map((category) => {
@@ -1787,7 +1786,7 @@ export default function PublicProductsListingPage() {
                   className="mx-auto h-7 w-7 animate-spin"
                   style={{ color: theme.accent }}
                 />
-                <p className="mt-3 font-bold">Loading...</p>
+                <p className="mt-3 font-bold">{t("common.loading", "Loading...")}</p>
               </div>
             ) : filtered.length > 0 ? (
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
@@ -1799,6 +1798,7 @@ export default function PublicProductsListingPage() {
                     currencySymbol={currencySymbol}
                     theme={theme}
                     index={index}
+                    t={t}
                   />
                 ))}
               </div>
@@ -1835,7 +1835,7 @@ export default function PublicProductsListingPage() {
                     className="rounded-2xl px-6 py-3 text-sm font-black text-white transition hover:-translate-y-0.5"
                     style={{ backgroundColor: theme.button }}
                   >
-                    Clear filters
+                    {t("listing.clear_filters", "Clear filters")}
                   </button>
 
                   <button
@@ -1844,7 +1844,7 @@ export default function PublicProductsListingPage() {
                     className="rounded-2xl border px-6 py-3 text-sm font-black transition hover:-translate-y-0.5 lg:hidden"
                     style={inactiveButtonStyle(theme)}
                   >
-                    Open filters
+                    {t("listing.open_filters", "Open filters")}
                   </button>
                 </div>
               </div>
@@ -1855,7 +1855,7 @@ export default function PublicProductsListingPage() {
         {mobileFiltersOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
-              aria-label="Close filters"
+              aria-label={t("listing.close_filters", "Close filters")}
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={() => setMobileFiltersOpen(false)}
             />
@@ -1870,10 +1870,10 @@ export default function PublicProductsListingPage() {
               >
                 <div>
                   <h2 className="text-lg font-black" style={{ color: theme.text }}>
-                    Filters
+                    {t("listing.filters", "Filters")}
                   </h2>
                   <p className="text-sm font-bold" style={{ color: theme.muted }}>
-                    {filtered.length} results
+                    {filtered.length} {t("listing.results", "results")}
                   </p>
                 </div>
 
@@ -1882,7 +1882,7 @@ export default function PublicProductsListingPage() {
                   onClick={() => setMobileFiltersOpen(false)}
                   className="rounded-xl border p-2"
                   style={inactiveButtonStyle(theme)}
-                  aria-label="Close"
+                  aria-label={t("common.close", "Close")}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -1891,6 +1891,7 @@ export default function PublicProductsListingPage() {
               <div className="h-[calc(100%-64px)] overflow-y-auto p-5">
                 <FiltersPanel
                   compact
+                  t={t}
                   theme={theme}
                   q={q}
                   setQ={setQ}
@@ -1926,7 +1927,7 @@ export default function PublicProductsListingPage() {
                     className="w-full rounded-2xl px-4 py-3 text-sm font-black text-white"
                     style={{ backgroundColor: theme.button }}
                   >
-                    Show results ({filtered.length})
+                    {t("listing.show_results", "Show results")} ({filtered.length})
                   </button>
                 </div>
               </div>
@@ -1969,12 +1970,18 @@ function PublicHeader({
   logoUrl,
   theme,
   whatsappUrl,
+  language,
+  setLanguage,
+  t,
 }: {
   publicPath: (path: string) => string;
   brandName: string;
   logoUrl: string;
   theme: PublicTheme;
   whatsappUrl: string;
+  language: TicketingLanguage;
+  setLanguage: (language: TicketingLanguage, manuallySelected?: boolean) => void;
+  t: Translate;
 }) {
   return (
     <header
@@ -2010,18 +2017,38 @@ function PublicHeader({
               {brandName}
             </p>
             <p className="text-xs font-bold" style={{ color: theme.muted }}>
-              Tours, Tickets & Transfers
+              {t("public.brand_tagline", "Tours, Tickets & Transfers")}
             </p>
           </div>
         </Link>
 
         <div className="flex items-center gap-2">
+          <label className="sr-only" htmlFor="ticketing-listing-language">
+            {t("common.language", "Language")}
+          </label>
+          <select
+            id="ticketing-listing-language"
+            value={language}
+            onChange={(event) =>
+              setLanguage(event.target.value as TicketingLanguage, true)
+            }
+            className="rounded-2xl border px-3 py-2 text-sm font-black outline-none"
+            style={inactiveButtonStyle(theme)}
+            aria-label={t("common.language", "Language")}
+          >
+            {ticketingLanguageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.shortLabel}
+              </option>
+            ))}
+          </select>
+
           <Link
             to={publicPath("/")}
             className="rounded-2xl border px-4 py-2 text-sm font-black transition hover:-translate-y-0.5"
             style={inactiveButtonStyle(theme)}
           >
-            Home
+            {t("public.home", "Home")}
           </Link>
 
           {whatsappUrl && (
@@ -2048,12 +2075,14 @@ function ProductCard({
   currencySymbol,
   theme,
   index = 0,
+  t,
 }: {
   product: ExperienceProduct;
   publicPath: (path: string) => string;
   currencySymbol: string;
   theme: PublicTheme;
   index?: number;
+  t: Translate;
 }) {
   const imageUrl = getImage(product);
   const Icon = getProductTypeIcon(product.product_type);
@@ -2101,7 +2130,7 @@ function ProductCard({
                   color: theme.text,
                 }}
               >
-                Most booked
+                {t("listing.most_booked", "Most booked")}
               </span>
             )}
 
@@ -2113,7 +2142,7 @@ function ProductCard({
                   color: theme.text,
                 }}
               >
-                Recommended
+                {t("listing.recommended", "Recommended")}
               </span>
             )}
 
@@ -2126,7 +2155,7 @@ function ProductCard({
                 }}
               >
                 <Star className="h-3.5 w-3.5" />
-                Top
+                {t("listing.top", "Top")}
               </span>
             )}
           </div>
@@ -2134,7 +2163,7 @@ function ProductCard({
           <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-white/70">
-                From
+                {t("public.from", "From")}
               </p>
               <p className="text-2xl font-black text-white">
                 {money(product.base_price, currencySymbol)}
@@ -2158,7 +2187,7 @@ function ProductCard({
             }}
           >
             <Icon className="h-3.5 w-3.5" />
-            {getTypeLabel(product.product_type)}
+            {getTypeLabel(product.product_type, t)}
           </div>
 
           <h3
@@ -2172,7 +2201,9 @@ function ProductCard({
             className="mt-2 line-clamp-2 text-sm font-semibold leading-6"
             style={{ color: theme.muted }}
           >
-            {product.short_description || product.long_description || "Book this experience online."}
+            {product.short_description ||
+              product.long_description ||
+              t("public.product_default_description", "Book this experience online.")}
           </p>
 
           <div className="mt-4 space-y-2 text-sm font-bold" style={{ color: theme.muted }}>
@@ -2193,13 +2224,13 @@ function ProductCard({
             {(product.supports_pickup || product.requires_pickup_location) && (
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                Pickup available
+                {t("listing.pickup_available", "Pickup available")}
               </div>
             )}
           </div>
 
           <div className="mt-5 inline-flex items-center text-sm font-black" style={{ color: theme.text }}>
-            Explore
+            {t("public.explore", "Explore")}
             <span className="ml-2 transition group-hover:translate-x-1">→</span>
           </div>
         </div>

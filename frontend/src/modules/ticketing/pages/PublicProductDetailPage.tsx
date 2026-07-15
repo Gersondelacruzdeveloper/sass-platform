@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
+import { ticketingLanguageOptions, useTicketingTranslation } from "../i18n";
+import { useProductDetailAutoTranslation } from "../i18n/translations/productDetail";
 import type {
   ExperienceProduct,
   ProductAvailability,
@@ -1503,6 +1505,9 @@ export default function PublicProductDetailPage() {
   };
 
   const navigate = useNavigate();
+  const { language } = useTicketingTranslation();
+
+  useProductDetailAutoTranslation(language);
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
   const [product, setProduct] = useState<ExperienceProduct | null>(null);
@@ -3045,6 +3050,8 @@ function PublicHeader({
   logoUrl: string;
   theme: PublicTheme;
 }) {
+  const { language, setLanguage } = useTicketingTranslation();
+
   return (
     <header
       className="sticky top-0 z-30 border-b backdrop-blur-xl"
@@ -3083,17 +3090,39 @@ function PublicHeader({
           </div>
         </Link>
 
-        <Link
-          to={publicPath("/")}
-          className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
-          style={{
-            backgroundColor: theme.card,
-            borderColor: hexToRgba(theme.primary, 0.12),
-            color: theme.text,
-          }}
-        >
-          Home
-        </Link>
+        <div className="flex items-center gap-2">
+          <select
+            value={language}
+            onChange={(event) =>
+              setLanguage(event.target.value as typeof language, true)
+            }
+            aria-label="Language"
+            className="h-10 rounded-2xl border px-3 text-sm font-extrabold outline-none"
+            style={{
+              backgroundColor: theme.card,
+              borderColor: hexToRgba(theme.primary, 0.12),
+              color: theme.text,
+            }}
+          >
+            {ticketingLanguageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.shortLabel}
+              </option>
+            ))}
+          </select>
+
+          <Link
+            to={publicPath("/")}
+            className="rounded-2xl border px-4 py-2 text-sm font-extrabold transition"
+            style={{
+              backgroundColor: theme.card,
+              borderColor: hexToRgba(theme.primary, 0.12),
+              color: theme.text,
+            }}
+          >
+            Home
+          </Link>
+        </div>
       </div>
     </header>
   );

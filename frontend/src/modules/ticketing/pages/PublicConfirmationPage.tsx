@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
+import {
+  ticketingLanguageOptions,
+  useTicketingTranslation,
+  type TicketingLanguage,
+} from "../i18n";
 import type {
   Booking,
   ExperienceProduct,
@@ -153,29 +158,64 @@ function usePublicTicketingOrganisation(organisationSlugFromUrl?: string) {
   };
 }
 
-function money(value: unknown, symbol = "US$") {
+function getLocale(language: TicketingLanguage) {
+  if (language === "es") return "es-DO";
+  if (language === "pt") return "pt-BR";
+  if (language === "fr") return "fr-FR";
+  if (language === "de") return "de-DE";
+  return "en-US";
+}
+
+function money(
+  value: unknown,
+  symbol = "US$",
+  language: TicketingLanguage = "en"
+) {
   const amount = Number(value || 0);
-  return `${symbol} ${amount.toLocaleString("en-US", {
+
+  return `${symbol} ${amount.toLocaleString(getLocale(language), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
-function formatTime(value?: string | null) {
+function formatTime(
+  value?: string | null,
+  language: TicketingLanguage = "en"
+) {
   if (!value) return "—";
-  const [hoursRaw, minutesRaw] = value.split(":");
+
+  const cleanValue = String(value).trim();
+
+  if (/\b(am|pm)\b/i.test(cleanValue)) {
+    return cleanValue;
+  }
+
+  const [hoursRaw, minutesRaw] = cleanValue.split(":");
   const hours = Number(hoursRaw);
-  if (Number.isNaN(hours)) return value;
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const hour12 = hours % 12 || 12;
-  return `${hour12}:${minutesRaw || "00"} ${suffix}`;
+  const minutes = Number(minutesRaw || 0);
+
+  if (Number.isNaN(hours)) return cleanValue;
+
+  const date = new Date(2000, 0, 1, hours, minutes);
+
+  return new Intl.DateTimeFormat(getLocale(language), {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
-function formatDate(value?: string | null) {
+function formatDate(
+  value?: string | null,
+  language: TicketingLanguage = "en"
+) {
   if (!value) return "—";
+
   const date = new Date(`${value}T00:00:00`);
+
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-US", {
+
+  return date.toLocaleDateString(getLocale(language), {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -187,34 +227,38 @@ function cleanText(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function getPaymentBanner(booking?: Booking | null, queryStatus?: string | null) {
+function getPaymentBanner(
+  booking: Booking | null | undefined,
+  queryStatus: string | null | undefined,
+  t: (key: string, fallback?: string) => string
+) {
   if (booking?.payment_status === "paid") {
     return {
-      title: "Payment confirmed",
-      message: "Your payment was received and your booking is confirmed.",
+      title: t("confirmation.payment_confirmed", "Payment confirmed"),
+      message: t("confirmation.payment_confirmed_message", "Your payment was received and your booking is confirmed."),
       className: "border-emerald-200 bg-emerald-50 text-emerald-800",
     };
   }
 
   if (booking?.payment_status === "deposit_paid" || booking?.payment_status === "partially_paid") {
     return {
-      title: "Payment received",
-      message: "A payment was received. The remaining balance is shown below.",
+      title: t("confirmation.payment_received", "Payment received"),
+      message: t("confirmation.payment_received_message", "A payment was received. The remaining balance is shown below."),
       className: "border-emerald-200 bg-emerald-50 text-emerald-800",
     };
   }
 
   if (queryStatus === "success") {
     return {
-      title: "Payment is being confirmed",
-      message: "The payment provider redirected you back. We are confirming the payment now.",
+      title: t("confirmation.payment_confirming", "Payment is being confirmed"),
+      message: t("confirmation.payment_confirming_message", "The payment provider redirected you back. We are confirming the payment now."),
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
 
   return {
-    title: "Booking received",
-    message: "Your booking has been created. Save this booking code.",
+    title: t("confirmation.booking_received", "Booking received"),
+    message: t("confirmation.booking_received_message", "Your booking has been created. Save this booking code."),
     className: "border-amber-200 bg-amber-50 text-amber-800",
   };
 }
@@ -239,21 +283,23 @@ function getTicketOptionName(booking?: Booking | null) {
 }
 
 function getMainProductName(
-  booking?: Booking | null,
-  product?: ExperienceProduct | null,
+  booking: Booking | null | undefined,
+  product: ExperienceProduct | null | undefined,
+  t: (key: string, fallback?: string) => string
 ) {
   return (
     cleanText(product?.name) ||
     cleanText(booking?.primary_product_detail?.name) ||
-    "Experience"
+    t("confirmation.experience", "Experience")
   );
 }
 
 function getDisplayProductName(
   booking?: Booking | null,
   product?: ExperienceProduct | null,
+  t?: (key: string, fallback?: string) => string
 ) {
-  return getTicketOptionName(booking) || getMainProductName(booking, product);
+  return getTicketOptionName(booking) || getMainProductName(booking, product, t || ((key, fallback) => fallback || key));
 }
 
 function getPassengerCount(booking?: Booking | null, key?: "adults" | "children" | "infants") {
@@ -263,20 +309,47 @@ function getPassengerCount(booking?: Booking | null, key?: "adults" | "children"
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function getPassengerBreakdown(booking?: Booking | null) {
+function getPassengerBreakdown(
+  booking: Booking | null | undefined,
+  t: (key: string, fallback?: string) => string
+) {
   const adults = getPassengerCount(booking, "adults");
   const children = getPassengerCount(booking, "children");
   const infants = getPassengerCount(booking, "infants");
   const total = Number((booking as any)?.total_guests || adults + children + infants || 0);
 
   const parts = [
-    adults > 0 ? `${adults} adult${adults === 1 ? "" : "s"}` : "",
-    children > 0 ? `${children} child${children === 1 ? "" : "ren"}` : "",
-    infants > 0 ? `${infants} infant${infants === 1 ? "" : "s"}` : "",
+    adults > 0
+      ? `${adults} ${t(
+          adults === 1
+            ? "confirmation.passenger.adult"
+            : "confirmation.passenger.adults",
+          adults === 1 ? "adult" : "adults"
+        )}`
+      : "",
+    children > 0
+      ? `${children} ${t(
+          children === 1
+            ? "confirmation.passenger.child"
+            : "confirmation.passenger.children",
+          children === 1 ? "child" : "children"
+        )}`
+      : "",
+    infants > 0
+      ? `${infants} ${t(
+          infants === 1
+            ? "confirmation.passenger.infant"
+            : "confirmation.passenger.infants",
+          infants === 1 ? "infant" : "infants"
+        )}`
+      : "",
   ].filter(Boolean);
 
-  if (!parts.length) return `${total} total`;
-  return `${total || adults + children + infants} total · ${parts.join(", ")}`;
+  const totalLabel = t("confirmation.total_guests", "total");
+
+  if (!parts.length) return `${total} ${totalLabel}`;
+
+  return `${total || adults + children + infants} ${totalLabel} · ${parts.join(", ")}`;
 }
 
 function getBookingItemUnitPrice(booking?: Booking | null) {
@@ -429,6 +502,7 @@ function mapsHref(value?: string | null) {
 }
 
 export default function PublicConfirmationPage() {
+  const { language, setLanguage, t } = useTicketingTranslation();
   const { organisationSlug: organisationSlugFromUrl = "", bookingCode = "" } =
     useParams<{ organisationSlug?: string; bookingCode?: string }>();
 
@@ -484,7 +558,7 @@ export default function PublicConfirmationPage() {
             err?.response?.data?.detail ||
               err?.response?.data?.message ||
               err?.message ||
-              "Could not load this booking."
+              t("confirmation.error.booking_load", "Could not load this booking.")
           );
         }
       } finally {
@@ -522,7 +596,7 @@ export default function PublicConfirmationPage() {
           setError(
             err?.response?.data?.detail ||
               err?.response?.data?.message ||
-              "Stripe payment could not be confirmed. Please contact support with your booking code."
+              t("confirmation.error.stripe_confirm", "Stripe payment could not be confirmed. Please contact support with your booking code.")
           );
         }
       } finally {
@@ -559,7 +633,7 @@ export default function PublicConfirmationPage() {
           setError(
             err?.response?.data?.detail ||
               err?.response?.data?.message ||
-              "PayPal payment could not be captured. Please contact support with your booking code."
+              t("confirmation.error.paypal_capture", "PayPal payment could not be captured. Please contact support with your booking code.")
           );
         }
       } finally {
@@ -583,8 +657,8 @@ export default function PublicConfirmationPage() {
     "PCD Experiences";
 
   const pickup = booking?.pickup_info;
-  const banner = getPaymentBanner(booking, queryPaymentStatus);
-  const mainProductName = getMainProductName(booking, product);
+  const banner = getPaymentBanner(booking, queryPaymentStatus, t);
+  const mainProductName = getMainProductName(booking, product, t);
   const ticketOptionName = getTicketOptionName(booking);
   const displayProductName = getDisplayProductName(booking, product);
   const ticketDescription = getTicketDescription(booking);
@@ -592,10 +666,16 @@ export default function PublicConfirmationPage() {
 
   if (organisationLoading || loadingBooking) {
     return (
-      <PublicShell brandName={brandName} publicPath={publicPath}>
+      <PublicShell
+        brandName={brandName}
+        publicPath={publicPath}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
+      >
         <section className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
           <Loader2 className="mx-auto h-8 w-8 animate-spin text-amber-600" />
-          <p className="mt-3 text-sm font-bold text-slate-500">Loading booking confirmation...</p>
+          <p className="mt-3 text-sm font-bold text-slate-500">{t("confirmation.loading", "Loading booking confirmation...")}</p>
         </section>
       </PublicShell>
     );
@@ -603,10 +683,16 @@ export default function PublicConfirmationPage() {
 
   if (organisationError || error) {
     return (
-      <PublicShell brandName={brandName} publicPath={publicPath}>
+      <PublicShell
+        brandName={brandName}
+        publicPath={publicPath}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
+      >
         <section className="rounded-3xl border border-red-200 bg-red-50 p-10 text-center shadow-sm">
           <AlertCircle className="mx-auto h-8 w-8 text-red-600" />
-          <h1 className="mt-4 text-xl font-black text-red-950">Booking not available</h1>
+          <h1 className="mt-4 text-xl font-black text-red-950">{t("confirmation.booking_not_available", "Booking not available")}</h1>
           <p className="mx-auto mt-2 max-w-lg text-sm font-bold leading-6 text-red-700">
             {organisationError || error}
           </p>
@@ -616,7 +702,13 @@ export default function PublicConfirmationPage() {
   }
 
   return (
-    <PublicShell brandName={brandName} publicPath={publicPath}>
+    <PublicShell
+        brandName={brandName}
+        publicPath={publicPath}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
+      >
       <section className={`rounded-3xl border p-6 text-center ${banner.className}`}>
         {paymentActionLoading ? (
           <Loader2 className="mx-auto h-12 w-12 animate-spin" />
@@ -624,7 +716,7 @@ export default function PublicConfirmationPage() {
           <CheckCircle2 className="mx-auto h-12 w-12" />
         )}
 
-        <h1 className="mt-4 text-2xl font-black">{paymentActionLoading ? "Confirming payment..." : banner.title}</h1>
+        <h1 className="mt-4 text-2xl font-black">{paymentActionLoading ? t("confirmation.confirming_payment", "Confirming payment...") : banner.title}</h1>
         <p className="mt-2 text-sm font-bold leading-6">{banner.message}</p>
 
         <div className="mx-auto mt-5 inline-flex rounded-2xl bg-white px-5 py-3 text-xl font-black text-slate-950 shadow-sm">
@@ -636,7 +728,7 @@ export default function PublicConfirmationPage() {
         <div className="space-y-6">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-black">
-              {transfer.isTransfer ? "Transfer details" : "Booking details"}
+              {transfer.isTransfer ? t("confirmation.transfer_details", "Transfer details") : t("confirmation.booking_details", "Booking details")}
             </h2>
 
             {transfer.isTransfer ? (
@@ -648,69 +740,74 @@ export default function PublicConfirmationPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-black uppercase tracking-wide text-amber-700">
-                        {transfer.roundTrip ? "Round trip transfer" : "One way transfer"}
+                        {transfer.roundTrip ? t("confirmation.round_trip_transfer", "Round trip transfer") : t("confirmation.one_way_transfer", "One way transfer")}
                       </p>
                       <p className="mt-1 text-lg font-black">
-                        {transfer.origin || "Pickup area"} <ArrowRight className="mx-1 inline h-4 w-4" /> {transfer.destination || "Destination"}
+                        {transfer.origin || t("confirmation.pickup_area", "Pickup area")} <ArrowRight className="mx-1 inline h-4 w-4" /> {transfer.destination || t("confirmation.destination", "Destination")}
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
-                  <Info label="Preferred pickup time" value={formatTime(booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
-                  <Info label="Passengers" value={getPassengerBreakdown(booking)} icon={<Users className="h-4 w-4" />} />
-                  <Info label="Vehicle" value={transfer.vehicle || "To be assigned"} icon={<Car className="h-4 w-4" />} />
-                  {transfer.priceBand && <Info label="Price band" value={transfer.priceBand} icon={<Ticket className="h-4 w-4" />} />}
-                  {transfer.flightNumber && <Info label="Flight number" value={transfer.flightNumber} icon={<Plane className="h-4 w-4" />} />}
-                  {transfer.roundTrip && <Info label="Return date" value={formatDate(transfer.returnDate)} icon={<Clock3 className="h-4 w-4" />} />}
-                  {transfer.roundTrip && <Info label="Return time" value={formatTime(transfer.returnTime)} icon={<Clock3 className="h-4 w-4" />} />}
+                  <Info label={t("confirmation.date", "Date")} value={formatDate(booking?.service_date, language)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label={t("confirmation.preferred_pickup_time", "Preferred pickup time")} value={formatTime(booking?.service_time, language)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label={t("confirmation.passengers", "Passengers")} value={getPassengerBreakdown(booking, t)} icon={<Users className="h-4 w-4" />} />
+                  <Info label={t("confirmation.vehicle", "Vehicle")} value={transfer.vehicle || t("confirmation.to_be_assigned", "To be assigned")} icon={<Car className="h-4 w-4" />} />
+                  {transfer.priceBand && <Info label={t("confirmation.price_band", "Price band")} value={transfer.priceBand} icon={<Ticket className="h-4 w-4" />} />}
+                  {transfer.flightNumber && <Info label={t("confirmation.flight_number", "Flight number")} value={transfer.flightNumber} icon={<Plane className="h-4 w-4" />} />}
+                  {transfer.roundTrip && <Info label={t("confirmation.return_date", "Return date")} value={formatDate(transfer.returnDate, language)} icon={<Clock3 className="h-4 w-4" />} />}
+                  {transfer.roundTrip && <Info label={t("confirmation.return_time", "Return time")} value={formatTime(transfer.returnTime, language)} icon={<Clock3 className="h-4 w-4" />} />}
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <LocationCard
-                    title="Pickup"
-                    name={transfer.pickupName || transfer.origin || booking?.customer_hotel || "Pickup location"}
+                    title={t("confirmation.pickup", "Pickup")}
+                    name={transfer.pickupName || transfer.origin || booking?.customer_hotel || t("confirmation.pickup_location", "Pickup location")}
                     address={transfer.pickupAddress}
                     mapsLink={transfer.pickupMapsLink}
+                    t={t}
                   />
 
                   <LocationCard
-                    title="Destination"
-                    name={transfer.dropoffName || transfer.destination || "Destination"}
+                    title={t("confirmation.destination", "Destination")}
+                    name={transfer.dropoffName || transfer.destination || t("confirmation.destination", "Destination")}
                     address={transfer.dropoffAddress}
                     mapsLink={transfer.dropoffMapsLink}
+                    t={t}
                   />
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">What happens next</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">{t("confirmation.what_happens_next", "What happens next")}</p>
                   <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
-                    Your booking is saved with the pickup and destination information. The team will assign a driver later and may contact you by WhatsApp or email if anything needs to be confirmed.
+                    {t(
+                      "confirmation.transfer_next_message",
+                      "Your booking is saved with the pickup and destination information. The team will assign a driver later and may contact you by WhatsApp or email if anything needs to be confirmed."
+                    )}
                   </p>
                 </div>
               </>
             ) : (
               <>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Info label={ticketOptionName ? "Ticket option" : "Product"} value={displayProductName} icon={<Ticket className="h-4 w-4" />} />
+                  <Info label={ticketOptionName ? t("confirmation.ticket_option", "Ticket option") : t("confirmation.product", "Product")} value={displayProductName} icon={<Ticket className="h-4 w-4" />} />
                   {ticketOptionName && (
-                    <Info label="Experience" value={mainProductName} icon={<Ticket className="h-4 w-4" />} />
+                    <Info label={t("confirmation.experience", "Experience")} value={mainProductName} icon={<Ticket className="h-4 w-4" />} />
                   )}
                   {ticketDescription && (
-                    <Info label="Includes" value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
+                    <Info label={t("confirmation.includes", "Includes")} value={ticketDescription} icon={<CheckCircle2 className="h-4 w-4" />} />
                   )}
-                  <Info label="Date" value={formatDate(booking?.service_date)} icon={<Clock3 className="h-4 w-4" />} />
-                  <Info label="Guests" value={getPassengerBreakdown(booking)} icon={<Users className="h-4 w-4" />} />
-                  <Info label="Customer" value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
-                  <Info label="Hotel" value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
-                  <Info label="Pickup time" value={formatTime(pickup?.pickup_time || booking?.service_time)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label={t("confirmation.date", "Date")} value={formatDate(booking?.service_date, language)} icon={<Clock3 className="h-4 w-4" />} />
+                  <Info label={t("confirmation.guests", "Guests")} value={getPassengerBreakdown(booking, t)} icon={<Users className="h-4 w-4" />} />
+                  <Info label={t("confirmation.customer", "Customer")} value={booking?.customer_name || "—"} icon={<Users className="h-4 w-4" />} />
+                  <Info label={t("confirmation.hotel", "Hotel")} value={pickup?.hotel_or_location_name || booking?.customer_hotel || "—"} icon={<MapPin className="h-4 w-4" />} />
+                  <Info label={t("confirmation.pickup_time", "Pickup time")} value={formatTime(pickup?.pickup_time || booking?.service_time, language)} icon={<Clock3 className="h-4 w-4" />} />
                 </div>
 
                 {pickup?.pickup_point && (
                   <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">Pickup point</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{t("confirmation.pickup_point", "Pickup point")}</p>
                     <p className="mt-1 text-sm font-black text-slate-950">{pickup.pickup_point}</p>
                     {pickup.instructions && <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{pickup.instructions}</p>}
                   </div>
@@ -721,29 +818,32 @@ export default function PublicConfirmationPage() {
         </div>
 
         <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-black">Payment summary</h2>
+          <h2 className="text-lg font-black">{t("confirmation.payment_summary", "Payment summary")}</h2>
 
           <div className="mt-4 space-y-3">
-            <PaymentLine label="Total" value={money(booking?.total_amount, currencySymbol)} />
+            <PaymentLine label={t("confirmation.total", "Total")} value={money(booking?.total_amount, currencySymbol, language)} />
             {getBookingItemUnitPrice(booking) > 0 && (
               <PaymentLine
-                label={getBookingItemQuantity(booking) > 1 ? "Unit price" : "Quoted price"}
-                value={money(getBookingItemUnitPrice(booking), currencySymbol)}
+                label={getBookingItemQuantity(booking) > 1 ? t("confirmation.unit_price", "Unit price") : t("confirmation.quoted_price", "Quoted price")}
+                value={money(getBookingItemUnitPrice(booking), currencySymbol, language)}
               />
             )}
-            <PaymentLine label="Deposit required" value={money(booking?.deposit_required, currencySymbol)} />
-            <PaymentLine label="Paid" value={money(booking?.deposit_paid, currencySymbol)} />
-            <PaymentLine label="Balance due" value={money(booking?.balance_due, currencySymbol)} />
-            <PaymentLine label="Payment status" value={booking?.payment_status || "pending"} />
+            <PaymentLine label={t("confirmation.deposit_required", "Deposit required")} value={money(booking?.deposit_required, currencySymbol, language)} />
+            <PaymentLine label={t("confirmation.paid", "Paid")} value={money(booking?.deposit_paid, currencySymbol, language)} />
+            <PaymentLine label={t("confirmation.balance_due", "Balance due")} value={money(booking?.balance_due, currencySymbol, language)} />
+            <PaymentLine label={t("confirmation.payment_status", "Payment status")} value={t(`confirmation.status.${booking?.payment_status || "pending"}`, booking?.payment_status || "pending")} />
           </div>
 
           <p className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-800">
-            You may receive a confirmation by WhatsApp or email when the booking is reviewed or payment is completed.
+            {t(
+              "confirmation.notification_message",
+              "You may receive a confirmation by WhatsApp or email when the booking is reviewed or payment is completed."
+            )}
           </p>
 
           <Link to={publicPath("/")} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
             <Home className="h-4 w-4" />
-            Back to home
+            {t("confirmation.return_home", "Back to home")}
           </Link>
         </aside>
       </section>
@@ -751,7 +851,21 @@ export default function PublicConfirmationPage() {
   );
 }
 
-function PublicShell({ brandName, publicPath, children }: { brandName: string; publicPath: (path: string) => string; children: ReactNode }) {
+function PublicShell({
+  brandName,
+  publicPath,
+  language,
+  setLanguage,
+  t,
+  children,
+}: {
+  brandName: string;
+  publicPath: (path: string) => string;
+  language: TicketingLanguage;
+  setLanguage: (language: TicketingLanguage, manuallySelected?: boolean) => void;
+  t: (key: string, fallback?: string) => string;
+  children: ReactNode;
+}) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
@@ -762,14 +876,34 @@ function PublicShell({ brandName, publicPath, children }: { brandName: string; p
             </div>
             <div>
               <p className="text-sm font-black">{brandName}</p>
-              <p className="text-xs font-bold text-slate-500">Booking confirmation</p>
+              <p className="text-xs font-bold text-slate-500">{t("confirmation.subtitle", "Booking confirmation")}</p>
             </div>
           </Link>
 
-          <Link to={publicPath("/")} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700">
-            <Home className="h-4 w-4" />
-            Home
-          </Link>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label={t("common.language", "Language")}
+              value={language}
+              onChange={(event) =>
+                setLanguage(event.target.value as TicketingLanguage, true)
+              }
+              className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 outline-none"
+            >
+              {ticketingLanguageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.shortLabel}
+                </option>
+              ))}
+            </select>
+
+            <Link
+              to={publicPath("/")}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700"
+            >
+              <Home className="h-4 w-4" />
+              {t("public.home", "Home")}
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -788,6 +922,7 @@ function LocationCard({
   name?: string | null;
   address?: string | null;
   mapsLink?: string | null;
+  t: (key: string, fallback?: string) => string;
 }) {
   const link = mapsHref(mapsLink || address || name);
 

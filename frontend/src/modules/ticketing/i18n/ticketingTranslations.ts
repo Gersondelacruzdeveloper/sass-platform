@@ -1,6 +1,7 @@
 import { checkoutTranslations } from "./translations/checkout";
 import { commonTranslations } from "./translations/common";
 import { confirmationTranslations } from "./translations/confirmation";
+import { listingTranslations } from "./translations/listing";
 import { productTranslations } from "./translations/product";
 import { publicTranslations } from "./translations/public";
 import { validationTranslations } from "./translations/validation";
@@ -22,31 +23,11 @@ export const ticketingLanguageOptions: Array<{
   label: string;
   shortLabel: string;
 }> = [
-  {
-    value: "en",
-    label: "English",
-    shortLabel: "EN",
-  },
-  {
-    value: "es",
-    label: "Español",
-    shortLabel: "ES",
-  },
-  {
-    value: "pt",
-    label: "Português",
-    shortLabel: "PT",
-  },
-  {
-    value: "fr",
-    label: "Français",
-    shortLabel: "FR",
-  },
-  {
-    value: "de",
-    label: "Deutsch",
-    shortLabel: "DE",
-  },
+  { value: "en", label: "English", shortLabel: "EN" },
+  { value: "es", label: "Español", shortLabel: "ES" },
+  { value: "pt", label: "Português", shortLabel: "PT" },
+  { value: "fr", label: "Français", shortLabel: "FR" },
+  { value: "de", label: "Deutsch", shortLabel: "DE" },
 ];
 
 function mergeLanguageTranslations(
@@ -55,6 +36,7 @@ function mergeLanguageTranslations(
   return {
     ...commonTranslations[language],
     ...publicTranslations[language],
+    ...listingTranslations[language],
     ...productTranslations[language],
     ...checkoutTranslations[language],
     ...confirmationTranslations[language],
@@ -120,9 +102,7 @@ export function detectBrowserTicketingLanguage(): TicketingLanguage | null {
   for (const browserLanguage of browserLanguages) {
     const language = normalizeTicketingLanguage(browserLanguage);
 
-    if (language) {
-      return language;
-    }
+    if (language) return language;
   }
 
   return null;
