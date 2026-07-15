@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -14,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "ticket-information-v3-2026-07-14"
+PDF_TICKET_GENERATOR_VERSION = "optional-agreement-qr-v4-2026-07-15"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -725,17 +726,18 @@ def _resolve_item_business_entity(booking: Any, item: Any) -> Any:
     return None
 
 
-def _get_or_create_admission_token(booking: Any) -> Any:
+def _get_or_create_admission_token(booking: Any) -> Any | None:
     """
-    Return the primary admission token used by the scanner.
+    Return the primary scanner admission token when the product participates
+    in partner/venue operations.
 
-    The QR code must contain this UUID. It must never contain BOOKING:<code>.
+    Business agreements are optional. A normal organisation-owned product
+    must still be able to generate and email its PDF ticket even when it has
+    no assigned business entity or active agreement.
     """
     item = _get_first_booking_item(booking)
     if item is None:
-        raise ValueError(
-            "Cannot generate an admission QR because this booking has no booking item."
-        )
+        return None
 
     try:
         from ticketing.models import AdmissionToken
@@ -749,29 +751,60 @@ def _get_or_create_admission_token(booking: Any) -> Any:
             if token_status in {"", "active", "partially_used"}:
                 return token
     except Exception:
-        existing_tokens = None
+        # Token lookup problems must not prevent a customer ticket from being
+        # generated. The fallback QR below remains unique and verifiable using
+        # the printed booking code.
+        pass
 
     business_entity = _resolve_item_business_entity(booking, item)
     if business_entity is None:
-        raise ValueError(
-            "Cannot generate an admission QR because this product has no active "
-            "business agreement or assigned business entity."
+        return None
+
+    try:
+        from ticketing.operations.tokens import issue_admission_token
+
+        return issue_admission_token(
+            item,
+            business_entity=business_entity,
+            total_admissions=_get_booking_item_quantity(booking, item),
+            is_primary=True,
+            metadata={
+                "source": "ticket_pdf",
+                "booking_code": _safe_text(
+                    getattr(booking, "booking_code", "")
+                ),
+            },
         )
+    except Exception:
+        # PDF/email delivery is more important than partner-scanner token
+        # creation. Operations can still use the booking code for manual
+        # verification, while products with a valid agreement continue to get
+        # their normal persisted AdmissionToken UUID.
+        return None
 
-    from ticketing.operations.tokens import issue_admission_token
 
-    return issue_admission_token(
-        item,
-        business_entity=business_entity,
-        total_admissions=_get_booking_item_quantity(booking, item),
-        is_primary=True,
-        metadata={
-            "source": "ticket_pdf",
-            "booking_code": _safe_text(
-                getattr(booking, "booking_code", "")
-            ),
-        },
+def _get_fallback_ticket_uuid(booking: Any) -> str:
+    """
+    Build a stable UUID for ordinary products that do not use partner scanning.
+
+    The same booking always produces the same UUID, and no secret or customer
+    information is embedded in the QR payload.
+    """
+    organisation_id = _safe_text(
+        getattr(booking, "organisation_id", ""),
+        "organisation",
     )
+    booking_id = _safe_text(
+        getattr(booking, "id", ""),
+        "booking",
+    )
+    booking_code = _safe_text(
+        getattr(booking, "booking_code", ""),
+        "ticket",
+    )
+
+    seed = f"ticket:{organisation_id}:{booking_id}:{booking_code}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
 
 
 def _draw_text_block(
@@ -845,7 +878,16 @@ def _draw_detail_row(
 
 def generate_ticket_qr_code(booking: Any) -> io.BytesIO:
     admission_token = _get_or_create_admission_token(booking)
-    qr_payload = str(getattr(admission_token, "token"))
+
+    if admission_token is not None:
+        token_value = getattr(admission_token, "token", None)
+        qr_payload = (
+            str(token_value)
+            if token_value
+            else _get_fallback_ticket_uuid(booking)
+        )
+    else:
+        qr_payload = _get_fallback_ticket_uuid(booking)
 
     qr = qrcode.QRCode(
         version=None,
