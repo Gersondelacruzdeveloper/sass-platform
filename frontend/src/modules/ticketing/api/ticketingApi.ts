@@ -104,6 +104,91 @@ export type LiveProductAvailabilityResponse = {
   error?: string;
 };
 
+
+export type SupportedProductLanguage = "en" | "es" | "fr" | "pt" | "de";
+
+export type ProductTranslationMeta = {
+  source?: "manual" | "ai" | string;
+  manually_edited?: boolean;
+  source_language?: SupportedProductLanguage | string;
+  target_language?: SupportedProductLanguage | string;
+  provider?: string;
+  model?: string;
+  generated_at?: string;
+  updated_at?: string;
+  updated_by?: number | null;
+};
+
+export type ProductTranslation = {
+  name?: string;
+  short_description?: string;
+  long_description?: string;
+  includes?: unknown[];
+  excludes?: unknown[];
+  itinerary?: unknown[];
+  faqs?: unknown[];
+  meeting_point?: string;
+  ticket_information?: string;
+  instructions?: string;
+  cancellation_policy?: string;
+  _meta?: ProductTranslationMeta;
+};
+
+export type ProductTranslations = Partial<
+  Record<SupportedProductLanguage, ProductTranslation>
+>;
+
+export type ProductTranslationsResponse = {
+  product_id: number;
+  default_language: SupportedProductLanguage;
+  supported_languages: SupportedProductLanguage[];
+  translations: ProductTranslations;
+};
+
+export type ProductTranslationResponse = {
+  product_id: number;
+  language: SupportedProductLanguage;
+  translation: ProductTranslation;
+};
+
+export type GeneratedProductTranslationResponse = {
+  product_id: number;
+  source_language: SupportedProductLanguage;
+  target_language: SupportedProductLanguage;
+  translation: ProductTranslation;
+};
+
+export type OrganisationAISettings = {
+  id: number;
+  organisation: number;
+  provider: "openai" | string;
+  is_enabled: boolean;
+  translations_enabled: boolean;
+  default_model: string;
+  has_api_key: boolean;
+  provider_api_key_last_updated?: string | null;
+  ai_ready: boolean;
+  last_test_at?: string | null;
+  last_error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type OrganisationAISettingsUpdatePayload = Partial<
+  Pick<
+    OrganisationAISettings,
+    "provider" | "is_enabled" | "translations_enabled" | "default_model"
+  >
+> & {
+  api_key?: string;
+  clear_api_key?: boolean;
+};
+
+export type OrganisationAIConnectionTestResponse = {
+  success: boolean;
+  message: string;
+};
+
 export interface PublicProductResolveResponse {
   product: ExperienceProduct;
   canonical_url: string;
@@ -195,6 +280,46 @@ export const ticketingApi = {
   },
 
 
+
+
+  getOrganisationAISettings: async (
+    slug?: string
+  ): Promise<OrganisationAISettings> => {
+    const response = await api.get<OrganisationAISettings>(
+      "/organisations/ai-settings/mine/",
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  updateOrganisationAISettings: async (
+    payload: OrganisationAISettingsUpdatePayload,
+    slug?: string
+  ): Promise<OrganisationAISettings> => {
+    const response = await api.patch<OrganisationAISettings>(
+      "/organisations/ai-settings/mine/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  testOrganisationAIConnection: async (
+    slug?: string
+  ): Promise<OrganisationAIConnectionTestResponse> => {
+    const response = await api.post<OrganisationAIConnectionTestResponse>(
+      "/organisations/ai-settings/test/",
+      {},
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
 
   getPaymentProviderSettings: async (slug?: string): Promise<TicketingPaymentProviderSettings> => {
     const response = await api.get<TicketingPaymentProviderSettings>(
@@ -330,6 +455,71 @@ export const ticketingApi = {
     await api.delete(`/ticketing/products/${id}/`, {
       params: withSlug(undefined, slug),
     });
+  },
+
+
+  getProductTranslations: async (
+    productId: number,
+    slug?: string
+  ): Promise<ProductTranslationsResponse> => {
+    const response = await api.get<ProductTranslationsResponse>(
+      `/ticketing/products/${productId}/translations/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  saveProductTranslation: async (
+    productId: number,
+    language: SupportedProductLanguage,
+    translation: ProductTranslation,
+    slug?: string
+  ): Promise<ProductTranslationResponse> => {
+    const response = await api.put<ProductTranslationResponse>(
+      `/ticketing/products/${productId}/translations/${language}/`,
+      {
+        translation,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
+  deleteProductTranslation: async (
+    productId: number,
+    language: SupportedProductLanguage,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(
+      `/ticketing/products/${productId}/translations/${language}/`,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+  },
+
+  generateProductTranslation: async (
+    productId: number,
+    language: SupportedProductLanguage,
+    options: {
+      force?: boolean;
+    } = {},
+    slug?: string
+  ): Promise<GeneratedProductTranslationResponse> => {
+    const response = await api.post<GeneratedProductTranslationResponse>(
+      `/ticketing/products/${productId}/translations/${language}/generate/`,
+      {
+        force: options.force ?? false,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
   },
 
   // Product gallery images
@@ -1815,12 +2005,16 @@ export const ticketingApi = {
 
   getPublicProductResolve: async (
     slug: string,
-    path: string
+    path: string,
+    language?: SupportedProductLanguage
   ): Promise<PublicProductResolveResponse> => {
     const response = await api.get<PublicProductResolveResponse>(
       `/ticketing/public/${slug}/product-resolve/`,
       {
-        params: cleanParams({ path }),
+        params: cleanParams({
+          path,
+          language,
+        }),
       }
     );
 
@@ -1829,9 +2023,14 @@ export const ticketingApi = {
 
   getPublicProductByPath: async (
     slug: string,
-    path: string
+    path: string,
+    language?: SupportedProductLanguage
   ): Promise<ExperienceProduct> => {
-    const response = await ticketingApi.getPublicProductResolve(slug, path);
+    const response = await ticketingApi.getPublicProductResolve(
+      slug,
+      path,
+      language
+    );
 
     return response.product;
   },

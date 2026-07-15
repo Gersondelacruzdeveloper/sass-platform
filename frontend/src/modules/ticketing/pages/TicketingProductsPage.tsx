@@ -14,6 +14,7 @@ import {
   Eye,
   Image,
   Loader2,
+  Languages,
   MapPin,
   Package,
   Percent,
@@ -34,6 +35,9 @@ import type {
   ExperienceProduct,
   ProductGalleryImage,
   ProductStatus,
+  ProductTranslation,
+  ProductTranslations,
+  SupportedProductLanguage,
   ProductType,
 } from "../types/ticketingTypes";
 
@@ -108,6 +112,84 @@ const productStatuses: { value: ProductStatus; label: string }[] = [
   { value: "sold_out", label: "Sold Out" },
   { value: "archived", label: "Archived" },
 ];
+
+
+
+const supportedLanguages: {
+  value: SupportedProductLanguage;
+  label: string;
+  nativeLabel: string;
+  flag: string;
+}[] = [
+  { value: "en", label: "English", nativeLabel: "English", flag: "🇺🇸" },
+  { value: "es", label: "Spanish", nativeLabel: "Español", flag: "🇪🇸" },
+  { value: "fr", label: "French", nativeLabel: "Français", flag: "🇫🇷" },
+  { value: "pt", label: "Portuguese", nativeLabel: "Português", flag: "🇵🇹" },
+  { value: "de", label: "German", nativeLabel: "Deutsch", flag: "🇩🇪" },
+];
+
+const emptyTranslation: ProductTranslation = {
+  name: "",
+  short_description: "",
+  long_description: "",
+  includes: [],
+  excludes: [],
+  itinerary: [],
+  faqs: [],
+  meeting_point: "",
+  ticket_information: "",
+  instructions: "",
+  cancellation_policy: "",
+};
+
+function getLanguageLabel(language: SupportedProductLanguage) {
+  return (
+    supportedLanguages.find((item) => item.value === language)?.nativeLabel ||
+    language.toUpperCase()
+  );
+}
+
+function getLanguageFlag(language: SupportedProductLanguage) {
+  return (
+    supportedLanguages.find((item) => item.value === language)?.flag || "🌐"
+  );
+}
+
+function listToTextarea(value: unknown) {
+  if (!Array.isArray(value)) return "";
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") return item;
+      return JSON.stringify(item);
+    })
+    .join("\n");
+}
+
+function textareaToList(value: string) {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getTranslationDraft(
+  translations: ProductTranslations,
+  language: SupportedProductLanguage,
+): ProductTranslation {
+  const translation = translations[language];
+
+  return {
+    ...emptyTranslation,
+    ...(translation || {}),
+    includes: Array.isArray(translation?.includes) ? translation.includes : [],
+    excludes: Array.isArray(translation?.excludes) ? translation.excludes : [],
+    itinerary: Array.isArray(translation?.itinerary)
+      ? translation.itinerary
+      : [],
+    faqs: Array.isArray(translation?.faqs) ? translation.faqs : [],
+  };
+}
 
 const emptyForm: ProductFormState = {
   category_id: "",
@@ -504,6 +586,23 @@ export default function TicketingProductsPage() {
     useState<ExperienceProduct | null>(null);
   const [gallerySaving, setGallerySaving] = useState(false);
 
+
+  const [translationProduct, setTranslationProduct] =
+    useState<ExperienceProduct | null>(null);
+  const [translationLanguage, setTranslationLanguage] =
+    useState<SupportedProductLanguage>("es");
+  const [translationDraft, setTranslationDraft] =
+    useState<ProductTranslation>(emptyTranslation);
+  const [translationLoading, setTranslationLoading] = useState(false);
+  const [translationSaving, setTranslationSaving] = useState(false);
+  const [translationGenerating, setTranslationGenerating] = useState(false);
+  const [translationDeleting, setTranslationDeleting] = useState(false);
+  const [translationError, setTranslationError] = useState("");
+  const [translationMessage, setTranslationMessage] = useState("");
+  const [translations, setTranslations] = useState<ProductTranslations>({});
+  const [aiReady, setAiReady] = useState(false);
+  const [aiTranslationsEnabled, setAiTranslationsEnabled] = useState(false);
+
   async function loadData() {
     try {
       setLoading(true);
@@ -760,6 +859,237 @@ export default function TicketingProductsPage() {
 
       return next;
     });
+  }
+
+
+  async function openTranslationsModal(product: ExperienceProduct) {
+    const productTranslations =
+      (product as any).translations as ProductTranslations | undefined;
+
+    setTranslationProduct(product);
+    setTranslationLanguage(
+      ((product as any).default_language === "es" ? "en" : "es"),
+    );
+    setTranslationDraft(emptyTranslation);
+    setTranslations(productTranslations || {});
+    setTranslationError("");
+    setTranslationMessage("");
+    setTranslationLoading(true);
+
+    try {
+      const [translationResponse, aiResponse] = await Promise.all([
+        ticketingApi.getProductTranslations(product.id, slug),
+        ticketingApi
+          .getOrganisationAISettings(slug)
+          .catch(() => null),
+      ]);
+
+      setTranslations(translationResponse.translations || {});
+
+      const initialLanguage =
+        translationResponse.default_language === "es" ? "en" : "es";
+
+      setTranslationLanguage(initialLanguage);
+      setTranslationDraft(
+        getTranslationDraft(
+          translationResponse.translations || {},
+          initialLanguage,
+        ),
+      );
+
+      setAiReady(Boolean(aiResponse?.ai_ready));
+      setAiTranslationsEnabled(
+        Boolean(aiResponse?.translations_enabled),
+      );
+    } catch (err: any) {
+      console.error("Could not load product translations:", err);
+
+      setTranslationError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "Could not load product translations.",
+      );
+    } finally {
+      setTranslationLoading(false);
+    }
+  }
+
+  function closeTranslationsModal() {
+    if (
+      translationSaving ||
+      translationGenerating ||
+      translationDeleting
+    ) {
+      return;
+    }
+
+    setTranslationProduct(null);
+    setTranslationError("");
+    setTranslationMessage("");
+    setTranslations({});
+    setTranslationDraft(emptyTranslation);
+  }
+
+  function selectTranslationLanguage(language: SupportedProductLanguage) {
+    setTranslationLanguage(language);
+    setTranslationDraft(getTranslationDraft(translations, language));
+    setTranslationError("");
+    setTranslationMessage("");
+  }
+
+  function updateTranslationDraft<K extends keyof ProductTranslation>(
+    field: K,
+    value: ProductTranslation[K],
+  ) {
+    setTranslationDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleSaveTranslation() {
+    if (!translationProduct) return;
+
+    try {
+      setTranslationSaving(true);
+      setTranslationError("");
+      setTranslationMessage("");
+
+      const response = await ticketingApi.saveProductTranslation(
+        translationProduct.id,
+        translationLanguage,
+        translationDraft,
+        slug,
+      );
+
+      const nextTranslations = {
+        ...translations,
+        [translationLanguage]: response.translation,
+      };
+
+      setTranslations(nextTranslations);
+      setTranslationDraft(response.translation);
+      setTranslationMessage(
+        `${getLanguageLabel(translationLanguage)} translation saved.`,
+      );
+
+      const refreshed = await refreshProduct(translationProduct.id);
+      setTranslationProduct(refreshed);
+    } catch (err: any) {
+      console.error("Could not save product translation:", err);
+
+      setTranslationError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "Could not save translation.",
+      );
+    } finally {
+      setTranslationSaving(false);
+    }
+  }
+
+  async function handleGenerateTranslation() {
+    if (!translationProduct) return;
+
+    const currentTranslation = translations[translationLanguage];
+    const isManual = Boolean(currentTranslation?._meta?.manually_edited);
+
+    if (isManual) {
+      const confirmed = window.confirm(
+        "This translation has manual edits. Generate with AI and overwrite it?",
+      );
+
+      if (!confirmed) return;
+    }
+
+    try {
+      setTranslationGenerating(true);
+      setTranslationError("");
+      setTranslationMessage("");
+
+      const response = await ticketingApi.generateProductTranslation(
+        translationProduct.id,
+        translationLanguage,
+        {
+          force: isManual,
+        },
+        slug,
+      );
+
+      const nextTranslations = {
+        ...translations,
+        [translationLanguage]: response.translation,
+      };
+
+      setTranslations(nextTranslations);
+      setTranslationDraft(response.translation);
+      setTranslationMessage(
+        `${getLanguageLabel(translationLanguage)} generated with AI.`,
+      );
+
+      const refreshed = await refreshProduct(translationProduct.id);
+      setTranslationProduct(refreshed);
+    } catch (err: any) {
+      console.error("Could not generate product translation:", err);
+
+      setTranslationError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not generate translation.",
+      );
+    } finally {
+      setTranslationGenerating(false);
+    }
+  }
+
+  async function handleDeleteTranslation() {
+    if (!translationProduct) return;
+
+    if (!translations[translationLanguage]) {
+      setTranslationDraft(emptyTranslation);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete the ${getLanguageLabel(translationLanguage)} translation?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setTranslationDeleting(true);
+      setTranslationError("");
+      setTranslationMessage("");
+
+      await ticketingApi.deleteProductTranslation(
+        translationProduct.id,
+        translationLanguage,
+        slug,
+      );
+
+      const nextTranslations = { ...translations };
+      delete nextTranslations[translationLanguage];
+
+      setTranslations(nextTranslations);
+      setTranslationDraft(emptyTranslation);
+      setTranslationMessage(
+        `${getLanguageLabel(translationLanguage)} translation deleted.`,
+      );
+
+      const refreshed = await refreshProduct(translationProduct.id);
+      setTranslationProduct(refreshed);
+    } catch (err: any) {
+      console.error("Could not delete product translation:", err);
+
+      setTranslationError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "Could not delete translation.",
+      );
+    } finally {
+      setTranslationDeleting(false);
+    }
   }
 
   async function handleSaveProduct() {
@@ -1105,6 +1435,7 @@ export default function TicketingProductsPage() {
               organisationSlug={slug}
               onEdit={() => openEditModal(product)}
               onGallery={() => openGalleryModal(product)}
+              onTranslations={() => openTranslationsModal(product)}
               onCopyPublicUrl={() => handleCopyPublicUrl(product)}
               onToggle={() => handleToggleProduct(product)}
               onDelete={() => handleDeleteProduct(product)}
@@ -1140,6 +1471,30 @@ export default function TicketingProductsPage() {
           onDelete={handleDeleteGalleryImage}
         />
       )}
+
+
+      {translationProduct && (
+        <ProductTranslationsModal
+          product={translationProduct}
+          activeLanguage={translationLanguage}
+          translations={translations}
+          draft={translationDraft}
+          loading={translationLoading}
+          saving={translationSaving}
+          generating={translationGenerating}
+          deleting={translationDeleting}
+          aiReady={aiReady}
+          aiTranslationsEnabled={aiTranslationsEnabled}
+          error={translationError}
+          message={translationMessage}
+          onClose={closeTranslationsModal}
+          onSelectLanguage={selectTranslationLanguage}
+          onChange={updateTranslationDraft}
+          onSave={handleSaveTranslation}
+          onGenerate={handleGenerateTranslation}
+          onDelete={handleDeleteTranslation}
+        />
+      )}
     </div>
   );
 }
@@ -1149,6 +1504,7 @@ function ProductCard({
   organisationSlug,
   onEdit,
   onGallery,
+  onTranslations,
   onCopyPublicUrl,
   onToggle,
   onDelete,
@@ -1158,6 +1514,7 @@ function ProductCard({
   organisationSlug: string;
   onEdit: () => void;
   onGallery: () => void;
+  onTranslations: () => void;
   onCopyPublicUrl: () => void;
   onToggle: () => void;
   onDelete: () => void;
@@ -1202,6 +1559,14 @@ function ProductCard({
             {((product as any).is_cocobongo_product ||
               (product as any).external_provider === "wellet") && (
               <Badge label="Coco Bongo" tone="pink" />
+            )}
+
+
+            {Object.keys((product as any).translations || {}).length > 0 && (
+              <Badge
+                label={`${Object.keys((product as any).translations || {}).length} languages`}
+                tone="indigo"
+              />
             )}
           </div>
 
@@ -1308,6 +1673,16 @@ function ProductCard({
                 Gallery
               </button>
 
+
+              <button
+                type="button"
+                onClick={onTranslations}
+                className="inline-flex items-center gap-1 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-100"
+              >
+                <Languages className="h-3.5 w-3.5" />
+                Translations
+              </button>
+
               <button
                 type="button"
                 onClick={onEdit}
@@ -1335,6 +1710,339 @@ function ProductCard({
         </div>
       </div>
     </article>
+  );
+}
+
+
+function ProductTranslationsModal({
+  product,
+  activeLanguage,
+  translations,
+  draft,
+  loading,
+  saving,
+  generating,
+  deleting,
+  aiReady,
+  aiTranslationsEnabled,
+  error,
+  message,
+  onClose,
+  onSelectLanguage,
+  onChange,
+  onSave,
+  onGenerate,
+  onDelete,
+}: {
+  product: ExperienceProduct;
+  activeLanguage: SupportedProductLanguage;
+  translations: ProductTranslations;
+  draft: ProductTranslation;
+  loading: boolean;
+  saving: boolean;
+  generating: boolean;
+  deleting: boolean;
+  aiReady: boolean;
+  aiTranslationsEnabled: boolean;
+  error: string;
+  message: string;
+  onClose: () => void;
+  onSelectLanguage: (language: SupportedProductLanguage) => void;
+  onChange: <K extends keyof ProductTranslation>(
+    field: K,
+    value: ProductTranslation[K],
+  ) => void;
+  onSave: () => void;
+  onGenerate: () => void;
+  onDelete: () => void;
+}) {
+  const defaultLanguage = (product as any).default_language || "en";
+  const activeTranslation = translations[activeLanguage];
+  const isDefaultLanguage = activeLanguage === defaultLanguage;
+  const isBusy = loading || saving || generating || deleting;
+
+  return (
+    <div className="fixed inset-0 z-[120] overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="mx-auto my-6 max-w-6xl rounded-3xl bg-white shadow-2xl">
+        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-black uppercase tracking-wide text-indigo-600">
+                Product translations
+              </p>
+              <h2 className="mt-1 text-xl font-black text-slate-950">
+                {product.name}
+              </h2>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Edit translations manually or generate them once with AI.
+                Manual changes are protected from automatic overwrite.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isBusy}
+              className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:opacity-60"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {supportedLanguages.map((language) => {
+              const hasTranslation = Boolean(translations[language.value]);
+              const isDefault = language.value === defaultLanguage;
+
+              return (
+                <button
+                  key={language.value}
+                  type="button"
+                  onClick={() => onSelectLanguage(language.value)}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    activeLanguage === language.value
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-900"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block text-sm font-black">
+                    {language.flag} {language.nativeLabel}
+                  </span>
+                  <span className="mt-1 block text-[11px] font-bold uppercase tracking-wide opacity-70">
+                    {isDefault
+                      ? "Default"
+                      : hasTranslation
+                        ? "Translated"
+                        : "Not translated"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-5 p-5">
+          {error && (
+            <div className="flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="flex items-start gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+              {message}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-6 text-sm font-bold text-slate-600">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading translations...
+            </div>
+          ) : isDefaultLanguage ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+              <h3 className="text-lg font-black text-amber-950">
+                {getLanguageFlag(activeLanguage)}{" "}
+                {getLanguageLabel(activeLanguage)} is the default language
+              </h3>
+              <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                Edit the default-language content in the normal product form.
+                The translations JSON only stores the other languages.
+              </p>
+            </div>
+          ) : (
+            <>
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-wide text-indigo-600">
+                      {getLanguageFlag(activeLanguage)}{" "}
+                      {getLanguageLabel(activeLanguage)}
+                    </p>
+                    <h3 className="mt-1 text-lg font-black text-slate-950">
+                      Translation content
+                    </h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      {activeTranslation?._meta?.source === "ai"
+                        ? "Originally generated with AI."
+                        : activeTranslation
+                          ? "Created manually."
+                          : "No saved translation yet."}
+                      {activeTranslation?._meta?.manually_edited
+                        ? " This version has manual edits."
+                        : ""}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={onGenerate}
+                      disabled={
+                        isBusy ||
+                        !aiReady ||
+                        !aiTranslationsEnabled
+                      }
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 text-sm font-black text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {generating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      {generating ? "Generating..." : "Generate with AI"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      disabled={isBusy || !activeTranslation}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                {!aiReady || !aiTranslationsEnabled ? (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
+                    AI generation is unavailable. Configure an API key and
+                    enable AI translations in Organisation Settings. Manual
+                    translation remains fully available.
+                  </div>
+                ) : null}
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <Input
+                    label="Product name"
+                    value={text(draft.name)}
+                    onChange={(value) => onChange("name", value)}
+                  />
+
+                  <Input
+                    label="Meeting point"
+                    value={text(draft.meeting_point)}
+                    onChange={(value) =>
+                      onChange("meeting_point", value)
+                    }
+                  />
+
+                  <Textarea
+                    label="Short description"
+                    value={text(draft.short_description)}
+                    onChange={(value) =>
+                      onChange("short_description", value)
+                    }
+                  />
+
+                  <Textarea
+                    label="Long description"
+                    value={text(draft.long_description)}
+                    onChange={(value) =>
+                      onChange("long_description", value)
+                    }
+                  />
+
+                  <Textarea
+                    label="Includes"
+                    value={listToTextarea(draft.includes)}
+                    onChange={(value) =>
+                      onChange("includes", textareaToList(value))
+                    }
+                    placeholder="One item per line"
+                  />
+
+                  <Textarea
+                    label="Excludes"
+                    value={listToTextarea(draft.excludes)}
+                    onChange={(value) =>
+                      onChange("excludes", textareaToList(value))
+                    }
+                    placeholder="One item per line"
+                  />
+
+                  <Textarea
+                    label="Itinerary"
+                    value={listToTextarea(draft.itinerary)}
+                    onChange={(value) =>
+                      onChange("itinerary", textareaToList(value))
+                    }
+                    placeholder="One itinerary item per line"
+                  />
+
+                  <Textarea
+                    label="FAQs"
+                    value={listToTextarea(draft.faqs)}
+                    onChange={(value) =>
+                      onChange("faqs", textareaToList(value))
+                    }
+                    placeholder="One FAQ item per line"
+                  />
+
+                  <Textarea
+                    label="Instructions"
+                    value={text(draft.instructions)}
+                    onChange={(value) =>
+                      onChange("instructions", value)
+                    }
+                  />
+
+                  <Textarea
+                    label="Ticket information"
+                    value={text(draft.ticket_information)}
+                    onChange={(value) =>
+                      onChange("ticket_information", value)
+                    }
+                  />
+
+                  <Textarea
+                    label="Cancellation policy"
+                    value={text(draft.cancellation_policy)}
+                    onChange={(value) =>
+                      onChange("cancellation_policy", value)
+                    }
+                  />
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+
+        {!isDefaultLanguage && !loading && (
+          <div className="sticky bottom-0 flex flex-col justify-end gap-3 border-t border-slate-200 bg-white/95 p-5 backdrop-blur sm:flex-row">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isBusy}
+              className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+            >
+              Close
+            </button>
+
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={isBusy}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {saving ? "Saving translation..." : "Save Translation"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2141,7 +2849,7 @@ function Badge({
   tone,
 }: {
   label: string;
-  tone: "amber" | "green" | "slate" | "blue" | "purple" | "orange" | "pink";
+  tone: "amber" | "green" | "slate" | "blue" | "purple" | "orange" | "pink" | "indigo";
 }) {
   const tones = {
     amber: "bg-amber-100 text-amber-700",
@@ -2151,6 +2859,7 @@ function Badge({
     purple: "bg-purple-100 text-purple-700",
     orange: "bg-orange-100 text-orange-700",
     pink: "bg-pink-100 text-pink-700",
+    indigo: "bg-indigo-100 text-indigo-700",
   };
 
   return (

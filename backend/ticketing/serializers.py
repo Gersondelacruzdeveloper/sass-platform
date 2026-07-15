@@ -1534,6 +1534,106 @@ class ExperienceProductSerializer(
 
         return obj.current_public_path
 
+    def _get_requested_language(self):
+        request = self.context.get("request")
+
+        language = ""
+
+        if request is not None:
+            language = (
+                request.query_params.get("language")
+                or request.query_params.get("lang")
+                or ""
+            )
+
+        if not language:
+            language = self.context.get("language") or ""
+
+        language = str(language).strip().lower()
+
+        if language not in {"en", "es", "fr", "pt", "de"}:
+            return ""
+
+        return language
+
+    def _get_translation_payload(self, instance, language):
+        if not language:
+            return None
+
+        translations = getattr(instance, "translations", None)
+
+        if not isinstance(translations, dict):
+            return None
+
+        translation = translations.get(language)
+
+        if not isinstance(translation, dict):
+            return None
+
+        return translation
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        requested_language = self._get_requested_language()
+        default_language = str(
+            getattr(instance, "default_language", "en") or "en"
+        ).strip().lower()
+
+        representation["resolved_language"] = (
+            requested_language or default_language
+        )
+        representation["translation_applied"] = False
+
+        if (
+            not requested_language
+            or requested_language == default_language
+        ):
+            return representation
+
+        translation = self._get_translation_payload(
+            instance,
+            requested_language,
+        )
+
+        if not translation:
+            representation["resolved_language"] = default_language
+            return representation
+
+        direct_fields = (
+            "name",
+            "short_description",
+            "long_description",
+            "includes",
+            "excludes",
+            "itinerary",
+            "faqs",
+            "ticket_information",
+            "instructions",
+            "cancellation_policy",
+        )
+
+        for field_name in direct_fields:
+            if field_name not in translation:
+                continue
+
+            value = translation.get(field_name)
+
+            if value is None:
+                continue
+
+            representation[field_name] = value
+
+        # Translation JSON uses "meeting_point", while the existing public
+        # product page reads the product's "location" field.
+        if translation.get("meeting_point") is not None:
+            representation["location"] = translation.get("meeting_point")
+
+        representation["resolved_language"] = requested_language
+        representation["translation_applied"] = True
+
+        return representation
+
     def validate(self, attrs):
         category = attrs.get("category")
 

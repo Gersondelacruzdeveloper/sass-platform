@@ -30,7 +30,6 @@ import {
 
 import ticketingApi from "../api/ticketingApi";
 import { ticketingLanguageOptions, useTicketingTranslation } from "../i18n";
-import { useProductDetailAutoTranslation } from "../i18n/translations/productDetail";
 import type {
   ExperienceProduct,
   ProductAvailability,
@@ -39,6 +38,7 @@ import type {
   ProductPickupSchedule,
   ProductType,
   PublicBrandingResponse,
+  SupportedProductLanguage,
 } from "../types/ticketingTypes";
 
 type QtyKey = "adult" | "child" | "infant";
@@ -1507,7 +1507,11 @@ export default function PublicProductDetailPage() {
   const navigate = useNavigate();
   const { language } = useTicketingTranslation();
 
-  useProductDetailAutoTranslation(language);
+  const productLanguage = (
+    ["en", "es", "fr", "pt", "de"].includes(language)
+      ? language
+      : "en"
+  ) as SupportedProductLanguage;
 
   const [branding, setBranding] = useState<PublicBrandingResponse | null>(null);
   const [product, setProduct] = useState<ExperienceProduct | null>(null);
@@ -1557,10 +1561,15 @@ export default function PublicProductDetailPage() {
 
       const [brandingResponse, resolveResponse, productsResponse] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
-        ticketingApi.getPublicProductResolve(organisationSlug, resolvePath),
+        ticketingApi.getPublicProductResolve(
+          organisationSlug,
+          resolvePath,
+          productLanguage
+        ),
         ticketingApi.getPublicProducts(organisationSlug, {
           public_enabled: true,
           status: "active",
+          language: productLanguage,
         }),
       ]);
 
@@ -1677,7 +1686,13 @@ export default function PublicProductDetailPage() {
 
   useEffect(() => {
     loadPage();
-  }, [organisationSlug, productSlug, isCustomDomain, sellerCode]);
+  }, [
+    organisationSlug,
+    productSlug,
+    isCustomDomain,
+    sellerCode,
+    productLanguage,
+  ]);
 
   useEffect(() => {
     async function loadLiveAvailability() {
@@ -2146,26 +2161,50 @@ export default function PublicProductDetailPage() {
     liveOptionAvailable,
   ]);
 
-  const checkoutUrl =
-    product && canCheckout
-      ? buildCheckoutUrl({
-          publicPath,
-          sellerSlug: sellerCode,
-          product,
-          date,
-          qty,
-          pickupLocation: selectedPickupLocation,
-          resolvedPickup,
-          paymentChoice,
-          selectedAvailability,
-          selectedLiveOption,
-          selectedTransferRoute,
-          selectedTransferPriceBand,
-          transferRoundTrip,
-          preferredPickupTime,
-          transferTotalPrice,
-        })
-      : "#";
+  const checkoutUrl = useMemo(() => {
+    if (!product || !canCheckout) return "#";
+
+    const baseUrl = buildCheckoutUrl({
+      publicPath,
+      sellerSlug: sellerCode,
+      product,
+      date,
+      qty,
+      pickupLocation: selectedPickupLocation,
+      resolvedPickup,
+      paymentChoice,
+      selectedAvailability,
+      selectedLiveOption,
+      selectedTransferRoute,
+      selectedTransferPriceBand,
+      transferRoundTrip,
+      preferredPickupTime,
+      transferTotalPrice,
+    });
+
+    const separator = baseUrl.includes("?") ? "&" : "?";
+
+    return `${baseUrl}${separator}language=${encodeURIComponent(
+      productLanguage
+    )}`;
+  }, [
+    product,
+    canCheckout,
+    sellerCode,
+    date,
+    qty,
+    selectedPickupLocation,
+    resolvedPickup,
+    paymentChoice,
+    selectedAvailability,
+    selectedLiveOption,
+    selectedTransferRoute,
+    selectedTransferPriceBand,
+    transferRoundTrip,
+    preferredPickupTime,
+    transferTotalPrice,
+    productLanguage,
+  ]);
 
   function goToCheckout() {
     if (!product) return;

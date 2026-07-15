@@ -74,6 +74,42 @@ export type SellerRole =
   | "driver"
   | "viewer";
 
+
+export type SupportedProductLanguage =
+  | "en"
+  | "es"
+  | "fr"
+  | "pt"
+  | "de";
+
+export interface ProductTranslationMeta {
+  source?: "manual" | "ai" | string;
+  manually_edited?: boolean;
+  source_language?: SupportedProductLanguage | string;
+  target_language?: SupportedProductLanguage | string;
+  provider?: string;
+  model?: string;
+  generated_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductTranslation {
+  name?: string;
+  short_description?: string;
+  long_description?: string;
+  includes?: unknown[];
+  excludes?: unknown[];
+  itinerary?: unknown[];
+  faqs?: unknown[];
+  meeting_point?: string;
+  instructions?: string;
+  ticket_information?: string;
+  cancellation_policy?: string;
+  _meta?: ProductTranslationMeta;
+}
+
+export type ProductTranslations = Partial<Record<SupportedProductLanguage, ProductTranslation>>;
+
 export interface TicketingSettings {
   id: ID;
   organisation: ID;
@@ -198,6 +234,9 @@ export interface ExperienceCategory {
   organisation_name?: string;
   name: string;
   slug: string;
+
+  default_language: SupportedProductLanguage;
+  translations: ProductTranslations;
   description: string;
   image?: string | null;
   image_url?: string | null;
