@@ -239,35 +239,69 @@ function translateValue(value: string, language: TicketingLanguage): string {
   return value.replace(clean, translated);
 }
 
+function shouldSkipTranslation(element: Element | null) {
+  if (!element) return true;
+
+  return Boolean(
+    element.closest(
+      '[data-no-translate], [translate="no"], script, style, noscript'
+    )
+  );
+}
+
 function translateElement(root: ParentNode, language: TicketingLanguage) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
 
   while (node) {
     const parent = node.parentElement;
-    if (parent && !["SCRIPT", "STYLE", "NOSCRIPT"].includes(parent.tagName)) {
-      if (!originalText.has(node)) originalText.set(node, node.textContent || "");
+
+    if (parent && !shouldSkipTranslation(parent)) {
+      if (!originalText.has(node)) {
+        originalText.set(node, node.textContent || "");
+      }
+
       const original = originalText.get(node) || "";
       const next = translateValue(original, language);
-      if (node.textContent !== next) node.textContent = next;
+
+      if (node.textContent !== next) {
+        node.textContent = next;
+      }
     }
+
     node = walker.nextNode();
   }
 
-  const elements = root instanceof Element ? [root, ...Array.from(root.querySelectorAll("*"))] : Array.from(root.querySelectorAll("*"));
+  const elements =
+    root instanceof Element
+      ? [root, ...Array.from(root.querySelectorAll("*"))]
+      : Array.from(root.querySelectorAll("*"));
+
   elements.forEach((element) => {
+    if (shouldSkipTranslation(element)) return;
+
     let map = originalAttributes.get(element);
+
     if (!map) {
       map = new Map<string, string>();
       originalAttributes.set(element, map);
     }
+
     TRANSLATABLE_ATTRIBUTES.forEach((attribute) => {
       const current = element.getAttribute(attribute);
+
       if (current === null) return;
-      if (!map!.has(attribute)) map!.set(attribute, current);
+
+      if (!map!.has(attribute)) {
+        map!.set(attribute, current);
+      }
+
       const original = map!.get(attribute) || current;
       const next = translateValue(original, language);
-      if (current !== next) element.setAttribute(attribute, next);
+
+      if (current !== next) {
+        element.setAttribute(attribute, next);
+      }
     });
   });
 }
@@ -276,20 +310,38 @@ export function useProductDetailAutoTranslation(language: TicketingLanguage) {
   useEffect(() => {
     if (typeof document === "undefined") return;
 
-    let scheduled = false;
-    const apply = () => {
-      scheduled = false;
-      translateElement(document.body, language);
-    };
-    const schedule = () => {
-      if (scheduled) return;
-      scheduled = true;
-      window.requestAnimationFrame(apply);
-    };
+    // Translate the current page once when the language changes.
+    translateElement(document.body, language);
 
-    schedule();
-    const observer = new MutationObserver(schedule);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...TRANSLATABLE_ATTRIBUTES] });
+    // Translate only newly inserted content. Do not observe characterData,
+    // because React-controlled values such as quantities, totals, prices,
+    // dates and availability messages must remain fully controlled by React.
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((addedNode) => {
+          if (addedNode.nodeType === Node.TEXT_NODE) {
+            const parent = addedNode.parentElement;
+
+            if (parent && !shouldSkipTranslation(parent)) {
+              translateElement(parent, language);
+            }
+
+            return;
+          }
+
+          if (addedNode instanceof Element) {
+            if (!shouldSkipTranslation(addedNode)) {
+              translateElement(addedNode, language);
+            }
+          }
+        });
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
 
     return () => observer.disconnect();
   }, [language]);
