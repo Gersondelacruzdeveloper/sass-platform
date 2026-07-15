@@ -387,6 +387,19 @@
 │   │   │   │   │   └── TicketingTopbar.tsx
 │   │   │   │   ├── hooks
 │   │   │   │   │   └── usePublicTicketingOrganisation.ts
+│   │   │   │   ├── i18n
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   ├── ticketingTranslations.ts
+│   │   │   │   │   ├── translations
+│   │   │   │   │   │   ├── checkout.ts
+│   │   │   │   │   │   ├── common.ts
+│   │   │   │   │   │   ├── confirmation.ts
+│   │   │   │   │   │   ├── listing.ts
+│   │   │   │   │   │   ├── product.ts
+│   │   │   │   │   │   ├── productDetail.ts
+│   │   │   │   │   │   ├── public.ts
+│   │   │   │   │   │   └── validation.ts
+│   │   │   │   │   └── useTicketingTranslation.ts
 │   │   │   │   ├── layouts
 │   │   │   │   │   ├── TicketingDashboardLayout.tsx
 │   │   │   │   │   ├── TicketingPartnerLayout.tsx
@@ -523,6 +536,7 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── yarn.lock
+├── Pipfile
 └── project_structure.txt
 
-96 directories, 430 files
+98 directories, 442 files

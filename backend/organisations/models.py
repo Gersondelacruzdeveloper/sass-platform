@@ -1,6 +1,6 @@
-from django.db import models
 from django.conf import settings
-
+from django.db import models
+from django.utils import timezone
 
 
 class Organisation(models.Model):
@@ -37,14 +37,14 @@ class Organisation(models.Model):
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=30, blank=True, null=True)
 
-    # Keep this as a simple fallback/display field
+    # Keep this as a simple fallback/display field.
     plan = models.CharField(
         max_length=20,
         choices=PLAN_CHOICES,
         default="basic",
     )
 
-    # Real access control
+    # Real access control.
     is_active = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -122,6 +122,7 @@ class Organisation(models.Model):
     def __str__(self):
         return self.name
 
+
 class Membership(models.Model):
     ROLE_CHOICES = (
         ("owner", "Owner"),
@@ -162,10 +163,13 @@ class Membership(models.Model):
         unique_together = ("user", "organisation")
 
     def __str__(self):
-        return f"{self.user.email} - {self.organisation.name} - {self.role}"
-    
+        return (
+            f"{self.user.email} - "
+            f"{self.organisation.name} - "
+            f"{self.role}"
+        )
 
-# organisations/models.py
+
 class OrganisationBranding(models.Model):
     organisation = models.OneToOneField(
         "organisations.Organisation",
@@ -176,22 +180,22 @@ class OrganisationBranding(models.Model):
     company_name = models.CharField(max_length=255)
     platform_name = models.CharField(max_length=255, blank=True)
 
-    # Main branding
+    # Main branding.
     logo = models.ImageField(
         upload_to="branding/logos/",
         blank=True,
         null=True,
     )
 
-    # Browser tab icon
-    # FileField is better than ImageField because favicon can be .ico
+    # Browser tab icon.
+    # FileField is used because favicon files may be .ico.
     favicon = models.FileField(
         upload_to="branding/favicons/",
         blank=True,
         null=True,
     )
 
-    # PWA / installable app icons
+    # PWA / installable app icons.
     app_icon_192 = models.ImageField(
         upload_to="branding/app-icons/",
         blank=True,
@@ -213,7 +217,7 @@ class OrganisationBranding(models.Model):
         help_text="Recommended size: 512x512 PNG with safe padding",
     )
 
-    # PWA app information
+    # PWA app information.
     app_short_name = models.CharField(
         max_length=50,
         blank=True,
@@ -225,17 +229,35 @@ class OrganisationBranding(models.Model):
         help_text="Description used in the app manifest",
     )
 
-    # UI colors
-    primary_color = models.CharField(max_length=20, default="#111827")
-    secondary_color = models.CharField(max_length=20, default="#6B7280")
-    accent_color = models.CharField(max_length=20, default="#F59E0B")
+    # UI colors.
+    primary_color = models.CharField(
+        max_length=20,
+        default="#111827",
+    )
+    secondary_color = models.CharField(
+        max_length=20,
+        default="#6B7280",
+    )
+    accent_color = models.CharField(
+        max_length=20,
+        default="#F59E0B",
+    )
 
-    # PWA colors
-    theme_color = models.CharField(max_length=20, default="#111827")
-    background_color = models.CharField(max_length=20, default="#ffffff")
+    # PWA colors.
+    theme_color = models.CharField(
+        max_length=20,
+        default="#111827",
+    )
+    background_color = models.CharField(
+        max_length=20,
+        default="#ffffff",
+    )
 
-    # Login page branding
-    login_title = models.CharField(max_length=255, blank=True)
+    # Login page branding.
+    login_title = models.CharField(
+        max_length=255,
+        blank=True,
+    )
     login_subtitle = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -243,21 +265,144 @@ class OrganisationBranding(models.Model):
 
     @property
     def display_name(self):
-        return self.platform_name or self.company_name or self.organisation.name
+        return (
+            self.platform_name
+            or self.company_name
+            or self.organisation.name
+        )
 
     @property
     def short_name(self):
-        return self.app_short_name or self.platform_name or self.company_name
+        return (
+            self.app_short_name
+            or self.platform_name
+            or self.company_name
+        )
 
     def __str__(self):
         return f"{self.company_name} - {self.platform_name}"
-    
+
 
 class OrganisationDomain(models.Model):
     organisation = models.ForeignKey(
         "organisations.Organisation",
         on_delete=models.CASCADE,
-        related_name="domains"
+        related_name="domains",
     )
-    domain = models.CharField(max_length=255, unique=True)
+
+    domain = models.CharField(
+        max_length=255,
+        unique=True,
+    )
+
     is_primary = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.domain
+
+
+class OrganisationAISettings(models.Model):
+    AI_PROVIDER_CHOICES = (
+        ("openai", "OpenAI"),
+    )
+
+    organisation = models.OneToOneField(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ai_settings",
+    )
+
+    is_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Master switch for all AI features in this organisation."
+        ),
+    )
+
+    translations_enabled = models.BooleanField(
+        default=True,
+        help_text="Allow AI to generate product translations.",
+    )
+
+    provider = models.CharField(
+        max_length=30,
+        choices=AI_PROVIDER_CHOICES,
+        default="openai",
+    )
+
+    provider_api_key = models.TextField(
+        blank=True,
+        help_text=(
+            "Encrypted AI provider API key. "
+            "Never expose it to the frontend."
+        ),
+    )
+
+    provider_api_key_last_updated = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    default_model = models.CharField(
+        max_length=100,
+        default="gpt-5.5",
+        help_text=(
+            "Default AI model used by this organisation."
+        ),
+    )
+
+    has_api_key = models.BooleanField(
+        default=False,
+        help_text=(
+            "Used by the frontend to know whether an API key exists "
+            "without exposing it."
+        ),
+    )
+
+    last_test_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    last_error_message = models.TextField(
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    @property
+    def ai_ready(self):
+        return bool(
+            self.is_enabled
+            and self.has_api_key
+            and self.provider_api_key
+        )
+
+    def set_provider_api_key(self, encrypted_value):
+        encrypted_value = str(encrypted_value or "").strip()
+
+        self.provider_api_key = encrypted_value
+        self.has_api_key = bool(encrypted_value)
+        self.provider_api_key_last_updated = (
+            timezone.now()
+            if encrypted_value
+            else None
+        )
+
+    def clear_provider_api_key(self):
+        self.provider_api_key = ""
+        self.has_api_key = False
+        self.provider_api_key_last_updated = None
+
+    def __str__(self):
+        return f"AI Settings - {self.organisation.name}"
+
+    class Meta:
+        verbose_name = "Organisation AI Settings"
+        verbose_name_plural = "Organisation AI Settings"

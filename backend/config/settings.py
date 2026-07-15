@@ -201,3 +201,6 @@ GOOGLE_CLIENT_ID= env.str("GOOGLE_CLIENT_ID", default="")
 GOOGLE_CLIENT_SECRET= env.str("GOOGLE_CLIENT_SECRET", default="")
 GOOGLE_OAUTH_REDIRECT_URI=env.str("GOOGLE_OAUTH_REDIRECT_URI", default="")
 FRONTEND_APP_URL=env.str("FRONTEND_APP_URL", default="https://app.puntacanadiscovery.com")
+ORGANISATION_AI_ENCRYPTION_KEY = env.str(
+    "ORGANISATION_AI_ENCRYPTION_KEY"
+)

@@ -1,9 +1,16 @@
+from django.db import transaction
 from rest_framework import serializers
 
-from .models import Organisation, Membership, OrganisationBranding
+from .ai.encryption import encrypt_secret
+from .models import (
+    Membership,
+    Organisation,
+    OrganisationAISettings,
+    OrganisationBranding,
+)
 from .utils.branding_icons import (
-    generate_square_icon_from_logo,
     generate_maskable_icon_from_logo,
+    generate_square_icon_from_logo,
 )
 
 
@@ -56,11 +63,8 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
             "organisation",
             "company_name",
             "platform_name",
-
             "logo",
             "logo_url",
-
-            # Generated automatically from logo
             "favicon",
             "favicon_url",
             "app_icon_192",
@@ -69,16 +73,13 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
             "app_icon_512_url",
             "maskable_icon",
             "maskable_icon_url",
-
             "app_short_name",
             "app_description",
-
             "primary_color",
             "secondary_color",
             "accent_color",
             "theme_color",
             "background_color",
-
             "login_title",
             "login_subtitle",
             "created_at",
@@ -129,7 +130,6 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         logo = validated_data.get("logo")
-
         instance = super().create(validated_data)
 
         if logo:
@@ -139,7 +139,6 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         logo = validated_data.get("logo")
-
         instance = super().update(instance, validated_data)
 
         if logo:
@@ -150,33 +149,156 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
     def generate_icons(self, instance, logo):
         base_name = f"{instance.organisation.slug}-branding"
 
-        favicon_file = generate_square_icon_from_logo(logo, size=32)
-        icon_192_file = generate_square_icon_from_logo(logo, size=192)
-        icon_512_file = generate_square_icon_from_logo(logo, size=512)
-        maskable_file = generate_maskable_icon_from_logo(logo, size=512)
-
         instance.favicon.save(
             f"{base_name}-favicon.png",
-            favicon_file,
+            generate_square_icon_from_logo(logo, size=32),
             save=False,
         )
 
         instance.app_icon_192.save(
             f"{base_name}-icon-192.png",
-            icon_192_file,
+            generate_square_icon_from_logo(logo, size=192),
             save=False,
         )
 
         instance.app_icon_512.save(
             f"{base_name}-icon-512.png",
-            icon_512_file,
+            generate_square_icon_from_logo(logo, size=512),
             save=False,
         )
 
         instance.maskable_icon.save(
             f"{base_name}-maskable-512.png",
-            maskable_file,
+            generate_maskable_icon_from_logo(logo, size=512),
             save=False,
         )
 
         instance.save()
+
+
+class OrganisationAISettingsSerializer(serializers.ModelSerializer):
+    ai_ready = serializers.BooleanField(read_only=True)
+
+    api_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=500,
+    )
+
+    clear_api_key = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+    )
+
+    class Meta:
+        model = OrganisationAISettings
+        fields = [
+            "id",
+            "organisation",
+            "provider",
+            "is_enabled",
+            "translations_enabled",
+            "default_model",
+            "has_api_key",
+            "provider_api_key_last_updated",
+            "ai_ready",
+            "last_test_at",
+            "last_error_message",
+            "api_key",
+            "clear_api_key",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "organisation",
+            "has_api_key",
+            "provider_api_key_last_updated",
+            "ai_ready",
+            "last_test_at",
+            "last_error_message",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate(self, attrs):
+        api_key = attrs.get("api_key")
+        clear_api_key = attrs.get("clear_api_key", False)
+
+        if api_key and clear_api_key:
+            raise serializers.ValidationError(
+                {
+                    "clear_api_key": (
+                        "You cannot provide a new API key and clear the "
+                        "existing API key in the same request."
+                    )
+                }
+            )
+
+        instance = self.instance
+        resulting_has_api_key = bool(
+            api_key
+            or (
+                instance
+                and instance.has_api_key
+                and not clear_api_key
+            )
+        )
+
+        resulting_is_enabled = attrs.get(
+            "is_enabled",
+            instance.is_enabled if instance else False,
+        )
+
+        if resulting_is_enabled and not resulting_has_api_key:
+            raise serializers.ValidationError(
+                {
+                    "is_enabled": (
+                        "Configure an AI provider API key before enabling AI."
+                    )
+                }
+            )
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        api_key = validated_data.pop("api_key", None)
+        clear_api_key = validated_data.pop("clear_api_key", False)
+
+        instance = OrganisationAISettings(**validated_data)
+
+        if api_key:
+            instance.set_provider_api_key(
+                encrypt_secret(api_key)
+            )
+        elif clear_api_key:
+            instance.clear_provider_api_key()
+
+        instance.save()
+        return instance
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        api_key = validated_data.pop("api_key", None)
+        clear_api_key = validated_data.pop("clear_api_key", False)
+
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        if api_key:
+            instance.set_provider_api_key(
+                encrypt_secret(api_key)
+            )
+            instance.last_error_message = ""
+        elif clear_api_key:
+            instance.clear_provider_api_key()
+            instance.is_enabled = False
+            instance.last_error_message = ""
+
+        instance.save()
+        return instance

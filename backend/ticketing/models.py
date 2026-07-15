@@ -431,6 +431,24 @@ class ExperienceProduct(models.Model):
         ("local", "Local"),
         ("wellet", "Wellet / Coco Bongo"),
     )
+    SUPPORTED_LANGUAGE_CHOICES = (
+    ("en", "English"),
+    ("es", "Spanish"),
+    ("fr", "French"),
+    ("pt", "Portuguese"),
+    ("de", "German"),
+    )
+
+    default_language = models.CharField(
+        max_length=2,
+        choices=SUPPORTED_LANGUAGE_CHOICES,
+        default="en",
+    )
+
+    translations = models.JSONField(
+        default=dict,
+        blank=True,
+    )
 
     organisation = models.ForeignKey(
         Organisation,

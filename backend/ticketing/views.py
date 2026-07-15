@@ -1,3 +1,4 @@
+from copy import deepcopy
 from decimal import Decimal
 # Views version: partner-portal-step1-v2-2026-07-13
 import csv
@@ -47,6 +48,18 @@ from .google_oauth import (
 logger = logging.getLogger(__name__)
 
 from organisations.models import Organisation
+
+from .ai.translation_service import (
+    LIST_FIELDS,
+    TRANSLATABLE_FIELDS,
+    InvalidTranslationResponseError,
+    ManualTranslationProtectedError,
+    ProductTranslationError,
+    ProductTranslationService,
+    SameLanguageTranslationError,
+    UnsupportedLanguageError,
+    normalise_language,
+)
 
 from .models import (
     TicketingSettings,
@@ -821,6 +834,7 @@ class TicketingProductManagementPermissionMixin:
             "transfers",
             "events",
             "tickets",
+            "translations",
             "resolve",
             "quote",
         ]
@@ -1169,6 +1183,238 @@ class ExperienceProductViewSet(
         serializer.save(
             organisation=organisation,
             created_by=self.request.user,
+        )
+
+    def _get_product_translations(self, product):
+        translations = product.translations
+
+        if not isinstance(translations, dict):
+            return {}
+
+        return deepcopy(translations)
+
+    def _validate_manual_translation_payload(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("Translation data must be a JSON object.")
+
+        cleaned = {}
+
+        for field in TRANSLATABLE_FIELDS:
+            if field not in payload:
+                continue
+
+            value = payload.get(field)
+
+            if field in LIST_FIELDS:
+                if value is None:
+                    cleaned[field] = []
+                elif isinstance(value, list):
+                    cleaned[field] = deepcopy(value)
+                else:
+                    raise ValueError(
+                        f"{field} must be a JSON array."
+                    )
+            else:
+                cleaned[field] = str(value or "").strip()
+
+        if not cleaned:
+            raise ValueError(
+                "Provide at least one supported translation field."
+            )
+
+        return cleaned
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="translations",
+    )
+    def translations(self, request, pk=None):
+        product = self.get_object()
+        translations = self._get_product_translations(product)
+
+        return Response(
+            {
+                "product_id": product.id,
+                "default_language": product.default_language,
+                "supported_languages": ["en", "es", "fr", "pt", "de"],
+                "translations": translations,
+            }
+        )
+
+    @action(
+        detail=True,
+        methods=["put"],
+        url_path=r"translations/(?P<language>[a-z]{2})",
+    )
+    def translation_detail(self, request, pk=None, language=None):
+        product = self.get_object()
+
+        try:
+            resolved_language = normalise_language(language)
+        except UnsupportedLanguageError as exc:
+            return Response(
+                {"language": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if resolved_language == product.default_language:
+            return Response(
+                {
+                    "language": (
+                        "The default language is edited through the main "
+                        "product fields, not the translations JSON."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = request.data.get("translation", request.data)
+
+        try:
+            cleaned = self._validate_manual_translation_payload(payload)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        translations = self._get_product_translations(product)
+        existing = translations.get(resolved_language)
+
+        if isinstance(existing, dict):
+            merged = deepcopy(existing)
+            merged.update(cleaned)
+        else:
+            merged = cleaned
+
+        previous_meta = (
+            existing.get("_meta", {})
+            if isinstance(existing, dict)
+            and isinstance(existing.get("_meta"), dict)
+            else {}
+        )
+
+        merged["_meta"] = {
+            **previous_meta,
+            "source": (
+                previous_meta.get("source")
+                if previous_meta.get("source") == "ai"
+                else "manual"
+            ),
+            "manually_edited": True,
+            "source_language": product.default_language,
+            "target_language": resolved_language,
+            "updated_at": timezone.now().isoformat(),
+            "updated_by": request.user.id,
+        }
+
+        translations[resolved_language] = merged
+        product.translations = translations
+        product.save(
+            update_fields=[
+                "translations",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            {
+                "product_id": product.id,
+                "language": resolved_language,
+                "translation": merged,
+            }
+        )
+
+    @translation_detail.mapping.delete
+    def delete_translation(self, request, pk=None, language=None):
+        product = self.get_object()
+
+        try:
+            resolved_language = normalise_language(language)
+        except UnsupportedLanguageError as exc:
+            return Response(
+                {"language": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        translations = self._get_product_translations(product)
+
+        if resolved_language not in translations:
+            return Response(
+                {"detail": "Translation not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        translations.pop(resolved_language, None)
+        product.translations = translations
+        product.save(
+            update_fields=[
+                "translations",
+                "updated_at",
+            ]
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"translations/(?P<language>[a-z]{2})/generate",
+    )
+    def generate_translation(self, request, pk=None, language=None):
+        product = self.get_object()
+
+        force = str(
+            request.data.get("force")
+            or request.data.get("overwrite")
+            or "false"
+        ).strip().lower() in {
+            "true",
+            "1",
+            "yes",
+            "on",
+        }
+
+        try:
+            result = ProductTranslationService(product).generate(
+                language,
+                force=force,
+            )
+        except (
+            UnsupportedLanguageError,
+            SameLanguageTranslationError,
+            ManualTranslationProtectedError,
+            InvalidTranslationResponseError,
+            ProductTranslationError,
+        ) as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Product translation generation failed for product %s.",
+                product.id,
+            )
+            return Response(
+                {
+                    "detail": (
+                        "The translation could not be generated."
+                    ),
+                    "error": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "product_id": result.product_id,
+                "source_language": result.source_language,
+                "target_language": result.target_language,
+                "translation": result.translation,
+            },
+            status=status.HTTP_201_CREATED,
         )
 
     @action(detail=False, methods=["get"], url_path="excursions")

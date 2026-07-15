@@ -8,10 +8,21 @@ from django.http import JsonResponse
 from django.conf import settings
 
 
-from .models import Organisation, Membership, OrganisationBranding
+from .models import (
+    Membership,
+    Organisation,
+    OrganisationAISettings,
+    OrganisationBranding,
+)
+from .ai.service import (
+    OrganisationAIProviderError,
+    OrganisationAIService,
+)
+
 from .serializers import (
     OrganisationSerializer,
     MembershipSerializer,
+    OrganisationAISettingsSerializer,
     OrganisationBrandingSerializer,
 )
 
@@ -340,3 +351,86 @@ class OrganisationBrandingView(APIView):
         serializer.save()
 
         return Response(serializer.data)
+
+
+class OrganisationAISettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get_organisation(self, request):
+        organisation = get_active_user_organisation(request.user)
+
+        if not organisation:
+            raise PermissionDenied("No active organisation found.")
+
+        return organisation
+
+    def get_ai_settings(self, organisation):
+        ai_settings, _created = OrganisationAISettings.objects.get_or_create(
+            organisation=organisation,
+            defaults={
+                "provider": "openai",
+                "is_enabled": False,
+                "translations_enabled": True,
+            },
+        )
+
+        return ai_settings
+
+    def get(self, request):
+        organisation = self.get_organisation(request)
+        ai_settings = self.get_ai_settings(organisation)
+
+        serializer = OrganisationAISettingsSerializer(
+            ai_settings,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
+
+    def patch(self, request):
+        organisation = self.get_organisation(request)
+        ai_settings = self.get_ai_settings(organisation)
+
+        serializer = OrganisationAISettingsSerializer(
+            ai_settings,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+
+
+class OrganisationAIConnectionTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        organisation = get_active_user_organisation(request.user)
+
+        if not organisation:
+            raise PermissionDenied("No active organisation found.")
+
+        service = OrganisationAIService(organisation)
+
+        try:
+            service.test_connection()
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "AI provider connection verified successfully.",
+            }
+        )

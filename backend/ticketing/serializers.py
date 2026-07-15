@@ -1364,6 +1364,8 @@ class ExperienceProductSerializer(
         source="organisation.name",
         read_only=True,
     )
+    default_language = serializers.CharField(required=False)
+    translations = serializers.JSONField(required=False)
 
     category_detail = ExperienceCategorySerializer(source="category", read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
@@ -1403,6 +1405,8 @@ class ExperienceProductSerializer(
             "category_detail",
             "name",
             "slug",
+            "default_language",
+            "translations", 
             "current_public_path",
             "primary_url",
             "url_aliases",
