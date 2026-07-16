@@ -75,6 +75,13 @@
 │   ├── organisations
 │   │   ├── __init__.py
 │   │   ├── admin.py
+│   │   ├── ai
+│   │   │   ├── __init__.py
+│   │   │   ├── constants.py
+│   │   │   ├── encryption.py
+│   │   │   ├── providers.py
+│   │   │   ├── service.py
+│   │   │   └── translation_service.py
 │   │   ├── apps.py
 │   │   ├── migrations
 │   │   │   ├── __init__.py
@@ -84,7 +91,9 @@
 │   │   │   ├── 0004_organisation_stripe_customer_id_and_more.py
 │   │   │   ├── 0005_remove_organisation_stripe_customer_id_and_more.py
 │   │   │   ├── 0006_organisationbranding_app_description_and_more.py
-│   │   │   └── 0007_alter_organisation_business_type.py
+│   │   │   ├── 0007_alter_organisation_business_type.py
+│   │   │   ├── 0008_organisationaisettings.py
+│   │   │   └── 0009_organisationaisettings_provider_api_key_last_updated.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -112,6 +121,9 @@
 │   ├── ticketing
 │   │   ├── __init__.py
 │   │   ├── admin.py
+│   │   ├── ai
+│   │   │   ├── __init__.py
+│   │   │   └── translation_service.py
 │   │   ├── apps.py
 │   │   ├── booking_finance_service.py
 │   │   ├── cors.py
@@ -145,7 +157,8 @@
 │   │   │   ├── 0014_ticketingbusinessentity_productbusinessagreement_and_more.py
 │   │   │   ├── 0015_ticketingwhatsappsettings.py
 │   │   │   ├── 0016_experienceproduct_return_information_and_more.py
-│   │   │   └── 0017_remove_experienceproduct_return_information_and_more.py
+│   │   │   ├── 0017_remove_experienceproduct_return_information_and_more.py
+│   │   │   └── 0018_experienceproduct_default_language_and_more.py
 │   │   ├── models.py
 │   │   ├── notifications
 │   │   │   ├── __init__.py
@@ -539,4 +552,4 @@
 ├── Pipfile
 └── project_structure.txt
 
-98 directories, 442 files
+100 directories, 453 files
