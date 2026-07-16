@@ -1,23 +1,42 @@
-import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
+import {
+  Navigate,
+  Outlet,
+  useLocation,
+  useParams,
+} from "react-router-dom";
+
 import { useAppSelector } from "../store/hooks";
 
 export default function ProtectedRoute() {
-  const { user, initialized } = useAppSelector((state) => state.auth);
-  const location = useLocation();
-  const params = useParams();
+  const { user, initialized } = useAppSelector(
+    (state) => state.auth
+  );
 
-  const businessType = params.businessType || location.pathname.split("/")[1];
-  const organisationSlug =
-    params.organisationSlug || location.pathname.split("/")[2];
+  const location = useLocation();
+
+  const { businessType, organisationSlug } = useParams<{
+    businessType?: string;
+    organisationSlug?: string;
+  }>();
+
+  const pathParts = location.pathname
+    .split("/")
+    .filter(Boolean);
+
+  const resolvedBusinessType =
+    businessType ?? pathParts[0] ?? "";
+
+  const resolvedOrganisationSlug =
+    organisationSlug ?? pathParts[1] ?? "";
 
   const loginPath =
-    businessType && organisationSlug
-      ? `/${businessType}/${organisationSlug}/login`
+    resolvedBusinessType && resolvedOrganisationSlug
+      ? `/${resolvedBusinessType}/${resolvedOrganisationSlug}/login`
       : "/login";
 
   const billingLockedPath =
-    businessType && organisationSlug
-      ? `/${businessType}/${organisationSlug}/billing-locked`
+    resolvedBusinessType && resolvedOrganisationSlug
+      ? `/${resolvedBusinessType}/${resolvedOrganisationSlug}/billing-locked`
       : "/billing-locked";
 
   const allowedWhenInactive = [
@@ -27,9 +46,10 @@ export default function ProtectedRoute() {
     "subscription",
   ];
 
-  const isAllowedWhenInactive = allowedWhenInactive.some((path) =>
-    location.pathname.includes(path)
-  );
+  const isAllowedWhenInactive =
+    allowedWhenInactive.some((path) =>
+      location.pathname.includes(path)
+    );
 
   if (!initialized) {
     return (
@@ -42,19 +62,32 @@ export default function ProtectedRoute() {
   }
 
   if (!user) {
-    return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
+    return (
+      <Navigate
+        to={loginPath}
+        replace
+        state={{
+          from: location.pathname,
+        }}
+      />
+    );
   }
 
-  const organisation = user.organisation as typeof user.organisation & {
-    is_active?: boolean;
-  };
+  const organisation =
+    user.organisation as typeof user.organisation & {
+      is_active?: boolean;
+    };
 
   if (
-    organisation &&
-    organisation.is_active === false &&
+    organisation?.is_active === false &&
     !isAllowedWhenInactive
   ) {
-    return <Navigate to={billingLockedPath} replace />;
+    return (
+      <Navigate
+        to={billingLockedPath}
+        replace
+      />
+    );
   }
 
   return <Outlet />;

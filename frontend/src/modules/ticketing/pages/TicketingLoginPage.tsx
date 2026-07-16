@@ -153,6 +153,10 @@ export default function TicketingLoginPage() {
     field: K,
     value: LoginForm[K]
   ) {
+    if (errorMessage) {
+      setErrorMessage("");
+    }
+
     setForm((current) => ({
       ...current,
       [field]: value,
@@ -208,15 +212,38 @@ export default function TicketingLoginPage() {
     } catch (error: any) {
       console.error("Ticketing login error:", error);
 
-      setErrorMessage(
-        error?.response?.data?.detail ||
-          error?.response?.data?.error ||
-          error?.response?.data?.message ||
-          error?.detail ||
-          error?.error ||
-          error?.message ||
-          "Invalid email or password. Please try again."
-      );
+      // loginUser(...).unwrap() throws the rejectWithValue payload directly.
+      // In this application that payload has the shape:
+      // { status?: number; message: string }
+      const statusCode =
+        error?.status ??
+        error?.response?.status ??
+        error?.payload?.status;
+
+      const rejectedMessage =
+        typeof error === "string"
+          ? error
+          : error?.message ||
+            error?.payload?.message ||
+            error?.response?.data?.detail ||
+            error?.response?.data?.error ||
+            error?.response?.data?.message;
+
+      if (rejectedMessage) {
+        setErrorMessage(rejectedMessage);
+      } else if (statusCode === 400 || statusCode === 401) {
+        setErrorMessage(
+          "Incorrect email or password. Please check your credentials and try again."
+        );
+      } else if (!statusCode) {
+        setErrorMessage(
+          "We could not connect to the server. Please check your connection and try again."
+        );
+      } else {
+        setErrorMessage(
+          "Unable to sign you in at the moment. Please try again."
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -390,9 +417,17 @@ export default function TicketingLoginPage() {
               </div>
 
               {errorMessage && (
-                <div className="mt-5 flex items-start gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+                <div
+                  className="mt-5 flex items-start gap-3 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-700 shadow-sm"
+                  role="alert"
+                  aria-live="polite"
+                >
                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-                  {errorMessage}
+
+                  <div>
+                    <p className="font-black">Sign-in unsuccessful</p>
+                    <p className="mt-1 font-semibold">{errorMessage}</p>
+                  </div>
                 </div>
               )}
 
@@ -453,6 +488,9 @@ export default function TicketingLoginPage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
                     >
                       {showPassword ? (
