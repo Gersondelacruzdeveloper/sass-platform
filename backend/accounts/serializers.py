@@ -1,15 +1,25 @@
-from rest_framework import serializers
-from .models import CustomUser
 from django.utils.text import slugify
-from organisations.models import Organisation, Membership
+from rest_framework import serializers
+
+from organisations.models import Membership, Organisation
+
+from .models import CustomUser
 
 
 class RegisterSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(write_only=True)
-    business_type = serializers.CharField(write_only=True, default="disco")
-    plan = serializers.CharField(write_only=True, default="basic")
-
-    password = serializers.CharField(write_only=True, min_length=8)
+    business_type = serializers.CharField(
+        write_only=True,
+        default="disco",
+    )
+    plan = serializers.CharField(
+        write_only=True,
+        default="basic",
+    )
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
 
     class Meta:
         model = CustomUser
@@ -24,9 +34,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        organisation_name = validated_data.pop("organisation_name")
-        business_type = validated_data.pop("business_type", "disco")
-        plan = validated_data.pop("plan", "basic")
+        organisation_name = validated_data.pop(
+            "organisation_name"
+        )
+        business_type = validated_data.pop(
+            "business_type",
+            "disco",
+        )
+        plan = validated_data.pop(
+            "plan",
+            "basic",
+        )
         password = validated_data.pop("password")
 
         user = CustomUser(**validated_data)
@@ -55,6 +73,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
         return user
+
+
 class UserSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
     profile_image_url = serializers.SerializerMethodField()
@@ -71,7 +91,28 @@ class UserSerializer(serializers.ModelSerializer):
             "avatar",
             "avatar_url",
             "profile_image_url",
+            "preferred_language",
         ]
+        read_only_fields = [
+            "id",
+            "email",
+            "username",
+            "avatar_url",
+            "profile_image_url",
+        ]
+
+    def validate_preferred_language(self, value):
+        supported_languages = {
+            choice[0]
+            for choice in CustomUser.ADMIN_LANGUAGE_CHOICES
+        }
+
+        if value not in supported_languages:
+            raise serializers.ValidationError(
+                "Unsupported administration language."
+            )
+
+        return value
 
     def get_avatar_url(self, obj):
         request = self.context.get("request")
@@ -79,6 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
         if obj.avatar:
             if request:
                 return request.build_absolute_uri(obj.avatar.url)
+
             return obj.avatar.url
 
         return None

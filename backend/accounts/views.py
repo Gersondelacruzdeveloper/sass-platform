@@ -12,9 +12,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from .models import CustomUser
-from .serializers import RegisterSerializer
+from .serializers import RegisterSerializer, UserSerializer
 
 User = get_user_model()
+
 
 def build_file_url(request, file_field):
     if not file_field:
@@ -118,6 +119,7 @@ def build_current_user_payload(user, request):
         "first_name": user.first_name,
         "last_name": user.last_name,
         "phone": user.phone,
+        "preferred_language": user.preferred_language,
         "avatar": user.avatar.url if user.avatar else None,
         "avatar_url": user_avatar_url,
         "user_avatar_url": user_avatar_url,
@@ -176,12 +178,14 @@ class LoginView(APIView):
 
         login(request, user)
         request.session.save()
+
         return Response({
             "detail": "Login successful",
             "user": build_current_user_payload(user, request),
         })
 
-class LogoutView(APIView):  
+
+class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -190,7 +194,6 @@ class LogoutView(APIView):
         return Response({
             "detail": "Logged out"
         })
-    
 
 
 class MeView(APIView):
@@ -298,6 +301,7 @@ class MeView(APIView):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "phone": user.phone,
+            "preferred_language": user.preferred_language,
 
             # User image fields
             "avatar": user.avatar.url if user.avatar else None,
@@ -311,3 +315,18 @@ class MeView(APIView):
             "facilitator": facilitator_data,
             "disco_employee": disco_employee_data,
         })
+
+    def patch(self, request):
+        serializer = UserSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            build_current_user_payload(request.user, request),
+            status=status.HTTP_200_OK,
+        )
