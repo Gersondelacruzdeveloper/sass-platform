@@ -463,6 +463,7 @@ export default function PublicExperienceHomePage() {
           ticketingApi.getPublicProducts(organisationSlug, {
             public_enabled: true,
             status: "active",
+            language,
           }),
           ticketingApi.getPublicCategories(organisationSlug),
         ]);
@@ -486,7 +487,7 @@ export default function PublicExperienceHomePage() {
   useEffect(() => {
     if (!organisationSlug) return;
     loadPublicData();
-  }, [organisationSlug]);
+  }, [organisationSlug, language]);
 
   const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;
