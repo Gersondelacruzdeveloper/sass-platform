@@ -122,6 +122,22 @@ type TicketingPaymentProviderSettings = {
   is_active: boolean;
 };
 
+type OrganisationAISettings = {
+  id?: number;
+  organisation?: number;
+  provider: "openai";
+  is_enabled: boolean;
+  translations_enabled: boolean;
+  default_model: string;
+  has_api_key: boolean;
+  provider_api_key_last_updated?: string | null;
+  ai_ready: boolean;
+  last_test_at?: string | null;
+  last_error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 type TicketingPublicSiteSettings = {
   id?: number;
   organisation_name?: string;
@@ -291,6 +307,18 @@ const initialPaymentProviders: TicketingPaymentProviderSettings = {
   payment_pending_message:
     "Your booking was created. Payment is pending confirmation.",
   is_active: true,
+};
+
+const initialAISettings: OrganisationAISettings = {
+  provider: "openai",
+  is_enabled: false,
+  translations_enabled: true,
+  default_model: "gpt-5.5",
+  has_api_key: false,
+  provider_api_key_last_updated: null,
+  ai_ready: false,
+  last_test_at: null,
+  last_error_message: "",
 };
 
 const initialPublicSite: TicketingPublicSiteSettings = {
@@ -581,6 +609,12 @@ export default function TicketingSettingsPage() {
   const [publicSite, setPublicSite] =
     useState<TicketingPublicSiteSettings>(initialPublicSite);
 
+  const [aiSettings, setAISettings] =
+    useState<OrganisationAISettings>(initialAISettings);
+  const [aiApiKey, setAIApiKey] = useState("");
+  const [testingAI, setTestingAI] = useState(false);
+  const [removingAIKey, setRemovingAIKey] = useState(false);
+
   const [supportedCurrenciesText, setSupportedCurrenciesText] = useState("");
   const [trustBadgesText, setTrustBadgesText] = useState(
     normalizeArray(initialPublicSite.trust_badges).join("\n"),
@@ -617,6 +651,7 @@ export default function TicketingSettingsPage() {
           paymentProvidersResponse,
           emailSettingsResponse,
           whatsappSettingsResponse,
+          aiSettingsResponse,
           publicSiteResponse,
         ] = await Promise.all([
           api.get<OrganisationBranding>(
@@ -643,6 +678,12 @@ export default function TicketingSettingsPage() {
               params: requestParams,
             },
           ),
+          api.get<OrganisationAISettings>(
+            "/organisations/ai-settings/mine/",
+            {
+              params: requestParams,
+            },
+          ),
           api.get<TicketingPublicSiteSettings>(
             "/ticketing/public-site-settings/mine/",
             {
@@ -656,6 +697,7 @@ export default function TicketingSettingsPage() {
         const paymentProvidersData = paymentProvidersResponse.data;
         const emailSettingsData = emailSettingsResponse.data;
         const whatsappSettingsData = whatsappSettingsResponse.data;
+        const aiSettingsData = aiSettingsResponse.data;
         const publicSiteData = publicSiteResponse.data;
 
         setBranding({
@@ -980,6 +1022,31 @@ export default function TicketingSettingsPage() {
           ),
         );
 
+        setAISettings({
+          ...initialAISettings,
+          ...aiSettingsData,
+          provider: "openai",
+          is_enabled: normalizeBoolean(aiSettingsData.is_enabled, false),
+          translations_enabled: normalizeBoolean(
+            aiSettingsData.translations_enabled,
+            true,
+          ),
+          default_model: normalizeText(
+            aiSettingsData.default_model,
+            initialAISettings.default_model,
+          ),
+          has_api_key: normalizeBoolean(aiSettingsData.has_api_key, false),
+          ai_ready: normalizeBoolean(aiSettingsData.ai_ready, false),
+          provider_api_key_last_updated:
+            aiSettingsData.provider_api_key_last_updated || null,
+          last_test_at: aiSettingsData.last_test_at || null,
+          last_error_message: normalizeText(
+            aiSettingsData.last_error_message,
+          ),
+        });
+
+        setAIApiKey("");
+
         const normalizedTrustBadges = normalizeArray(
           publicSiteData.trust_badges,
         );
@@ -1279,6 +1346,16 @@ export default function TicketingSettingsPage() {
     }));
   }
 
+  function updateAISettingsField<K extends keyof OrganisationAISettings>(
+    field: K,
+    value: OrganisationAISettings[K],
+  ) {
+    setAISettings((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
   function updatePublicSiteFieldLoose(field: string, value: unknown) {
     setPublicSite((current) => ({
       ...current,
@@ -1422,6 +1499,24 @@ export default function TicketingSettingsPage() {
       if (whatsappSettings.webhook_verify_token) {
         whatsappSettingsPayload.webhook_verify_token =
           whatsappSettings.webhook_verify_token;
+      }
+
+      const aiSettingsPayload: {
+        provider: "openai";
+        is_enabled: boolean;
+        translations_enabled: boolean;
+        default_model: string;
+        api_key?: string;
+      } = {
+        provider: "openai",
+        is_enabled: aiSettings.is_enabled,
+        translations_enabled: aiSettings.translations_enabled,
+        default_model:
+          aiSettings.default_model.trim() || initialAISettings.default_model,
+      };
+
+      if (aiApiKey.trim()) {
+        aiSettingsPayload.api_key = aiApiKey.trim();
       }
 
       const publicSiteFormData = new FormData();
@@ -1749,6 +1844,7 @@ export default function TicketingSettingsPage() {
         paymentProvidersResponse,
         emailSettingsResponse,
         whatsappSettingsResponse,
+        aiSettingsResponse,
         publicSiteResponse,
       ] = await Promise.all([
         api.patch<OrganisationBranding>(
@@ -1779,6 +1875,13 @@ export default function TicketingSettingsPage() {
         api.patch<TicketingWhatsAppSettings>(
           "/ticketing/whatsapp-settings/mine/",
           whatsappSettingsPayload,
+          {
+            params: requestParams,
+          },
+        ),
+        api.patch<OrganisationAISettings>(
+          "/organisations/ai-settings/mine/",
+          aiSettingsPayload,
           {
             params: requestParams,
           },
@@ -1832,6 +1935,16 @@ export default function TicketingSettingsPage() {
         webhook_verify_token: "",
       }));
 
+      setAISettings({
+        ...initialAISettings,
+        ...aiSettingsResponse.data,
+        provider: "openai",
+        last_error_message: normalizeText(
+          aiSettingsResponse.data.last_error_message,
+        ),
+      });
+      setAIApiKey("");
+
       setPublicSite((current) => ({
         ...current,
         ...publicSiteResponse.data,
@@ -1858,6 +1971,160 @@ export default function TicketingSettingsPage() {
     } finally {
       setSaving(false);
       setCompressing(false);
+    }
+  }
+
+  async function handleTestAIConnection() {
+    try {
+      setTestingAI(true);
+      setError("");
+      setSavedMessage("");
+
+      if (aiApiKey.trim()) {
+        const saved = await api.patch<OrganisationAISettings>(
+          "/organisations/ai-settings/mine/",
+          {
+            provider: "openai",
+            is_enabled: aiSettings.is_enabled,
+            translations_enabled: aiSettings.translations_enabled,
+            default_model:
+              aiSettings.default_model.trim() ||
+              initialAISettings.default_model,
+            api_key: aiApiKey.trim(),
+          },
+          {
+            params: requestParams,
+          },
+        );
+
+        setAISettings({
+          ...initialAISettings,
+          ...saved.data,
+          provider: "openai",
+          last_error_message: normalizeText(saved.data.last_error_message),
+        });
+        setAIApiKey("");
+      }
+
+      const response = await api.post<{
+        success?: boolean;
+        ok?: boolean;
+        message?: string;
+        detail?: string;
+        ai_settings?: OrganisationAISettings;
+      }>(
+        "/organisations/ai-settings/test/",
+        {},
+        {
+          params: requestParams,
+        },
+      );
+
+      if (response.data.ai_settings) {
+        setAISettings({
+          ...initialAISettings,
+          ...response.data.ai_settings,
+          provider: "openai",
+          last_error_message: normalizeText(
+            response.data.ai_settings.last_error_message,
+          ),
+        });
+      } else {
+        const refreshed = await api.get<OrganisationAISettings>(
+          "/organisations/ai-settings/mine/",
+          {
+            params: requestParams,
+          },
+        );
+
+        setAISettings({
+          ...initialAISettings,
+          ...refreshed.data,
+          provider: "openai",
+          last_error_message: normalizeText(
+            refreshed.data.last_error_message,
+          ),
+        });
+      }
+
+      setSavedMessage(
+        response.data.message ||
+          response.data.detail ||
+          "OpenAI connection verified successfully.",
+      );
+    } catch (err: any) {
+      console.error("Could not test AI connection:", err);
+
+      const returnedSettings = err?.response?.data?.ai_settings;
+
+      if (returnedSettings) {
+        setAISettings({
+          ...initialAISettings,
+          ...returnedSettings,
+          provider: "openai",
+          last_error_message: normalizeText(
+            returnedSettings.last_error_message,
+          ),
+        });
+      }
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not verify the OpenAI connection.",
+      );
+    } finally {
+      setTestingAI(false);
+    }
+  }
+
+  async function handleRemoveAIKey() {
+    if (!aiSettings.has_api_key) return;
+
+    const confirmed = window.confirm(
+      "Remove the saved OpenAI API key for this organisation?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setRemovingAIKey(true);
+      setError("");
+      setSavedMessage("");
+
+      const response = await api.patch<OrganisationAISettings>(
+        "/organisations/ai-settings/mine/",
+        {
+          clear_api_key: true,
+          is_enabled: false,
+        },
+        {
+          params: requestParams,
+        },
+      );
+
+      setAISettings({
+        ...initialAISettings,
+        ...response.data,
+        provider: "openai",
+        last_error_message: normalizeText(
+          response.data.last_error_message,
+        ),
+      });
+      setAIApiKey("");
+      setSavedMessage("OpenAI API key removed.");
+    } catch (err: any) {
+      console.error("Could not remove AI key:", err);
+
+      setError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Could not remove the OpenAI API key.",
+      );
+    } finally {
+      setRemovingAIKey(false);
     }
   }
 
@@ -2536,6 +2803,194 @@ export default function TicketingSettingsPage() {
                 updateSettingsField("notify_owner_on_booking", value)
               }
             />
+          </div>
+        </Panel>
+
+        <Panel
+          title="AI and product translations"
+          description="Configure the organisation's own OpenAI API key. The key is encrypted by the backend and is never returned to the browser after saving."
+          icon={Sparkles}
+          className="xl:col-span-2"
+        >
+          <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-black text-slate-900">
+                    AI provider
+                  </label>
+                  <select
+                    value={aiSettings.provider}
+                    disabled
+                    className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-700 outline-none"
+                  >
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </div>
+
+                <Input
+                  label="Default model"
+                  value={aiSettings.default_model}
+                  onChange={(value) =>
+                    updateAISettingsField("default_model", value)
+                  }
+                  placeholder="gpt-5.5"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-black text-slate-900">
+                  OpenAI API key
+                </label>
+
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={aiApiKey}
+                  onChange={(event) => setAIApiKey(event.target.value)}
+                  placeholder={
+                    aiSettings.has_api_key
+                      ? "Enter a new key only to replace the saved key"
+                      : "sk-..."
+                  }
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+                />
+
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  {aiSettings.has_api_key
+                    ? "A key is already configured. Leave this blank to keep it unchanged."
+                    : "Add the organisation's OpenAI key to enable optional AI features."}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Toggle
+                  label="Enable AI"
+                  description="Master switch for AI features in this organisation."
+                  checked={aiSettings.is_enabled}
+                  onChange={(value) =>
+                    updateAISettingsField("is_enabled", value)
+                  }
+                />
+
+                <Toggle
+                  label="Enable AI translations"
+                  description="Allow owners to generate product translations with AI."
+                  checked={aiSettings.translations_enabled}
+                  onChange={(value) =>
+                    updateAISettingsField("translations_enabled", value)
+                  }
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestAIConnection}
+                  disabled={
+                    testingAI ||
+                    removingAIKey ||
+                    (!aiSettings.has_api_key && !aiApiKey.trim())
+                  }
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 text-sm font-black text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {testingAI ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                  {testingAI ? "Testing OpenAI..." : "Test Connection"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRemoveAIKey}
+                  disabled={
+                    removingAIKey ||
+                    testingAI ||
+                    !aiSettings.has_api_key
+                  }
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {removingAIKey ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4" />
+                  )}
+                  {removingAIKey ? "Removing..." : "Remove API Key"}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-black text-slate-700">
+                  AI status
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-black ${
+                    aiSettings.ai_ready
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {aiSettings.ai_ready ? "Ready" : "Not ready"}
+                </span>
+              </div>
+
+              <div className="rounded-2xl bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  API key
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-900">
+                  {aiSettings.has_api_key ? "Configured" : "Not configured"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Model
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-900">
+                  {aiSettings.default_model || initialAISettings.default_model}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Last tested
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-900">
+                  {aiSettings.last_test_at
+                    ? new Date(aiSettings.last_test_at).toLocaleString()
+                    : "Not tested yet"}
+                </p>
+              </div>
+
+              {aiSettings.provider_api_key_last_updated && (
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                    Key last updated
+                  </p>
+                  <p className="mt-1 text-sm font-black text-slate-900">
+                    {new Date(
+                      aiSettings.provider_api_key_last_updated,
+                    ).toLocaleString()}
+                  </p>
+                </div>
+              )}
+
+              {aiSettings.last_error_message && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-red-500">
+                    Last error
+                  </p>
+                  <p className="mt-1 text-sm font-bold leading-6 text-red-700">
+                    {aiSettings.last_error_message}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </Panel>
 
