@@ -58,8 +58,8 @@ export default function TicketingTopbar({
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur-xl">
-      <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-2 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onMenuClick}
@@ -72,7 +72,7 @@ export default function TicketingTopbar({
           </button>
 
           {displayCompanyLogo ? (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:h-12 sm:w-12">
               <img
                 src={displayCompanyLogo}
                 alt={t(
@@ -85,27 +85,29 @@ export default function TicketingTopbar({
               />
             </div>
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-sm ring-1 ring-amber-100">
-              <Ticket className="h-6 w-6" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-sm ring-1 ring-amber-100 sm:h-12 sm:w-12">
+              <Ticket className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
           )}
 
           <div className="min-w-0">
-            <p className="truncate text-base font-black tracking-tight text-slate-950">
+            <p className="truncate text-sm font-black tracking-tight text-slate-950 sm:text-base">
               {displayCompanyName}
             </p>
 
-            <p className="truncate text-xs font-semibold text-slate-500">
+            <p className="truncate text-[11px] font-semibold text-slate-500 sm:text-xs">
               {resolvedPortalLabel}
             </p>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <label className="relative hidden sm:block">
-            <span className="sr-only">Language</span>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+          <label className="relative block shrink-0">
+            <span className="sr-only">
+              {t("topbar.language")}
+            </span>
 
-            <Languages className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Languages className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 sm:left-3" />
 
             <select
               value={language}
@@ -116,8 +118,8 @@ export default function TicketingTopbar({
                     : "en",
                 )
               }
-              className="h-10 rounded-2xl border border-slate-200 bg-white py-0 pl-9 pr-8 text-xs font-black text-slate-700 shadow-sm outline-none transition hover:border-slate-300 focus:border-slate-400"
-              aria-label="Language"
+              className="h-10 w-[68px] appearance-none rounded-2xl border border-slate-200 bg-white py-0 pl-7 pr-5 text-[11px] font-black text-slate-700 shadow-sm outline-none transition hover:border-slate-300 focus:border-slate-400 sm:w-auto sm:pl-9 sm:pr-8 sm:text-xs"
+              aria-label={t("topbar.language")}
             >
               <option value="en">EN</option>
               <option value="es">ES</option>
@@ -138,10 +140,10 @@ export default function TicketingTopbar({
             <img
               src={userAvatarUrl}
               alt={resolvedUserName}
-              className="h-10 w-10 rounded-2xl border border-slate-200 object-cover shadow-sm"
+              className="h-10 w-10 shrink-0 rounded-2xl border border-slate-200 object-cover shadow-sm"
             />
           ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 ring-1 ring-slate-200">
               <UserCircle className="h-6 w-6" />
             </div>
           )}
@@ -149,7 +151,7 @@ export default function TicketingTopbar({
           <button
             type="button"
             onClick={onLogout}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
             title={t("topbar.logout")}
             aria-label={t(
               "navigation.accessibility.logout",
