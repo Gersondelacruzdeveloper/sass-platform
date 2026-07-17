@@ -26,6 +26,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type ProductStatus = "draft" | "active" | "inactive" | "archived" | string;
 
@@ -129,12 +130,7 @@ const blankForm: ExcursionFormState = {
   requires_pickup_location: true,
 };
 
-const statusOptions = [
-  { value: "draft", label: "Draft" },
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "archived", label: "Archived" },
-];
+const statusOptions = ["draft", "active", "inactive", "archived"] as const;
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -189,17 +185,22 @@ function formatMoney(value?: string | number | null, symbol = "US$") {
   })}`;
 }
 
-function formatMinutes(value?: string | number | null) {
+function formatMinutes(
+  value: string | number | null | undefined,
+  t: (key: string) => string
+) {
   const minutes = Number(value || 0);
 
   if (!minutes) return "—";
 
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `${minutes} ${t("excursions.units.minutes")}`;
 
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
 
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  return rest
+    ? `${hours}${t("excursions.units.hoursShort")} ${rest}${t("excursions.units.minutesShort")}`
+    : `${hours}${t("excursions.units.hoursShort")}`;
 }
 
 function slugify(value: string) {
@@ -212,12 +213,21 @@ function slugify(value: string) {
     .slice(0, 70);
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(
+  value: string | null | undefined,
+  t: (key: string) => string
+) {
+  const key = String(value || "unknown").toLowerCase();
 
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  if (["draft", "active", "inactive", "archived"].includes(key)) {
+    return t(`excursions.status.${key}`);
+  }
+
+  return value
+    ? String(value)
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+    : t("excursions.status.unknown");
 }
 
 function getStatusClasses(product: ExperienceProduct) {
@@ -327,6 +337,7 @@ function getProductPublicUrl(organisationSlug: string, product: ExperienceProduc
 }
 
 export default function TicketingExcursionsPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -378,7 +389,7 @@ export default function TicketingExcursionsPage() {
       setCategories(normalizeList<Category>(categoriesResponse.data));
     } catch (err: any) {
       console.error("Could not load excursions:", err);
-      setError(getErrorMessage(err, "Could not load excursions."));
+      setError(getErrorMessage(err, t("excursions.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -510,7 +521,7 @@ export default function TicketingExcursionsPage() {
 
   async function saveExcursion() {
     if (!form.name.trim()) {
-      setError("Excursion name is required.");
+      setError(t("excursions.errors.nameRequired"));
       return;
     }
 
@@ -543,10 +554,10 @@ export default function TicketingExcursionsPage() {
 
       setShowForm(false);
       setEditingExcursion(null);
-      setSavedMessage(editingExcursion ? "Excursion updated." : "Excursion created.");
+      setSavedMessage(editingExcursion ? t("excursions.messages.updated") : t("excursions.messages.created"));
     } catch (err: any) {
       console.error("Could not save excursion:", err);
-      setError(getErrorMessage(err, "Could not save excursion."));
+      setError(getErrorMessage(err, t("excursions.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -580,12 +591,12 @@ export default function TicketingExcursionsPage() {
 
       setSavedMessage(
         updatedProduct.public_enabled
-          ? "Excursion is now public."
-          : "Excursion is now hidden."
+          ? t("excursions.messages.nowPublic")
+          : t("excursions.messages.nowHidden")
       );
     } catch (err: any) {
       console.error("Could not update excursion:", err);
-      setError(getErrorMessage(err, "Could not update excursion."));
+      setError(getErrorMessage(err, t("excursions.errors.update")));
     } finally {
       setSaving(false);
     }
@@ -594,20 +605,20 @@ export default function TicketingExcursionsPage() {
   async function copyPublicLink(product: ExperienceProduct) {
     try {
       await navigator.clipboard.writeText(getProductPublicUrl(organisationSlug, product));
-      setSavedMessage("Public excursion link copied.");
+      setSavedMessage(t("excursions.messages.linkCopied"));
     } catch {
-      setError("Could not copy public link.");
+      setError(t("excursions.errors.copyLink"));
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Excursions"
-        subtitle="Manage excursions such as Saona, Catalina, buggies, party boats and tours."
+        title={t("excursions.stats.excursions")}
+        subtitle={t("excursions.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading excursions...
+          {t("excursions.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -615,45 +626,45 @@ export default function TicketingExcursionsPage() {
 
   return (
     <TicketingPageShell
-      title="Excursions"
-      subtitle="Manage excursions such as Saona, Catalina, buggies, party boats and tours."
+      title={t("excursions.stats.excursions")}
+      subtitle={t("excursions.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <StatCard
-            title="Excursions"
+            title={t("excursions.stats.excursions")}
             value={String(stats.total)}
-            helper="Tours and experiences"
+            helper={t("excursions.stats.excursionsHelper")}
             icon={<MapPin className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Active"
+            title={t("excursions.stats.active")}
             value={String(stats.active)}
-            helper="Available to sell"
+            helper={t("excursions.stats.activeHelper")}
             icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Public"
+            title={t("excursions.stats.public")}
             value={String(stats.publicProducts)}
-            helper="Visible on public site"
+            helper={t("excursions.stats.publicHelper")}
             icon={<ExternalLink className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Pickup"
+            title={t("excursions.stats.pickup")}
             value={String(stats.pickupRequired)}
-            helper="Hotel pickup enabled"
+            helper={t("excursions.stats.pickupHelper")}
             icon={<Users className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Capacity"
+            title={t("excursions.stats.capacity")}
             value={String(stats.totalCapacity)}
-            helper="Combined capacity"
+            helper={t("excursions.stats.capacityHelper")}
             icon={<Ticket className="h-6 w-6 text-purple-600" />}
           />
           <StatCard
-            title="Average price"
+            title={t("excursions.stats.averagePrice")}
             value={formatMoney(stats.averagePrice)}
-            helper="Base price average"
+            helper={t("excursions.stats.averagePriceHelper")}
             icon={<DollarSign className="h-6 w-6 text-emerald-600" />}
           />
         </section>
@@ -676,10 +687,10 @@ export default function TicketingExcursionsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Excursion products
+                {t("excursions.list.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Create and manage Saona, Catalina, buggies, party boats and guided tours.
+                {t("excursions.list.description")}
               </p>
             </div>
 
@@ -690,7 +701,7 @@ export default function TicketingExcursionsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("excursions.actions.refresh")}
               </button>
 
               <button
@@ -699,7 +710,7 @@ export default function TicketingExcursionsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
               >
                 <Plus className="h-4 w-4" />
-                New excursion
+                {t("excursions.actions.newExcursion")}
               </button>
             </div>
           </div>
@@ -710,7 +721,7 @@ export default function TicketingExcursionsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search Saona, Catalina, buggies, party boats..."
+                placeholder={t("excursions.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -720,10 +731,10 @@ export default function TicketingExcursionsPage() {
               onChange={(event) => setStatusFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All statuses</option>
+              <option value="">{t("excursions.filters.allStatuses")}</option>
               {statusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
+                <option key={status} value={status}>
+                  {t(`excursions.status.${status}`)}
                 </option>
               ))}
             </select>
@@ -733,9 +744,9 @@ export default function TicketingExcursionsPage() {
               onChange={(event) => setPublicFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All visibility</option>
-              <option value="public">Public</option>
-              <option value="hidden">Hidden</option>
+              <option value="">{t("excursions.filters.allVisibility")}</option>
+              <option value="public">{t("excursions.visibility.public")}</option>
+              <option value="hidden">{t("excursions.visibility.hidden")}</option>
             </select>
 
             <select
@@ -743,29 +754,29 @@ export default function TicketingExcursionsPage() {
               onChange={(event) => setPickupFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All pickup</option>
-              <option value="pickup">Pickup enabled</option>
-              <option value="no_pickup">No pickup</option>
+              <option value="">{t("excursions.filters.allPickup")}</option>
+              <option value="pickup">{t("excursions.pickup.enabled")}</option>
+              <option value="no_pickup">{t("excursions.pickup.none")}</option>
             </select>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredExcursions.length === 0 ? (
-              <EmptyState text="No excursions found." />
+              <EmptyState text={t("excursions.empty.noExcursions")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Excursion</Th>
-                      <Th>Location</Th>
-                      <Th>Price</Th>
-                      <Th>Duration</Th>
-                      <Th>Capacity</Th>
-                      <Th>Pickup</Th>
-                      <Th>Status</Th>
-                      <Th>Public</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("excursions.table.excursion")}</Th>
+                      <Th>{t("excursions.table.location")}</Th>
+                      <Th>{t("excursions.table.price")}</Th>
+                      <Th>{t("excursions.table.duration")}</Th>
+                      <Th>{t("excursions.table.capacity")}</Th>
+                      <Th>{t("excursions.table.pickup")}</Th>
+                      <Th>{t("excursions.table.status")}</Th>
+                      <Th>{t("excursions.table.public")}</Th>
+                      <Th>{t("excursions.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -789,10 +800,10 @@ export default function TicketingExcursionsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {product.location_name || "Location not set"}
+                              {product.location_name || t("excursions.fallbacks.locationNotSet")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {product.category_detail?.name || "Excursion"}
+                              {product.category_detail?.name || t("excursions.fallbacks.excursion")}
                             </p>
                           </div>
                         </Td>
@@ -803,14 +814,14 @@ export default function TicketingExcursionsPage() {
                               {formatMoney(product.base_price)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Deposit: {formatMoney(product.deposit_amount)}
+                              {t("excursions.labels.deposit")}: {formatMoney(product.deposit_amount)}
                             </p>
                           </div>
                         </Td>
 
                         <Td>
                           <p className="font-black text-slate-950">
-                            {formatMinutes(product.duration_minutes)}
+                            {formatMinutes(product.duration_minutes, t)}
                           </p>
                         </Td>
 
@@ -830,8 +841,8 @@ export default function TicketingExcursionsPage() {
                             ].join(" ")}
                           >
                             {product.supports_pickup || product.requires_pickup_location
-                              ? "Enabled"
-                              : "No pickup"}
+                              ? t("excursions.pickup.enabledShort")
+                              : t("excursions.pickup.none")}
                           </span>
                         </Td>
 
@@ -842,7 +853,7 @@ export default function TicketingExcursionsPage() {
                               getStatusClasses(product),
                             ].join(" ")}
                           >
-                            {statusLabel(product.status)}
+                            {statusLabel(product.status, t)}
                           </span>
                         </Td>
 
@@ -863,7 +874,9 @@ export default function TicketingExcursionsPage() {
                             ) : (
                               <ToggleLeft className="h-4 w-4" />
                             )}
-                            {product.public_enabled ? "Public" : "Hidden"}
+                            {product.public_enabled
+                              ? t("excursions.visibility.public")
+                              : t("excursions.visibility.hidden")}
                           </button>
                         </Td>
 
@@ -875,7 +888,7 @@ export default function TicketingExcursionsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Eye className="h-4 w-4" />
-                              View
+                              {t("excursions.actions.view")}
                             </button>
 
                             <button
@@ -884,7 +897,7 @@ export default function TicketingExcursionsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Edit3 className="h-4 w-4" />
-                              Edit
+                              {t("excursions.actions.edit")}
                             </button>
 
                             <button
@@ -893,7 +906,7 @@ export default function TicketingExcursionsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Copy className="h-4 w-4" />
-                              Link
+                              {t("excursions.actions.link")}
                             </button>
                           </div>
                         </Td>
@@ -957,19 +970,21 @@ function ExcursionFormModal({
   ) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              {editingExcursion ? "Edit excursion" : "New excursion"}
+              {editingExcursion ? t("excursions.form.editEyebrow") : t("excursions.form.newEyebrow")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              {form.name || "Excursion product"}
+              {form.name || t("excursions.form.defaultTitle")}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
-              Create a tour such as Saona, Catalina, buggies, party boats or private excursions.
+              {t("excursions.form.description")}
             </p>
           </div>
 
@@ -985,36 +1000,36 @@ function ExcursionFormModal({
         <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">
           <div className="grid gap-5 xl:grid-cols-2">
             <Panel
-              title="Basic information"
-              description="Name, category, public description and selling status."
+              title={t("excursions.form.basic.title")}
+              description={t("excursions.form.basic.description")}
               icon={<MapPin className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
-                  label="Excursion name"
+                  label={t("excursions.form.fields.name")}
                   value={form.name}
                   onChange={(value) => onChange("name", value)}
-                  placeholder="Saona Island Full Day"
+                  placeholder={t("excursions.placeholders.name")}
                   required
                 />
 
                 <Input
-                  label="Slug"
+                  label={t("excursions.form.fields.slug")}
                   value={form.slug}
                   onChange={(value) => onChange("slug", slugify(value))}
-                  placeholder="saona-island-full-day"
+                  placeholder={t("excursions.placeholders.slug")}
                 />
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Category
+                    {t("excursions.form.fields.category")}
                   </span>
                   <select
                     value={form.category}
                     onChange={(event) => onChange("category", event.target.value)}
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                   >
-                    <option value="">No category</option>
+                    <option value="">{t("excursions.form.noCategory")}</option>
                     {categories.map((category) => (
                       <option key={category.id} value={String(category.id)}>
                         {category.name}
@@ -1025,7 +1040,7 @@ function ExcursionFormModal({
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Status
+                    {t("excursions.form.fields.status")}
                   </span>
                   <select
                     value={form.status}
@@ -1033,8 +1048,8 @@ function ExcursionFormModal({
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                   >
                     {statusOptions.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
+                      <option key={status} value={status}>
+                        {t(`excursions.status.${status}`)}
                       </option>
                     ))}
                   </select>
@@ -1042,42 +1057,42 @@ function ExcursionFormModal({
               </div>
 
               <Textarea
-                label="Short description"
+                label={t("excursions.form.fields.shortDescription")}
                 value={form.short_description}
                 onChange={(value) => onChange("short_description", value)}
-                placeholder="Full-day island excursion with pickup, lunch and beach time."
+                placeholder={t("excursions.placeholders.shortDescription")}
               />
 
               <Textarea
-                label="Full description"
+                label={t("excursions.form.fields.fullDescription")}
                 value={form.description}
                 onChange={(value) => onChange("description", value)}
-                placeholder="Describe the experience, schedule, requirements, food, drinks and important notes..."
+                placeholder={t("excursions.placeholders.fullDescription")}
               />
             </Panel>
 
             <Panel
-              title="Pricing, capacity and pickup"
-              description="Price, deposit, duration, location and pickup rules."
+              title={t("excursions.form.pricing.title")}
+              description={t("excursions.form.pricing.description")}
               icon={<DollarSign className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
-                  label="Location name"
+                  label={t("excursions.form.fields.locationName")}
                   value={form.location_name}
                   onChange={(value) => onChange("location_name", value)}
-                  placeholder="Saona Island"
+                  placeholder={t("excursions.placeholders.locationName")}
                 />
 
                 <Input
-                  label="Meeting point"
+                  label={t("excursions.form.fields.meetingPoint")}
                   value={form.meeting_point}
                   onChange={(value) => onChange("meeting_point", value)}
-                  placeholder="Hotel lobby / pickup point"
+                  placeholder={t("excursions.placeholders.meetingPoint")}
                 />
 
                 <Input
-                  label="Base price"
+                  label={t("excursions.form.fields.basePrice")}
                   type="number"
                   value={form.base_price}
                   onChange={(value) => onChange("base_price", value)}
@@ -1085,7 +1100,7 @@ function ExcursionFormModal({
                 />
 
                 <Input
-                  label="Deposit amount"
+                  label={t("excursions.form.fields.depositAmount")}
                   type="number"
                   value={form.deposit_amount}
                   onChange={(value) => onChange("deposit_amount", value)}
@@ -1093,7 +1108,7 @@ function ExcursionFormModal({
                 />
 
                 <Input
-                  label="Deposit percentage"
+                  label={t("excursions.form.fields.depositPercentage")}
                   type="number"
                   value={form.deposit_percentage}
                   onChange={(value) => onChange("deposit_percentage", value)}
@@ -1101,7 +1116,7 @@ function ExcursionFormModal({
                 />
 
                 <Input
-                  label="Max capacity"
+                  label={t("excursions.form.fields.maxCapacity")}
                   type="number"
                   value={form.max_capacity}
                   onChange={(value) => onChange("max_capacity", value)}
@@ -1109,7 +1124,7 @@ function ExcursionFormModal({
                 />
 
                 <Input
-                  label="Duration minutes"
+                  label={t("excursions.form.fields.durationMinutes")}
                   type="number"
                   value={form.duration_minutes}
                   onChange={(value) => onChange("duration_minutes", value)}
@@ -1119,43 +1134,43 @@ function ExcursionFormModal({
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 <Toggle
-                  label="Active"
-                  description="Can be used internally."
+                  label={t("excursions.form.toggles.active")}
+                  description={t("excursions.form.toggles.activeDescription")}
                   checked={form.is_active}
                   onChange={(value) => onChange("is_active", value)}
                 />
 
                 <Toggle
-                  label="Public"
-                  description="Show on the public website."
+                  label={t("excursions.form.toggles.public")}
+                  description={t("excursions.form.toggles.publicDescription")}
                   checked={form.public_enabled}
                   onChange={(value) => onChange("public_enabled", value)}
                 />
 
                 <Toggle
-                  label="Public bookings"
-                  description="Allow customers to book this excursion."
+                  label={t("excursions.form.toggles.publicBookings")}
+                  description={t("excursions.form.toggles.publicBookingsDescription")}
                   checked={form.allow_public_bookings}
                   onChange={(value) => onChange("allow_public_bookings", value)}
                 />
 
                 <Toggle
-                  label="Seller enabled"
-                  description="Allow sellers to sell this excursion."
+                  label={t("excursions.form.toggles.sellerEnabled")}
+                  description={t("excursions.form.toggles.sellerEnabledDescription")}
                   checked={form.seller_enabled}
                   onChange={(value) => onChange("seller_enabled", value)}
                 />
 
                 <Toggle
-                  label="Supports pickup"
-                  description="Use pickup schedules for this excursion."
+                  label={t("excursions.form.toggles.supportsPickup")}
+                  description={t("excursions.form.toggles.supportsPickupDescription")}
                   checked={form.supports_pickup}
                   onChange={(value) => onChange("supports_pickup", value)}
                 />
 
                 <Toggle
-                  label="Requires pickup location"
-                  description="Customer must select hotel/pickup location."
+                  label={t("excursions.form.toggles.requiresPickup")}
+                  description={t("excursions.form.toggles.requiresPickupDescription")}
                   checked={form.requires_pickup_location}
                   onChange={(value) => onChange("requires_pickup_location", value)}
                 />
@@ -1164,30 +1179,30 @@ function ExcursionFormModal({
           </div>
 
           <Panel
-            title="Itinerary, includes and excludes"
-            description="Operational details shown to customers and sellers."
+            title={t("excursions.form.content.title")}
+            description={t("excursions.form.content.description")}
             icon={<Ticket className="h-5 w-5" />}
           >
             <div className="grid gap-4 lg:grid-cols-3">
               <Textarea
-                label="Itinerary"
+                label={t("excursions.form.fields.itinerary")}
                 value={form.itinerary}
                 onChange={(value) => onChange("itinerary", value)}
-                placeholder="8:00 AM pickup&#10;10:00 AM boat departure&#10;12:00 PM lunch..."
+                placeholder={t("excursions.placeholders.itinerary")}
               />
 
               <Textarea
-                label="Includes"
+                label={t("excursions.form.fields.includes")}
                 value={form.includes}
                 onChange={(value) => onChange("includes", value)}
-                placeholder="Hotel pickup&#10;Lunch&#10;Open bar&#10;Guide"
+                placeholder={t("excursions.placeholders.includes")}
               />
 
               <Textarea
-                label="Excludes"
+                label={t("excursions.form.fields.excludes")}
                 value={form.excludes}
                 onChange={(value) => onChange("excludes", value)}
-                placeholder="Photos&#10;Tips&#10;Premium drinks"
+                placeholder={t("excursions.placeholders.excludes")}
               />
             </div>
           </Panel>
@@ -1204,7 +1219,7 @@ function ExcursionFormModal({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              {editingExcursion ? "Save excursion" : "Create excursion"}
+              {editingExcursion ? t("excursions.actions.saveExcursion") : t("excursions.actions.createExcursion")}
             </button>
           </div>
         </div>
@@ -1230,6 +1245,8 @@ function ExcursionDetailModal({
   onCopyLink: () => void;
   onTogglePublic: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -1238,13 +1255,13 @@ function ExcursionDetailModal({
             <ExcursionImage product={product} large />
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-                Excursion detail
+                {t("excursions.detail.eyebrow")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
                 {product.name}
               </h2>
               <p className="mt-1 text-sm font-bold text-slate-500">
-                {product.location_name || product.category_detail?.name || "Excursion"}
+                {product.location_name || product.category_detail?.name || t("excursions.fallbacks.excursion")}
               </p>
             </div>
           </div>
@@ -1266,7 +1283,7 @@ function ExcursionDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"
             >
               <Edit3 className="h-4 w-4" />
-              Edit
+              {t("excursions.actions.edit")}
             </button>
 
             <button
@@ -1275,7 +1292,7 @@ function ExcursionDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <Copy className="h-4 w-4" />
-              Copy public link
+              {t("excursions.actions.copyPublicLink")}
             </button>
 
             <Link
@@ -1284,7 +1301,7 @@ function ExcursionDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <ExternalLink className="h-4 w-4" />
-              Open public page
+              {t("excursions.actions.openPublicPage")}
             </Link>
 
             <button
@@ -1301,68 +1318,68 @@ function ExcursionDetailModal({
               ) : (
                 <ToggleRight className="h-4 w-4" />
               )}
-              {product.public_enabled ? "Hide public" : "Make public"}
+              {product.public_enabled ? t("excursions.actions.hidePublic") : t("excursions.actions.makePublic")}
             </button>
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-4">
             <InfoCard
               icon={<DollarSign className="h-5 w-5" />}
-              label="Price"
+              label={t("excursions.detail.price")}
               value={formatMoney(product.base_price)}
-              helper={`Deposit: ${formatMoney(product.deposit_amount)}`}
+              helper={`${t("excursions.labels.deposit")}: ${formatMoney(product.deposit_amount)}`}
             />
             <InfoCard
               icon={<Clock3 className="h-5 w-5" />}
-              label="Duration"
-              value={formatMinutes(product.duration_minutes)}
-              helper="Estimated tour time"
+              label={t("excursions.detail.duration")}
+              value={formatMinutes(product.duration_minutes, t)}
+              helper={t("excursions.detail.durationHelper")}
             />
             <InfoCard
               icon={<Users className="h-5 w-5" />}
-              label="Capacity"
+              label={t("excursions.detail.capacity")}
               value={String(product.max_capacity || "—")}
-              helper="Maximum guests"
+              helper={t("excursions.detail.capacityHelper")}
             />
             <InfoCard
               icon={<MapPin className="h-5 w-5" />}
-              label="Pickup"
+              label={t("excursions.detail.pickup")}
               value={
                 product.supports_pickup || product.requires_pickup_location
-                  ? "Enabled"
-                  : "No pickup"
+                  ? t("excursions.pickup.enabledShort")
+                  : t("excursions.pickup.none")
               }
-              helper={product.requires_pickup_location ? "Hotel required" : "Optional"}
+              helper={product.requires_pickup_location ? t("excursions.pickup.hotelRequired") : t("excursions.pickup.optional")}
             />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Description
+              {t("excursions.detail.descriptionTitle")}
             </h3>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
               {product.description ||
                 product.short_description ||
-                "No description added yet."}
+                t("excursions.fallbacks.noDescription")}
             </p>
           </section>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-3">
-            <DetailTextCard title="Itinerary" value={product.itinerary} />
-            <DetailTextCard title="Includes" value={product.includes} />
-            <DetailTextCard title="Excludes" value={product.excludes} />
+            <DetailTextCard title={t("excursions.form.fields.itinerary")} value={product.itinerary} emptyText={t("excursions.fallbacks.notAdded")} />
+            <DetailTextCard title={t("excursions.form.fields.includes")} value={product.includes} emptyText={t("excursions.fallbacks.notAdded")} />
+            <DetailTextCard title={t("excursions.form.fields.excludes")} value={product.excludes} emptyText={t("excursions.fallbacks.notAdded")} />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Location and public access
+              {t("excursions.detail.locationAccessTitle")}
             </h3>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <InfoLine label="Location" value={product.location_name || "—"} />
-              <InfoLine label="Meeting point" value={product.meeting_point || "—"} />
-              <InfoLine label="Category" value={product.category_detail?.name || "—"} />
-              <InfoLine label="Public URL" value={getProductPublicUrl(organisationSlug, product)} />
+              <InfoLine label={t("excursions.table.location")} value={product.location_name || "—"} />
+              <InfoLine label={t("excursions.form.fields.meetingPoint")} value={product.meeting_point || "—"} />
+              <InfoLine label={t("excursions.form.fields.category")} value={product.category_detail?.name || "—"} />
+              <InfoLine label={t("excursions.detail.publicUrl")} value={getProductPublicUrl(organisationSlug, product)} />
             </div>
           </section>
         </div>
@@ -1495,9 +1512,11 @@ function InfoLine({ label, value }: { label: string; value?: string | null }) {
 function DetailTextCard({
   title,
   value,
+  emptyText,
 }: {
   title: string;
   value?: string | null;
+  emptyText: string;
 }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -1505,7 +1524,7 @@ function DetailTextCard({
         {title}
       </h3>
       <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-slate-700">
-        {value || "Not added yet."}
+        {value || emptyText}
       </p>
     </div>
   );

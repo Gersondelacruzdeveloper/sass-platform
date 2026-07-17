@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import api from "../../../api/axios";
 
 type ProductType =
@@ -108,15 +109,7 @@ const emptyBulkForm: BulkForm = {
   note: "",
 };
 
-const weekdayOptions = [
-  { value: "0", label: "Mon" },
-  { value: "1", label: "Tue" },
-  { value: "2", label: "Wed" },
-  { value: "3", label: "Thu" },
-  { value: "4", label: "Fri" },
-  { value: "5", label: "Sat" },
-  { value: "6", label: "Sun" },
-];
+const weekdayOptions = ["0", "1", "2", "3", "4", "5", "6"];
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -156,36 +149,53 @@ function getErrorMessage(err: any, fallback: string) {
   return fallback;
 }
 
-function productTypeLabel(value: ProductType) {
-  if (value === "excursion") return "Excursion";
-  if (value === "transfer") return "Transfer";
-  if (value === "ticket") return "Ticket";
-  if (value === "event") return "Event";
-  if (value === "nightlife") return "Nightlife";
-  return "Custom";
+function productTypeLabel(
+  value: ProductType,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+) {
+  return t(`availability.productTypes.${value}`);
 }
 
-function formatMoney(value?: string | number | null) {
-  if (value === null || value === undefined || value === "") return "Default";
+function formatMoney(
+  value: string | number | null | undefined,
+  language: "en" | "es",
+  defaultLabel: string,
+) {
+  if (value === null || value === undefined || value === "") {
+    return defaultLabel;
+  }
 
   const number = Number(value);
 
   if (Number.isNaN(number)) return String(value);
 
-  return `US$ ${number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  ).format(number);
 }
 
-function getDateLabel(value: string) {
-  if (!value) return "No date";
+function getDateLabel(
+  value: string,
+  language: "en" | "es",
+  noDateLabel: string,
+) {
+  if (!value) return noDateLabel;
 
   const date = new Date(`${value}T00:00:00`);
 
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString(language === "es" ? "es-DO" : "en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -245,6 +255,7 @@ function toNullableDecimal(value: string) {
 }
 
 export default function TicketingAvailabilityPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -297,7 +308,7 @@ export default function TicketingAvailabilityPage() {
       setError(
         getErrorMessage(
           err,
-          "No se pudo cargar la disponibilidad de productos."
+          t("availability.errors.load")
         )
       );
     } finally {
@@ -398,12 +409,12 @@ export default function TicketingAvailabilityPage() {
 
   async function saveAvailability() {
     if (!form.product_id) {
-      setError("Select a product.");
+      setError(t("availability.errors.selectProduct"));
       return;
     }
 
     if (!form.date) {
-      setError("Select an available date.");
+      setError(t("availability.errors.selectDate"));
       return;
     }
 
@@ -431,13 +442,13 @@ export default function TicketingAvailabilityPage() {
           params: requestParams,
         });
 
-        setSavedMessage("Availability date updated.");
+        setSavedMessage(t("availability.messages.updated"));
       } else {
         await api.post("/ticketing/availability/", payload, {
           params: requestParams,
         });
 
-        setSavedMessage("Availability date created.");
+        setSavedMessage(t("availability.messages.created"));
       }
 
       resetForm();
@@ -445,7 +456,7 @@ export default function TicketingAvailabilityPage() {
     } catch (err: any) {
       console.error("Could not save availability:", err);
 
-      setError(getErrorMessage(err, "Could not save availability date."));
+      setError(getErrorMessage(err, t("availability.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -453,27 +464,27 @@ export default function TicketingAvailabilityPage() {
 
   async function saveBulkAvailability() {
     if (!bulkForm.product_id) {
-      setError("Select a product for bulk availability.");
+      setError(t("availability.errors.selectBulkProduct"));
       return;
     }
 
     if (!bulkForm.start_date || !bulkForm.end_date) {
-      setError("Select a start date and end date.");
+      setError(t("availability.errors.selectDateRange"));
       return;
     }
 
     if (!bulkForm.weekdays.length) {
-      setError("Select at least one weekday.");
+      setError(t("availability.errors.selectWeekday"));
       return;
     }
 
     if (!bulkDates.length) {
-      setError("No dates match the selected range and weekdays.");
+      setError(t("availability.errors.noMatchingDates"));
       return;
     }
 
     const confirmed = window.confirm(
-      `Create or update ${bulkDates.length} availability dates?`
+      t("availability.confirm.bulkSave", { count: bulkDates.length })
     );
 
     if (!confirmed) return;
@@ -542,13 +553,13 @@ export default function TicketingAvailabilityPage() {
         }
       }
 
-      setSavedMessage(`${bulkDates.length} availability dates saved.`);
+      setSavedMessage(t("availability.messages.bulkSaved", { count: bulkDates.length }));
       setBulkForm(emptyBulkForm);
       await loadData();
     } catch (err: any) {
       console.error("Could not save bulk availability:", err);
 
-      setError(getErrorMessage(err, "Could not save bulk availability."));
+      setError(getErrorMessage(err, t("availability.errors.bulkSave")));
     } finally {
       setBulkSaving(false);
     }
@@ -556,7 +567,7 @@ export default function TicketingAvailabilityPage() {
 
   async function deleteAvailability(item: ProductAvailability) {
     const confirmed = window.confirm(
-      `Delete availability for ${getDateLabel(item.date)}?`
+      t("availability.confirm.delete", { date: getDateLabel(item.date, language, t("availability.common.noDate")) })
     );
 
     if (!confirmed) return;
@@ -574,11 +585,11 @@ export default function TicketingAvailabilityPage() {
         current.filter((availabilityItem) => availabilityItem.id !== item.id)
       );
 
-      setSavedMessage("Availability date deleted.");
+      setSavedMessage(t("availability.messages.deleted"));
     } catch (err: any) {
       console.error("Could not delete availability:", err);
 
-      setError(getErrorMessage(err, "Could not delete availability date."));
+      setError(getErrorMessage(err, t("availability.errors.delete")));
     } finally {
       setDeletingId(null);
     }
@@ -610,10 +621,7 @@ export default function TicketingAvailabilityPage() {
             </h1>
 
             <p className="mt-1 max-w-4xl text-sm font-semibold leading-6 text-slate-500">
-              Optional advanced control. Use this when a product needs capacity
-              per date, sold-out dates, different price/deposit by date, events
-              without hotel pickup, or manual blocking of one date. Pickup Times
-              still controls the automatic hotel pickup hour.
+              {t("availability.header.description")}
             </p>
           </div>
         </div>
@@ -633,36 +641,33 @@ export default function TicketingAvailabilityPage() {
           Simple rule
         </p>
         <p className="mt-2 text-sm font-semibold leading-6 text-amber-900">
-          For normal excursions, you can use only <strong>Pickup Times</strong>.
-          Use this <strong>Availability</strong> page only when you need advanced
-          rules like capacity, sold-out dates, price changes, deposit changes or
-          blocking a date manually.
+          {t("availability.simpleRule.description")}
         </p>
       </section>
 
       <section className="grid gap-3 md:grid-cols-4">
         <StatCard
-          title="Products"
+          title={t("availability.stats.products")}
           value={String(activeProducts.length)}
-          helper="Active or draft"
+          helper={t("availability.stats.productsHelper")}
           icon={<Package className="h-6 w-6 text-amber-600" />}
         />
         <StatCard
-          title="Dates"
+          title={t("availability.stats.dates")}
           value={String(availability.length)}
-          helper="Availability records"
+          helper={t("availability.stats.datesHelper")}
           icon={<CalendarDays className="h-6 w-6 text-amber-600" />}
         />
         <StatCard
-          title="Available"
+          title={t("availability.stats.available")}
           value={String(availability.filter((item) => item.is_available).length)}
-          helper="Bookable dates"
+          helper={t("availability.stats.availableHelper")}
           icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
         />
         <StatCard
-          title="Closed / sold out"
+          title={t("availability.stats.closed")}
           value={String(availability.filter((item) => !item.is_available).length)}
-          helper="Blocked dates"
+          helper={t("availability.stats.closedHelper")}
           icon={<X className="h-6 w-6 text-red-600" />}
         />
       </section>
@@ -683,27 +688,27 @@ export default function TicketingAvailabilityPage() {
 
       <section className="grid gap-5 xl:grid-cols-2">
         <Panel
-          title={form.id ? "Edit one date" : "Create one date"}
-          description="Use this for one product/date. Mark it unavailable to block or sold out that date."
+          title={form.id ? t("availability.single.editTitle") : t("availability.single.createTitle")}
+          description={t("availability.single.description")}
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Select
-              label="Product"
+              label={t("availability.fields.product")}
               value={form.product_id}
               onChange={(value) =>
                 setForm((current) => ({ ...current, product_id: value }))
               }
               options={[
-                { value: "", label: "Select product" },
+                { value: "", label: t("availability.options.selectProduct") },
                 ...activeProducts.map((product) => ({
                   value: String(product.id),
-                  label: `${product.name} (${productTypeLabel(product.product_type)})`,
+                  label: `${product.name} (${productTypeLabel(product.product_type, t)})`,
                 })),
               ]}
             />
 
             <Input
-              label="Available date"
+              label={t("availability.fields.availableDate")}
               type="date"
               value={form.date}
               onChange={(value) =>
@@ -712,7 +717,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Capacity for this date"
+              label={t("availability.fields.dateCapacity")}
               type="number"
               value={form.available_capacity}
               onChange={(value) =>
@@ -725,7 +730,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Booked quantity"
+              label={t("availability.fields.bookedQuantity")}
               type="number"
               value={form.booked_quantity}
               onChange={(value) =>
@@ -737,17 +742,17 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Price override"
+              label={t("availability.fields.priceOverride")}
               type="number"
               value={form.price_override}
               onChange={(value) =>
                 setForm((current) => ({ ...current, price_override: value }))
               }
-              placeholder="Leave empty to use product price"
+              placeholder={t("availability.placeholders.productPrice")}
             />
 
             <Input
-              label="Deposit override"
+              label={t("availability.fields.depositOverride")}
               type="number"
               value={form.deposit_override}
               onChange={(value) =>
@@ -756,11 +761,11 @@ export default function TicketingAvailabilityPage() {
                   deposit_override: value,
                 }))
               }
-              placeholder="Leave empty to use product deposit"
+              placeholder={t("availability.placeholders.productDeposit")}
             />
 
             <Toggle
-              label="Available / bookable"
+              label={t("availability.fields.availableBookable")}
               checked={form.is_available}
               onChange={(value) =>
                 setForm((current) => ({ ...current, is_available: value }))
@@ -768,12 +773,12 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Textarea
-              label="Note"
+              label={t("availability.fields.note")}
               value={form.note}
               onChange={(value) =>
                 setForm((current) => ({ ...current, note: value }))
               }
-              placeholder="Example: Private event, sold out, holiday price..."
+              placeholder={t("availability.placeholders.noteExample")}
             />
           </div>
 
@@ -791,7 +796,7 @@ export default function TicketingAvailabilityPage() {
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              {form.id ? "Update Date" : "Create Date"}
+              {form.id ? t("availability.actions.updateDate") : t("availability.actions.createDate")}
             </button>
 
             {form.id && (
@@ -807,18 +812,18 @@ export default function TicketingAvailabilityPage() {
         </Panel>
 
         <Panel
-          title="Bulk create/update dates"
-          description="Create many available dates at once. Example: every Monday, Wednesday and Friday for the next month."
+          title={t("availability.bulk.title")}
+          description={t("availability.bulk.description")}
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Select
-              label="Product"
+              label={t("availability.fields.product")}
               value={bulkForm.product_id}
               onChange={(value) =>
                 setBulkForm((current) => ({ ...current, product_id: value }))
               }
               options={[
-                { value: "", label: "Select product" },
+                { value: "", label: t("availability.options.selectProduct") },
                 ...activeProducts.map((product) => ({
                   value: String(product.id),
                   label: product.name,
@@ -827,7 +832,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Capacity"
+              label={t("availability.fields.capacity")}
               type="number"
               value={bulkForm.available_capacity}
               onChange={(value) =>
@@ -839,7 +844,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Start date"
+              label={t("availability.fields.startDate")}
               type="date"
               value={bulkForm.start_date}
               onChange={(value) =>
@@ -848,7 +853,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="End date"
+              label={t("availability.fields.endDate")}
               type="date"
               value={bulkForm.end_date}
               onChange={(value) =>
@@ -857,7 +862,7 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Input
-              label="Price override"
+              label={t("availability.fields.priceOverride")}
               type="number"
               value={bulkForm.price_override}
               onChange={(value) =>
@@ -866,11 +871,11 @@ export default function TicketingAvailabilityPage() {
                   price_override: value,
                 }))
               }
-              placeholder="Optional"
+              placeholder={t("availability.placeholders.optional")}
             />
 
             <Input
-              label="Deposit override"
+              label={t("availability.fields.depositOverride")}
               type="number"
               value={bulkForm.deposit_override}
               onChange={(value) =>
@@ -879,26 +884,26 @@ export default function TicketingAvailabilityPage() {
                   deposit_override: value,
                 }))
               }
-              placeholder="Optional"
+              placeholder={t("availability.placeholders.optional")}
             />
           </div>
 
           <div className="mt-4">
-            <p className="text-sm font-bold text-slate-700">Weekdays</p>
+            <p className="text-sm font-bold text-slate-700">{t("availability.fields.weekdays")}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {weekdayOptions.map((day) => {
-                const checked = bulkForm.weekdays.includes(day.value);
+                const checked = bulkForm.weekdays.includes(day);
 
                 return (
                   <button
-                    key={day.value}
+                    key={day}
                     type="button"
                     onClick={() =>
                       setBulkForm((current) => ({
                         ...current,
                         weekdays: checked
-                          ? current.weekdays.filter((item) => item !== day.value)
-                          : [...current.weekdays, day.value],
+                          ? current.weekdays.filter((item) => item !== day)
+                          : [...current.weekdays, day],
                       }))
                     }
                     className={[
@@ -908,7 +913,7 @@ export default function TicketingAvailabilityPage() {
                         : "border border-slate-200 bg-white text-slate-600",
                     ].join(" ")}
                   >
-                    {day.label}
+                    {t(`availability.weekdays.${day}`)}
                   </button>
                 );
               })}
@@ -917,7 +922,7 @@ export default function TicketingAvailabilityPage() {
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Toggle
-              label="Available / bookable"
+              label={t("availability.fields.availableBookable")}
               checked={bulkForm.is_available}
               onChange={(value) =>
                 setBulkForm((current) => ({ ...current, is_available: value }))
@@ -925,17 +930,17 @@ export default function TicketingAvailabilityPage() {
             />
 
             <Textarea
-              label="Note"
+              label={t("availability.fields.note")}
               value={bulkForm.note}
               onChange={(value) =>
                 setBulkForm((current) => ({ ...current, note: value }))
               }
-              placeholder="Optional note for all dates"
+              placeholder={t("availability.placeholders.bulkNote")}
             />
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">
-            Dates to create/update:{" "}
+            {t("availability.bulk.datesCount")}{" "}
             <span className="font-black text-slate-950">{bulkDates.length}</span>
           </div>
 
@@ -956,8 +961,8 @@ export default function TicketingAvailabilityPage() {
       </section>
 
       <Panel
-        title="Availability records"
-        description="These records are optional advanced rules. The public product page uses them only when the product has records here."
+        title={t("availability.records.title")}
+        description={t("availability.records.description")}
       >
         <div className="grid gap-3 lg:grid-cols-[1fr_240px_190px]">
           <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
@@ -965,7 +970,7 @@ export default function TicketingAvailabilityPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search dates..."
+              placeholder={t("availability.filters.searchPlaceholder")}
               className="h-full flex-1 bg-transparent text-sm font-semibold outline-none"
             />
           </div>
@@ -975,7 +980,7 @@ export default function TicketingAvailabilityPage() {
             onChange={(event) => setProductFilter(event.target.value)}
             className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
           >
-            <option value="">All products</option>
+            <option value="">{t("availability.filters.allProducts")}</option>
             {activeProducts.map((product) => (
               <option key={product.id} value={String(product.id)}>
                 {product.name}
@@ -993,21 +998,21 @@ export default function TicketingAvailabilityPage() {
 
         <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
           {filteredAvailability.length === 0 ? (
-            <EmptyState text="No availability records found. This is okay. Normal products can still use Pickup Times only." />
+            <EmptyState text={t("availability.empty")} />
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    <Th>Product</Th>
-                    <Th>Date</Th>
-                    <Th>Capacity</Th>
-                    <Th>Booked</Th>
-                    <Th>Remaining</Th>
-                    <Th>Price</Th>
-                    <Th>Deposit</Th>
-                    <Th>Status</Th>
-                    <Th>Actions</Th>
+                    <Th>{t("availability.table.product")}</Th>
+                    <Th>{t("availability.table.date")}</Th>
+                    <Th>{t("availability.table.capacity")}</Th>
+                    <Th>{t("availability.table.booked")}</Th>
+                    <Th>{t("availability.table.remaining")}</Th>
+                    <Th>{t("availability.table.price")}</Th>
+                    <Th>{t("availability.table.deposit")}</Th>
+                    <Th>{t("availability.table.status")}</Th>
+                    <Th>{t("availability.table.actions")}</Th>
                   </tr>
                 </thead>
 
@@ -1030,7 +1035,7 @@ export default function TicketingAvailabilityPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {item.product_name || product?.name || `Product #${item.product}`}
+                              {item.product_name || product?.name || t("availability.table.productFallback", { id: item.product })}
                             </p>
                             {product && (
                               <button
@@ -1043,7 +1048,7 @@ export default function TicketingAvailabilityPage() {
                             )}
                           </div>
                         </Td>
-                        <Td>{getDateLabel(item.date)}</Td>
+                        <Td>{getDateLabel(item.date, language, t("availability.common.noDate"))}</Td>
                         <Td>{item.available_capacity}</Td>
                         <Td>{item.booked_quantity}</Td>
                         <Td>
@@ -1058,8 +1063,8 @@ export default function TicketingAvailabilityPage() {
                             {remaining}
                           </span>
                         </Td>
-                        <Td>{formatMoney(item.price_override)}</Td>
-                        <Td>{formatMoney(item.deposit_override)}</Td>
+                        <Td>{formatMoney(item.price_override, language, t("availability.common.default"))}</Td>
+                        <Td>{formatMoney(item.deposit_override, language, t("availability.common.default"))}</Td>
                         <Td>
                           <span
                             className={[
@@ -1069,7 +1074,7 @@ export default function TicketingAvailabilityPage() {
                                 : "bg-slate-100 text-slate-500",
                             ].join(" ")}
                           >
-                            {item.is_available ? "Available" : "Closed"}
+                            {item.is_available ? t("availability.status.available") : t("availability.status.closed")}
                           </span>
                         </Td>
                         <Td>
@@ -1249,13 +1254,15 @@ function RowActions({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="flex shrink-0 items-center gap-2">
       <button
         type="button"
         onClick={onEdit}
         className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
-        title="Edit"
+        title={t("availability.actions.edit")}
       >
         <Edit3 className="h-4 w-4" />
       </button>
@@ -1265,7 +1272,7 @@ function RowActions({
         onClick={onDelete}
         disabled={deleting}
         className="rounded-xl border border-red-200 bg-white p-2 text-red-600 transition hover:bg-red-50 disabled:opacity-60"
-        title="Delete"
+        title={t("availability.actions.delete")}
       >
         {deleting ? (
           <Loader2 className="h-4 w-4 animate-spin" />

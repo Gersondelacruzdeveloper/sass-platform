@@ -16,8 +16,10 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 export default function TicketingBillingLockedPage() {
+  const { t } = useTicketingAdminTranslation();
   const navigate = useNavigate();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
 
@@ -39,7 +41,7 @@ export default function TicketingBillingLockedPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.stripe_error ||
           err?.response?.data?.message ||
-          "Could not open the billing portal. Please try again or contact support."
+          t("billingLocked.errors.openPortal")
       );
     } finally {
       setOpeningPortal(false);
@@ -48,9 +50,10 @@ export default function TicketingBillingLockedPage() {
 
   function openWhatsAppSupport() {
     const message = encodeURIComponent(
-      `Hello, I need help reactivating my PCD Experiences subscription for organisation: ${
-        organisationSlug || "unknown"
-      }.`
+      t("billingLocked.support.whatsappMessage").replace(
+        "{organisation}",
+        organisationSlug || t("billingLocked.organisation.unknown")
+      )
     );
 
     window.open(`https://wa.me/18292380483?text=${message}`, "_blank");
@@ -65,17 +68,15 @@ export default function TicketingBillingLockedPage() {
           </div>
 
           <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-            Subscription Required
+            {t("billingLocked.header.eyebrow")}
           </p>
 
           <h1 className="mt-2 text-3xl font-black text-slate-950">
-            Your Ticketing workspace is paused
+            {t("billingLocked.header.title")}
           </h1>
 
           <p className="mt-4 max-w-xl text-base font-medium text-slate-600">
-            Your PCD Experiences access is temporarily locked because the
-            subscription needs attention. Your products, bookings, sellers,
-            pickup schedules, payments, and settings are still protected.
+            {t("billingLocked.header.description")}
           </p>
         </div>
 
@@ -84,12 +85,11 @@ export default function TicketingBillingLockedPage() {
             <ShieldCheck className="h-6 w-6 text-emerald-600" />
 
             <h3 className="mt-4 font-black text-slate-950">
-              Data Protected
+              {t("billingLocked.cards.dataProtected.title")}
             </h3>
 
             <p className="mt-2 text-sm font-medium text-slate-500">
-              Your bookings, sellers, products, commissions, and customer data
-              remain safely stored.
+              {t("billingLocked.cards.dataProtected.description")}
             </p>
           </div>
 
@@ -97,12 +97,11 @@ export default function TicketingBillingLockedPage() {
             <AlertTriangle className="h-6 w-6 text-amber-600" />
 
             <h3 className="mt-4 font-black text-slate-950">
-              Access Paused
+              {t("billingLocked.cards.accessPaused.title")}
             </h3>
 
             <p className="mt-2 text-sm font-medium text-slate-500">
-              The dashboard is locked until the billing issue is resolved or the
-              subscription is reactivated.
+              {t("billingLocked.cards.accessPaused.description")}
             </p>
           </div>
 
@@ -110,12 +109,11 @@ export default function TicketingBillingLockedPage() {
             <CreditCard className="h-6 w-6 text-blue-600" />
 
             <h3 className="mt-4 font-black text-slate-950">
-              Reactivate Easily
+              {t("billingLocked.cards.reactivate.title")}
             </h3>
 
             <p className="mt-2 text-sm font-medium text-slate-500">
-              Update your payment method or retry your payment from the secure
-              billing portal.
+              {t("billingLocked.cards.reactivate.description")}
             </p>
           </div>
         </div>
@@ -126,14 +124,14 @@ export default function TicketingBillingLockedPage() {
 
             <div>
               <h3 className="font-black text-amber-900">
-                What can you do now?
+                {t("billingLocked.nextSteps.title")}
               </h3>
 
               <ul className="mt-3 space-y-2 text-sm font-medium text-amber-800">
-                <li>• Update your card or payment method.</li>
-                <li>• Retry the failed subscription payment.</li>
-                <li>• Contact support if you believe this is a mistake.</li>
-                <li>• Return to login after your subscription is active.</li>
+                <li>• {t("billingLocked.nextSteps.updatePayment")}</li>
+                <li>• {t("billingLocked.nextSteps.retryPayment")}</li>
+                <li>• {t("billingLocked.nextSteps.contactSupport")}</li>
+                <li>• {t("billingLocked.nextSteps.returnToLogin")}</li>
               </ul>
             </div>
           </div>
@@ -145,11 +143,11 @@ export default function TicketingBillingLockedPage() {
 
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Organisation
+                {t("billingLocked.organisation.label")}
               </p>
 
               <p className="mt-1 break-all text-sm font-bold text-slate-700">
-                {organisationSlug || "Unknown organisation"}
+                {organisationSlug || t("billingLocked.organisation.unknown")}
               </p>
             </div>
           </div>
@@ -175,7 +173,9 @@ export default function TicketingBillingLockedPage() {
               <CreditCard className="h-4 w-4" />
             )}
 
-            {openingPortal ? "Opening..." : "Update Payment"}
+            {openingPortal
+              ? t("billingLocked.actions.opening")
+              : t("billingLocked.actions.updatePayment")}
           </button>
 
           <button
@@ -184,7 +184,7 @@ export default function TicketingBillingLockedPage() {
             className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <Headphones className="h-4 w-4" />
-            WhatsApp Support
+            {t("billingLocked.actions.whatsappSupport")}
           </button>
 
           <button
@@ -197,7 +197,7 @@ export default function TicketingBillingLockedPage() {
             className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <LogOut className="h-4 w-4" />
-            Back to Login
+            {t("billingLocked.actions.backToLogin")}
           </button>
         </div>
       </div>

@@ -23,6 +23,7 @@ import {
 import api from "../../../api/axios";
 import ticketingApi from "../api/ticketingApi";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type CommissionStatus = "pending" | "approved" | "paid" | "cancelled" | string;
 
@@ -60,13 +61,15 @@ type StatusOption = {
   label: string;
 };
 
-const statusOptions: StatusOption[] = [
-  { value: "", label: "All statuses" },
-  { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
-  { value: "paid", label: "Paid" },
-  { value: "cancelled", label: "Cancelled" },
-];
+function getStatusOptions(t: (key: string) => string): StatusOption[] {
+  return [
+    { value: "", label: t("commissions.status.all") },
+    { value: "pending", label: t("commissions.status.pending") },
+    { value: "approved", label: t("commissions.status.approved") },
+    { value: "paid", label: t("commissions.status.paid") },
+    { value: "cancelled", label: t("commissions.status.cancelled") },
+  ];
+}
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -140,8 +143,13 @@ function formatDateTime(value?: string | null) {
   });
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(value: string | null | undefined, t: (key: string) => string) {
+  if (!value) return t("commissions.status.unknown");
+
+  const knownStatusKey = `commissions.status.${String(value).toLowerCase()}`;
+  const translatedStatus = t(knownStatusKey);
+
+  if (translatedStatus !== knownStatusKey) return translatedStatus;
 
   return String(value)
     .replaceAll("_", " ")
@@ -180,18 +188,18 @@ function csvEscape(value: unknown) {
   return text;
 }
 
-function downloadCsv(rows: SellerCommission[]) {
+function downloadCsv(rows: SellerCommission[], t: (key: string) => string) {
   const headers = [
-    "ID",
-    "Booking Code",
-    "Seller",
-    "Amount",
-    "Rate Used",
-    "Status",
-    "Paid At",
-    "Paid By",
-    "Created At",
-    "Note",
+    t("commissions.csv.id"),
+    t("commissions.csv.bookingCode"),
+    t("commissions.csv.seller"),
+    t("commissions.csv.amount"),
+    t("commissions.csv.rateUsed"),
+    t("commissions.csv.status"),
+    t("commissions.csv.paidAt"),
+    t("commissions.csv.paidBy"),
+    t("commissions.csv.createdAt"),
+    t("commissions.csv.note"),
   ];
 
   const body = rows.map((commission) => [
@@ -223,6 +231,7 @@ function downloadCsv(rows: SellerCommission[]) {
 }
 
 export default function TicketingCommissionsPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -241,6 +250,8 @@ export default function TicketingCommissionsPage() {
   const [sellerFilter, setSellerFilter] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
+
+  const statusOptions = useMemo(() => getStatusOptions(t), [t]);
 
   const requestParams = useMemo(
     () => getRequestParams(organisationSlug),
@@ -263,7 +274,7 @@ export default function TicketingCommissionsPage() {
       setSellers(normalizeList<Seller>(sellersData));
     } catch (err: any) {
       console.error("Could not load commissions:", err);
-      setError(getErrorMessage(err, "Could not load commissions."));
+      setError(getErrorMessage(err, t("commissions.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -380,10 +391,10 @@ export default function TicketingCommissionsPage() {
         current?.id === commission.id ? updatedCommission : current
       );
 
-      setSavedMessage("Commission updated.");
+      setSavedMessage(t("commissions.messages.updated"));
     } catch (err: any) {
       console.error("Could not update commission:", err);
-      setError(getErrorMessage(err, "Could not update commission."));
+      setError(getErrorMessage(err, t("commissions.errors.update")));
     } finally {
       setSavingId(null);
     }
@@ -410,10 +421,10 @@ export default function TicketingCommissionsPage() {
         current?.id === commission.id ? updatedCommission : current
       );
 
-      setSavedMessage("Seller commission payout marked as paid.");
+      setSavedMessage(t("commissions.messages.markedPaid"));
     } catch (err: any) {
       console.error("Could not mark commission as paid:", err);
-      setError(getErrorMessage(err, "Could not mark commission as paid."));
+      setError(getErrorMessage(err, t("commissions.errors.markPaid")));
     } finally {
       setSavingId(null);
     }
@@ -430,11 +441,11 @@ export default function TicketingCommissionsPage() {
   if (loading) {
     return (
       <TicketingPageShell
-        title="Commissions"
-        subtitle="Owner view for seller commissions, payouts, and pending commission settlements."
+        title={t("commissions.page.title")}
+        subtitle={t("commissions.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading commissions...
+          {t("commissions.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -442,39 +453,39 @@ export default function TicketingCommissionsPage() {
 
   return (
     <TicketingPageShell
-      title="Commissions"
-      subtitle="Owner view for seller commissions, payouts, and pending commission settlements."
+      title={t("commissions.page.title")}
+      subtitle={t("commissions.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            title="Generated"
+            title={t("commissions.stats.generated")}
             value={formatMoney(stats.totalGenerated)}
-            helper={`${stats.totalCount} commission records`}
+            helper={`${stats.totalCount} ${t("commissions.stats.records")}`}
             icon={<Banknote className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Pending"
+            title={t("commissions.status.pending")}
             value={formatMoney(stats.pendingAmount)}
-            helper={`${stats.pendingCount} pending`}
+            helper={`${stats.pendingCount} ${t("commissions.stats.pending")}`}
             icon={<Clock3 className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Approved"
+            title={t("commissions.status.approved")}
             value={formatMoney(stats.approvedAmount)}
-            helper={`${stats.approvedCount} approved`}
+            helper={`${stats.approvedCount} ${t("commissions.stats.approved")}`}
             icon={<CheckCircle2 className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Paid"
+            title={t("commissions.status.paid")}
             value={formatMoney(stats.paidAmount)}
-            helper={`${stats.paidCount} paid`}
+            helper={`${stats.paidCount} ${t("commissions.stats.paid")}`}
             icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Cancelled"
+            title={t("commissions.status.cancelled")}
             value={formatMoney(stats.cancelledAmount)}
-            helper={`${stats.cancelledCount} cancelled`}
+            helper={`${stats.cancelledCount} ${t("commissions.stats.cancelled")}`}
             icon={<XCircle className="h-6 w-6 text-red-600" />}
           />
         </section>
@@ -497,21 +508,21 @@ export default function TicketingCommissionsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Seller commissions
+                {t("commissions.section.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Review seller commissions generated from seller bookings. Mark them as paid only after the company has actually settled the seller payout.
+                {t("commissions.section.description")}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => downloadCsv(filteredCommissions)}
+                onClick={() => downloadCsv(filteredCommissions, t)}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <Download className="h-4 w-4" />
-                Export CSV
+                {t("commissions.actions.exportCsv")}
               </button>
 
               <button
@@ -520,7 +531,7 @@ export default function TicketingCommissionsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("commissions.actions.refresh")}
               </button>
             </div>
           </div>
@@ -531,7 +542,7 @@ export default function TicketingCommissionsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search seller, booking code, note..."
+                placeholder={t("commissions.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -553,7 +564,7 @@ export default function TicketingCommissionsPage() {
               onChange={(event) => setSellerFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All sellers</option>
+              <option value="">{t("commissions.filters.allSellers")}</option>
               {sellers.map((seller) => (
                 <option key={seller.id} value={String(seller.id)}>
                   {seller.full_name}
@@ -581,25 +592,25 @@ export default function TicketingCommissionsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <Filter className="h-4 w-4" />
-              Reset
+              {t("commissions.actions.reset")}
             </button>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredCommissions.length === 0 ? (
-              <EmptyState text="No commissions found." />
+              <EmptyState text={t("commissions.empty")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Booking</Th>
-                      <Th>Seller</Th>
-                      <Th>Amount</Th>
-                      <Th>Rate</Th>
-                      <Th>Status</Th>
-                      <Th>Paid</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("commissions.table.booking")}</Th>
+                      <Th>{t("commissions.table.seller")}</Th>
+                      <Th>{t("commissions.table.amount")}</Th>
+                      <Th>{t("commissions.table.rate")}</Th>
+                      <Th>{t("commissions.table.status")}</Th>
+                      <Th>{t("commissions.table.paid")}</Th>
+                      <Th>{t("commissions.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -609,10 +620,10 @@ export default function TicketingCommissionsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {commission.booking_code || `Booking #${commission.booking}`}
+                              {commission.booking_code || `${t("commissions.labels.bookingNumber")} ${commission.booking}`}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-400">
-                              Created {formatDateTime(commission.created_at)}
+                              {t("commissions.labels.created")} {formatDateTime(commission.created_at)}
                             </p>
                           </div>
                         </Td>
@@ -620,10 +631,10 @@ export default function TicketingCommissionsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {commission.seller_name || `Seller #${commission.seller}`}
+                              {commission.seller_name || `${t("commissions.labels.sellerNumber")} ${commission.seller}`}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Seller ID: {commission.seller}
+                              {t("commissions.labels.sellerId")}: {commission.seller}
                             </p>
                           </div>
                         </Td>
@@ -664,7 +675,7 @@ export default function TicketingCommissionsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {commission.paid_at ? formatDateTime(commission.paid_at) : "Not paid"}
+                              {commission.paid_at ? formatDateTime(commission.paid_at) : t("commissions.labels.notPaid")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               {commission.paid_by_email || "—"}
@@ -680,7 +691,7 @@ export default function TicketingCommissionsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Eye className="h-4 w-4" />
-                              View
+                              {t("commissions.actions.view")}
                             </button>
 
                             {commission.status !== "paid" && (
@@ -695,7 +706,7 @@ export default function TicketingCommissionsPage() {
                                 ) : (
                                   <CheckCircle2 className="h-4 w-4" />
                                 )}
-                                Mark paid
+                                {t("commissions.actions.markPaid")}
                               </button>
                             )}
                           </div>
@@ -739,6 +750,8 @@ function CommissionDetailModal({
   ) => void;
   onMarkPaid: (commission: SellerCommission) => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+  const statusOptions = useMemo(() => getStatusOptions(t), [t]);
   const [note, setNote] = useState(commission.note || "");
 
   useEffect(() => {
@@ -751,13 +764,13 @@ function CommissionDetailModal({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              Commission detail
+              {t("commissions.modal.eyebrow")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              {commission.booking_code || `Booking #${commission.booking}`}
+              {commission.booking_code || `${t("commissions.labels.bookingNumber")} ${commission.booking}`}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
-              {commission.seller_name || `Seller #${commission.seller}`}
+              {commission.seller_name || `${t("commissions.labels.sellerNumber")} ${commission.seller}`}
             </p>
           </div>
 
@@ -774,40 +787,40 @@ function CommissionDetailModal({
           <div className="grid gap-4 lg:grid-cols-4">
             <InfoCard
               icon={<Banknote className="h-5 w-5" />}
-              label="Amount"
+              label={t("commissions.table.amount")}
               value={formatMoney(commission.amount)}
-              helper="Commission amount"
+              helper={t("commissions.modal.commissionAmount")}
             />
             <InfoCard
               icon={<UserRound className="h-5 w-5" />}
-              label="Seller"
-              value={commission.seller_name || `Seller #${commission.seller}`}
-              helper={`Seller ID: ${commission.seller}`}
+              label={t("commissions.table.seller")}
+              value={commission.seller_name || `${t("commissions.labels.sellerNumber")} ${commission.seller}`}
+              helper={`${t("commissions.labels.sellerId")}: ${commission.seller}`}
             />
             <InfoCard
               icon={<Ticket className="h-5 w-5" />}
-              label="Booking"
+              label={t("commissions.table.booking")}
               value={commission.booking_code || `#${commission.booking}`}
-              helper={`Booking ID: ${commission.booking}`}
+              helper={`${t("commissions.labels.bookingId")}: ${commission.booking}`}
             />
             <InfoCard
               icon={<CheckCircle2 className="h-5 w-5" />}
-              label="Status"
-              value={statusLabel(commission.status)}
-              helper={commission.paid_at ? `Paid ${formatDateTime(commission.paid_at)}` : "Not paid yet"}
+              label={t("commissions.table.status")}
+              value={statusLabel(commission.status, t)}
+              helper={commission.paid_at ? `${t("commissions.status.paid")} ${formatDateTime(commission.paid_at)}` : t("commissions.labels.notPaidYet")}
             />
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-2">
             <div className="rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Status
+                {t("commissions.table.status")}
               </h3>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className="text-sm font-bold text-slate-700">
-                    Commission status
+                    {t("commissions.modal.commissionStatus")}
                   </span>
                   <select
                     value={commission.status || ""}
@@ -829,7 +842,7 @@ function CommissionDetailModal({
 
                 <div>
                   <span className="text-sm font-bold text-slate-700">
-                    Paid by
+                    {t("commissions.labels.paidBy")}
                   </span>
                   <div className="mt-2 flex h-12 items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700">
                     {commission.paid_by_email || "—"}
@@ -849,34 +862,34 @@ function CommissionDetailModal({
                   ) : (
                     <CheckCircle2 className="h-4 w-4" />
                   )}
-                  Mark seller payout paid
+                  {t("commissions.actions.markSellerPayoutPaid")}
                 </button>
               )}
             </div>
 
             <div className="rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Details
+                {t("commissions.modal.details")}
               </h3>
 
               <div className="mt-3 space-y-2 text-sm">
-                <SummaryLine label="Amount" value={formatMoney(commission.amount)} />
-                <SummaryLine label="Rate used" value={formatPercent(commission.rate_used)} />
-                <SummaryLine label="Created" value={formatDateTime(commission.created_at)} />
-                <SummaryLine label="Paid at" value={formatDateTime(commission.paid_at)} />
+                <SummaryLine label={t("commissions.table.amount")} value={formatMoney(commission.amount)} />
+                <SummaryLine label={t("commissions.labels.rateUsed")} value={formatPercent(commission.rate_used)} />
+                <SummaryLine label={t("commissions.labels.created")} value={formatDateTime(commission.created_at)} />
+                <SummaryLine label={t("commissions.labels.paidAt")} value={formatDateTime(commission.paid_at)} />
               </div>
             </div>
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Internal note
+              {t("commissions.modal.internalNote")}
             </h3>
 
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Add a note for this commission..."
+              placeholder={t("commissions.modal.notePlaceholder")}
               className="mt-3 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-amber-400 focus:bg-white"
             />
 
@@ -891,7 +904,7 @@ function CommissionDetailModal({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              Save note
+              {t("commissions.actions.saveNote")}
             </button>
           </section>
         </div>

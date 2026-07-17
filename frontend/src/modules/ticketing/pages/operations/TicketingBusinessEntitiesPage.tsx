@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   CreatePayload,
@@ -79,7 +80,7 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -103,7 +104,7 @@ function getErrorMessage(error: unknown): string {
       response?.data?.message ||
       response?.data?.name?.[0] ||
       response?.data?.slug?.[0] ||
-      "Could not save the business entity."
+      fallback
     );
   }
 
@@ -111,16 +112,30 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not save the business entity.";
+  return fallback;
 }
 
-function entityTypeLabel(value?: string | null): string {
-  return String(value || "partner")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function entityTypeLabel(
+  value: string | null | undefined,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+): string {
+  const normalized = String(value || "partner");
+
+  return t(
+    `businessEntities.types.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  );
 }
 
 export default function TicketingBusinessEntitiesPage() {
+  const { t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -171,10 +186,10 @@ export default function TicketingBusinessEntitiesPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessEntities.errors.process")),
       });
     }
-  }, [search, selectedStatus, selectedType, slug]);
+  }, [search, selectedStatus, selectedType, slug, t]);
 
   useEffect(() => {
     void loadEntities();
@@ -280,7 +295,7 @@ export default function TicketingBusinessEntitiesPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessEntities.errors.process")),
       }));
     } finally {
       setSaving(false);
@@ -289,7 +304,9 @@ export default function TicketingBusinessEntitiesPage() {
 
   async function handleDelete(entity: TicketingBusinessEntity) {
     const confirmed = window.confirm(
-      `Delete ${entity.name}? This should only be done if it has no operational history.`,
+      t("businessEntities.confirm.delete", {
+        name: entity.name,
+      }),
     );
 
     if (!confirmed) return;
@@ -302,7 +319,7 @@ export default function TicketingBusinessEntitiesPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessEntities.errors.process")),
       }));
     } finally {
       setDeletingEntityId(null);
@@ -318,7 +335,7 @@ export default function TicketingBusinessEntitiesPage() {
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("businessEntities.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -328,10 +345,10 @@ export default function TicketingBusinessEntitiesPage() {
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                Business Entities
+                {t("businessEntities.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Manage venues, operators, partners, drivers and guides.
+                {t("businessEntities.subtitle")}
               </p>
             </div>
           </div>
@@ -343,7 +360,7 @@ export default function TicketingBusinessEntitiesPage() {
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
         >
           <Plus className="h-4 w-4" />
-          Add entity
+          {t("businessEntities.actions.add")}
         </button>
       </section>
 
@@ -352,7 +369,7 @@ export default function TicketingBusinessEntitiesPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Business entities could not be processed
+              {t("businessEntities.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -364,7 +381,7 @@ export default function TicketingBusinessEntitiesPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Total entities
+            {t("businessEntities.stats.total")}
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
             {summary.total}
@@ -373,7 +390,7 @@ export default function TicketingBusinessEntitiesPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Active entities
+            {t("businessEntities.stats.active")}
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {summary.active}
@@ -382,7 +399,7 @@ export default function TicketingBusinessEntitiesPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Scanner-enabled
+            {t("businessEntities.stats.scannerEnabled")}
           </p>
           <p className="mt-2 text-2xl font-black text-blue-700">
             {summary.scanners}
@@ -391,7 +408,7 @@ export default function TicketingBusinessEntitiesPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Active entity users
+            {t("businessEntities.stats.activeUsers")}
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
             {summary.users}
@@ -412,7 +429,7 @@ export default function TicketingBusinessEntitiesPage() {
                 onChange={(event) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Name, legal name or contact"
+                placeholder={t("businessEntities.filters.searchPlaceholder")}
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
             </div>
@@ -420,7 +437,7 @@ export default function TicketingBusinessEntitiesPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Entity type
+              {t("businessEntities.filters.entityType")}
             </span>
             <select
               value={selectedType}
@@ -429,27 +446,27 @@ export default function TicketingBusinessEntitiesPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All types</option>
-              <option value="partner">Partner</option>
-              <option value="venue">Venue</option>
-              <option value="operator">Operator</option>
-              <option value="supplier">Supplier</option>
+              <option value="">{t("businessEntities.filters.allTypes")}</option>
+              <option value="partner">{t("businessEntities.types.partner")}</option>
+              <option value="venue">{t("businessEntities.types.venue")}</option>
+              <option value="operator">{t("businessEntities.types.operator")}</option>
+              <option value="supplier">{t("businessEntities.types.supplier")}</option>
               <option value="driver_company">
-                Driver company
+                {t("businessEntities.types.driver_company")}
               </option>
               <option value="guide_company">
-                Guide company
+                {t("businessEntities.types.guide_company")}
               </option>
               <option value="event_organizer">
-                Event organizer
+                {t("businessEntities.types.event_organizer")}
               </option>
-              <option value="other">Other</option>
+              <option value="other">{t("businessEntities.types.other")}</option>
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Status
+              {t("businessEntities.filters.status")}
             </span>
             <select
               value={selectedStatus}
@@ -458,9 +475,9 @@ export default function TicketingBusinessEntitiesPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="">{t("businessEntities.filters.allStatuses")}</option>
+              <option value="active">{t("businessEntities.statuses.active")}</option>
+              <option value="inactive">{t("businessEntities.statuses.inactive")}</option>
             </select>
           </label>
 
@@ -470,7 +487,7 @@ export default function TicketingBusinessEntitiesPage() {
             className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("businessEntities.actions.refresh")}
           </button>
         </div>
       </section>
@@ -478,11 +495,15 @@ export default function TicketingBusinessEntitiesPage() {
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
           <h2 className="text-xl font-black text-slate-950">
-            Entity directory
+            {t("businessEntities.directory.title")}
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-400">
-            {entities.length} record
-            {entities.length === 1 ? "" : "s"}
+            {t(
+              entities.length === 1
+                ? "businessEntities.directory.oneRecord"
+                : "businessEntities.directory.records",
+              { count: entities.length },
+            )}
           </p>
         </div>
 
@@ -490,17 +511,17 @@ export default function TicketingBusinessEntitiesPage() {
           <div className="flex min-h-72 items-center justify-center">
             <div className="flex items-center gap-3 text-sm font-black text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading business entities...
+              {t("businessEntities.loading")}
             </div>
           </div>
         ) : entities.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <Building2 className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No business entities found
+              {t("businessEntities.empty.title")}
             </p>
             <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
-              Add Coco Bongo, a park, tour operator, driver company or another partner.
+              {t("businessEntities.empty.description")}
             </p>
           </div>
         ) : (
@@ -525,7 +546,7 @@ export default function TicketingBusinessEntitiesPage() {
                         {entity.name}
                       </p>
                       <p className="mt-1 text-xs font-black uppercase tracking-wide text-slate-400">
-                        {entityTypeLabel(entity.entity_type)}
+                        {entityTypeLabel(entity.entity_type, t)}
                       </p>
                     </div>
                   </div>
@@ -537,7 +558,7 @@ export default function TicketingBusinessEntitiesPage() {
                         : "bg-slate-100 text-slate-500"
                     }`}
                   >
-                    {entity.is_active ? "Active" : "Inactive"}
+                    {entity.is_active ? t("businessEntities.statuses.active") : t("businessEntities.statuses.inactive")}
                   </span>
                 </div>
 
@@ -547,7 +568,7 @@ export default function TicketingBusinessEntitiesPage() {
                       {entity.active_agreements_count || 0}
                     </p>
                     <p className="mt-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
-                      Agreements
+                      {t("businessEntities.labels.agreements")}
                     </p>
                   </div>
 
@@ -556,22 +577,24 @@ export default function TicketingBusinessEntitiesPage() {
                       {entity.active_users_count || 0}
                     </p>
                     <p className="mt-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
-                      Users
+                      {t("businessEntities.labels.users")}
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-4 space-y-2 text-sm font-semibold text-slate-500">
                   <p>
-                    Currency:{" "}
+                    {t("businessEntities.labels.currency")}:{" "}
                     <span className="font-black text-slate-800">
                       {entity.currency || "USD"}
                     </span>
                   </p>
                   <p>
-                    Settlement cycle:{" "}
+                    {t("businessEntities.labels.settlementCycle")}:{" "}
                     <span className="font-black text-slate-800">
-                      {entity.settlement_cycle_days || 10} days
+                      {t("businessEntities.labels.days", {
+                        count: entity.settlement_cycle_days || 10,
+                      })}
                     </span>
                   </p>
                 </div>
@@ -580,19 +603,19 @@ export default function TicketingBusinessEntitiesPage() {
                   {entity.can_scan_tickets && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
                       <ShieldCheck className="h-3.5 w-3.5" />
-                      Scanner
+                      {t("businessEntities.badges.scanner")}
                     </span>
                   )}
 
                   {entity.allow_partial_admission && (
                     <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
-                      Partial admission
+                      {t("businessEntities.badges.partialAdmission")}
                     </span>
                   )}
 
                   {entity.allow_offline_scanning && (
                     <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-black text-violet-700">
-                      Offline
+                      {t("businessEntities.badges.offline")}
                     </span>
                   )}
                 </div>
@@ -602,7 +625,7 @@ export default function TicketingBusinessEntitiesPage() {
                     to={`/ticketing/${slug}/operations/business-entities/${entity.id}`}
                     className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white transition hover:bg-slate-900"
                   >
-                    Open
+                    {t("businessEntities.actions.open")}
                   </Link>
 
                   <button
@@ -611,7 +634,7 @@ export default function TicketingBusinessEntitiesPage() {
                     className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                   >
                     <Edit3 className="h-4 w-4" />
-                    Edit
+                    {t("businessEntities.actions.edit")}
                   </button>
 
                   <button
@@ -625,7 +648,7 @@ export default function TicketingBusinessEntitiesPage() {
                     ) : (
                       <Trash2 className="h-4 w-4" />
                     )}
-                    Delete
+                    {t("businessEntities.actions.delete")}
                   </button>
                 </div>
               </article>
@@ -641,11 +664,11 @@ export default function TicketingBusinessEntitiesPage() {
               <div>
                 <h2 className="text-xl font-black text-slate-950">
                   {editingEntity
-                    ? "Edit business entity"
-                    : "Add business entity"}
+                    ? t("businessEntities.modal.editTitle")
+                    : t("businessEntities.modal.addTitle")}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Configure operations, scanning and settlement behavior.
+                  {t("businessEntities.modal.subtitle")}
                 </p>
               </div>
 
@@ -668,7 +691,7 @@ export default function TicketingBusinessEntitiesPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Name
+                    {t("businessEntities.form.name")}
                   </span>
                   <input
                     value={form.name}
@@ -688,7 +711,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Slug
+                    {t("businessEntities.form.slug")}
                   </span>
                   <input
                     value={form.slug}
@@ -705,7 +728,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Entity type
+                    {t("businessEntities.filters.entityType")}
                   </span>
                   <select
                     value={form.entity_type}
@@ -717,26 +740,26 @@ export default function TicketingBusinessEntitiesPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
-                    <option value="partner">Partner</option>
-                    <option value="venue">Venue</option>
-                    <option value="operator">Operator</option>
-                    <option value="supplier">Supplier</option>
+                    <option value="partner">{t("businessEntities.types.partner")}</option>
+                    <option value="venue">{t("businessEntities.types.venue")}</option>
+                    <option value="operator">{t("businessEntities.types.operator")}</option>
+                    <option value="supplier">{t("businessEntities.types.supplier")}</option>
                     <option value="driver_company">
-                      Driver company
+                      {t("businessEntities.types.driver_company")}
                     </option>
                     <option value="guide_company">
-                      Guide company
+                      {t("businessEntities.types.guide_company")}
                     </option>
                     <option value="event_organizer">
-                      Event organizer
+                      {t("businessEntities.types.event_organizer")}
                     </option>
-                    <option value="other">Other</option>
+                    <option value="other">{t("businessEntities.types.other")}</option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Legal name
+                    {t("businessEntities.form.legalName")}
                   </span>
                   <input
                     value={form.legal_name}
@@ -754,7 +777,7 @@ export default function TicketingBusinessEntitiesPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Contact name
+                    {t("businessEntities.form.contactName")}
                   </span>
                   <input
                     value={form.contact_name}
@@ -770,7 +793,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Contact email
+                    {t("businessEntities.form.contactEmail")}
                   </span>
                   <input
                     type="email"
@@ -787,7 +810,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Phone
+                    {t("businessEntities.form.phone")}
                   </span>
                   <input
                     value={form.contact_phone}
@@ -803,7 +826,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    WhatsApp
+                    {t("businessEntities.form.whatsapp")}
                   </span>
                   <input
                     value={form.contact_whatsapp}
@@ -820,7 +843,7 @@ export default function TicketingBusinessEntitiesPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Address
+                  {t("businessEntities.form.address")}
                 </span>
                 <textarea
                   value={form.address}
@@ -838,7 +861,7 @@ export default function TicketingBusinessEntitiesPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Currency
+                    {t("businessEntities.form.currency")}
                   </span>
                   <input
                     value={form.currency}
@@ -855,7 +878,7 @@ export default function TicketingBusinessEntitiesPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Settlement cycle days
+                    {t("businessEntities.form.settlementCycleDays")}
                   </span>
                   <input
                     type="number"
@@ -875,24 +898,30 @@ export default function TicketingBusinessEntitiesPage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
-                  ["can_scan_tickets", "Can scan tickets"],
+                  [
+                    "can_scan_tickets",
+                    t("businessEntities.permissions.canScanTickets"),
+                  ],
                   [
                     "can_collect_customer_balance",
-                    "Can collect customer balance",
+                    t("businessEntities.permissions.canCollectBalance"),
                   ],
                   [
                     "require_check_in_confirmation",
-                    "Require admission confirmation",
+                    t("businessEntities.permissions.requireConfirmation"),
                   ],
                   [
                     "allow_partial_admission",
-                    "Allow partial admission",
+                    t("businessEntities.permissions.allowPartialAdmission"),
                   ],
                   [
                     "allow_offline_scanning",
-                    "Allow offline scanning",
+                    t("businessEntities.permissions.allowOfflineScanning"),
                   ],
-                  ["is_active", "Entity is active"],
+                  [
+                    "is_active",
+                    t("businessEntities.permissions.entityActive"),
+                  ],
                 ].map(([key, label]) => (
                   <label
                     key={key}
@@ -927,7 +956,7 @@ export default function TicketingBusinessEntitiesPage() {
                   }}
                   className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  Cancel
+                  {t("businessEntities.actions.cancel")}
                 </button>
 
                 <button
@@ -938,7 +967,7 @@ export default function TicketingBusinessEntitiesPage() {
                   {saving && (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   )}
-                  {editingEntity ? "Save changes" : "Create entity"}
+                  {editingEntity ? t("businessEntities.actions.saveChanges") : t("businessEntities.actions.create")}
                 </button>
               </div>
             </form>

@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../api/ticketingApi";
 import type {
   ExperienceCategory,
@@ -555,6 +556,7 @@ function buildPublicProductUrl(organisationSlug: string, productSlug: string) {
 }
 
 export default function TicketingProductsPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const slug = params.organisationSlug || params.slug || "";
 
@@ -622,7 +624,7 @@ export default function TicketingProductsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not load products.",
+          t("products.errors.load"),
       );
     } finally {
       setLoading(false);
@@ -730,7 +732,7 @@ export default function TicketingProductsPage() {
     const list = Array.from(files).filter(isImageFile);
 
     if (!list.length) {
-      setError("Please select valid image files.");
+      setError(t("products.errors.invalidImages"));
       return;
     }
 
@@ -763,7 +765,7 @@ export default function TicketingProductsPage() {
       }
 
       await refreshProduct(galleryProduct.id);
-      setSavedMessage("Gallery images uploaded.");
+      setSavedMessage(t("products.messages.galleryUploaded"));
     } catch (err: any) {
       console.error("Could not upload gallery images:", err);
 
@@ -771,7 +773,7 @@ export default function TicketingProductsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.image?.[0] ||
           err?.response?.data?.message ||
-          "Could not upload gallery images.",
+          t("products.errors.galleryUpload"),
       );
     } finally {
       setGallerySaving(false);
@@ -788,14 +790,14 @@ export default function TicketingProductsPage() {
 
       await ticketingApi.makeProductGalleryImageCover(image.id, slug);
       await refreshProduct(galleryProduct.id);
-      setSavedMessage("Cover image updated.");
+      setSavedMessage(t("products.messages.coverUpdated"));
     } catch (err: any) {
       console.error("Could not make gallery image cover:", err);
 
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not update cover image.",
+          t("products.errors.coverUpdate"),
       );
     } finally {
       setGallerySaving(false);
@@ -805,7 +807,7 @@ export default function TicketingProductsPage() {
   async function handleDeleteGalleryImage(image: ProductGalleryImage) {
     if (!galleryProduct) return;
 
-    const confirmed = window.confirm("Delete this gallery image?");
+    const confirmed = window.confirm(t("products.confirm.deleteGalleryImage"));
 
     if (!confirmed) return;
 
@@ -816,14 +818,14 @@ export default function TicketingProductsPage() {
 
       await ticketingApi.deleteProductGalleryImage(image.id, slug);
       await refreshProduct(galleryProduct.id);
-      setSavedMessage("Gallery image deleted.");
+      setSavedMessage(t("products.messages.galleryDeleted"));
     } catch (err: any) {
       console.error("Could not delete gallery image:", err);
 
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not delete gallery image.",
+          t("products.errors.galleryDelete"),
       );
     } finally {
       setGallerySaving(false);
@@ -907,7 +909,7 @@ export default function TicketingProductsPage() {
       setTranslationError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not load product translations.",
+          t("products.errors.translationLoad"),
       );
     } finally {
       setTranslationLoading(false);
@@ -970,7 +972,7 @@ export default function TicketingProductsPage() {
       setTranslations(nextTranslations);
       setTranslationDraft(response.translation);
       setTranslationMessage(
-        `${getLanguageLabel(translationLanguage)} translation saved.`,
+        t("products.messages.translationSaved", { language: getLanguageLabel(translationLanguage) }),
       );
 
       const refreshed = await refreshProduct(translationProduct.id);
@@ -981,7 +983,7 @@ export default function TicketingProductsPage() {
       setTranslationError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not save translation.",
+          t("products.errors.translationSave"),
       );
     } finally {
       setTranslationSaving(false);
@@ -996,7 +998,7 @@ export default function TicketingProductsPage() {
 
     if (isManual) {
       const confirmed = window.confirm(
-        "This translation has manual edits. Generate with AI and overwrite it?",
+        t("products.confirm.overwriteManualTranslation"),
       );
 
       if (!confirmed) return;
@@ -1024,7 +1026,7 @@ export default function TicketingProductsPage() {
       setTranslations(nextTranslations);
       setTranslationDraft(response.translation);
       setTranslationMessage(
-        `${getLanguageLabel(translationLanguage)} generated with AI.`,
+        t("products.messages.translationGenerated", { language: getLanguageLabel(translationLanguage) }),
       );
 
       const refreshed = await refreshProduct(translationProduct.id);
@@ -1036,7 +1038,7 @@ export default function TicketingProductsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not generate translation.",
+          t("products.errors.translationGenerate"),
       );
     } finally {
       setTranslationGenerating(false);
@@ -1052,7 +1054,7 @@ export default function TicketingProductsPage() {
     }
 
     const confirmed = window.confirm(
-      `Delete the ${getLanguageLabel(translationLanguage)} translation?`,
+      t("products.confirm.deleteTranslation", { language: getLanguageLabel(translationLanguage) }),
     );
 
     if (!confirmed) return;
@@ -1074,7 +1076,7 @@ export default function TicketingProductsPage() {
       setTranslations(nextTranslations);
       setTranslationDraft(emptyTranslation);
       setTranslationMessage(
-        `${getLanguageLabel(translationLanguage)} translation deleted.`,
+        t("products.messages.translationDeleted", { language: getLanguageLabel(translationLanguage) }),
       );
 
       const refreshed = await refreshProduct(translationProduct.id);
@@ -1085,7 +1087,7 @@ export default function TicketingProductsPage() {
       setTranslationError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not delete translation.",
+          t("products.errors.translationDelete"),
       );
     } finally {
       setTranslationDeleting(false);
@@ -1094,7 +1096,7 @@ export default function TicketingProductsPage() {
 
   async function handleSaveProduct() {
     if (!form.name.trim()) {
-      setError("Product name is required.");
+      setError(t("products.errors.nameRequired"));
       return;
     }
 
@@ -1129,8 +1131,8 @@ export default function TicketingProductsPage() {
 
       setSavedMessage(
         editingProduct
-          ? "Product updated successfully."
-          : "Product created successfully.",
+          ? t("products.messages.updated")
+          : t("products.messages.created"),
       );
 
       closeModal();
@@ -1143,7 +1145,7 @@ export default function TicketingProductsPage() {
           err?.response?.data?.slug?.[0] ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not save product.",
+          t("products.errors.save"),
       );
     } finally {
       setSaving(false);
@@ -1158,9 +1160,9 @@ export default function TicketingProductsPage() {
 
     try {
       await navigator.clipboard.writeText(url);
-      setSavedMessage("Public product URL copied.");
+      setSavedMessage(t("products.messages.urlCopied"));
     } catch {
-      window.prompt("Copy public product URL:", url);
+      window.prompt(t("products.prompts.copyPublicUrl"), url);
     }
   }
 
@@ -1186,7 +1188,7 @@ export default function TicketingProductsPage() {
       );
 
       setSavedMessage(
-        nextStatus === "active" ? "Product activated." : "Product deactivated.",
+        nextStatus === "active" ? t("products.messages.activated") : t("products.messages.deactivated"),
       );
     } catch (err: any) {
       console.error("Could not update product status:", err);
@@ -1194,14 +1196,14 @@ export default function TicketingProductsPage() {
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not update product status.",
+          t("products.errors.statusUpdate"),
       );
     }
   }
 
   async function handleDeleteProduct(product: ExperienceProduct) {
     const confirmed = window.confirm(
-      `Delete "${product.name}"? This action cannot be undone.`,
+      t("products.confirm.deleteProduct", { name: product.name }),
     );
 
     if (!confirmed) return;
@@ -1216,14 +1218,14 @@ export default function TicketingProductsPage() {
       setProducts((current) =>
         current.filter((item) => item.id !== product.id),
       );
-      setSavedMessage("Product deleted.");
+      setSavedMessage(t("products.messages.deleted"));
     } catch (err: any) {
       console.error("Could not delete ticketing product:", err);
 
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
-          "Could not delete product.",
+          t("products.errors.delete"),
       );
     } finally {
       setDeletingId(null);
@@ -1233,7 +1235,7 @@ export default function TicketingProductsPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600">
-        Loading products...
+        {t("products.loading")}
       </div>
     );
   }
@@ -1248,18 +1250,15 @@ export default function TicketingProductsPage() {
 
           <div>
             <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-              Products
+              {t("products.header.eyebrow")}
             </p>
 
             <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-              Tours, Tickets & Transfers
+              {t("products.header.title")}
             </h1>
 
             <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-              Create and manage sellable experiences such as Saona, Catalina,
-              airport transfers, events, nightlife tickets and custom tours.
-              Packages, pickup schedules and advanced availability can be
-              managed next.
+              {t("products.header.description")}
             </p>
           </div>
         </div>
@@ -1271,7 +1270,7 @@ export default function TicketingProductsPage() {
             className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("products.actions.refresh")}
           </button>
 
           <button
@@ -1280,44 +1279,44 @@ export default function TicketingProductsPage() {
             className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
-            New Product
+            {t("products.actions.new")}
           </button>
         </div>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
-          title="Total"
+          title={t("products.stats.total")}
           value={String(summary.total)}
-          helper="All products"
+          helper={t("products.stats.allProducts")}
           icon={Package}
         />
 
         <StatCard
-          title="Active"
+          title={t("products.stats.active")}
           value={String(summary.active)}
-          helper="Currently sellable"
+          helper={t("products.stats.currentlySellable")}
           icon={CheckCircle2}
         />
 
         <StatCard
-          title="Public"
+          title={t("products.stats.public")}
           value={String(summary.public)}
-          helper="Public website"
+          helper={t("products.stats.publicWebsite")}
           icon={Eye}
         />
 
         <StatCard
-          title="Seller"
+          title={t("products.stats.seller")}
           value={String(summary.seller)}
-          helper="Seller dashboard"
+          helper={t("products.stats.sellerDashboard")}
           icon={Ticket}
         />
 
         <StatCard
-          title="Pickup"
+          title={t("products.stats.pickup")}
           value={String(summary.pickup)}
-          helper="Pickup enabled"
+          helper={t("products.stats.pickupEnabled")}
           icon={MapPin}
         />
       </section>
@@ -1343,32 +1342,35 @@ export default function TicketingProductsPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search products, SKU or location..."
+              placeholder={t("products.filters.searchPlaceholder")}
               className="h-full flex-1 bg-transparent text-sm font-semibold outline-none"
             />
           </div>
 
           <Select
-            label="Type"
+            label={t("products.filters.type")}
             value={typeFilter}
             onChange={(value) => setTypeFilter(value as ProductType | "all")}
-            options={[{ value: "all", label: "All types" }, ...productTypes]}
+            options={[{ value: "all", label: t("products.filters.allTypes") }, ...productTypes.map((type) => ({ ...type, label: t(`products.types.${type.value}`) }))]}
           />
 
           <Select
-            label="Status"
+            label={t("products.filters.status")}
             value={statusFilter}
             onChange={(value) =>
               setStatusFilter(value as ProductStatus | "all")
             }
             options={[
-              { value: "all", label: "All status" },
-              ...productStatuses,
+              { value: "all", label: t("products.filters.allStatuses") },
+              ...productStatuses.map((status) => ({
+                ...status,
+                label: t(`products.statuses.${status.value}`),
+              })),
             ]}
           />
 
           <Select
-            label="Visibility"
+            label={t("products.filters.visibility")}
             value={visibilityFilter}
             onChange={(value) =>
               setVisibilityFilter(
@@ -1376,10 +1378,10 @@ export default function TicketingProductsPage() {
               )
             }
             options={[
-              { value: "all", label: "All" },
-              { value: "public", label: "Public" },
-              { value: "seller", label: "Seller" },
-              { value: "pickup", label: "Pickup" },
+              { value: "all", label: t("products.filters.all") },
+              { value: "public", label: t("products.visibility.public") },
+              { value: "seller", label: t("products.visibility.seller") },
+              { value: "pickup", label: t("products.visibility.pickup") },
             ]}
           />
         </div>
@@ -1396,7 +1398,7 @@ export default function TicketingProductsPage() {
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
             >
-              {type.label}
+              {t(`products.types.${type.value}`)}
             </button>
           ))}
         </div>
@@ -1409,12 +1411,11 @@ export default function TicketingProductsPage() {
           </div>
 
           <h2 className="mt-4 text-xl font-black text-slate-950">
-            No products found
+            {t("products.empty.title")}
           </h2>
 
           <p className="mx-auto mt-2 max-w-lg text-sm font-semibold leading-6 text-slate-500">
-            Create your first product. Start with a common experience such as
-            Isla Saona, Catalina Island, airport transfer or a local event.
+            {t("products.empty.description")}
           </p>
 
           <button
@@ -1423,7 +1424,7 @@ export default function TicketingProductsPage() {
             className="mt-5 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
-            Create Product
+            {t("products.actions.create")}
           </button>
         </section>
       ) : (
@@ -1447,7 +1448,7 @@ export default function TicketingProductsPage() {
 
       {modalOpen && (
         <ProductModal
-          title={editingProduct ? "Edit Product" : "Create Product"}
+          title={editingProduct ? t("products.actions.edit") : t("products.actions.create")}
           product={editingProduct}
           form={form}
           categories={categories}
@@ -1520,6 +1521,7 @@ function ProductCard({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const profit = getProfit(product);
   const margin = getProfitMargin(product);
   const publicPath =
@@ -1550,10 +1552,10 @@ function ProductCard({
               tone={product.status === "active" ? "green" : "slate"}
             />
 
-            {product.public_enabled && <Badge label="Public" tone="blue" />}
-            {product.seller_enabled && <Badge label="Seller" tone="purple" />}
+            {product.public_enabled && <Badge label={t("products.visibility.public")} tone="blue" />}
+            {product.seller_enabled && <Badge label={t("products.visibility.seller")} tone="purple" />}
             {(product.supports_pickup || product.requires_pickup_location) && (
-              <Badge label="Pickup" tone="orange" />
+              <Badge label={t("products.visibility.pickup")} tone="orange" />
             )}
 
             {((product as any).is_cocobongo_product ||
@@ -1580,26 +1582,26 @@ function ProductCard({
 
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
             <MiniMetric
-              label="Price"
+              label={t("products.metrics.price")}
               value={formatMoney(
                 (product as any).adult_price ?? product.base_price,
               )}
               icon={DollarSign}
             />
             <MiniMetric
-              label="Cost"
+              label={t("products.metrics.cost")}
               value={formatMoney(
                 (product as any).adult_cost_price ?? product.cost_price,
               )}
               icon={Tag}
             />
             <MiniMetric
-              label="Profit"
+              label={t("products.metrics.profit")}
               value={formatMoney(profit)}
               icon={DollarSign}
             />
             <MiniMetric
-              label="Margin"
+              label={t("products.metrics.margin")}
               value={`${margin.toFixed(1)}%`}
               icon={Percent}
             />
@@ -1756,6 +1758,7 @@ function ProductTranslationsModal({
   onGenerate: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const defaultLanguage = (product as any).default_language || "en";
   const activeTranslation = translations[activeLanguage];
   const isDefaultLanguage = activeLanguage === defaultLanguage;
@@ -2037,7 +2040,7 @@ function ProductTranslationsModal({
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              {saving ? "Saving translation..." : "Save Translation"}
+              {saving ? t("products.translations.saving") : t("products.translations.save")}
             </button>
           </div>
         )}
@@ -2231,6 +2234,8 @@ function ProductModal({
   ) => void;
   onImageChange: (file: File | null) => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   const imagePreview = imageFile
     ? URL.createObjectURL(imageFile)
     : product?.image_url || product?.image || "";
@@ -2258,40 +2263,40 @@ function ProductModal({
 
         <div className="space-y-5 p-5">
           <FormSection
-            title="Basic information"
-            description="Main product information shown in the dashboard, seller dashboard and public site."
+            title={t("products.modal.sections.basic.title")}
+            description={t("products.modal.sections.basic.description")}
             icon={Package}
           >
             <div className="grid gap-4 lg:grid-cols-2">
               <Input
-                label="Product name"
+                label={t("products.modal.fields.name")}
                 value={form.name}
                 onChange={(value) => onChange("name", value)}
                 placeholder="Isla Saona Full Day"
               />
 
               <Input
-                label="URL slug"
+                label={t("products.modal.fields.slug")}
                 value={form.slug}
                 onChange={(value) => onChange("slug", slugify(value))}
                 placeholder="isla-saona-full-day"
               />
 
               <Select
-                label="Product type"
+                label={t("products.modal.fields.type")}
                 value={form.product_type}
                 onChange={(value) =>
                   onChange("product_type", value as ProductType)
                 }
-                options={productTypes}
+                options={productTypes.map((type) => ({ ...type, label: t(`products.types.${type.value}`) }))}
               />
 
               <Select
-                label="Category"
+                label={t("products.modal.fields.category")}
                 value={form.category_id}
                 onChange={(value) => onChange("category_id", value)}
                 options={[
-                  { value: "", label: "No category" },
+                  { value: "", label: t("products.modal.options.noCategory") },
                   ...categories.map((category) => ({
                     value: String(category.id),
                     label: category.name,
@@ -2300,21 +2305,21 @@ function ProductModal({
               />
 
               <Input
-                label="SKU / Internal code"
+                label={t("products.modal.fields.sku")}
                 value={form.sku}
                 onChange={(value) => onChange("sku", value)}
                 placeholder="SAONA-001"
               />
 
               <Textarea
-                label="Short description"
+                label={t("products.modal.fields.shortDescription")}
                 value={form.short_description}
                 onChange={(value) => onChange("short_description", value)}
                 placeholder="Short text shown in cards and summaries."
               />
 
               <Textarea
-                label="Long description"
+                label={t("products.modal.fields.longDescription")}
                 value={form.long_description}
                 onChange={(value) => onChange("long_description", value)}
                 placeholder="Full description for the product page."
@@ -2323,28 +2328,28 @@ function ProductModal({
           </FormSection>
 
           <FormSection
-            title="Coco Bongo / Wellet integration"
-            description="Enable this only for products that should use Coco Bongo/Wellet data and availability."
+            title={t("products.modal.sections.wellet.title")}
+            description={t("products.modal.sections.wellet.description")}
             icon={Ticket}
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
               <Toggle
-                label="This is a Coco Bongo product"
-                description="When enabled, the backend treats this product as Wellet/Coco Bongo."
+                label={t("products.modal.fields.isCocoBongo")}
+                description={t("products.modal.fields.isCocoBongoDescription")}
                 checked={form.is_cocobongo_product}
                 onChange={(value) => onChange("is_cocobongo_product", value)}
               />
 
               <Input
-                label="Coco Bongo / Wellet product ID"
+                label={t("products.modal.fields.externalProductId")}
                 value={form.external_product_id}
                 onChange={(value) => onChange("external_product_id", value)}
-                placeholder="Paste the external product ID from Wellet"
+                placeholder={t("products.modal.placeholders.externalProductId")}
               />
             </div>
 
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
-              Provider sent to backend:{" "}
+              {t("products.modal.providerSent")}{" "}
               <span className="font-black">
                 {form.is_cocobongo_product ? "wellet" : "local"}
               </span>
@@ -2352,8 +2357,8 @@ function ProductModal({
           </FormSection>
 
           <FormSection
-            title="Image"
-            description="Main product image. It will be compressed before upload."
+            title={t("products.modal.sections.image.title")}
+            description={t("products.modal.sections.image.description")}
             icon={Image}
           >
             <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
@@ -2361,7 +2366,7 @@ function ProductModal({
                 {imagePreview ? (
                   <img
                     src={imagePreview}
-                    alt={form.name || "Product"}
+                    alt={form.name || t("products.modal.imageFallbackAlt")}
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -2375,8 +2380,7 @@ function ProductModal({
                 </span>
 
                 <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                  Use a clear image of the tour, ticket, vehicle, event or
-                  attraction. Recommended: landscape image.
+                  {t("products.modal.image.uploadDescription")}
                 </p>
 
                 <input
@@ -2397,29 +2401,29 @@ function ProductModal({
 
                 {imageFile && (
                   <p className="mt-3 text-xs font-bold text-slate-500">
-                    Selected: {imageFile.name} ·{" "}
+                    {t("products.modal.image.selected")} {imageFile.name} ·{" "}
                     {formatFileSize(imageFile.size)}
                   </p>
                 )}
 
                 <Input
-                  label="Image alt text"
+                  label={t("products.modal.fields.imageAltText")}
                   value={form.image_alt_text}
                   onChange={(value) => onChange("image_alt_text", value)}
-                  placeholder="People enjoying Isla Saona tour"
+                  placeholder={t("products.modal.placeholders.imageAltText")}
                 />
               </label>
             </div>
           </FormSection>
 
           <FormSection
-            title="Pricing and capacity"
-            description="Set the sell price, cost, deposit and available capacity."
+            title={t("products.modal.sections.pricing.title")}
+            description={t("products.modal.sections.pricing.description")}
             icon={DollarSign}
           >
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <Input
-                label="Adult price"
+                label={t("products.modal.fields.adultPrice")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2428,7 +2432,7 @@ function ProductModal({
               />
 
               <Input
-                label="Adult cost"
+                label={t("products.modal.fields.adultCost")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2437,7 +2441,7 @@ function ProductModal({
               />
 
               <Input
-                label="Child price"
+                label={t("products.modal.fields.childPrice")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2446,7 +2450,7 @@ function ProductModal({
               />
 
               <Input
-                label="Child cost"
+                label={t("products.modal.fields.childCost")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2455,7 +2459,7 @@ function ProductModal({
               />
 
               <Input
-                label="Infant price"
+                label={t("products.modal.fields.infantPrice")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2464,7 +2468,7 @@ function ProductModal({
               />
 
               <Input
-                label="Infant cost"
+                label={t("products.modal.fields.infantCost")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2473,7 +2477,7 @@ function ProductModal({
               />
 
               <Input
-                label="Deposit amount"
+                label={t("products.modal.fields.depositAmount")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2482,7 +2486,7 @@ function ProductModal({
               />
 
               <Input
-                label="Deposit %"
+                label={t("products.modal.fields.depositPercentage")}
                 type="number"
                 min="0"
                 step="0.01"
@@ -2491,7 +2495,7 @@ function ProductModal({
               />
 
               <Input
-                label="Capacity"
+                label={t("products.modal.fields.capacity")}
                 type="number"
                 min="0"
                 step="1"
@@ -2502,48 +2506,48 @@ function ProductModal({
           </FormSection>
 
           <FormSection
-            title="Schedule and location"
-            description="General timing and location. Pickup times are configured later in Pickup Schedules."
+            title={t("products.modal.sections.schedule.title")}
+            description={t("products.modal.sections.schedule.description")}
             icon={MapPin}
           >
             <div className="grid gap-4 lg:grid-cols-2">
               <Input
-                label="Duration"
+                label={t("products.modal.fields.duration")}
                 value={form.duration_text}
                 onChange={(value) => onChange("duration_text", value)}
                 placeholder="Full day, 4 hours, 8:00 AM - 5:00 PM"
               />
 
               <Input
-                label="Location"
+                label={t("products.modal.fields.location")}
                 value={form.location}
                 onChange={(value) => onChange("location", value)}
                 placeholder="Punta Cana, Dominican Republic"
               />
 
               <Input
-                label="Start time"
+                label={t("products.modal.fields.startTime")}
                 type="time"
                 value={form.start_time}
                 onChange={(value) => onChange("start_time", value)}
               />
 
               <Input
-                label="End time"
+                label={t("products.modal.fields.endTime")}
                 type="time"
                 value={form.end_time}
                 onChange={(value) => onChange("end_time", value)}
               />
 
               <Input
-                label="Address"
+                label={t("products.modal.fields.address")}
                 value={form.address}
                 onChange={(value) => onChange("address", value)}
                 placeholder="Meeting point or attraction address"
               />
 
               <Input
-                label="Google Maps link"
+                label={t("products.modal.fields.googleMapsLink")}
                 value={form.google_maps_link}
                 onChange={(value) => onChange("google_maps_link", value)}
                 placeholder="https://maps.google.com/..."
@@ -2552,63 +2556,63 @@ function ProductModal({
           </FormSection>
 
           <FormSection
-            title="Booking rules"
-            description="Control how this product can be sold and paid."
+            title={t("products.modal.sections.bookingRules.title")}
+            description={t("products.modal.sections.bookingRules.description")}
             icon={Ticket}
           >
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Toggle
-                label="Public enabled"
-                description="Show on public website."
+                label={t("products.modal.fields.publicEnabled")}
+                description={t("products.modal.fields.publicEnabledDescription")}
                 checked={form.public_enabled}
                 onChange={(value) => onChange("public_enabled", value)}
               />
 
               <Toggle
-                label="Seller enabled"
-                description="Allow sellers to sell it."
+                label={t("products.modal.fields.sellerEnabled")}
+                description={t("products.modal.fields.sellerEnabledDescription")}
                 checked={form.seller_enabled}
                 onChange={(value) => onChange("seller_enabled", value)}
               />
 
               <Toggle
-                label="Full payment"
-                description="Allow full payment."
+                label={t("products.modal.fields.fullPayment")}
+                description={t("products.modal.fields.fullPaymentDescription")}
                 checked={form.allow_full_payment}
                 onChange={(value) => onChange("allow_full_payment", value)}
               />
 
               <Toggle
-                label="Deposit payment"
-                description="Allow deposit payment."
+                label={t("products.modal.fields.depositPayment")}
+                description={t("products.modal.fields.depositPaymentDescription")}
                 checked={form.allow_deposit_payment}
                 onChange={(value) => onChange("allow_deposit_payment", value)}
               />
 
               <Toggle
-                label="Pending payment"
-                description="Allow booking before payment."
+                label={t("products.modal.fields.pendingPayment")}
+                description={t("products.modal.fields.pendingPaymentDescription")}
                 checked={form.allow_pending_payment}
                 onChange={(value) => onChange("allow_pending_payment", value)}
               />
 
               <Toggle
-                label="Cash payment"
-                description="Allow cash payment."
+                label={t("products.modal.fields.cashPayment")}
+                description={t("products.modal.fields.cashPaymentDescription")}
                 checked={form.allow_cash_payment}
                 onChange={(value) => onChange("allow_cash_payment", value)}
               />
 
               <Toggle
-                label="Supports pickup"
-                description="Product can have hotel pickup."
+                label={t("products.modal.fields.supportsPickup")}
+                description={t("products.modal.fields.supportsPickupDescription")}
                 checked={form.supports_pickup}
                 onChange={(value) => onChange("supports_pickup", value)}
               />
 
               <Toggle
-                label="Requires pickup location"
-                description="Customer must select hotel/location."
+                label={t("products.modal.fields.requiresPickupLocation")}
+                description={t("products.modal.fields.requiresPickupLocationDescription")}
                 checked={form.requires_pickup_location}
                 onChange={(value) =>
                   onChange("requires_pickup_location", value)
@@ -2618,57 +2622,48 @@ function ProductModal({
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <Textarea
-                label="Pickup instructions"
+                label={t("products.modal.fields.pickupInstructions")}
                 value={form.pickup_instructions}
                 onChange={(value) => onChange("pickup_instructions", value)}
-                placeholder="Customer must wait in lobby. Pickup time is assigned automatically by schedule."
+                placeholder={t("products.modal.placeholders.pickupInstructions")}
               />
 
               <Textarea
-                label="General customer instructions"
+                label={t("products.modal.fields.instructions")}
                 value={form.instructions}
                 onChange={(value) => onChange("instructions", value)}
-                placeholder="Bring ID, comfortable clothes, towel, etc."
+                placeholder={t("products.modal.placeholders.instructions")}
               />
               <div className="lg:col-span-2">
                 <Textarea
-                  label="Ticket information"
+                  label={t("products.modal.fields.ticketInformation")}
                   value={form.ticket_information}
                   onChange={(value) => onChange("ticket_information", value)}
-                  placeholder={`Information printed on the customer's ticket.
-
-Examples:
-• Return buses leave at approximately 1:00 AM and 2:00 AM.
-• Meet the transport coordinator at the main entrance.
-• Bring a valid photo ID.
-• Dress code: Smart casual.
-• Arrive 30 minutes before the show.`}
+                  placeholder={t("products.modal.placeholders.ticketInformation")}
                 />
                 <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  Optional. This information will be printed on the PDF ticket
-                  for this product. Hotel pickup times continue to come from
-                  Pickup Schedules automatically.
+                  {t("products.modal.ticketInformationHelp")}
                 </p>
               </div>
             </div>
           </FormSection>
 
           <FormSection
-            title="Public ranking and status"
-            description="Control status and how the product is promoted on public pages."
+            title={t("products.modal.sections.ranking.title")}
+            description={t("products.modal.sections.ranking.description")}
             icon={Sparkles}
           >
             <div className="grid gap-4 lg:grid-cols-2">
               <Select
-                label="Status"
+                label={t("products.filters.status")}
                 value={form.status}
                 onChange={(value) => onChange("status", value as ProductStatus)}
-                options={productStatuses}
+                options={productStatuses.map((status) => ({ ...status, label: t(`products.statuses.${status.value}`) }))}
               />
 
               <Toggle
-                label="Active"
-                description="Enable this product inside the system."
+                label={t("products.modal.fields.active")}
+                description={t("products.modal.fields.activeDescription")}
                 checked={form.is_active}
                 onChange={(value) => onChange("is_active", value)}
               />
@@ -2676,31 +2671,31 @@ Examples:
 
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Toggle
-                label="Featured"
+                label={t("products.modal.fields.featured")}
                 checked={form.is_featured}
                 onChange={(value) => onChange("is_featured", value)}
               />
 
               <Toggle
-                label="Recommended"
+                label={t("products.modal.fields.recommended")}
                 checked={form.is_recommended}
                 onChange={(value) => onChange("is_recommended", value)}
               />
 
               <Toggle
-                label="Top excursion"
+                label={t("products.modal.fields.topExcursion")}
                 checked={form.is_top_excursion}
                 onChange={(value) => onChange("is_top_excursion", value)}
               />
 
               <Toggle
-                label="Top transfer"
+                label={t("products.modal.fields.topTransfer")}
                 checked={form.is_top_transfer}
                 onChange={(value) => onChange("is_top_transfer", value)}
               />
 
               <Toggle
-                label="Best seller"
+                label={t("products.modal.fields.bestSeller")}
                 checked={form.is_best_seller}
                 onChange={(value) => onChange("is_best_seller", value)}
               />
@@ -2708,62 +2703,62 @@ Examples:
           </FormSection>
 
           <FormSection
-            title="SEO basics"
-            description="Product-level SEO. This is where pages like Saona, Catalina, transfer pages and event pages get their own search metadata."
+            title={t("products.modal.sections.seo.title")}
+            description={t("products.modal.sections.seo.description")}
             icon={Search}
           >
             <div className="grid gap-4 lg:grid-cols-2">
               <Input
-                label="SEO title"
+                label={t("products.modal.fields.seoTitle")}
                 value={form.seo_title}
                 onChange={(value) => onChange("seo_title", value)}
                 placeholder="Isla Saona Tour from Punta Cana"
               />
 
               <Input
-                label="Canonical URL"
+                label={t("products.modal.fields.canonicalUrl")}
                 value={form.canonical_url}
                 onChange={(value) => onChange("canonical_url", value)}
                 placeholder="https://example.com/product/isla-saona"
               />
 
               <Textarea
-                label="Meta description"
+                label={t("products.modal.fields.metaDescription")}
                 value={form.meta_description}
                 onChange={(value) => onChange("meta_description", value)}
                 placeholder="Book Isla Saona with hotel pickup, lunch and catamaran..."
               />
 
               <Textarea
-                label="Open Graph description"
+                label={t("products.modal.fields.ogDescription")}
                 value={form.og_description}
                 onChange={(value) => onChange("og_description", value)}
                 placeholder="Social sharing description."
               />
 
               <Input
-                label="Open Graph title"
+                label={t("products.modal.fields.ogTitle")}
                 value={form.og_title}
                 onChange={(value) => onChange("og_title", value)}
                 placeholder="Isla Saona Tour"
               />
 
               <Input
-                label="Twitter title"
+                label={t("products.modal.fields.twitterTitle")}
                 value={form.twitter_title}
                 onChange={(value) => onChange("twitter_title", value)}
                 placeholder="Isla Saona Tour"
               />
 
               <Textarea
-                label="Twitter description"
+                label={t("products.modal.fields.twitterDescription")}
                 value={form.twitter_description}
                 onChange={(value) => onChange("twitter_description", value)}
                 placeholder="Twitter/X sharing description."
               />
 
               <Textarea
-                label="Cancellation policy"
+                label={t("products.modal.fields.cancellationPolicy")}
                 value={form.cancellation_policy}
                 onChange={(value) => onChange("cancellation_policy", value)}
                 placeholder="Free cancellation up to 24 hours before service."
@@ -2795,9 +2790,9 @@ Examples:
             )}
             {saving
               ? compressing
-                ? "Compressing image..."
-                : "Saving..."
-              : "Save Product"}
+                ? t("products.modal.actions.compressing")
+                : t("products.modal.actions.saving")
+              : t("products.modal.actions.save")}
           </button>
         </div>
       </div>

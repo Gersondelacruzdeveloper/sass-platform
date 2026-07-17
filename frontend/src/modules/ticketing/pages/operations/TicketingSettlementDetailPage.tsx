@@ -31,6 +31,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   PartnerSettlementLine,
@@ -69,7 +70,7 @@ const initialPaymentForm: PaymentFormState = {
   attachment: null,
 };
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -89,7 +90,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not process this settlement."
+      fallback
     );
   }
 
@@ -97,7 +98,7 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not process this settlement.";
+  return fallback;
 }
 
 function toNumber(value: string | number | null | undefined): number {
@@ -108,30 +109,53 @@ function toNumber(value: string | number | null | undefined): number {
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
+  language: "en" | "es" = "en",
 ): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(toNumber(value));
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    },
+  ).format(toNumber(value));
 }
 
-function formatDateTime(value?: string | null): string {
+function formatDateTime(
+  value: string | null | undefined,
+  language: "en" | "es" = "en",
+): string {
   if (!value) return "—";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
 
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+    },
+  ).format(date);
 }
 
-function formatStatus(value?: string | null): string {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function formatStatus(
+  value: string | null | undefined,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+): string {
+  const normalized = String(value || "unknown");
+
+  return t(
+    `settlementDetail.statuses.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  );
 }
 
 function statusTone(status?: string | null) {
@@ -154,6 +178,7 @@ function statusTone(status?: string | null) {
 }
 
 export default function TicketingSettlementDetailPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -220,10 +245,10 @@ export default function TicketingSettlementDetailPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("settlementDetail.errors.process")),
       });
     }
-  }, [id, slug]);
+  }, [id, slug, t]);
 
   useEffect(() => {
     void loadData();
@@ -284,8 +309,8 @@ export default function TicketingSettlementDetailPage() {
       notes =
         window.prompt(
           action === "dispute"
-            ? "Enter the dispute reason:"
-            : "Enter the cancellation reason:",
+            ? t("settlementDetail.prompts.disputeReason")
+            : t("settlementDetail.prompts.cancellationReason"),
         )?.trim() || "";
 
       if (!notes) return;
@@ -334,7 +359,7 @@ export default function TicketingSettlementDetailPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("settlementDetail.errors.process")),
       }));
     } finally {
       setActionLoading("");
@@ -375,7 +400,7 @@ export default function TicketingSettlementDetailPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("settlementDetail.errors.process")),
       }));
     } finally {
       setSubmittingPayment(false);
@@ -388,7 +413,7 @@ export default function TicketingSettlementDetailPage() {
         <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
           <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
           <span className="text-sm font-black text-slate-700">
-            Loading settlement...
+            {t("settlementDetail.loading")}
           </span>
         </div>
       </div>
@@ -402,10 +427,10 @@ export default function TicketingSettlementDetailPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Settlement could not be loaded
+              {t("settlementDetail.errors.loadTitle")}
             </p>
             <p className="mt-1 text-sm font-semibold">
-              {state.error || "Settlement not found."}
+              {state.error || t("settlementDetail.errors.notFound")}
             </p>
           </div>
         </div>
@@ -438,7 +463,7 @@ export default function TicketingSettlementDetailPage() {
               className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
             >
               <ArrowLeft className="h-4 w-4" />
-              Settlement center
+              {t("settlementDetail.navigation.center")}
             </Link>
 
             <div className="flex items-center gap-4">
@@ -457,7 +482,7 @@ export default function TicketingSettlementDetailPage() {
                       settlement.status,
                     )}`}
                   >
-                    {formatStatus(settlement.status)}
+                    {formatStatus(settlement.status, t)}
                   </span>
                 </div>
 
@@ -475,7 +500,7 @@ export default function TicketingSettlementDetailPage() {
             className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("settlementDetail.actions.refresh")}
           </button>
         </div>
       </section>
@@ -485,7 +510,7 @@ export default function TicketingSettlementDetailPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Settlement operation failed
+              {t("settlementDetail.errors.operationFailed")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -497,7 +522,7 @@ export default function TicketingSettlementDetailPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Gross sales
+            {t("settlementDetail.stats.grossSales")}
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
             {formatMoney(
@@ -509,7 +534,7 @@ export default function TicketingSettlementDetailPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Partner entitlement
+            {t("settlementDetail.stats.partnerEntitlement")}
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {formatMoney(
@@ -521,7 +546,7 @@ export default function TicketingSettlementDetailPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Net settlement
+            {t("settlementDetail.stats.netSettlement")}
           </p>
           <p className="mt-2 text-2xl font-black text-blue-700">
             {formatMoney(
@@ -533,7 +558,7 @@ export default function TicketingSettlementDetailPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Outstanding
+            {t("settlementDetail.stats.outstanding")}
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
             {formatMoney(
@@ -549,10 +574,10 @@ export default function TicketingSettlementDetailPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Settlement period
+                {t("settlementDetail.sections.period")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                Financial summary
+                {t("settlementDetail.sections.financialSummary")}
               </h2>
             </div>
 
@@ -561,7 +586,7 @@ export default function TicketingSettlementDetailPage() {
 
           <div className="mt-6 rounded-3xl bg-slate-50 p-5">
             <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-              Period
+              {t("settlementDetail.labels.period")}
             </p>
             <p className="mt-2 text-lg font-black text-slate-950">
               {settlement.period_start} —{" "}
@@ -572,72 +597,80 @@ export default function TicketingSettlementDetailPage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {[
               [
-                "Bookings",
+                t("settlementDetail.summary.bookings"),
                 settlement.total_bookings,
               ],
               [
-                "Guests booked",
+                t("settlementDetail.summary.guestsBooked"),
                 settlement.total_guests_booked,
               ],
               [
-                "Guests admitted",
+                t("settlementDetail.summary.guestsAdmitted"),
                 settlement.total_guests_admitted,
               ],
-              ["No shows", settlement.total_no_shows],
+              [t("settlementDetail.summary.noShows"), settlement.total_no_shows],
               [
-                "Platform entitlement",
+                t("settlementDetail.summary.platformEntitlement"),
                 formatMoney(
                   settlement.platform_entitlement,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Seller entitlement",
+                t("settlementDetail.summary.sellerEntitlement"),
                 formatMoney(
                   settlement.seller_entitlement,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Collected by partner",
+                t("settlementDetail.summary.collectedByPartner"),
                 formatMoney(
                   settlement.collected_by_partner,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Collected by platform",
+                t("settlementDetail.summary.collectedByPlatform"),
                 formatMoney(
                   settlement.collected_by_platform,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Collected by sellers",
+                t("settlementDetail.summary.collectedBySellers"),
                 formatMoney(
                   settlement.collected_by_sellers,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Customer balance due",
+                t("settlementDetail.summary.customerBalanceDue"),
                 formatMoney(
                   settlement.customer_balance_due,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Partner owes platform",
+                t("settlementDetail.summary.partnerOwesPlatform"),
                 formatMoney(
                   settlement.partner_owes_platform,
                   settlement.currency,
+                  language,
                 ),
               ],
               [
-                "Platform owes partner",
+                t("settlementDetail.summary.platformOwesPartner"),
                 formatMoney(
                   settlement.platform_owes_partner,
                   settlement.currency,
+                  language,
                 ),
               ],
             ].map(([label, value]) => (
@@ -660,10 +693,10 @@ export default function TicketingSettlementDetailPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Workflow
+                {t("settlementDetail.sections.workflow")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                Settlement actions
+                {t("settlementDetail.sections.actions")}
               </h2>
             </div>
 
@@ -681,7 +714,7 @@ export default function TicketingSettlementDetailPage() {
                 {actionLoading === "submit" && (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
-                Submit for review
+                {t("settlementDetail.actions.submitForReview")}
               </button>
             )}
 
@@ -697,7 +730,7 @@ export default function TicketingSettlementDetailPage() {
                 ) : (
                   <ShieldCheck className="h-4 w-4" />
                 )}
-                Approve settlement
+                {t("settlementDetail.actions.approve")}
               </button>
             )}
 
@@ -708,7 +741,7 @@ export default function TicketingSettlementDetailPage() {
                 className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-700 px-4 text-sm font-black text-white transition hover:bg-emerald-800"
               >
                 <HandCoins className="h-4 w-4" />
-                Record payment
+                {t("settlementDetail.actions.recordPayment")}
               </button>
             )}
 
@@ -724,7 +757,7 @@ export default function TicketingSettlementDetailPage() {
                 ) : (
                   <FileWarning className="h-4 w-4" />
                 )}
-                Mark disputed
+                {t("settlementDetail.actions.markDisputed")}
               </button>
             )}
 
@@ -740,14 +773,14 @@ export default function TicketingSettlementDetailPage() {
                 ) : (
                   <XCircle className="h-4 w-4" />
                 )}
-                Cancel settlement
+                {t("settlementDetail.actions.cancelSettlement")}
               </button>
             )}
           </div>
 
           <div className="mt-6 rounded-3xl bg-slate-50 p-5">
             <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-              Payment progress
+              {t("settlementDetail.labels.paymentProgress")}
             </p>
             <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
               <div
@@ -774,12 +807,13 @@ export default function TicketingSettlementDetailPage() {
 
             <div className="mt-3 flex items-center justify-between gap-4 text-sm">
               <span className="font-bold text-slate-500">
-                Paid
+                {t("settlementDetail.labels.paid")}
               </span>
               <span className="font-black text-slate-900">
                 {formatMoney(
                   settlement.paid_amount,
                   settlement.currency,
+                  language,
                 )}
               </span>
             </div>
@@ -791,10 +825,10 @@ export default function TicketingSettlementDetailPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-              Reconciliation
+              {t("settlementDetail.sections.reconciliation")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              Ledger comparison
+              {t("settlementDetail.sections.ledgerComparison")}
             </h2>
           </div>
 
@@ -809,24 +843,26 @@ export default function TicketingSettlementDetailPage() {
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Payment total
+                {t("settlementDetail.labels.paymentTotal")}
               </p>
               <p className="mt-2 font-black text-slate-900">
                 {formatMoney(
                   reconciliation.payment_total,
                   settlement.currency,
+                  language,
                 )}
               </p>
             </div>
 
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Ledger total
+                {t("settlementDetail.labels.ledgerTotal")}
               </p>
               <p className="mt-2 font-black text-slate-900">
                 {formatMoney(
                   reconciliation.ledger_total,
                   settlement.currency,
+                  language,
                 )}
               </p>
             </div>
@@ -845,7 +881,7 @@ export default function TicketingSettlementDetailPage() {
                     : "text-amber-600"
                 }`}
               >
-                Difference
+                {t("settlementDetail.labels.difference")}
               </p>
               <p
                 className={`mt-2 font-black ${
@@ -857,13 +893,14 @@ export default function TicketingSettlementDetailPage() {
                 {formatMoney(
                   reconciliation.difference,
                   settlement.currency,
+                  language,
                 )}
               </p>
             </div>
           </div>
         ) : (
           <p className="mt-5 text-sm font-semibold text-slate-400">
-            Reconciliation is not available for this settlement.
+            {t("settlementDetail.sections.reconciliation")} is not available for this settlement.
           </p>
         )}
       </section>
@@ -874,11 +911,15 @@ export default function TicketingSettlementDetailPage() {
             <ReceiptText className="h-5 w-5 text-slate-400" />
             <div>
               <h2 className="text-xl font-black text-slate-950">
-                Settlement lines
+                {t("settlementDetail.lines.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-400">
-                {lines.length} line item
-                {lines.length === 1 ? "" : "s"}
+                {t(
+                  lines.length === 1
+                    ? "settlementDetail.lines.oneItem"
+                    : "settlementDetail.lines.items",
+                  { count: lines.length },
+                )}
               </p>
             </div>
           </div>
@@ -888,7 +929,7 @@ export default function TicketingSettlementDetailPage() {
           <div className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
             <ReceiptText className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No settlement lines
+              {t("settlementDetail.lines.empty")}
             </p>
           </div>
         ) : (
@@ -898,14 +939,14 @@ export default function TicketingSettlementDetailPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     {[
-                      "Booking",
-                      "Product",
-                      "Service date",
-                      "Booked",
-                      "Admitted",
-                      "Partner entitlement",
-                      "Collected by partner",
-                      "Net amount",
+                      t("settlementDetail.table.booking"),
+                      t("settlementDetail.table.product"),
+                      t("settlementDetail.table.serviceDate"),
+                      t("settlementDetail.table.booked"),
+                      t("settlementDetail.table.admitted"),
+                      t("settlementDetail.stats.partnerEntitlement"),
+                      t("settlementDetail.summary.collectedByPartner"),
+                      t("settlementDetail.table.netAmount"),
                     ].map((heading) => (
                       <th
                         key={heading}
@@ -948,6 +989,7 @@ export default function TicketingSettlementDetailPage() {
                         {formatMoney(
                           line.partner_entitlement,
                           settlement.currency,
+                          language,
                         )}
                       </td>
 
@@ -955,6 +997,7 @@ export default function TicketingSettlementDetailPage() {
                         {formatMoney(
                           line.collected_by_partner,
                           settlement.currency,
+                          language,
                         )}
                       </td>
 
@@ -962,6 +1005,7 @@ export default function TicketingSettlementDetailPage() {
                         {formatMoney(
                           line.net_amount,
                           settlement.currency,
+                          language,
                         )}
                       </td>
                     </tr>
@@ -984,7 +1028,7 @@ export default function TicketingSettlementDetailPage() {
                     </div>
 
                     <span className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
-                      {line.service_date || "No date"}
+                      {line.service_date || t("settlementDetail.fallbacks.noDate")}
                     </span>
                   </div>
 
@@ -1007,6 +1051,7 @@ export default function TicketingSettlementDetailPage() {
                         {formatMoney(
                           line.net_amount,
                           settlement.currency,
+                          language,
                         )}
                       </p>
                     </div>
@@ -1021,11 +1066,15 @@ export default function TicketingSettlementDetailPage() {
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
           <h2 className="text-xl font-black text-slate-950">
-            Settlement payments
+            {t("settlementDetail.payments.title")}
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-400">
-            {payments.length} payment
-            {payments.length === 1 ? "" : "s"}
+            {t(
+              payments.length === 1
+                ? "settlementDetail.payments.onePayment"
+                : "settlementDetail.payments.payments",
+              { count: payments.length },
+            )}
           </p>
         </div>
 
@@ -1033,7 +1082,7 @@ export default function TicketingSettlementDetailPage() {
           <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
             <HandCoins className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No payments recorded
+              {t("settlementDetail.payments.empty")}
             </p>
           </div>
         ) : (
@@ -1045,12 +1094,25 @@ export default function TicketingSettlementDetailPage() {
               >
                 <div>
                   <p className="font-black capitalize text-slate-950">
-                    {payment.payer_type} →{" "}
-                    {payment.payee_type}
+                    {t(
+                      `settlementDetail.entities.${payment.payer_type}`,
+                      undefined,
+                      payment.payer_type,
+                    )}{" "}
+                    →{" "}
+                    {t(
+                      `settlementDetail.entities.${payment.payee_type}`,
+                      undefined,
+                      payment.payee_type,
+                    )}
                   </p>
                   <p className="mt-1 text-sm font-semibold text-slate-400">
-                    {payment.payment_method} ·{" "}
-                    {formatDateTime(payment.paid_at)}
+                    {t(
+                      `settlementDetail.paymentMethods.${payment.payment_method}`,
+                      undefined,
+                      payment.payment_method.replaceAll("_", " "),
+                    )}{" "}
+                    · {formatDateTime(payment.paid_at, language)}
                   </p>
                 </div>
 
@@ -1059,10 +1121,15 @@ export default function TicketingSettlementDetailPage() {
                     {formatMoney(
                       payment.amount,
                       payment.currency,
+                      language,
                     )}
                   </p>
                   <span className="mt-1 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black capitalize text-slate-600">
-                    {payment.status}
+                    {t(
+                      `settlementDetail.paymentStatuses.${payment.status}`,
+                      undefined,
+                      payment.status,
+                    )}
                   </span>
                 </div>
               </article>
@@ -1077,10 +1144,10 @@ export default function TicketingSettlementDetailPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5">
               <div>
                 <h2 className="text-xl font-black text-slate-950">
-                  Record settlement payment
+                  {t("settlementDetail.paymentModal.title")}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Record money received or paid for this settlement.
+                  {t("settlementDetail.paymentModal.subtitle")}
                 </p>
               </div>
 
@@ -1100,7 +1167,7 @@ export default function TicketingSettlementDetailPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Payer
+                    {t("settlementDetail.paymentModal.payer")}
                   </span>
                   <select
                     value={paymentForm.payer_type}
@@ -1114,14 +1181,14 @@ export default function TicketingSettlementDetailPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
-                    <option value="partner">Partner</option>
-                    <option value="platform">Platform</option>
+                    <option value="partner">{t("settlementDetail.entities.partner")}</option>
+                    <option value="platform">{t("settlementDetail.entities.platform")}</option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Payee
+                    {t("settlementDetail.paymentModal.payee")}
                   </span>
                   <select
                     value={paymentForm.payee_type}
@@ -1135,8 +1202,8 @@ export default function TicketingSettlementDetailPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
-                    <option value="platform">Platform</option>
-                    <option value="partner">Partner</option>
+                    <option value="platform">{t("settlementDetail.entities.platform")}</option>
+                    <option value="partner">{t("settlementDetail.entities.partner")}</option>
                   </select>
                 </label>
               </div>
@@ -1144,7 +1211,7 @@ export default function TicketingSettlementDetailPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Amount
+                    {t("settlementDetail.paymentModal.amount")}
                   </span>
                   <input
                     type="number"
@@ -1164,7 +1231,7 @@ export default function TicketingSettlementDetailPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Payment method
+                    {t("settlementDetail.paymentModal.paymentMethod")}
                   </span>
                   <select
                     value={paymentForm.payment_method}
@@ -1177,18 +1244,18 @@ export default function TicketingSettlementDetailPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
                     <option value="bank_transfer">
-                      Bank transfer
+                      {t("settlementDetail.paymentMethods.bank_transfer")}
                     </option>
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="online">Online</option>
-                    <option value="other">Other</option>
+                    <option value="cash">{t("settlementDetail.paymentMethods.cash")}</option>
+                    <option value="card">{t("settlementDetail.paymentMethods.card")}</option>
+                    <option value="online">{t("settlementDetail.paymentMethods.online")}</option>
+                    <option value="other">{t("settlementDetail.paymentMethods.other")}</option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Status
+                    {t("settlementDetail.paymentModal.status")}
                   </span>
                   <select
                     value={paymentForm.status}
@@ -1201,19 +1268,19 @@ export default function TicketingSettlementDetailPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
                     <option value="confirmed">
-                      Confirmed
+                      {t("settlementDetail.paymentStatuses.confirmed")}
                     </option>
-                    <option value="pending">Pending</option>
-                    <option value="failed">Failed</option>
+                    <option value="pending">{t("settlementDetail.paymentStatuses.pending")}</option>
+                    <option value="failed">{t("settlementDetail.paymentStatuses.failed")}</option>
                     <option value="cancelled">
-                      Cancelled
+                      {t("settlementDetail.paymentStatuses.cancelled")}
                     </option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Paid at
+                    {t("settlementDetail.labels.paid")} at
                   </span>
                   <input
                     type="datetime-local"
@@ -1231,7 +1298,7 @@ export default function TicketingSettlementDetailPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Reference
+                  {t("settlementDetail.paymentModal.reference")}
                 </span>
                 <input
                   value={paymentForm.reference}
@@ -1247,7 +1314,7 @@ export default function TicketingSettlementDetailPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Notes
+                  {t("settlementDetail.paymentModal.notes")}
                 </span>
                 <textarea
                   value={paymentForm.notes}
@@ -1264,7 +1331,7 @@ export default function TicketingSettlementDetailPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Attachment
+                  {t("settlementDetail.paymentModal.attachment")}
                 </span>
                 <input
                   type="file"
@@ -1285,7 +1352,7 @@ export default function TicketingSettlementDetailPage() {
                   onClick={() => setPaymentModalOpen(false)}
                   className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
                 >
-                  Cancel
+                  {t("settlementDetail.actions.cancel")}
                 </button>
 
                 <button
@@ -1300,7 +1367,7 @@ export default function TicketingSettlementDetailPage() {
                   {submittingPayment && (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   )}
-                  Record payment
+                  {t("settlementDetail.actions.recordPayment")}
                 </button>
               </div>
             </form>

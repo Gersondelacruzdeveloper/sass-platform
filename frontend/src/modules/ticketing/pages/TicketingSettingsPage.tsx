@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import BrandingSettings from "../components/settings/BrandingSettings";
 import HomePageSettings from "../components/settings/HomePageSettings";
 import PublicWebsiteSettings from "../components/settings/PublicWebsiteSettings";
@@ -461,11 +462,18 @@ function formatPercent(value: string) {
   return `${number}%`;
 }
 
-function formatExampleAmount(symbol: string, amount: number) {
-  return `${symbol || "US$"} ${amount.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function formatExampleAmount(
+  symbol: string,
+  amount: number,
+  language: "en" | "es" = "en",
+) {
+  return `${symbol || "US$"} ${amount.toLocaleString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  )}`;
 }
 
 function isImageFile(file: File) {
@@ -571,15 +579,27 @@ function getDetectedPublicDomain(
   return window.location.host || organisationSlug || "this organisation";
 }
 
-function getStripeKeyModeLabel(value: string) {
-  if (value.startsWith("pk_live_") || value.startsWith("sk_live_"))
-    return "Live mode";
-  if (value.startsWith("pk_test_") || value.startsWith("sk_test_"))
-    return "Test mode";
-  return "Not detected";
+function getStripeKeyModeLabel(
+  value: string,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+) {
+  if (value.startsWith("pk_live_") || value.startsWith("sk_live_")) {
+    return t("settings.stripe.liveMode");
+  }
+
+  if (value.startsWith("pk_test_") || value.startsWith("sk_test_")) {
+    return t("settings.stripe.testMode");
+  }
+
+  return t("settings.stripe.notDetected");
 }
 
 export default function TicketingSettingsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
 
   const [loading, setLoading] = useState(true);
@@ -1285,7 +1305,7 @@ export default function TicketingSettingsPage() {
           err?.response?.data?.detail ||
             err?.response?.data?.error ||
             err?.response?.data?.message ||
-            "No se pudo cargar la configuración de Ticketing.",
+            t("settings.errors.load"),
         );
       } finally {
         setLoading(false);
@@ -1957,7 +1977,7 @@ export default function TicketingSettingsPage() {
       setOgImageFile(null);
 
       setSavedMessage(
-        "Configuración guardada. Si subiste un logo, el favicon y los app icons fueron regenerados desde ese logo.",
+        t("settings.messages.saved"),
       );
     } catch (err: any) {
       console.error("Could not save ticketing settings:", err);
@@ -1966,7 +1986,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "No se pudo guardar la configuración de Ticketing.",
+          t("settings.errors.save"),
       );
     } finally {
       setSaving(false);
@@ -2050,7 +2070,7 @@ export default function TicketingSettingsPage() {
       setSavedMessage(
         response.data.message ||
           response.data.detail ||
-          "OpenAI connection verified successfully.",
+          t("settings.messages.aiVerified"),
       );
     } catch (err: any) {
       console.error("Could not test AI connection:", err);
@@ -2072,7 +2092,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not verify the OpenAI connection.",
+          t("settings.errors.aiVerify"),
       );
     } finally {
       setTestingAI(false);
@@ -2083,7 +2103,7 @@ export default function TicketingSettingsPage() {
     if (!aiSettings.has_api_key) return;
 
     const confirmed = window.confirm(
-      "Remove the saved OpenAI API key for this organisation?",
+      t("settings.confirm.removeAIKey"),
     );
 
     if (!confirmed) return;
@@ -2113,7 +2133,7 @@ export default function TicketingSettingsPage() {
         ),
       });
       setAIApiKey("");
-      setSavedMessage("OpenAI API key removed.");
+      setSavedMessage(t("settings.messages.aiKeyRemoved"));
     } catch (err: any) {
       console.error("Could not remove AI key:", err);
 
@@ -2121,7 +2141,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not remove the OpenAI API key.",
+          t("settings.errors.aiKeyRemove"),
       );
     } finally {
       setRemovingAIKey(false);
@@ -2149,7 +2169,7 @@ export default function TicketingSettingsPage() {
         return;
       }
 
-      throw new Error("Google authorization URL was not returned.");
+      throw new Error(t("settings.errors.googleUrlMissing"));
     } catch (err: any) {
       console.error("Could not start Google connection:", err);
 
@@ -2157,7 +2177,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not start Google connection.",
+          t("settings.errors.googleConnect"),
       );
     } finally {
       setConnectingGoogle(false);
@@ -2184,7 +2204,7 @@ export default function TicketingSettingsPage() {
         smtp_password: "",
       }));
 
-      setSavedMessage("Google account disconnected.");
+      setSavedMessage(t("settings.messages.googleDisconnected"));
     } catch (err: any) {
       console.error("Could not disconnect Google:", err);
 
@@ -2192,7 +2212,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not disconnect Google.",
+          t("settings.errors.googleDisconnect"),
       );
     } finally {
       setDisconnectingGoogle(false);
@@ -2243,7 +2263,7 @@ export default function TicketingSettingsPage() {
         smtp_password: "",
       }));
 
-      setSavedMessage(response.data.detail || "Test email sent successfully.");
+      setSavedMessage(response.data.detail || t("settings.messages.testEmailSent"));
     } catch (err: any) {
       console.error("Could not send test email:", err);
 
@@ -2261,7 +2281,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "No se pudo enviar el correo de prueba.",
+          t("settings.errors.testEmail"),
       );
     } finally {
       setTestingEmail(false);
@@ -2312,7 +2332,7 @@ export default function TicketingSettingsPage() {
       }));
 
       setSavedMessage(
-        response.data.detail || "WhatsApp connection verified successfully.",
+        response.data.detail || t("settings.messages.whatsappVerified"),
       );
     } catch (err: any) {
       console.error("Could not test WhatsApp connection:", err);
@@ -2333,7 +2353,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not verify the WhatsApp connection.",
+          t("settings.errors.whatsappVerify"),
       );
     } finally {
       setTestingWhatsAppConnection(false);
@@ -2370,7 +2390,7 @@ export default function TicketingSettingsPage() {
       }));
 
       setSavedMessage(
-        response.data.detail || "WhatsApp test message sent successfully.",
+        response.data.detail || t("settings.messages.whatsappTestSent"),
       );
     } catch (err: any) {
       console.error("Could not send WhatsApp test message:", err);
@@ -2379,7 +2399,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not send the WhatsApp test message.",
+          t("settings.errors.whatsappTest"),
       );
     } finally {
       setSendingWhatsAppTest(false);
@@ -2408,7 +2428,7 @@ export default function TicketingSettingsPage() {
         webhook_verify_token: "",
       });
 
-      setSavedMessage("WhatsApp Business account disconnected.");
+      setSavedMessage(t("settings.messages.whatsappDisconnected"));
     } catch (err: any) {
       console.error("Could not disconnect WhatsApp:", err);
 
@@ -2416,7 +2436,7 @@ export default function TicketingSettingsPage() {
         err?.response?.data?.detail ||
           err?.response?.data?.error ||
           err?.response?.data?.message ||
-          "Could not disconnect the WhatsApp Business account.",
+          t("settings.errors.whatsappDisconnect"),
       );
     } finally {
       setDisconnectingWhatsApp(false);
@@ -2438,7 +2458,7 @@ export default function TicketingSettingsPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600">
-        Loading Ticketing settings...
+        {t("settings.loading")}
       </div>
     );
   }
@@ -2457,14 +2477,11 @@ export default function TicketingSettingsPage() {
             </p>
 
             <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-              Ticketing Settings
+              {t("settings.title")}
             </h1>
 
             <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-              Configure the owner workspace, public booking website, generated
-              app icons, payment rules, taxes, deposits, notifications, SEO and
-              AI discoverability. Products such as Saona, Catalina, transfers or
-              events are created in Products, not here.
+              {t("settings.subtitle")}
             </p>
           </div>
         </div>
@@ -2482,39 +2499,39 @@ export default function TicketingSettingsPage() {
           )}
           {saving
             ? compressing
-              ? "Compressing images..."
-              : "Saving..."
-            : "Save Settings"}
+              ? t("settings.actions.compressing")
+              : t("settings.actions.saving")
+            : t("settings.actions.save")}
         </button>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          title="Organisation"
-          value={settings.organisation_name || organisationSlug || "Active"}
+          title={t("settings.stats.organisation")}
+          value={settings.organisation_name || organisationSlug || t("settings.status.active")}
           icon={Building2}
-          helper="Owner workspace"
+          helper={t("settings.stats.ownerWorkspace")}
         />
 
         <StatCard
-          title="Currency"
+          title={t("settings.stats.currency")}
           value={settings.currency_symbol || "US$"}
           icon={Banknote}
           helper={settings.default_currency || "USD"}
         />
 
         <StatCard
-          title="Tax"
+          title={t("settings.stats.tax")}
           value={formatPercent(settings.tax_percentage)}
           icon={Percent}
-          helper="Applied to bookings"
+          helper={t("settings.stats.appliedToBookings")}
         />
 
         <StatCard
-          title="App Icons"
-          value={appIconsReady ? "Ready" : "Pending"}
+          title={t("settings.stats.appIcons")}
+          value={appIconsReady ? t("settings.status.ready") : t("settings.status.pending")}
           icon={Smartphone}
-          helper={appIconsReady ? "Generated from logo" : "Upload logo first"}
+          helper={appIconsReady ? t("settings.stats.generatedFromLogo") : t("settings.stats.uploadLogoFirst")}
         />
       </section>
 
@@ -2568,7 +2585,7 @@ export default function TicketingSettingsPage() {
               className="inline-flex min-h-20 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Download className="h-4 w-4" />
-              Open Manifest
+              {t("settings.actions.open")} Manifest
             </button>
           </div>
         </Panel>
@@ -2580,14 +2597,14 @@ export default function TicketingSettingsPage() {
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
-              label="Module name"
+              label={t("settings.fields.moduleName")}
               value={settings.module_name}
               onChange={(value) => updateSettingsField("module_name", value)}
               placeholder="Tours, Tickets & Transfers"
             />
 
             <Input
-              label="Public brand name"
+              label={t("settings.fields.publicBrandName")}
               value={settings.public_brand_name}
               onChange={(value) =>
                 updateSettingsField("public_brand_name", value)
@@ -2629,7 +2646,7 @@ export default function TicketingSettingsPage() {
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
-              label="Currency symbol"
+              label={t("settings.fields.currencySymbol")}
               value={settings.currency_symbol}
               onChange={(value) =>
                 updateSettingsField("currency_symbol", value)
@@ -2638,7 +2655,7 @@ export default function TicketingSettingsPage() {
             />
 
             <Input
-              label="Default currency code"
+              label={`${t("settings.fields.defaultCurrency")} code`}
               value={settings.default_currency}
               onChange={(value) =>
                 updateSettingsField("default_currency", value.toUpperCase())
@@ -2654,7 +2671,7 @@ export default function TicketingSettingsPage() {
             />
 
             <Input
-              label="Tax percentage (%)"
+              label={`${t("settings.fields.taxPercentage")} (%)`}
               type="number"
               min="0"
               step="0.01"
@@ -2664,7 +2681,7 @@ export default function TicketingSettingsPage() {
             />
 
             <Input
-              label="Default deposit percentage (%)"
+              label={`${t("settings.fields.defaultDepositPercentage")} (%)`}
               type="number"
               min="0"
               step="0.01"
@@ -2683,11 +2700,11 @@ export default function TicketingSettingsPage() {
             </strong>{" "}
             + tax{" "}
             <strong>
-              {formatExampleAmount(settings.currency_symbol, taxExample)}
+              {formatExampleAmount(settings.currency_symbol, taxExample, language)}
             </strong>{" "}
             = total{" "}
             <strong>
-              {formatExampleAmount(settings.currency_symbol, totalExample)}
+              {formatExampleAmount(settings.currency_symbol, totalExample, language)}
             </strong>
           </div>
         </Panel>
@@ -2741,7 +2758,7 @@ export default function TicketingSettingsPage() {
 
             <Toggle
               label="Allow bank transfer"
-              description="Manual bank transfer can be used as a payment method."
+              description={`${t("settings.toggles.manualBankTransfer")} can be used as a payment method.`}
               checked={settings.allow_manual_bank_transfer}
               onChange={(value) =>
                 updateSettingsField("allow_manual_bank_transfer", value)
@@ -2772,7 +2789,7 @@ export default function TicketingSettingsPage() {
         </Panel>
 
         <Panel
-          title="Notifications and confirmations"
+          title={`${t("settings.sections.notifications")} and confirmations`}
           description="Control default communication behavior for customers and owners."
           icon={Bell}
         >
@@ -2796,7 +2813,7 @@ export default function TicketingSettingsPage() {
             />
 
             <Toggle
-              label="Notify owner on booking"
+              label={t("settings.toggles.notifyOwner")}
               description="Notify the owner/admin when a booking is created."
               checked={settings.notify_owner_on_booking}
               onChange={(value) =>
@@ -2808,7 +2825,7 @@ export default function TicketingSettingsPage() {
 
         <Panel
           title="AI and product translations"
-          description="Configure the organisation's own OpenAI API key. The key is encrypted by the backend and is never returned to the browser after saving."
+          description={`Configure the organisation's own ${t("settings.ai.apiKey")}. The key is encrypted by the backend and is never returned to the browser after saving.`}
           icon={Sparkles}
           className="xl:col-span-2"
         >
@@ -2829,7 +2846,7 @@ export default function TicketingSettingsPage() {
                 </div>
 
                 <Input
-                  label="Default model"
+                  label={t("settings.ai.defaultModel")}
                   value={aiSettings.default_model}
                   onChange={(value) =>
                     updateAISettingsField("default_model", value)
@@ -2840,7 +2857,7 @@ export default function TicketingSettingsPage() {
 
               <div>
                 <label className="text-sm font-black text-slate-900">
-                  OpenAI API key
+                  {t("settings.ai.apiKey")}
                 </label>
 
                 <input
@@ -2865,7 +2882,7 @@ export default function TicketingSettingsPage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Toggle
-                  label="Enable AI"
+                  label={t("settings.ai.enable")}
                   description="Master switch for AI features in this organisation."
                   checked={aiSettings.is_enabled}
                   onChange={(value) =>
@@ -2874,7 +2891,7 @@ export default function TicketingSettingsPage() {
                 />
 
                 <Toggle
-                  label="Enable AI translations"
+                  label={`${t("settings.ai.enable")} translations`}
                   description="Allow owners to generate product translations with AI."
                   checked={aiSettings.translations_enabled}
                   onChange={(value) =>
@@ -2934,7 +2951,7 @@ export default function TicketingSettingsPage() {
                       : "bg-amber-100 text-amber-700"
                   }`}
                 >
-                  {aiSettings.ai_ready ? "Ready" : "Not ready"}
+                  {aiSettings.ai_ready ? t("settings.status.ready") : "Not ready"}
                 </span>
               </div>
 
@@ -2943,7 +2960,7 @@ export default function TicketingSettingsPage() {
                   API key
                 </p>
                 <p className="mt-1 text-sm font-black text-slate-900">
-                  {aiSettings.has_api_key ? "Configured" : "Not configured"}
+                  {aiSettings.has_api_key ? t("settings.status.configured") : t("settings.status.notConfigured")}
                 </p>
               </div>
 
@@ -3061,7 +3078,9 @@ export default function TicketingSettingsPage() {
           CopyValue={CopyValue}
           getDetectedPublicDomain={getDetectedPublicDomain}
           getStripeWebhookEndpoint={getStripeWebhookEndpoint}
-          getStripeKeyModeLabel={getStripeKeyModeLabel}
+          getStripeKeyModeLabel={(value) =>
+          getStripeKeyModeLabel(value, t)
+        }
         />
 
         <Panel
@@ -3136,9 +3155,9 @@ export default function TicketingSettingsPage() {
         )}
         {saving
           ? compressing
-            ? "Compressing images..."
-            : "Saving..."
-          : "Save Settings"}
+            ? t("settings.actions.compressing")
+            : t("settings.actions.saving")
+          : t("settings.actions.save")}
       </button>
     </div>
   );
@@ -3279,6 +3298,8 @@ function HelpLabel({ label, help }: { label: string; help?: ReactNode }) {
 }
 
 function CopyValue({ label, value }: { label: string; value: string }) {
+  const { t } = useTicketingAdminTranslation();
+
   async function copyValue() {
     try {
       await navigator.clipboard.writeText(value);
@@ -3300,7 +3321,7 @@ function CopyValue({ label, value }: { label: string; value: string }) {
           type="button"
           onClick={copyValue}
           className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
-          title="Copy"
+          title={t("settings.actions.copy")}
         >
           <Copy className="h-4 w-4" />
         </button>

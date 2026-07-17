@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   PartnerSettlementPeriod,
@@ -58,7 +59,7 @@ function getDefaultPeriod() {
   };
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -78,7 +79,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not process settlements."
+      fallback
     );
   }
 
@@ -86,7 +87,7 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not process settlements.";
+  return fallback;
 }
 
 function toNumber(value: string | number | null | undefined): number {
@@ -97,18 +98,35 @@ function toNumber(value: string | number | null | undefined): number {
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
+  language: "en" | "es" = "en",
 ): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(toNumber(value));
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    },
+  ).format(toNumber(value));
 }
 
-function formatStatus(value?: string | null): string {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function formatStatus(
+  value: string | null | undefined,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+): string {
+  const normalized = String(value || "unknown");
+
+  return t(
+    `settlements.statuses.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  );
 }
 
 function statusTone(status?: string | null) {
@@ -131,6 +149,7 @@ function statusTone(status?: string | null) {
 }
 
 export default function TicketingSettlementsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -195,10 +214,10 @@ export default function TicketingSettlementsPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("settlements.errors.process")),
       });
     }
-  }, [selectedEntityId, selectedStatus, slug]);
+  }, [selectedEntityId, selectedStatus, slug, t]);
 
   useEffect(() => {
     void loadData();
@@ -269,7 +288,7 @@ export default function TicketingSettlementsPage() {
     if (!form.business_entity_id) {
       setState((current) => ({
         ...current,
-        error: "Select a business entity.",
+        error: t("settlements.errors.selectEntity"),
       }));
       return null;
     }
@@ -277,7 +296,7 @@ export default function TicketingSettlementsPage() {
     if (!form.period_start || !form.period_end) {
       setState((current) => ({
         ...current,
-        error: "Select both the period start and end dates.",
+        error: t("settlements.errors.selectDates"),
       }));
       return null;
     }
@@ -314,7 +333,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
   } catch (error) {
     setState((current) => ({
       ...current,
-      error: getErrorMessage(error),
+      error: getErrorMessage(error, t("settlements.errors.process")),
     }));
   } finally {
     setPreviewing(false);
@@ -343,7 +362,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("settlements.errors.process")),
       }));
     } finally {
       setGenerating(false);
@@ -359,7 +378,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("settlements.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -369,10 +388,10 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                Settlement Center
+                {t("settlements.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Generate, review and reconcile partner settlements.
+                {t("settlements.subtitle")}
               </p>
             </div>
           </div>
@@ -384,7 +403,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
         >
           <Plus className="h-4 w-4" />
-          Generate settlement
+          {t("settlements.actions.generate")}
         </button>
       </section>
 
@@ -393,7 +412,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Settlement operation failed
+              {t("settlements.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -405,7 +424,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Settlement records
+            {t("settlements.stats.records")}
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
             {summary.total}
@@ -414,7 +433,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Settled periods
+            {t("settlements.stats.settledPeriods")}
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {summary.settled}
@@ -423,22 +442,23 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Outstanding total
+            {t("settlements.stats.outstandingTotal")}
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
             {formatMoney(
               summary.outstanding,
               summaryCurrency,
+              language,
             )}
           </p>
         </article>
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Net settlement value
+            {t("settlements.stats.netValue")}
           </p>
           <p className="mt-2 text-2xl font-black text-blue-700">
-            {formatMoney(summary.net, summaryCurrency)}
+            {formatMoney(summary.net, summaryCurrency, language)}
           </p>
         </article>
       </section>
@@ -456,7 +476,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                 onChange={(event) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Settlement number or partner"
+                placeholder={t("settlements.filters.searchPlaceholder")}
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
             </div>
@@ -464,7 +484,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Business entity
+              {t("settlements.filters.businessEntity")}
             </span>
             <select
               value={selectedEntityId}
@@ -477,7 +497,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All entities</option>
+              <option value="">{t("settlements.filters.allEntities")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
                   {entity.name}
@@ -488,7 +508,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Status
+              {t("settlements.filters.status")}
             </span>
             <select
               value={selectedStatus}
@@ -497,16 +517,16 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="review">Review</option>
-              <option value="approved">Approved</option>
+              <option value="">{t("settlements.filters.allStatuses")}</option>
+              <option value="draft">{t("settlements.statuses.draft")}</option>
+              <option value="review">{t("settlements.statuses.review")}</option>
+              <option value="approved">{t("settlements.statuses.approved")}</option>
               <option value="partially_paid">
-                Partially paid
+                {t("settlements.statuses.partially_paid")}
               </option>
-              <option value="settled">Settled</option>
-              <option value="disputed">Disputed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="settled">{t("settlements.statuses.settled")}</option>
+              <option value="disputed">{t("settlements.statuses.disputed")}</option>
+              <option value="cancelled">{t("settlements.statuses.cancelled")}</option>
             </select>
           </label>
 
@@ -516,7 +536,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
             className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("settlements.actions.refresh")}
           </button>
         </div>
       </section>
@@ -524,11 +544,15 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
           <h2 className="text-xl font-black text-slate-950">
-            Settlement history
+            {t("settlements.history.title")}
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-400">
-            {filteredSettlements.length} record
-            {filteredSettlements.length === 1 ? "" : "s"}
+            {t(
+              filteredSettlements.length === 1
+                ? "settlements.history.oneRecord"
+                : "settlements.history.records",
+              { count: filteredSettlements.length },
+            )}
           </p>
         </div>
 
@@ -536,17 +560,17 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
           <div className="flex min-h-72 items-center justify-center">
             <div className="flex items-center gap-3 text-sm font-black text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading settlements...
+              {t("settlements.loading")}
             </div>
           </div>
         ) : filteredSettlements.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <WalletCards className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No settlements found
+              {t("settlements.empty.title")}
             </p>
             <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
-              Generate a partner settlement for a selected period.
+              {t("settlements.empty.description")}
             </p>
           </div>
         ) : (
@@ -572,7 +596,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                       settlement.status,
                     )}`}
                   >
-                    {formatStatus(settlement.status)}
+                    {formatStatus(settlement.status, t)}
                   </span>
                 </div>
 
@@ -585,31 +609,33 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Net amount
+                      {t("settlements.labels.netAmount")}
                     </p>
                     <p className="mt-2 text-lg font-black text-slate-950">
                       {formatMoney(
                         settlement.net_settlement_amount,
                         settlement.currency,
+                        language,
                       )}
                     </p>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Outstanding
+                      {t("settlements.labels.outstanding")}
                     </p>
                     <p className="mt-2 text-lg font-black text-amber-700">
                       {formatMoney(
                         settlement.outstanding_amount,
                         settlement.currency,
+                        language,
                       )}
                     </p>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Guests admitted
+                      {t("settlements.labels.guestsAdmitted")}
                     </p>
                     <p className="mt-2 text-lg font-black text-slate-950">
                       {settlement.total_guests_admitted}
@@ -618,7 +644,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      No shows
+                      {t("settlements.labels.noShows")}
                     </p>
                     <p className="mt-2 text-lg font-black text-slate-950">
                       {settlement.total_no_shows}
@@ -630,7 +656,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                   to={`/ticketing/${slug}/operations/settlements/${settlement.id}`}
                   className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-900"
                 >
-                  Open settlement
+                  {t("settlements.actions.open")}
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </article>
@@ -645,10 +671,10 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5">
               <div>
                 <h2 className="text-xl font-black text-slate-950">
-                  Generate settlement
+                  {t("settlements.actions.generate")}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Preview the period before creating the draft.
+                  {t("settlements.modal.subtitle")}
                 </p>
               </div>
 
@@ -671,7 +697,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
               <div className="grid gap-4 sm:grid-cols-3">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Business entity
+                    {t("settlements.filters.businessEntity")}
                   </span>
                   <select
                     value={form.business_entity_id}
@@ -685,7 +711,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                     required
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
-                    <option value="">Select entity</option>
+                    <option value="">{t("settlements.modal.selectEntity")}</option>
                     {entities.map((entity) => (
                       <option key={entity.id} value={entity.id}>
                         {entity.name}
@@ -696,7 +722,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Period start
+                    {t("settlements.modal.periodStart")}
                   </span>
                   <input
                     type="date"
@@ -714,7 +740,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Period end
+                    {t("settlements.modal.periodEnd")}
                   </span>
                   <input
                     type="date"
@@ -733,7 +759,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Notes
+                  {t("settlements.modal.notes")}
                 </span>
                 <textarea
                   value={form.notes}
@@ -744,14 +770,14 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                     }))
                   }
                   rows={3}
-                  placeholder="Optional settlement note..."
+                  placeholder={t("settlements.modal.notesPlaceholder")}
                   className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                 />
               </label>
 
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4">
                 <span className="text-sm font-black text-slate-700">
-                  Regenerate an existing draft
+                  {t("settlements.modal.regenerateDraft")}
                 </span>
                 <input
                   type="checkbox"
@@ -782,7 +808,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                 ) : (
                   <Eye className="h-4 w-4" />
                 )}
-                Preview settlement
+                {t("settlements.actions.preview")}
               </button>
 
               {preview && (
@@ -794,7 +820,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                     <div>
                       <p className="font-black text-slate-950">
-                        Settlement preview
+                        {t("settlements.preview.title")}
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-400">
                         {preview.business_entity_name}
@@ -805,7 +831,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded-2xl bg-white p-4 shadow-sm">
                       <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                        Bookings
+                        {t("settlements.preview.bookings")}
                       </p>
                       <p className="mt-2 text-lg font-black text-slate-950">
                         {preview.total_bookings}
@@ -814,7 +840,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                     <div className="rounded-2xl bg-white p-4 shadow-sm">
                       <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                        Guests admitted
+                        {t("settlements.labels.guestsAdmitted")}
                       </p>
                       <p className="mt-2 text-lg font-black text-slate-950">
                         {preview.total_guests_admitted}
@@ -823,7 +849,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                     <div className="rounded-2xl bg-white p-4 shadow-sm">
                       <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                        No shows
+                        {t("settlements.labels.noShows")}
                       </p>
                       <p className="mt-2 text-lg font-black text-slate-950">
                         {preview.total_no_shows}
@@ -832,12 +858,13 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
 
                     <div className="rounded-2xl bg-white p-4 shadow-sm">
                       <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                        Net amount
+                        {t("settlements.labels.netAmount")}
                       </p>
                       <p className="mt-2 text-lg font-black text-blue-700">
                         {formatMoney(
                           preview.totals.net_settlement_amount,
                           preview.currency,
+                          language,
                         )}
                       </p>
                     </div>
@@ -852,7 +879,7 @@ const handlePreview: React.FormEventHandler<HTMLFormElement> = async (
                     {generating && (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     )}
-                    Generate draft settlement
+                    {t("settlements.actions.generateDraft")}
                   </button>
                 </div>
               )}

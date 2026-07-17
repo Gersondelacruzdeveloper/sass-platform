@@ -21,6 +21,7 @@ import {
   Smartphone,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   TicketScanAttempt,
@@ -37,7 +38,7 @@ function getToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -57,7 +58,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not load scan history."
+      fallback
     );
   }
 
@@ -65,25 +66,30 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not load scan history.";
+  return fallback;
 }
 
-function formatDateTime(value?: string | null): string {
+function formatDateTime(
+  value: string | null | undefined,
+  language: "en" | "es",
+): string {
   if (!value) return "—";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
 
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    { dateStyle: "medium", timeStyle: "short" },
+  ).format(date);
 }
 
-function normalizeResultLabel(value?: string | null): string {
-  return String(value || "unknown")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function formatResultLabel(
+  value: string | null | undefined,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string {
+  const normalized = String(value || "unknown");
+  return t(`scanAttempts.results.${normalized}`);
 }
 
 function resultTone(result?: string | null) {
@@ -113,6 +119,7 @@ function resultTone(result?: string | null) {
 }
 
 export default function TicketingScanAttemptsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -163,7 +170,7 @@ export default function TicketingScanAttemptsPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("scanAttempts.errors.load")),
       });
     }
   }, [
@@ -171,6 +178,7 @@ export default function TicketingScanAttemptsPage() {
     selectedEntityId,
     selectedResult,
     slug,
+    t,
   ]);
 
   useEffect(() => {
@@ -241,7 +249,7 @@ export default function TicketingScanAttemptsPage() {
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("scanAttempts.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -251,10 +259,10 @@ export default function TicketingScanAttemptsPage() {
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                Scan History
+                {t("scanAttempts.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Audit every QR validation attempt and scanner result.
+                {t("scanAttempts.subtitle")}
               </p>
             </div>
           </div>
@@ -266,7 +274,7 @@ export default function TicketingScanAttemptsPage() {
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
         >
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          {t("scanAttempts.actions.refresh")}
         </button>
       </section>
 
@@ -275,7 +283,7 @@ export default function TicketingScanAttemptsPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Scan history could not be loaded
+              {t("scanAttempts.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -287,7 +295,7 @@ export default function TicketingScanAttemptsPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Total scans
+            {t("scanAttempts.stats.total")}
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
             {summary.total}
@@ -296,7 +304,7 @@ export default function TicketingScanAttemptsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Successful
+            {t("scanAttempts.stats.successful")}
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {summary.successful}
@@ -305,7 +313,7 @@ export default function TicketingScanAttemptsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Failed or blocked
+            {t("scanAttempts.stats.failed")}
           </p>
           <p className="mt-2 text-2xl font-black text-rose-700">
             {summary.failed}
@@ -314,7 +322,7 @@ export default function TicketingScanAttemptsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Offline events
+            {t("scanAttempts.stats.offline")}
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
             {summary.offline}
@@ -326,7 +334,7 @@ export default function TicketingScanAttemptsPage() {
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1.4fr]">
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Business entity
+              {t("scanAttempts.filters.businessEntity")}
             </span>
             <select
               value={selectedEntityId}
@@ -339,7 +347,7 @@ export default function TicketingScanAttemptsPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All entities</option>
+              <option value="">{t("scanAttempts.filters.allEntities")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
                   {entity.name}
@@ -350,7 +358,7 @@ export default function TicketingScanAttemptsPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Scan result
+              {t("scanAttempts.filters.result")}
             </span>
             <select
               value={selectedResult}
@@ -359,32 +367,32 @@ export default function TicketingScanAttemptsPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All results</option>
-              <option value="valid">Valid</option>
-              <option value="admitted">Admitted</option>
+              <option value="">{t("scanAttempts.filters.allResults")}</option>
+              <option value="valid">{t("scanAttempts.results.valid")}</option>
+              <option value="admitted">{t("scanAttempts.results.admitted")}</option>
               <option value="partially_used">
-                Partially used
+                {t("scanAttempts.results.partially_used")}
               </option>
               <option value="already_used">
-                Already used
+                {t("scanAttempts.results.already_used")}
               </option>
-              <option value="invalid">Invalid</option>
-              <option value="not_found">Not found</option>
-              <option value="expired">Expired</option>
-              <option value="revoked">Revoked</option>
+              <option value="invalid">{t("scanAttempts.results.invalid")}</option>
+              <option value="not_found">{t("scanAttempts.results.not_found")}</option>
+              <option value="expired">{t("scanAttempts.results.expired")}</option>
+              <option value="revoked">{t("scanAttempts.results.revoked")}</option>
               <option value="wrong_partner">
-                Wrong partner
+                {t("scanAttempts.results.wrong_partner")}
               </option>
-              <option value="wrong_date">Wrong date</option>
+              <option value="wrong_date">{t("scanAttempts.results.wrong_date")}</option>
               <option value="unauthorised">
-                Unauthorised
+                {t("scanAttempts.results.unauthorised")}
               </option>
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Scan date
+              {t("scanAttempts.filters.date")}
             </span>
             <input
               type="date"
@@ -398,7 +406,7 @@ export default function TicketingScanAttemptsPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Search
+              {t("scanAttempts.filters.search")}
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -407,7 +415,7 @@ export default function TicketingScanAttemptsPage() {
                 onChange={(event) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Booking, device or scanner"
+                placeholder={t("scanAttempts.filters.searchPlaceholder")}
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
             </div>
@@ -420,11 +428,15 @@ export default function TicketingScanAttemptsPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black text-slate-950">
-                QR scan attempts
+                {t("scanAttempts.directory.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-400">
-                {filteredAttempts.length} record
-                {filteredAttempts.length === 1 ? "" : "s"}
+                {t(
+                  filteredAttempts.length === 1
+                    ? "scanAttempts.directory.oneRecord"
+                    : "scanAttempts.directory.records",
+                  { count: filteredAttempts.length },
+                )}
               </p>
             </div>
 
@@ -432,7 +444,7 @@ export default function TicketingScanAttemptsPage() {
               to={`/ticketing/${slug}/operations/scanner`}
               className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-900"
             >
-              Open scanner
+              {t("scanAttempts.actions.openScanner")}
             </Link>
           </div>
         </div>
@@ -441,17 +453,17 @@ export default function TicketingScanAttemptsPage() {
           <div className="flex min-h-72 items-center justify-center">
             <div className="flex items-center gap-3 text-sm font-black text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading scan history...
+              {t("scanAttempts.loading")}
             </div>
           </div>
         ) : filteredAttempts.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <QrCode className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No scan attempts found
+              {t("scanAttempts.empty.title")}
             </p>
             <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
-              Change your filters or scan a customer ticket.
+              {t("scanAttempts.empty.description")}
             </p>
           </div>
         ) : (
@@ -461,13 +473,13 @@ export default function TicketingScanAttemptsPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     {[
-                      "Result",
-                      "Booking",
-                      "Business entity",
-                      "Quantity",
-                      "Scanner",
-                      "Scanned at",
-                      "Details",
+                      t("scanAttempts.table.result"),
+                      t("scanAttempts.table.booking"),
+                      t("scanAttempts.table.businessEntity"),
+                      t("scanAttempts.table.quantity"),
+                      t("scanAttempts.table.scanner"),
+                      t("scanAttempts.table.scannedAt"),
+                      t("scanAttempts.table.details"),
                     ].map((heading) => (
                       <th
                         key={heading}
@@ -497,8 +509,9 @@ export default function TicketingScanAttemptsPage() {
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-black ${tone.badge}`}
                             >
-                              {normalizeResultLabel(
+                              {formatResultLabel(
                                 attempt.result,
+                                t,
                               )}
                             </span>
                           </div>
@@ -509,7 +522,7 @@ export default function TicketingScanAttemptsPage() {
                             {attempt.booking_code || "—"}
                           </p>
                           <p className="mt-1 max-w-xs truncate text-xs font-semibold text-slate-400">
-                            {attempt.product_name || "No product"}
+                            {attempt.product_name || t("scanAttempts.labels.noProduct")}
                           </p>
                         </td>
 
@@ -529,7 +542,7 @@ export default function TicketingScanAttemptsPage() {
                             {attempt.requested_quantity}
                           </p>
                           <p className="mt-1 text-xs font-semibold text-slate-400">
-                            admitted / requested
+                            {t("scanAttempts.labels.admittedRequested")}
                           </p>
                         </td>
 
@@ -539,7 +552,7 @@ export default function TicketingScanAttemptsPage() {
                             <div>
                               <p className="font-bold text-slate-700">
                                 {attempt.scanner_name ||
-                                  "Unknown scanner"}
+                                  t("scanAttempts.labels.unknownScanner")}
                               </p>
                               <p className="mt-1 max-w-[14rem] truncate text-xs font-semibold text-slate-400">
                                 {attempt.scanner_device_id ||
@@ -555,6 +568,7 @@ export default function TicketingScanAttemptsPage() {
                             <Clock3 className="h-4 w-4 text-slate-400" />
                             {formatDateTime(
                               attempt.scanned_at,
+                              language,
                             )}
                           </div>
                         </td>
@@ -563,7 +577,7 @@ export default function TicketingScanAttemptsPage() {
                           <p className="max-w-sm text-sm font-semibold leading-5 text-slate-500">
                             {attempt.failure_reason ||
                               attempt.location_name ||
-                              "Scan completed successfully."}
+                              t("scanAttempts.labels.scanCompleted")}
                           </p>
                         </td>
                       </tr>
@@ -591,12 +605,13 @@ export default function TicketingScanAttemptsPage() {
                         <div className="min-w-0">
                           <p className="truncate font-black text-slate-950">
                             {attempt.booking_code ||
-                              "Unresolved ticket"}
+                              t("scanAttempts.labels.unresolvedTicket")}
                           </p>
                           <p className="mt-1 truncate text-sm font-bold text-slate-500">
                             {attempt.product_name ||
-                              normalizeResultLabel(
+                              formatResultLabel(
                                 attempt.result,
+                                t,
                               )}
                           </p>
                         </div>
@@ -605,14 +620,14 @@ export default function TicketingScanAttemptsPage() {
                       <span
                         className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${tone.badge}`}
                       >
-                        {normalizeResultLabel(attempt.result)}
+                        {formatResultLabel(attempt.result, t)}
                       </span>
                     </div>
 
                     <div className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm">
                       <div className="flex justify-between gap-4">
                         <span className="font-bold text-slate-400">
-                          Entity
+                          {t("scanAttempts.table.entity")}
                         </span>
                         <span className="text-right font-black text-slate-800">
                           {attempt.business_entity_name || "—"}
@@ -621,7 +636,7 @@ export default function TicketingScanAttemptsPage() {
 
                       <div className="flex justify-between gap-4">
                         <span className="font-bold text-slate-400">
-                          Quantity
+                          {t("scanAttempts.table.quantity")}
                         </span>
                         <span className="font-black text-slate-800">
                           {attempt.admitted_quantity}/
@@ -631,7 +646,7 @@ export default function TicketingScanAttemptsPage() {
 
                       <div className="flex justify-between gap-4">
                         <span className="font-bold text-slate-400">
-                          Scanner
+                          {t("scanAttempts.table.scanner")}
                         </span>
                         <span className="max-w-[60%] truncate text-right font-black text-slate-800">
                           {attempt.scanner_name ||
@@ -642,10 +657,10 @@ export default function TicketingScanAttemptsPage() {
 
                       <div className="flex justify-between gap-4">
                         <span className="font-bold text-slate-400">
-                          Time
+                          {t("scanAttempts.table.time")}
                         </span>
                         <span className="text-right font-black text-slate-800">
-                          {formatDateTime(attempt.scanned_at)}
+                          {formatDateTime(attempt.scanned_at, language)}
                         </span>
                       </div>
                     </div>

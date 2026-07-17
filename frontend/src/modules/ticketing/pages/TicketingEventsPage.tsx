@@ -26,6 +26,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type ProductStatus = "draft" | "active" | "inactive" | "archived" | string;
 
@@ -146,12 +147,7 @@ const blankForm: EventFormState = {
   supports_pickup: false,
 };
 
-const statusOptions = [
-  { value: "draft", label: "Draft" },
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "archived", label: "Archived" },
-];
+const statusOptions = ["draft", "active", "inactive", "archived"] as const;
 
 function getRequestParams(organisationSlug?: string) {
   return {
@@ -206,17 +202,19 @@ function formatMoney(value?: string | number | null, symbol = "US$") {
   })}`;
 }
 
-function formatMinutes(value?: string | number | null) {
+function formatMinutes(value: string | number | null | undefined, t: (key: string) => string) {
   const minutes = Number(value || 0);
 
   if (!minutes) return "—";
 
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `${minutes} ${t("events.units.minutes")}`;
 
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
 
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  return rest
+    ? `${hours}${t("events.units.hoursShort")} ${rest}${t("events.units.minutesShort")}`
+    : `${hours}${t("events.units.hoursShort")}`;
 }
 
 function formatDate(value?: string | null) {
@@ -270,8 +268,8 @@ function getEventTime(product: ExperienceProduct) {
   );
 }
 
-function getEventVenue(product: ExperienceProduct) {
-  return product.venue_name || product.location_name || product.meeting_point || "Venue not configured";
+function getEventVenue(product: ExperienceProduct, fallback = "") {
+  return product.venue_name || product.location_name || product.meeting_point || fallback;
 }
 
 function getTicketTypes(product: ExperienceProduct) {
@@ -288,10 +286,14 @@ function slugify(value: string) {
     .slice(0, 70);
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(value: string | null | undefined, t: (key: string) => string) {
+  const normalized = String(value || "unknown").toLowerCase();
+  const knownKey = `events.status.${normalized}`;
+  const translated = t(knownKey);
 
-  return String(value)
+  if (translated !== knownKey) return translated;
+
+  return String(value || t("events.status.unknown"))
     .replaceAll("_", " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -397,6 +399,7 @@ function getProductPublicUrl(organisationSlug: string, product: ExperienceProduc
 }
 
 export default function TicketingEventsPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -447,7 +450,7 @@ export default function TicketingEventsPage() {
       setCategories(normalizeList<Category>(categoriesResponse.data));
     } catch (err: any) {
       console.error("Could not load events:", err);
-      setError(getErrorMessage(err, "Could not load events."));
+      setError(getErrorMessage(err, t("events.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -496,7 +499,7 @@ export default function TicketingEventsPage() {
         product.name,
         product.slug,
         product.status,
-        getEventVenue(product),
+        getEventVenue(product, t("events.fallbacks.venueNotConfigured")),
         product.category_detail?.name,
         product.short_description,
         product.description,
@@ -523,7 +526,7 @@ export default function TicketingEventsPage() {
 
       return true;
     });
-  }, [products, search, statusFilter, publicFilter]);
+  }, [products, search, statusFilter, publicFilter, t]);
 
   function openCreateForm() {
     setEditingEvent(null);
@@ -563,7 +566,7 @@ export default function TicketingEventsPage() {
 
   async function saveEvent() {
     if (!form.name.trim()) {
-      setError("Event name is required.");
+      setError(t("events.errors.nameRequired"));
       return;
     }
 
@@ -596,10 +599,10 @@ export default function TicketingEventsPage() {
 
       setShowForm(false);
       setEditingEvent(null);
-      setSavedMessage(editingEvent ? "Event updated." : "Event created.");
+      setSavedMessage(editingEvent ? t("events.messages.updated") : t("events.messages.created"));
     } catch (err: any) {
       console.error("Could not save event:", err);
-      setError(getErrorMessage(err, "Could not save event."));
+      setError(getErrorMessage(err, t("events.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -633,12 +636,12 @@ export default function TicketingEventsPage() {
 
       setSavedMessage(
         updatedProduct.public_enabled
-          ? "Event is now public."
-          : "Event is now hidden."
+          ? t("events.messages.nowPublic")
+          : t("events.messages.nowHidden")
       );
     } catch (err: any) {
       console.error("Could not update event:", err);
-      setError(getErrorMessage(err, "Could not update event."));
+      setError(getErrorMessage(err, t("events.errors.update")));
     } finally {
       setSaving(false);
     }
@@ -647,20 +650,20 @@ export default function TicketingEventsPage() {
   async function copyPublicLink(product: ExperienceProduct) {
     try {
       await navigator.clipboard.writeText(getProductPublicUrl(organisationSlug, product));
-      setSavedMessage("Public event link copied.");
+      setSavedMessage(t("events.messages.linkCopied"));
     } catch {
-      setError("Could not copy public link.");
+      setError(t("events.errors.copyLink"));
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Events"
-        subtitle="Manage concerts, beach parties, pool parties, VIP events and ticket types."
+        title={t("events.page.title")}
+        subtitle={t("events.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading events...
+          {t("events.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -668,39 +671,39 @@ export default function TicketingEventsPage() {
 
   return (
     <TicketingPageShell
-      title="Events"
-      subtitle="Manage concerts, beach parties, pool parties, VIP events and ticket types."
+      title={t("events.page.title")}
+      subtitle={t("events.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            title="Events"
+            title={t("events.page.title")}
             value={String(stats.total)}
-            helper="Event and nightlife products"
+            helper={t("events.stats.eventsHelper")}
             icon={<Music className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Active"
+            title={t("events.stats.active")}
             value={String(stats.active)}
-            helper="Available to sell"
+            helper={t("events.stats.activeHelper")}
             icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Public"
+            title={t("events.stats.public")}
             value={String(stats.publicProducts)}
-            helper="Visible on public site"
+            helper={t("events.stats.publicHelper")}
             icon={<ExternalLink className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Capacity"
+            title={t("events.stats.capacity")}
             value={String(stats.totalCapacity)}
-            helper="Combined capacity"
+            helper={t("events.stats.capacityHelper")}
             icon={<Users className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Average price"
+            title={t("events.stats.averagePrice")}
             value={formatMoney(stats.averagePrice)}
-            helper={`${stats.ticketTypeCount} ticket types`}
+            helper={t("events.stats.ticketTypesCount").replace("{count}", String(stats.ticketTypeCount))}
             icon={<DollarSign className="h-6 w-6 text-emerald-600" />}
           />
         </section>
@@ -723,10 +726,10 @@ export default function TicketingEventsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Event products
+                {t("events.list.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Create and manage events, parties, VIP experiences and ticket products.
+                {t("events.list.description")}
               </p>
             </div>
 
@@ -737,7 +740,7 @@ export default function TicketingEventsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("events.actions.refresh")}
               </button>
 
               <button
@@ -746,7 +749,7 @@ export default function TicketingEventsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
               >
                 <Plus className="h-4 w-4" />
-                New event
+                {t("events.actions.newEvent")}
               </button>
             </div>
           </div>
@@ -757,7 +760,7 @@ export default function TicketingEventsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search event, venue, party, ticket..."
+                placeholder={t("events.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -767,10 +770,10 @@ export default function TicketingEventsPage() {
               onChange={(event) => setStatusFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All statuses</option>
+              <option value="">{t("events.filters.allStatuses")}</option>
               {statusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
+                <option key={status} value={status}>
+                  {t(`events.status.${status}`)}
                 </option>
               ))}
             </select>
@@ -780,28 +783,28 @@ export default function TicketingEventsPage() {
               onChange={(event) => setPublicFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All visibility</option>
-              <option value="public">Public</option>
-              <option value="hidden">Hidden</option>
+              <option value="">{t("events.filters.allVisibility")}</option>
+              <option value="public">{t("events.visibility.public")}</option>
+              <option value="hidden">{t("events.visibility.hidden")}</option>
             </select>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredEvents.length === 0 ? (
-              <EmptyState text="No events found." />
+              <EmptyState text={t("events.empty.noEvents")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Event</Th>
-                      <Th>Date / Venue</Th>
-                      <Th>Price</Th>
-                      <Th>Ticket types</Th>
-                      <Th>Capacity</Th>
-                      <Th>Status</Th>
-                      <Th>Public</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("events.table.event")}</Th>
+                      <Th>{t("events.table.dateVenue")}</Th>
+                      <Th>{t("events.table.price")}</Th>
+                      <Th>{t("events.table.ticketTypes")}</Th>
+                      <Th>{t("events.table.capacity")}</Th>
+                      <Th>{t("events.table.status")}</Th>
+                      <Th>{t("events.table.public")}</Th>
+                      <Th>{t("events.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -829,7 +832,7 @@ export default function TicketingEventsPage() {
                               {getEventTime(product) ? ` · ${formatTime(getEventTime(product))}` : ""}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {getEventVenue(product)}
+                              {getEventVenue(product, t("events.fallbacks.venueNotConfigured"))}
                             </p>
                           </div>
                         </Td>
@@ -840,7 +843,7 @@ export default function TicketingEventsPage() {
                               {formatMoney(product.base_price)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Deposit: {formatMoney(product.deposit_amount)}
+                              {t("events.labels.deposit")}: {formatMoney(product.deposit_amount)}
                             </p>
                           </div>
                         </Td>
@@ -864,7 +867,7 @@ export default function TicketingEventsPage() {
                               getStatusClasses(product),
                             ].join(" ")}
                           >
-                            {statusLabel(product.status)}
+                            {statusLabel(product.status, t)}
                           </span>
                         </Td>
 
@@ -885,7 +888,7 @@ export default function TicketingEventsPage() {
                             ) : (
                               <ToggleLeft className="h-4 w-4" />
                             )}
-                            {product.public_enabled ? "Public" : "Hidden"}
+                            {product.public_enabled ? t("events.visibility.public") : t("events.visibility.hidden")}
                           </button>
                         </Td>
 
@@ -897,7 +900,7 @@ export default function TicketingEventsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Eye className="h-4 w-4" />
-                              View
+                              {t("events.actions.view")}
                             </button>
 
                             <button
@@ -906,7 +909,7 @@ export default function TicketingEventsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Edit3 className="h-4 w-4" />
-                              Edit
+                              {t("events.actions.edit")}
                             </button>
 
                             <button
@@ -915,7 +918,7 @@ export default function TicketingEventsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Copy className="h-4 w-4" />
-                              Link
+                              {t("events.actions.link")}
                             </button>
                           </div>
                         </Td>
@@ -979,19 +982,21 @@ function EventFormModal({
   ) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              {editingEvent ? "Edit event" : "New event"}
+              {editingEvent ? t("events.form.editEyebrow") : t("events.form.newEyebrow")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              {form.name || "Event product"}
+              {form.name || t("events.form.defaultTitle")}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
-              Create a concert, beach party, pool party, VIP event or ticket product.
+              {t("events.form.description")}
             </p>
           </div>
 
@@ -1007,36 +1012,36 @@ function EventFormModal({
         <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">
           <div className="grid gap-5 lg:grid-cols-2">
             <Panel
-              title="Basic information"
-              description="Name, category and public description."
+              title={t("events.form.basic.title")}
+              description={t("events.form.basic.description")}
               icon={<Music className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
-                  label="Event name"
+                  label={t("events.form.fields.name")}
                   value={form.name}
                   onChange={(value) => onChange("name", value)}
-                  placeholder="Beach Party VIP Night"
+                  placeholder={t("events.placeholders.name")}
                   required
                 />
 
                 <Input
-                  label="Slug"
+                  label={t("events.form.fields.slug")}
                   value={form.slug}
                   onChange={(value) => onChange("slug", slugify(value))}
-                  placeholder="beach-party-vip-night"
+                  placeholder={t("events.placeholders.slug")}
                 />
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Category
+                    {t("events.form.fields.category")}
                   </span>
                   <select
                     value={form.category}
                     onChange={(event) => onChange("category", event.target.value)}
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                   >
-                    <option value="">No category</option>
+                    <option value="">{t("events.form.noCategory")}</option>
                     {categories.map((category) => (
                       <option key={category.id} value={String(category.id)}>
                         {category.name}
@@ -1047,7 +1052,7 @@ function EventFormModal({
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Status
+                    {t("events.form.fields.status")}
                   </span>
                   <select
                     value={form.status}
@@ -1055,8 +1060,8 @@ function EventFormModal({
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                   >
                     {statusOptions.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
+                      <option key={status} value={status}>
+                        {t(`events.status.${status}`)}
                       </option>
                     ))}
                   </select>
@@ -1064,42 +1069,42 @@ function EventFormModal({
               </div>
 
               <Textarea
-                label="Short description"
+                label={t("events.form.fields.shortDescription")}
                 value={form.short_description}
                 onChange={(value) => onChange("short_description", value)}
-                placeholder="VIP beach party with open bar, music and transfers."
+                placeholder={t("events.placeholders.shortDescription")}
               />
 
               <Textarea
-                label="Full description"
+                label={t("events.form.fields.fullDescription")}
                 value={form.description}
                 onChange={(value) => onChange("description", value)}
-                placeholder="Describe included tickets, VIP areas, schedule, age restriction, dress code and rules..."
+                placeholder={t("events.placeholders.fullDescription")}
               />
             </Panel>
 
             <Panel
-              title="Event details and pricing"
-              description="Venue, capacity, duration and pricing."
+              title={t("events.form.details.title")}
+              description={t("events.form.details.description")}
               icon={<CalendarDays className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
-                  label="Venue / location"
+                  label={t("events.form.fields.venue")}
                   value={form.location_name}
                   onChange={(value) => onChange("location_name", value)}
-                  placeholder="Beach Club Punta Cana"
+                  placeholder={t("events.placeholders.venue")}
                 />
 
                 <Input
-                  label="Meeting point"
+                  label={t("events.form.fields.meetingPoint")}
                   value={form.meeting_point}
                   onChange={(value) => onChange("meeting_point", value)}
-                  placeholder="Main entrance / lobby pickup"
+                  placeholder={t("events.placeholders.meetingPoint")}
                 />
 
                 <Input
-                  label="Base ticket price"
+                  label={t("events.form.fields.basePrice")}
                   type="number"
                   value={form.base_price}
                   onChange={(value) => onChange("base_price", value)}
@@ -1107,7 +1112,7 @@ function EventFormModal({
                 />
 
                 <Input
-                  label="Deposit amount"
+                  label={t("events.form.fields.depositAmount")}
                   type="number"
                   value={form.deposit_amount}
                   onChange={(value) => onChange("deposit_amount", value)}
@@ -1115,7 +1120,7 @@ function EventFormModal({
                 />
 
                 <Input
-                  label="Deposit percentage"
+                  label={t("events.form.fields.depositPercentage")}
                   type="number"
                   value={form.deposit_percentage}
                   onChange={(value) => onChange("deposit_percentage", value)}
@@ -1123,7 +1128,7 @@ function EventFormModal({
                 />
 
                 <Input
-                  label="Max capacity"
+                  label={t("events.form.fields.maxCapacity")}
                   type="number"
                   value={form.max_capacity}
                   onChange={(value) => onChange("max_capacity", value)}
@@ -1131,7 +1136,7 @@ function EventFormModal({
                 />
 
                 <Input
-                  label="Duration minutes"
+                  label={t("events.form.fields.durationMinutes")}
                   type="number"
                   value={form.duration_minutes}
                   onChange={(value) => onChange("duration_minutes", value)}
@@ -1141,43 +1146,43 @@ function EventFormModal({
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 <Toggle
-                  label="Active"
-                  description="Can be used internally."
+                  label={t("events.form.toggles.active")}
+                  description={t("events.form.toggles.activeDescription")}
                   checked={form.is_active}
                   onChange={(value) => onChange("is_active", value)}
                 />
 
                 <Toggle
-                  label="Public"
-                  description="Show on the public website."
+                  label={t("events.form.toggles.public")}
+                  description={t("events.form.toggles.publicDescription")}
                   checked={form.public_enabled}
                   onChange={(value) => onChange("public_enabled", value)}
                 />
 
                 <Toggle
-                  label="Public bookings"
-                  description="Allow customers to book this event."
+                  label={t("events.form.toggles.publicBookings")}
+                  description={t("events.form.toggles.publicBookingsDescription")}
                   checked={form.allow_public_bookings}
                   onChange={(value) => onChange("allow_public_bookings", value)}
                 />
 
                 <Toggle
-                  label="Seller enabled"
-                  description="Allow sellers to sell this event."
+                  label={t("events.form.toggles.sellerEnabled")}
+                  description={t("events.form.toggles.sellerEnabledDescription")}
                   checked={form.seller_enabled}
                   onChange={(value) => onChange("seller_enabled", value)}
                 />
 
                 <Toggle
-                  label="Supports pickup"
-                  description="Use pickup schedule for this event."
+                  label={t("events.form.toggles.supportsPickup")}
+                  description={t("events.form.toggles.supportsPickupDescription")}
                   checked={form.supports_pickup}
                   onChange={(value) => onChange("supports_pickup", value)}
                 />
 
                 <Toggle
-                  label="Requires pickup location"
-                  description="Customer must select hotel/pickup location."
+                  label={t("events.form.toggles.requiresPickup")}
+                  description={t("events.form.toggles.requiresPickupDescription")}
                   checked={form.requires_pickup_location}
                   onChange={(value) => onChange("requires_pickup_location", value)}
                 />
@@ -1187,13 +1192,10 @@ function EventFormModal({
 
           <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-black text-amber-950">
-              Ticket types note
+              {t("events.form.ticketTypesNote.title")}
             </p>
             <p className="mt-1 text-sm font-semibold leading-6 text-amber-800">
-              This page shows ticket types if your backend returns them on the
-              product. To create separate General, VIP or Platinum tickets right
-              now, create each ticket as a separate event/ticket product or add
-              a backend ticket-type endpoint later.
+              {t("events.form.ticketTypesNote.description")}
             </p>
           </div>
 
@@ -1209,7 +1211,7 @@ function EventFormModal({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              {editingEvent ? "Save event" : "Create event"}
+              {editingEvent ? t("events.actions.saveEvent") : t("events.actions.createEvent")}
             </button>
           </div>
         </div>
@@ -1235,6 +1237,8 @@ function EventDetailModal({
   onCopyLink: () => void;
   onTogglePublic: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   const ticketTypes = getTicketTypes(product);
 
   return (
@@ -1245,13 +1249,13 @@ function EventDetailModal({
             <EventImage product={product} large />
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-                Event detail
+                {t("events.detail.eyebrow")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
                 {product.name}
               </h2>
               <p className="mt-1 text-sm font-bold text-slate-500">
-                {getEventVenue(product)}
+                {getEventVenue(product, t("events.fallbacks.venueNotConfigured"))}
               </p>
             </div>
           </div>
@@ -1273,7 +1277,7 @@ function EventDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"
             >
               <Edit3 className="h-4 w-4" />
-              Edit
+              {t("events.actions.edit")}
             </button>
 
             <button
@@ -1282,7 +1286,7 @@ function EventDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <Copy className="h-4 w-4" />
-              Copy public link
+              {t("events.actions.copyPublicLink")}
             </button>
 
             <Link
@@ -1291,7 +1295,7 @@ function EventDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <ExternalLink className="h-4 w-4" />
-              Open public page
+              {t("events.actions.openPublicPage")}
             </Link>
 
             <button
@@ -1308,68 +1312,68 @@ function EventDetailModal({
               ) : (
                 <ToggleRight className="h-4 w-4" />
               )}
-              {product.public_enabled ? "Hide public" : "Make public"}
+              {product.public_enabled ? t("events.actions.hidePublic") : t("events.actions.makePublic")}
             </button>
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-4">
             <InfoCard
               icon={<DollarSign className="h-5 w-5" />}
-              label="Price"
+              label={t("events.detail.price")}
               value={formatMoney(product.base_price)}
-              helper={`Deposit: ${formatMoney(product.deposit_amount)}`}
+              helper={`${t("events.labels.deposit")}: ${formatMoney(product.deposit_amount)}`}
             />
             <InfoCard
               icon={<CalendarDays className="h-5 w-5" />}
-              label="Date"
+              label={t("events.detail.date")}
               value={formatDate(getEventDate(product))}
               helper={formatTime(getEventTime(product))}
             />
             <InfoCard
               icon={<Users className="h-5 w-5" />}
-              label="Capacity"
+              label={t("events.detail.capacity")}
               value={String(product.max_capacity || "—")}
-              helper="Maximum tickets/customers"
+              helper={t("events.detail.capacityHelper")}
             />
             <InfoCard
               icon={<Ticket className="h-5 w-5" />}
-              label="Ticket types"
+              label={t("events.detail.ticketTypes")}
               value={String(ticketTypes.length)}
-              helper={statusLabel(product.status)}
+              helper={statusLabel(product.status, t)}
             />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Description
+              {t("events.detail.descriptionTitle")}
             </h3>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
               {product.description ||
                 product.short_description ||
-                "No description added yet."}
+                t("events.fallbacks.noDescription")}
             </p>
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Event information
+              {t("events.detail.informationTitle")}
             </h3>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <InfoLine label="Venue / location" value={getEventVenue(product)} />
-              <InfoLine label="Meeting point" value={product.meeting_point || "—"} />
-              <InfoLine label="Duration" value={formatMinutes(product.duration_minutes)} />
-              <InfoLine label="Public URL" value={getProductPublicUrl(organisationSlug, product)} />
+              <InfoLine label={t("events.form.fields.venue")} value={getEventVenue(product, t("events.fallbacks.venueNotConfigured"))} />
+              <InfoLine label={t("events.form.fields.meetingPoint")} value={product.meeting_point || "—"} />
+              <InfoLine label={t("events.detail.duration")} value={formatMinutes(product.duration_minutes, t)} />
+              <InfoLine label={t("events.detail.publicUrl")} value={getProductPublicUrl(organisationSlug, product)} />
             </div>
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Ticket types
+              {t("events.detail.ticketTypes")}
             </h3>
 
             {ticketTypes.length === 0 ? (
-              <EmptyState text="No ticket types configured yet." />
+              <EmptyState text={t("events.empty.noTicketTypes")} />
             ) : (
               <div className="mt-3 space-y-2">
                 {ticketTypes.map((ticketType, index) => (
@@ -1379,10 +1383,10 @@ function EventDetailModal({
                   >
                     <div>
                       <p className="font-black text-slate-950">
-                        {ticketType.name || ticketType.title || `Ticket type ${index + 1}`}
+                        {ticketType.name || ticketType.title || `${t("events.detail.ticketType")} ${index + 1}`}
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-500">
-                        Capacity: {ticketType.capacity || ticketType.available_quantity || "—"}
+                        {t("events.detail.capacity")}: {ticketType.capacity || ticketType.available_quantity || "—"}
                       </p>
                     </div>
 

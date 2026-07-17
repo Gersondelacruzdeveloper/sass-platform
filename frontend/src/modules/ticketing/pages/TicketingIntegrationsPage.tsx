@@ -23,6 +23,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type TicketingSettings = {
   id?: number;
@@ -242,14 +243,14 @@ function safeJsonStringify(value: unknown) {
   }
 }
 
-function parseJsonObject(value: string) {
+function parseJsonObject(value: string, t: (key: string) => string) {
   try {
     const parsed = JSON.parse(value || "{}");
 
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return {
         value: null,
-        error: "Extra settings must be a JSON object.",
+        error: t("integrations.errors.extraSettingsObject"),
       };
     }
 
@@ -260,7 +261,7 @@ function parseJsonObject(value: string) {
   } catch (err: any) {
     return {
       value: null,
-      error: err?.message || "Invalid JSON.",
+      error: err?.message || t("integrations.errors.invalidJson"),
     };
   }
 }
@@ -280,36 +281,39 @@ function getIntegrationHealth(
   return "ready";
 }
 
-function getHealthConfig(health: IntegrationHealth) {
+function getHealthConfig(health: IntegrationHealth, t: (key: string) => string) {
   if (health === "ready") {
     return {
-      label: "Ready",
+      label: t("integrations.health.ready"),
       className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
     };
   }
 
   if (health === "disabled") {
     return {
-      label: "Module disabled",
+      label: t("integrations.health.moduleDisabled"),
       className: "bg-slate-100 text-slate-600 ring-slate-200",
     };
   }
 
   if (health === "warning") {
     return {
-      label: "Config disabled",
+      label: t("integrations.health.configDisabled"),
       className: "bg-amber-50 text-amber-700 ring-amber-200",
     };
   }
 
   return {
-    label: "Missing setup",
+    label: t("integrations.health.missingSetup"),
     className: "bg-red-50 text-red-700 ring-red-200",
   };
 }
 
-function maskSecret(value?: string) {
-  if (!value) return "Not configured";
+function maskSecret(
+  value: string | undefined,
+  t: (key: string) => string
+) {
+  if (!value) return t("integrations.secret.notConfigured");
   if (value.length <= 6) return "••••••";
   return `${value.slice(0, 3)}••••••${value.slice(-3)}`;
 }
@@ -430,6 +434,7 @@ function getDefaultExtraSettingsText(current?: Record<string, unknown>) {
 }
 
 export default function TicketingIntegrationsPage() {
+  const { t } = useTicketingAdminTranslation();
   const organisationSlug = getOrganisationSlugFromPath();
 
   const [settings, setSettings] = useState<TicketingSettings>(initialSettings);
@@ -465,7 +470,7 @@ export default function TicketingIntegrationsPage() {
   );
 
   const health = getIntegrationHealth(settings, welletConfig);
-  const healthConfig = getHealthConfig(health);
+  const healthConfig = getHealthConfig(health, t);
 
   const liveProducts = useMemo(() => {
     return extractWelletLiveProducts(welletProducts?.live?.data);
@@ -589,7 +594,7 @@ export default function TicketingIntegrationsPage() {
         setWelletProducts(null);
         setSnapshots([]);
         setWelletLockedMessage(
-          "Wellet / Coco Bongo is disabled for this organisation. Enable it below and save first."
+          t("integrations.messages.welletDisabled")
         );
         return;
       }
@@ -597,7 +602,7 @@ export default function TicketingIntegrationsPage() {
       await Promise.all([loadWelletSettings(), loadWelletProducts(false)]);
     } catch (err: any) {
       console.error("Could not load integrations:", err);
-      setError(getErrorMessage(err, "Could not load integrations."));
+      setError(getErrorMessage(err, t("integrations.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -642,7 +647,7 @@ export default function TicketingIntegrationsPage() {
         setWelletLockedMessage(
           getErrorMessage(
             err,
-            "Wellet / Coco Bongo is not enabled for this organisation."
+            t("integrations.messages.welletNotEnabled")
           )
         );
         setWelletConfig(null);
@@ -685,7 +690,7 @@ export default function TicketingIntegrationsPage() {
         setWelletLockedMessage(
           getErrorMessage(
             err,
-            "Wellet products are not available until the integration is enabled and configured."
+            t("integrations.messages.productsUnavailable")
           )
         );
         return;
@@ -722,7 +727,7 @@ export default function TicketingIntegrationsPage() {
   }
 
   async function saveIntegration() {
-    const parsedExtraSettings = parseJsonObject(extraSettingsText);
+    const parsedExtraSettings = parseJsonObject(extraSettingsText, t);
 
     if (parsedExtraSettings.error) {
       setJsonError(parsedExtraSettings.error);
@@ -731,12 +736,12 @@ export default function TicketingIntegrationsPage() {
 
     if (settings.wellet_enabled && welletForm.is_enabled) {
       if (!welletForm.api_base_url.trim()) {
-        setError("API base URL is required when Wellet config is enabled.");
+        setError(t("integrations.errors.apiBaseRequired"));
         return;
       }
 
       if (!welletForm.show_id.trim()) {
-        setError("Show ID is required when Wellet config is enabled.");
+        setError(t("integrations.errors.showIdRequired"));
         return;
       }
     }
@@ -809,10 +814,10 @@ export default function TicketingIntegrationsPage() {
         setSnapshots([]);
       }
 
-      setSavedMessage("Integration settings saved.");
+      setSavedMessage(t("integrations.messages.saved"));
     } catch (err: any) {
       console.error("Could not save integrations:", err);
-      setError(getErrorMessage(err, "Could not save integrations."));
+      setError(getErrorMessage(err, t("integrations.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -824,10 +829,10 @@ export default function TicketingIntegrationsPage() {
       setError("");
       setSavedMessage("");
       await loadWelletProducts(true);
-      setSavedMessage("Wellet live products loaded and snapshots refreshed.");
+      setSavedMessage(t("integrations.messages.productsRefreshed"));
     } catch (err: any) {
       console.error("Could not refresh Wellet products:", err);
-      setError(getErrorMessage(err, "Could not refresh Wellet products."));
+      setError(getErrorMessage(err, t("integrations.errors.refreshProducts")));
     } finally {
       setSaving(false);
     }
@@ -836,20 +841,22 @@ export default function TicketingIntegrationsPage() {
   async function copy(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setSavedMessage(`${label} copied.`);
+      setSavedMessage(t("integrations.messages.copied").replace("{label}", label));
     } catch {
-      setError(`Could not copy ${label.toLowerCase()}.`);
+      setError(
+        t("integrations.errors.copy").replace("{label}", label.toLowerCase())
+      );
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Integrations"
-        subtitle="Manage optional integrations such as Wellet / Coco Bongo."
+        title={t("integrations.page.title")}
+        subtitle={t("integrations.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading integrations...
+          {t("integrations.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -857,39 +864,39 @@ export default function TicketingIntegrationsPage() {
 
   return (
     <TicketingPageShell
-      title="Integrations"
-      subtitle="Manage optional integrations such as Wellet / Coco Bongo."
+      title={t("integrations.page.title")}
+      subtitle={t("integrations.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            title="Wellet module"
-            value={settings.wellet_enabled ? "Enabled" : "Disabled"}
-            helper="Organisation-level switch"
+            title={t("integrations.stats.welletModule")}
+            value={settings.wellet_enabled ? t("integrations.common.enabled") : t("integrations.common.disabled")}
+            helper={t("integrations.stats.organisationSwitch")}
             icon={<Plug className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Config"
-            value={welletForm.is_enabled ? "Active" : "Inactive"}
-            helper="Provider config state"
+            title={t("integrations.stats.config")}
+            value={welletForm.is_enabled ? t("integrations.common.active") : t("integrations.common.inactive")}
+            helper={t("integrations.stats.providerConfigState")}
             icon={<Settings className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Live products"
+            title={t("integrations.stats.liveProducts")}
             value={String(stats.liveProducts)}
-            helper="From Wellet API response"
+            helper={t("integrations.stats.liveProductsHelper")}
             icon={<Ticket className="h-6 w-6 text-purple-600" />}
           />
           <StatCard
-            title="Snapshots"
+            title={t("integrations.stats.snapshots")}
             value={String(stats.snapshots)}
-            helper={`${stats.linked} linked · ${stats.unlinked} unlinked`}
+            helper={`${stats.linked} ${t("integrations.common.linked")} · ${stats.unlinked} ${t("integrations.common.unlinked")}`}
             icon={<Database className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Live value"
+            title={t("integrations.stats.liveValue")}
             value={formatMoney(stats.totalValue, stats.currency)}
-            helper="Sum of visible live products"
+            helper={t("integrations.stats.liveValueHelper")}
             icon={<Package className="h-6 w-6 text-emerald-600" />}
           />
         </section>
@@ -919,14 +926,13 @@ export default function TicketingIntegrationsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-                Optional provider
+                {t("integrations.header.eyebrow")}
               </p>
               <h2 className="mt-1 text-2xl font-black text-slate-950">
                 Wellet / Coco Bongo
               </h2>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                Configure the backend-only Wellet connection and preview the live Coco Bongo
-                products returned by your SaaS backend.
+                {t("integrations.header.description")}
               </p>
             </div>
 
@@ -937,7 +943,7 @@ export default function TicketingIntegrationsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("integrations.actions.refresh")}
               </button>
 
               <button
@@ -951,7 +957,7 @@ export default function TicketingIntegrationsPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save integrations
+                {t("integrations.actions.saveIntegrations")}
               </button>
             </div>
           </div>
@@ -959,21 +965,21 @@ export default function TicketingIntegrationsPage() {
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <Panel
-            title="Wellet settings"
-            description="Use the exact Wellet products endpoint and query values."
+            title={t("integrations.settings.title")}
+            description={t("integrations.settings.description")}
             icon={<Plug className="h-5 w-5" />}
           >
             <div className="grid gap-3 md:grid-cols-2">
               <Toggle
-                label="Enable Wellet for this organisation"
-                description="Controls TicketingSettings.wellet_enabled."
+                label={t("integrations.settings.enableOrganisation")}
+                description={t("integrations.settings.enableOrganisationDescription")}
                 checked={Boolean(settings.wellet_enabled)}
                 onChange={(value) => updateSettingsField("wellet_enabled", value)}
               />
 
               <Toggle
-                label="Enable provider config"
-                description="Controls ExternalProviderConfig.is_enabled."
+                label={t("integrations.settings.enableProvider")}
+                description={t("integrations.settings.enableProviderDescription")}
                 checked={Boolean(welletForm.is_enabled)}
                 onChange={(value) => updateWelletField("is_enabled", value)}
                 disabled={!settings.wellet_enabled}
@@ -982,7 +988,7 @@ export default function TicketingIntegrationsPage() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <Input
-                label="API base URL"
+                label={t("integrations.fields.apiBaseUrl")}
                 value={welletForm.api_base_url}
                 onChange={(value) => updateWelletField("api_base_url", value)}
                 placeholder="https://api2.wellet.fun/products/get"
@@ -990,22 +996,22 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Input
-                label="API key / token"
+                label={t("integrations.fields.apiKey")}
                 value={welletForm.api_key}
                 onChange={(value) => updateWelletField("api_key", value)}
-                placeholder="Optional if Wellet requires Authorization"
+                placeholder={t("integrations.placeholders.apiKey")}
                 icon={<KeyRound className="h-4 w-4" />}
                 disabled={!settings.wellet_enabled}
               />
 
               <SecretInput
-                label="API secret"
+                label={t("integrations.fields.apiSecret")}
                 value={welletForm.api_secret || ""}
                 onChange={(value) => updateWelletField("api_secret", value)}
                 placeholder={
                   welletConfig?.id
-                    ? "Leave blank to keep current secret"
-                    : "Optional provider API secret"
+                    ? t("integrations.placeholders.keepSecret")
+                    : t("integrations.placeholders.apiSecret")
                 }
                 visible={showApiSecret}
                 onToggleVisible={() => setShowApiSecret((current) => !current)}
@@ -1013,7 +1019,7 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Input
-                label="Show ID"
+                label={t("integrations.fields.showId")}
                 value={welletForm.show_id}
                 onChange={(value) => updateWelletField("show_id", value)}
                 placeholder="4"
@@ -1021,7 +1027,7 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Input
-                label="Category ID"
+                label={t("integrations.fields.categoryId")}
                 value={welletForm.category_id}
                 onChange={(value) => updateWelletField("category_id", value)}
                 placeholder="1"
@@ -1029,7 +1035,7 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Input
-                label="Currency"
+                label={t("integrations.fields.currency")}
                 value={welletForm.currency}
                 onChange={(value) =>
                   updateWelletField("currency", value.toUpperCase())
@@ -1039,7 +1045,7 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Input
-                label="Language"
+                label={t("integrations.fields.language")}
                 value={welletForm.lang}
                 onChange={(value) => updateWelletField("lang", value)}
                 placeholder="en"
@@ -1047,8 +1053,8 @@ export default function TicketingIntegrationsPage() {
               />
 
               <Toggle
-                label="Include table"
-                description="Sends includeTable=true to Wellet."
+                label={t("integrations.settings.includeTable")}
+                description={t("integrations.settings.includeTableDescription")}
                 checked={Boolean(welletForm.include_table)}
                 onChange={(value) => updateWelletField("include_table", value)}
                 disabled={!settings.wellet_enabled}
@@ -1057,14 +1063,14 @@ export default function TicketingIntegrationsPage() {
           </Panel>
 
           <Panel
-            title="Connection status"
-            description="Readiness check and URL preview."
+            title={t("integrations.connection.title")}
+            description={t("integrations.connection.description")}
             icon={<ShieldCheck className="h-5 w-5" />}
           >
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-black text-slate-950">
-                  Integration health
+                  {t("integrations.connection.health")}
                 </p>
                 <span
                   className={[
@@ -1078,34 +1084,34 @@ export default function TicketingIntegrationsPage() {
 
               <div className="mt-4 space-y-3">
                 <StatusLine
-                  label="Organisation switch"
+                  label={t("integrations.connection.organisationSwitch")}
                   good={Boolean(settings.wellet_enabled)}
-                  goodText="Enabled"
-                  badText="Disabled"
+                  goodText={t("integrations.common.enabled")}
+                  badText={t("integrations.common.disabled")}
                 />
                 <StatusLine
-                  label="Provider config"
+                  label={t("integrations.connection.providerConfig")}
                   good={Boolean(welletForm.is_enabled)}
-                  goodText="Enabled"
-                  badText="Disabled"
+                  goodText={t("integrations.common.enabled")}
+                  badText={t("integrations.common.disabled")}
                 />
                 <StatusLine
-                  label="API base URL"
+                  label={t("integrations.fields.apiBaseUrl")}
                   good={Boolean(welletForm.api_base_url)}
-                  goodText="Configured"
-                  badText="Missing"
+                  goodText={t("integrations.common.configured")}
+                  badText={t("integrations.common.missing")}
                 />
                 <StatusLine
-                  label="API key"
+                  label={t("integrations.fields.apiKeyShort")}
                   good={Boolean(welletForm.api_key)}
-                  goodText="Configured"
-                  badText="Optional / blank"
+                  goodText={t("integrations.common.configured")}
+                  badText={t("integrations.common.optionalBlank")}
                 />
                 <StatusLine
-                  label="Show ID"
+                  label={t("integrations.fields.showId")}
                   good={Boolean(welletForm.show_id)}
-                  goodText="Configured"
-                  badText="Missing"
+                  goodText={t("integrations.common.configured")}
+                  badText={t("integrations.common.missing")}
                 />
               </div>
             </div>
@@ -1113,16 +1119,16 @@ export default function TicketingIntegrationsPage() {
             <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-950 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm font-black text-white">Backend request URL</p>
+                  <p className="text-sm font-black text-white">{t("integrations.connection.backendRequestUrl")}</p>
                   <p className="mt-2 break-all font-mono text-xs font-semibold leading-5 text-slate-200">
-                    {requestUrlPreview || "Save a base URL to preview the request."}
+                    {requestUrlPreview || t("integrations.connection.previewPlaceholder")}
                   </p>
                 </div>
 
                 {requestUrlPreview && (
                   <button
                     type="button"
-                    onClick={() => copy(requestUrlPreview, "Request URL")}
+                    onClick={() => copy(requestUrlPreview, t("integrations.copyLabels.requestUrl"))}
                     className="rounded-xl bg-white/10 p-2 text-white transition hover:bg-white/20"
                   >
                     <Copy className="h-4 w-4" />
@@ -1134,8 +1140,8 @@ export default function TicketingIntegrationsPage() {
         </section>
 
         <Panel
-          title="Advanced extra settings"
-          description="For this Wellet URL, keep products_path empty because the base URL already points to /products/get."
+          title={t("integrations.advanced.title")}
+          description={t("integrations.advanced.description")}
           icon={<Settings className="h-5 w-5" />}
         >
           <textarea
@@ -1157,8 +1163,8 @@ export default function TicketingIntegrationsPage() {
         </Panel>
 
         <Panel
-          title="Wellet / Coco Bongo live products"
-          description="Products returned by Wellet for the selected date. Use Load products to call your backend and sync snapshots."
+          title={t("integrations.products.title")}
+          description={t("integrations.products.description")}
           icon={<Database className="h-5 w-5" />}
         >
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
@@ -1168,7 +1174,7 @@ export default function TicketingIntegrationsPage() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search Wellet product, ID, description..."
+                  placeholder={t("integrations.products.searchPlaceholder")}
                   className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
                 />
               </div>
@@ -1192,7 +1198,7 @@ export default function TicketingIntegrationsPage() {
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              Load products
+              {t("integrations.actions.loadProducts")}
             </button>
           </div>
 
@@ -1211,9 +1217,9 @@ export default function TicketingIntegrationsPage() {
           {welletProducts?.live && (
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge label={`HTTP ${welletProducts.live.status_code || "—"}`} />
-              <Badge label={welletProducts.live.ok ? "Live OK" : "Live error"} />
-              <Badge label={`${liveProducts.length} live products`} />
-              <Badge label={`${snapshots.length} snapshots`} />
+              <Badge label={welletProducts.live.ok ? t("integrations.products.liveOk") : t("integrations.products.liveError")} />
+              <Badge label={`${liveProducts.length} ${t("integrations.products.liveProductsCount")}`} />
+              <Badge label={`${snapshots.length} ${t("integrations.products.snapshotsCount")}`} />
             </div>
           )}
 
@@ -1221,10 +1227,10 @@ export default function TicketingIntegrationsPage() {
             {loadingProducts ? (
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-sm font-black text-slate-600">
                 <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-amber-600" />
-                Loading Wellet products...
+                {t("integrations.products.loading")}
               </div>
             ) : filteredLiveProducts.length === 0 ? (
-              <EmptyState text="No live Wellet products found. Select a date and click Load products." />
+              <EmptyState text={t("integrations.products.emptyLive")} />
             ) : (
               <div className="grid gap-3 lg:grid-cols-2">
                 {filteredLiveProducts.map((product) => (
@@ -1240,24 +1246,24 @@ export default function TicketingIntegrationsPage() {
         </Panel>
 
         <Panel
-          title="Synced snapshots"
-          description="Database snapshots created from Wellet when Load products uses sync=true."
+          title={t("integrations.snapshots.title")}
+          description={t("integrations.snapshots.description")}
           icon={<Database className="h-5 w-5" />}
         >
           <div className="overflow-hidden rounded-3xl border border-slate-200">
             {filteredSnapshots.length === 0 ? (
-              <EmptyState text="No Wellet product snapshots found yet." />
+              <EmptyState text={t("integrations.snapshots.empty")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>External product</Th>
-                      <Th>External ID</Th>
-                      <Th>Linked product</Th>
-                      <Th>Price</Th>
-                      <Th>Service date</Th>
-                      <Th>Created</Th>
+                      <Th>{t("integrations.snapshots.externalProduct")}</Th>
+                      <Th>{t("integrations.snapshots.externalId")}</Th>
+                      <Th>{t("integrations.snapshots.linkedProduct")}</Th>
+                      <Th>{t("integrations.snapshots.price")}</Th>
+                      <Th>{t("integrations.snapshots.serviceDate")}</Th>
+                      <Th>{t("integrations.snapshots.created")}</Th>
                     </tr>
                   </thead>
 
@@ -1267,7 +1273,7 @@ export default function TicketingIntegrationsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {snapshot.external_name || "Unnamed product"}
+                              {snapshot.external_name || t("integrations.fallbacks.unnamedProduct")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               {snapshot.provider}
@@ -1281,7 +1287,7 @@ export default function TicketingIntegrationsPage() {
                             onClick={() =>
                               copy(
                                 snapshot.external_product_id,
-                                "External product ID"
+                                t("integrations.copyLabels.externalProductId")
                               )
                             }
                             className="inline-flex items-center gap-2 font-black text-amber-700"
@@ -1294,12 +1300,12 @@ export default function TicketingIntegrationsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {snapshot.product_name || "Not linked"}
+                              {snapshot.product_name || t("integrations.snapshots.notLinked")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               {snapshot.product
-                                ? `Product #${snapshot.product}`
-                                : "Snapshot only"}
+                                ? `${t("integrations.snapshots.productNumber")} #${snapshot.product}`
+                                : t("integrations.snapshots.snapshotOnly")}
                             </p>
                           </div>
                         </Td>
@@ -1333,7 +1339,7 @@ export default function TicketingIntegrationsPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save integrations
+            {t("integrations.actions.saveIntegrations")}
           </button>
         </div>
       </div>
@@ -1348,6 +1354,7 @@ function LiveProductCard({
   product: WelletLiveProduct;
   onCopy: (value: string, label: string) => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const soldOut = product.isSoldOut || product.isUnavailable;
 
   return (
@@ -1366,11 +1373,11 @@ function LiveProductCard({
 
             {soldOut ? (
               <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700 ring-1 ring-red-200">
-                Sold out
+                {t("integrations.products.soldOut")}
               </span>
             ) : (
               <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
-                Available
+                {t("integrations.products.available")}
               </span>
             )}
           </div>
@@ -1387,21 +1394,21 @@ function LiveProductCard({
             {formatMoney(product.price, product.currency)}
           </p>
           <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            per person
+            {t("integrations.products.perPerson")}
           </p>
         </div>
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        <MiniInfo label="External ID" value={product.id || "—"} />
-        <MiniInfo label="Available" value={String(product.itemsAvailable ?? product.stock ?? "—")} />
-        <MiniInfo label="Performance" value={product.performanceId || "—"} />
+        <MiniInfo label={t("integrations.products.externalId")} value={product.id || "—"} />
+        <MiniInfo label={t("integrations.products.availableQuantity")} value={String(product.itemsAvailable ?? product.stock ?? "—")} />
+        <MiniInfo label={t("integrations.products.performance")} value={product.performanceId || "—"} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {product.timeStart && <Badge label={`Start ${product.timeStart}`} />}
-        {product.timeEnd && <Badge label={`End ${product.timeEnd}`} />}
-        {product.timeCheckIn && <Badge label={`Check-in ${product.timeCheckIn}`} />}
+        {product.timeStart && <Badge label={`${t("integrations.products.start")} ${product.timeStart}`} />}
+        {product.timeEnd && <Badge label={`${t("integrations.products.end")} ${product.timeEnd}`} />}
+        {product.timeCheckIn && <Badge label={`${t("integrations.products.checkIn")} ${product.timeCheckIn}`} />}
       </div>
 
       {product.features.length > 0 && (
@@ -1420,11 +1427,11 @@ function LiveProductCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => onCopy(product.id, "External product ID")}
+          onClick={() => onCopy(product.id, t("integrations.copyLabels.externalProductId"))}
           className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50"
         >
           <Copy className="h-4 w-4" />
-          Copy ID
+          {t("integrations.actions.copyId")}
         </button>
       </div>
     </article>
@@ -1554,6 +1561,8 @@ function SecretInput({
   onToggleVisible: () => void;
   disabled?: boolean;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <label className="block">
       <span className="text-sm font-bold text-slate-700">{label}</span>
@@ -1581,7 +1590,7 @@ function SecretInput({
 
       {!value && (
         <p className="mt-2 text-xs font-bold text-slate-500">
-          Saved value: {maskSecret(value)}
+          {t("integrations.secret.savedValue")}: {maskSecret(value, t)}
         </p>
       )}
     </label>

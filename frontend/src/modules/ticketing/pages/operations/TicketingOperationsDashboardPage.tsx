@@ -17,6 +17,7 @@ import {
   WalletCards,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   AdmissionsDashboard,
@@ -38,31 +39,41 @@ function toNumber(value: string | number | null | undefined): number {
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
+  language: "en" | "es" = "en",
 ): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(toNumber(value));
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    },
+  ).format(toNumber(value));
 }
 
-function formatTime(value?: string | null): string {
+function formatTime(
+  value?: string | null,
+  language: "en" | "es" = "en",
+): string {
   if (!value) return "—";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
 
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      hour: "numeric",
+      minute: "2-digit",
+    },
+  ).format(date);
 }
 
 function getToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -82,7 +93,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not load the operations dashboard."
+      fallback
     );
   }
 
@@ -90,10 +101,11 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not load the operations dashboard.";
+  return fallback;
 }
 
 export default function TicketingOperationsDashboardPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const {
     slug,
     companyName,
@@ -145,7 +157,7 @@ export default function TicketingOperationsDashboardPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("operationsDashboard.errors.load")),
       });
       return;
     }
@@ -154,7 +166,7 @@ export default function TicketingOperationsDashboardPage() {
       loading: false,
       error: "",
     });
-  }, [slug, today]);
+  }, [slug, t, today]);
 
   useEffect(() => {
     void loadDashboard();
@@ -193,28 +205,37 @@ export default function TicketingOperationsDashboardPage() {
   const settlementCurrency =
     settlements[0]?.currency || "USD";
 
+  const numberLocale = language === "es" ? "es-DO" : "en-US";
+
   const statCards = [
     {
-      label: "Guests admitted today",
-      value: admittedGuests.toLocaleString(),
-      supporting: `${admissionEvents.toLocaleString()} admission events`,
+      label: t("operationsDashboard.stats.guestsAdmitted"),
+      value: admittedGuests.toLocaleString(numberLocale),
+      supporting: t(
+        admissionEvents === 1
+          ? "operationsDashboard.stats.oneAdmissionEvent"
+          : "operationsDashboard.stats.admissionEvents",
+        {
+          count: admissionEvents.toLocaleString(numberLocale),
+        },
+      ),
       icon: Users,
       iconClass: "bg-emerald-100 text-emerald-700",
     },
     {
-      label: "Active business entities",
-      value: totalEntities.toLocaleString(),
-      supporting: "Venues, operators and partners",
+      label: t("operationsDashboard.stats.activeEntities"),
+      value: totalEntities.toLocaleString(numberLocale),
+      supporting: t("operationsDashboard.stats.entitiesHelp"),
       icon: Building2,
       iconClass: "bg-blue-100 text-blue-700",
     },
     {
-      label: "Invalid scans today",
-      value: invalidScans.toLocaleString(),
+      label: t("operationsDashboard.stats.invalidScans"),
+      value: invalidScans.toLocaleString(numberLocale),
       supporting:
         invalidScans > 0
-          ? "Review scan history"
-          : "No scan issues detected",
+          ? t("operationsDashboard.stats.reviewScanHistory")
+          : t("operationsDashboard.stats.noScanIssues"),
       icon: CircleAlert,
       iconClass:
         invalidScans > 0
@@ -222,14 +243,20 @@ export default function TicketingOperationsDashboardPage() {
           : "bg-slate-100 text-slate-600",
     },
     {
-      label: "Approved settlements due",
+      label: t("operationsDashboard.stats.approvedSettlements"),
       value: formatMoney(
         outstandingSettlementAmount,
         settlementCurrency,
+        language,
       ),
-      supporting: `${settlements.length} open settlement${
-        settlements.length === 1 ? "" : "s"
-      }`,
+      supporting: t(
+        settlements.length === 1
+          ? "operationsDashboard.stats.oneOpenSettlement"
+          : "operationsDashboard.stats.openSettlements",
+        {
+          count: settlements.length,
+        },
+      ),
       icon: WalletCards,
       iconClass: "bg-amber-100 text-amber-700",
     },
@@ -241,7 +268,7 @@ export default function TicketingOperationsDashboardPage() {
         <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
           <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
           <span className="text-sm font-black text-slate-700">
-            Loading operations dashboard...
+            {t("operationsDashboard.loading")}
           </span>
         </div>
       </div>
@@ -255,16 +282,15 @@ export default function TicketingOperationsDashboardPage() {
           <div className="max-w-3xl">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white/60">
               <Activity className="h-4 w-4" />
-              Live operations
+              {t("operationsDashboard.hero.eyebrow")}
             </div>
 
             <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-              Operations Center
+              {t("operationsDashboard.hero.title")}
             </h1>
 
             <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-white/60 sm:text-base">
-              Monitor admissions, partner activity, QR scans and
-              settlement obligations for {companyName}.
+              {t("operationsDashboard.hero.subtitle", { company: companyName })}
             </p>
           </div>
 
@@ -274,7 +300,7 @@ export default function TicketingOperationsDashboardPage() {
             className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("operationsDashboard.actions.refresh")}
           </button>
         </div>
       </section>
@@ -284,7 +310,7 @@ export default function TicketingOperationsDashboardPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Dashboard could not be loaded
+              {t("operationsDashboard.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -332,10 +358,10 @@ export default function TicketingOperationsDashboardPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Today
+                {t("operationsDashboard.sections.today")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                Admissions by business entity
+                {t("operationsDashboard.sections.admissionsByEntity")}
               </h2>
             </div>
 
@@ -343,7 +369,7 @@ export default function TicketingOperationsDashboardPage() {
               to={`/ticketing/${slug}/operations/admissions`}
               className="inline-flex items-center gap-2 text-sm font-black text-slate-700 transition hover:text-slate-950"
             >
-              View admissions
+              {t("operationsDashboard.actions.viewAdmissions")}
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -363,11 +389,15 @@ export default function TicketingOperationsDashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate font-black text-slate-950">
                         {item.business_entity__name ||
-                          "Business entity"}
+                          t("operationsDashboard.fallbacks.businessEntity")}
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-400">
-                        {item.admissions} admission event
-                        {item.admissions === 1 ? "" : "s"}
+                        {t(
+                          item.admissions === 1
+                            ? "operationsDashboard.labels.oneAdmissionEvent"
+                            : "operationsDashboard.labels.admissionEvents",
+                          { count: item.admissions },
+                        )}
                       </p>
                     </div>
                   </div>
@@ -377,7 +407,7 @@ export default function TicketingOperationsDashboardPage() {
                       {item.guests}
                     </p>
                     <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
-                      Guests
+                      {t("operationsDashboard.labels.guests")}
                     </p>
                   </div>
                 </div>
@@ -386,10 +416,10 @@ export default function TicketingOperationsDashboardPage() {
               <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-12 text-center">
                 <CalendarCheck2 className="mx-auto h-8 w-8 text-slate-300" />
                 <p className="mt-3 font-black text-slate-700">
-                  No admissions recorded today
+                  {t("operationsDashboard.empty.noAdmissionsToday")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  New check-ins will appear here automatically.
+                  {t("operationsDashboard.empty.checkinsAppear")}
                 </p>
               </div>
             )}
@@ -399,10 +429,10 @@ export default function TicketingOperationsDashboardPage() {
         <article className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-              Quick actions
+              {t("operationsDashboard.sections.quickActions")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              Run operations
+              {t("operationsDashboard.sections.runOperations")}
             </h2>
           </div>
 
@@ -416,9 +446,9 @@ export default function TicketingOperationsDashboardPage() {
                   <ScanLine className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="font-black">Open QR scanner</p>
+                  <p className="font-black">{t("operationsDashboard.actions.openScanner")}</p>
                   <p className="mt-1 text-xs font-semibold text-white/50">
-                    Validate and admit guests
+                    {t("operationsDashboard.actions.openScannerHelp")}
                   </p>
                 </div>
               </div>
@@ -435,10 +465,10 @@ export default function TicketingOperationsDashboardPage() {
                 </div>
                 <div>
                   <p className="font-black text-slate-950">
-                    Manage partners
+                    {t("operationsDashboard.actions.managePartners")}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-slate-400">
-                    Entities, access and agreements
+                    {t("operationsDashboard.actions.managePartnersHelp")}
                   </p>
                 </div>
               </div>
@@ -455,10 +485,10 @@ export default function TicketingOperationsDashboardPage() {
                 </div>
                 <div>
                   <p className="font-black text-slate-950">
-                    Settlement center
+                    {t("operationsDashboard.actions.settlementCenter")}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-slate-400">
-                    Review money owed and collected
+                    {t("operationsDashboard.actions.settlementCenterHelp")}
                   </p>
                 </div>
               </div>
@@ -473,10 +503,10 @@ export default function TicketingOperationsDashboardPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Recent activity
+                {t("operationsDashboard.sections.recentActivity")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                Latest admissions
+                {t("operationsDashboard.sections.latestAdmissions")}
               </h2>
             </div>
 
@@ -499,24 +529,27 @@ export default function TicketingOperationsDashboardPage() {
                       </p>
                       <p className="mt-1 truncate text-xs font-semibold text-slate-400">
                         {admission.business_entity_name ||
-                          "Business entity"}{" "}
-                        · {admission.quantity_admitted} guest
-                        {admission.quantity_admitted === 1
-                          ? ""
-                          : "s"}
+                          t("operationsDashboard.fallbacks.businessEntity")}{" "}
+                        ·{" "}
+                        {t(
+                          admission.quantity_admitted === 1
+                            ? "operationsDashboard.labels.oneGuest"
+                            : "operationsDashboard.labels.guestsCount",
+                          { count: admission.quantity_admitted },
+                        )}
                       </p>
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2 text-xs font-black text-slate-400">
                       <Clock3 className="h-4 w-4" />
-                      {formatTime(admission.admitted_at)}
+                      {formatTime(admission.admitted_at, language)}
                     </div>
                   </div>
                 ))
             ) : (
               <div className="py-10 text-center">
                 <p className="text-sm font-bold text-slate-400">
-                  No recent admissions.
+                  {t("operationsDashboard.empty.noRecentAdmissions")}
                 </p>
               </div>
             )}
@@ -527,10 +560,10 @@ export default function TicketingOperationsDashboardPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Scanner health
+                {t("operationsDashboard.sections.scannerHealth")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                Scan results today
+                {t("operationsDashboard.sections.scanResultsToday")}
               </h2>
             </div>
 
@@ -545,7 +578,11 @@ export default function TicketingOperationsDashboardPage() {
                   className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
                 >
                   <span className="text-sm font-black capitalize text-slate-700">
-                    {String(item.result).replaceAll("_", " ")}
+                    {t(
+                      `operationsDashboard.scanResults.${String(item.result)}`,
+                      undefined,
+                      String(item.result).replaceAll("_", " "),
+                    )}
                   </span>
                   <span className="rounded-xl bg-white px-3 py-1 text-sm font-black text-slate-950 shadow-sm">
                     {item.total}
@@ -556,7 +593,7 @@ export default function TicketingOperationsDashboardPage() {
               <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-center">
                 <ScanLine className="mx-auto h-8 w-8 text-slate-300" />
                 <p className="mt-3 text-sm font-bold text-slate-400">
-                  No scans recorded today.
+                  {t("operationsDashboard.empty.noScansToday")}
                 </p>
               </div>
             )}
@@ -566,7 +603,7 @@ export default function TicketingOperationsDashboardPage() {
             to={`/ticketing/${slug}/operations/scan-attempts`}
             className="mt-5 inline-flex items-center gap-2 text-sm font-black text-slate-700 transition hover:text-slate-950"
           >
-            Open scan history
+            {t("operationsDashboard.actions.openScanHistory")}
             <ArrowRight className="h-4 w-4" />
           </Link>
         </article>

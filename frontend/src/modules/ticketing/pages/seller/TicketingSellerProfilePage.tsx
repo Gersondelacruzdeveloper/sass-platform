@@ -15,6 +15,7 @@ import { useParams } from "react-router-dom";
 import ticketingApi from "../../api/ticketingApi";
 import type { Seller } from "../../types/ticketingTypes";
 import SellerStatCard from "../../components/seller/SellerStatCard";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
 function money(value: string | number | null | undefined) {
   const amount = Number(value || 0);
@@ -35,6 +36,7 @@ function hasPermission(seller: Seller | null, key: string) {
 }
 
 export default function TicketingSellerProfilePage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [seller, setSeller] = useState<Seller | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +47,7 @@ export default function TicketingSellerProfilePage() {
   useEffect(() => {
     async function loadSeller() {
       if (!slug) {
-        setErrorMessage("Organisation slug is missing.");
+        setErrorMessage(t("sellerProfile.errors.missingOrganisation"));
         setLoading(false);
         return;
       }
@@ -58,55 +60,55 @@ export default function TicketingSellerProfilePage() {
         setSeller(data);
       } catch (error) {
         console.error(error);
-        setErrorMessage("Could not load seller profile.");
+        setErrorMessage(t("sellerProfile.errors.load"));
       } finally {
         setLoading(false);
       }
     }
 
     loadSeller();
-  }, [slug]);
+  }, [slug, t]);
 
   const sellerCapabilities = useMemo(() => {
     if (!seller) return [];
 
     return [
       {
-        label: "Create bookings",
+        label: t("sellerProfile.capabilities.createBookings"),
         enabled: hasPermission(seller, "can_create_bookings"),
       },
       {
-        label: "View own bookings",
+        label: t("sellerProfile.capabilities.viewOwnBookings"),
         enabled:
           hasPermission(seller, "can_view_own_sales") ||
           hasPermission(seller, "can_view_own_bookings"),
       },
       {
-        label: "View commissions",
+        label: t("sellerProfile.capabilities.viewCommissions"),
         enabled: hasPermission(seller, "can_view_own_commissions"),
       },
       {
-        label: "Apply discounts",
+        label: t("sellerProfile.capabilities.applyDiscounts"),
         enabled: hasPermission(seller, "can_apply_discounts"),
       },
       {
-        label: "Collect cash",
+        label: t("sellerProfile.capabilities.collectCash"),
         enabled: hasPermission(seller, "can_collect_cash_payment"),
       },
       {
-        label: "Generate tickets",
+        label: t("sellerProfile.capabilities.generateTickets"),
         enabled: hasPermission(
           seller,
           "can_generate_ticket_without_customer_online_payment"
         ),
       },
     ].filter((item) => item.enabled);
-  }, [seller]);
+  }, [seller, t]);
 
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-        Loading seller profile...
+        {t("sellerProfile.loading")}
       </div>
     );
   }
@@ -114,7 +116,7 @@ export default function TicketingSellerProfilePage() {
   if (errorMessage || !seller) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center font-bold text-red-700">
-        {errorMessage || "Seller profile not available."}
+        {errorMessage || t("sellerProfile.errors.unavailable")}
       </div>
     );
   }
@@ -127,7 +129,7 @@ export default function TicketingSellerProfilePage() {
             {seller.photo_url ? (
               <img
                 src={seller.photo_url}
-                alt={seller.full_name || "Seller"}
+                alt={seller.full_name || t("sellerProfile.labels.seller")}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -137,13 +139,14 @@ export default function TicketingSellerProfilePage() {
 
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-              Seller Profile
+              {t("sellerProfile.header.eyebrow")}
             </p>
             <h1 className="mt-1 truncate text-2xl font-black text-slate-950">
-              {seller.full_name || "Seller"}
+              {seller.full_name || t("sellerProfile.labels.seller")}
             </h1>
             <p className="mt-1 text-sm font-semibold capitalize text-slate-500">
-              {seller.role || "Seller"} account
+              {seller.role || t("sellerProfile.labels.seller")}{" "}
+              {t("sellerProfile.labels.account")}
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -162,7 +165,7 @@ export default function TicketingSellerProfilePage() {
               {seller.is_active !== false && (
                 <span className="inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
                   <CheckCircle2 className="h-4 w-4" />
-                  Active
+                  {t("sellerProfile.status.active")}
                 </span>
               )}
             </div>
@@ -172,22 +175,22 @@ export default function TicketingSellerProfilePage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SellerStatCard
-          label="Total Sales"
+          label={t("sellerProfile.stats.totalSales")}
           value={money(seller.total_sales_amount)}
           icon={Wallet}
         />
         <SellerStatCard
-          label="Commission"
+          label={t("sellerProfile.stats.commission")}
           value={money(seller.total_commission_amount)}
           icon={BadgeDollarSign}
         />
         <SellerStatCard
-          label="Collected"
+          label={t("sellerProfile.stats.collected")}
           value={money(seller.total_collected_amount)}
           icon={Wallet}
         />
         <SellerStatCard
-          label="Owed to Company"
+          label={t("sellerProfile.stats.owedToCompany")}
           value={money(seller.total_owed_to_company)}
           icon={Wallet}
         />
@@ -200,10 +203,10 @@ export default function TicketingSellerProfilePage() {
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-950">
-              What you can do
+              {t("sellerProfile.capabilities.title")}
             </h2>
             <p className="mt-1 text-sm font-semibold text-slate-500">
-              This is a simple summary of the actions enabled for your seller account.
+              {t("sellerProfile.capabilities.description")}
             </p>
           </div>
         </div>
@@ -224,7 +227,7 @@ export default function TicketingSellerProfilePage() {
           </div>
         ) : (
           <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm font-bold text-slate-500">
-            No seller actions are currently enabled. Please contact the company owner.
+            {t("sellerProfile.capabilities.empty")}
           </div>
         )}
       </section>

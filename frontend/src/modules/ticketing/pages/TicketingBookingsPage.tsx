@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import TicketingPageShell from "../components/TicketingPageShell";
 
 type BookingStatus =
@@ -138,8 +139,14 @@ type Booking = {
 
 type StatusOption = {
   value: string;
-  label: string;
+  labelKey: string;
 };
+
+type Translate = (
+  key: string,
+  values?: Record<string, string | number | boolean | null | undefined>,
+  fallback?: string,
+) => string;
 
 type PaymentMethod =
   | "cash"
@@ -160,35 +167,35 @@ type ReceivePaymentForm = {
 };
 
 const bookingStatusOptions: StatusOption[] = [
-  { value: "", label: "All statuses" },
-  { value: "pending", label: "Pending" },
-  { value: "pending_payment", label: "Pending payment" },
-  { value: "confirmed", label: "Confirmed" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "no_show", label: "No show" },
+  { value: "", labelKey: "bookings.filters.allStatuses" },
+  { value: "pending", labelKey: "bookings.statuses.pending" },
+  { value: "pending_payment", labelKey: "bookings.statuses.pending_payment" },
+  { value: "confirmed", labelKey: "bookings.statuses.confirmed" },
+  { value: "completed", labelKey: "bookings.statuses.completed" },
+  { value: "cancelled", labelKey: "bookings.statuses.cancelled" },
+  { value: "no_show", labelKey: "bookings.statuses.no_show" },
 ];
 
 const paymentStatusOptions: StatusOption[] = [
-  { value: "", label: "All payments" },
-  { value: "unpaid", label: "Unpaid" },
-  { value: "pending", label: "Pending" },
-  { value: "deposit_paid", label: "Deposit paid" },
-  { value: "partially_paid", label: "Partially paid" },
-  { value: "partial", label: "Partial" },
-  { value: "paid", label: "Paid" },
-  { value: "refunded", label: "Refunded" },
-  { value: "cancelled", label: "Cancelled" },
+  { value: "", labelKey: "bookings.filters.allPayments" },
+  { value: "unpaid", labelKey: "bookings.paymentStatuses.unpaid" },
+  { value: "pending", labelKey: "bookings.paymentStatuses.pending" },
+  { value: "deposit_paid", labelKey: "bookings.paymentStatuses.deposit_paid" },
+  { value: "partially_paid", labelKey: "bookings.paymentStatuses.partially_paid" },
+  { value: "partial", labelKey: "bookings.paymentStatuses.partial" },
+  { value: "paid", labelKey: "bookings.paymentStatuses.paid" },
+  { value: "refunded", labelKey: "bookings.paymentStatuses.refunded" },
+  { value: "cancelled", labelKey: "bookings.paymentStatuses.cancelled" },
 ];
 
 const productTypeOptions: StatusOption[] = [
-  { value: "", label: "All products" },
-  { value: "transfer", label: "Transfers" },
-  { value: "excursion", label: "Excursions" },
-  { value: "ticket", label: "Tickets" },
-  { value: "event", label: "Events" },
-  { value: "nightlife", label: "Nightlife" },
-  { value: "custom", label: "Custom" },
+  { value: "", labelKey: "bookings.filters.allProducts" },
+  { value: "transfer", labelKey: "bookings.productTypes.transfer" },
+  { value: "excursion", labelKey: "bookings.productTypes.excursion" },
+  { value: "ticket", labelKey: "bookings.productTypes.ticket" },
+  { value: "event", labelKey: "bookings.productTypes.event" },
+  { value: "nightlife", labelKey: "bookings.productTypes.nightlife" },
+  { value: "custom", labelKey: "bookings.productTypes.custom" },
 ];
 
 function getRequestParams(organisationSlug?: string) {
@@ -229,28 +236,41 @@ function getErrorMessage(err: any, fallback: string) {
   return fallback;
 }
 
-function formatMoney(value?: string | number | null, symbol = "US$") {
+function formatMoney(
+  value?: string | number | null,
+  language: "en" | "es" = "en",
+  symbol = "US$",
+) {
   const number = Number(value || 0);
 
-  return `${symbol} ${number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return `${symbol} ${number.toLocaleString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  )}`;
 }
 
-function formatDate(value?: string | null) {
+function formatDate(
+  value?: string | null,
+  language: "en" | "es" = "en",
+) {
   if (!value) return "—";
 
   const date = new Date(`${value}T00:00:00`);
 
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return date.toLocaleDateString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  );
 }
 
 function formatTime(value?: string | null) {
@@ -267,12 +287,21 @@ function formatTime(value?: string | null) {
   return `${hour12}:${minutesRaw || "00"} ${suffix}`;
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(
+  value: string | null | undefined,
+  t: Translate,
+) {
+  if (!value) return t("bookings.statuses.unknown");
 
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  const normalized = String(value).toLowerCase();
+
+  return t(
+    `bookings.statuses.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
+  );
 }
 
 function getStatusClasses(status?: string | null) {
@@ -293,11 +322,12 @@ function getStatusClasses(status?: string | null) {
   return "bg-slate-100 text-slate-600 ring-slate-200";
 }
 
-function getProductName(booking: Booking) {
+function getProductName(booking: Booking, t?: Translate) {
   return (
     booking.primary_product_detail?.name ||
     booking.product_name ||
     booking.items?.[0]?.product_name ||
+    t?.("bookings.fallbacks.experience") ||
     "Experience"
   );
 }
@@ -323,20 +353,35 @@ function getInstructionValue(booking: Booking, label: string) {
   return line ? line.split(":").slice(1).join(":").trim() : "";
 }
 
-function getTransferOrigin(booking: Booking) {
-  return booking.transfer_origin || getInstructionValue(booking, "Route from") || "Pickup";
+function getTransferOrigin(booking: Booking, t?: Translate) {
+  return (
+    booking.transfer_origin ||
+    getInstructionValue(booking, "Route from") ||
+    t?.("bookings.fallbacks.pickup") ||
+    "Pickup"
+  );
 }
 
-function getTransferDestination(booking: Booking) {
-  return booking.transfer_destination || getInstructionValue(booking, "Route to") || "Drop-off";
+function getTransferDestination(booking: Booking, t?: Translate) {
+  return (
+    booking.transfer_destination ||
+    getInstructionValue(booking, "Route to") ||
+    t?.("bookings.fallbacks.dropoff") ||
+    "Drop-off"
+  );
 }
 
-function getTransferRouteLabel(booking: Booking) {
-  return `${getTransferOrigin(booking)} → ${getTransferDestination(booking)}`;
+function getTransferRouteLabel(booking: Booking, t?: Translate) {
+  return `${getTransferOrigin(booking, t)} → ${getTransferDestination(booking, t)}`;
 }
 
-function getTransferVehicle(booking: Booking) {
-  return booking.transfer_vehicle_type || getInstructionValue(booking, "Vehicle") || "Vehicle not assigned";
+function getTransferVehicle(booking: Booking, t?: Translate) {
+  return (
+    booking.transfer_vehicle_type ||
+    getInstructionValue(booking, "Vehicle") ||
+    t?.("bookings.fallbacks.vehicleNotAssigned") ||
+    "Vehicle not assigned"
+  );
 }
 
 function getTransferPickup(booking: Booking) {
@@ -351,8 +396,11 @@ function getTransferPickupMap(booking: Booking) {
   return getInstructionValue(booking, "Pickup map");
 }
 
-function getTransferDropoff(booking: Booking) {
-  return getInstructionValue(booking, "Drop-off") || getTransferDestination(booking);
+function getTransferDropoff(booking: Booking, t?: Translate) {
+  return (
+    getInstructionValue(booking, "Drop-off") ||
+    getTransferDestination(booking, t)
+  );
 }
 
 function getTransferDropoffAddress(booking: Booking) {
@@ -387,6 +435,7 @@ function getTotalGuests(booking: Booking) {
 }
 
 export default function TicketingBookingsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -432,7 +481,7 @@ export default function TicketingBookingsPage() {
       setBookings(normalizeList<Booking>(response.data));
     } catch (err: any) {
       console.error("Could not load bookings:", err);
-      setError(getErrorMessage(err, "No se pudieron cargar las reservas."));
+      setError(getErrorMessage(err, t("bookings.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -478,11 +527,11 @@ export default function TicketingBookingsPage() {
         booking.customer_whatsapp,
         booking.customer_email,
         booking.customer_hotel,
-        getProductName(booking),
+        getProductName(booking, t),
         getPickupHotel(booking),
-        getTransferRouteLabel(booking),
-        getTransferVehicle(booking),
-        getTransferDropoff(booking),
+        getTransferRouteLabel(booking, t),
+        getTransferVehicle(booking, t),
+        getTransferDropoff(booking, t),
         booking.seller_name,
         booking.status,
         booking.payment_status,
@@ -551,10 +600,10 @@ export default function TicketingBookingsPage() {
         current?.id === booking.id ? { ...current, ...updatedBooking } : current
       );
 
-      setSavedMessage("Booking status updated.");
+      setSavedMessage(t("bookings.messages.statusUpdated"));
     } catch (err: any) {
       console.error("Could not update booking:", err);
-      setError(getErrorMessage(err, "Could not update booking."));
+      setError(getErrorMessage(err, t("bookings.errors.update")));
     } finally {
       setSavingId(null);
     }
@@ -571,7 +620,7 @@ export default function TicketingBookingsPage() {
       method: "cash",
       collected_by_party: booking.seller ? "seller" : "owner",
       reference: "",
-      note: "Remaining customer balance received.",
+      note: t("bookings.payment.defaultFullNote"),
     });
   }
 
@@ -595,15 +644,13 @@ export default function TicketingBookingsPage() {
     const balanceDue = Number(paymentBooking.balance_due || 0);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Enter a valid payment amount greater than zero.");
+      setError(t("bookings.errors.invalidPaymentAmount"));
       return;
     }
 
     if (amount > balanceDue + 0.01) {
       setError(
-        `The payment cannot be greater than the outstanding balance of ${formatMoney(
-          balanceDue,
-        )}.`,
+        t("bookings.errors.paymentExceedsBalance", { amount: formatMoney(balanceDue, language) }),
       );
       return;
     }
@@ -612,7 +659,7 @@ export default function TicketingBookingsPage() {
       paymentForm.collected_by_party === "seller" &&
       !paymentBooking.seller
     ) {
-      setError("This booking does not have a seller assigned.");
+      setError(t("bookings.errors.noSellerAssigned"));
       return;
     }
 
@@ -635,8 +682,8 @@ export default function TicketingBookingsPage() {
         note:
           paymentForm.note.trim() ||
           (isFullBalance
-            ? "Remaining customer balance received."
-            : "Partial customer balance payment received."),
+            ? t("bookings.payment.defaultFullNote")
+            : t("bookings.payment.defaultPartialNote")),
       };
 
       if (
@@ -685,16 +732,16 @@ export default function TicketingBookingsPage() {
 
       setSavedMessage(
         Number(updatedBooking.balance_due || 0) <= 0
-          ? "Payment received. The booking is now fully paid and the updated ticket can use the same QR code."
-          : `Payment received. Remaining balance: ${formatMoney(
-              updatedBooking.balance_due,
-            )}.`,
+          ? t("bookings.messages.paymentFullyReceived")
+          : t("bookings.messages.paymentReceivedBalance", {
+              amount: formatMoney(updatedBooking.balance_due, language),
+            }),
       );
 
       closeReceivePayment();
     } catch (err: any) {
       console.error("Could not receive payment:", err);
-      setError(getErrorMessage(err, "Could not record the payment."));
+      setError(getErrorMessage(err, t("bookings.errors.recordPayment")));
     } finally {
       setPaymentSaving(false);
       setSavingId(null);
@@ -704,11 +751,11 @@ export default function TicketingBookingsPage() {
   if (loading) {
     return (
       <TicketingPageShell
-        title="Bookings"
-        subtitle="Manage customer bookings, tickets, transfers, events and payment status."
+        title={t("bookings.title")}
+        subtitle={t("bookings.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading bookings...
+          {t("bookings.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -716,45 +763,45 @@ export default function TicketingBookingsPage() {
 
   return (
     <TicketingPageShell
-      title="Bookings"
-      subtitle="Manage customer bookings, tickets, transfers, events and payment status."
+      title={t("bookings.title")}
+      subtitle={t("bookings.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <StatCard
-            title="Total bookings"
+            title={t("bookings.stats.total")}
             value={String(stats.total)}
-            helper="All public and seller bookings"
+            helper={t("bookings.stats.allBookings")}
             icon={<Ticket className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Pending"
+            title={t("bookings.stats.pending")}
             value={String(stats.pending)}
-            helper="Need review or payment"
+            helper={t("bookings.stats.needReview")}
             icon={<Clock3 className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Confirmed"
+            title={t("bookings.stats.confirmed")}
             value={String(stats.confirmed)}
-            helper="Ready / completed"
+            helper={t("bookings.stats.readyCompleted")}
             icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Paid"
+            title={t("bookings.stats.paid")}
             value={String(stats.paid)}
-            helper="Payment completed"
+            helper={t("bookings.stats.paymentCompleted")}
             icon={<CreditCard className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Transfers"
+            title={t("bookings.stats.transfers")}
             value={String(stats.transfers)}
-            helper="Private transport bookings"
+            helper={t("bookings.stats.privateTransport")}
             icon={<Plane className="h-6 w-6 text-blue-600" />}
           />
           <StatCard
-            title="Balance due"
-            value={formatMoney(stats.balanceDue)}
-            helper="Pending to collect"
+            title={t("bookings.stats.balanceDue")}
+            value={formatMoney(stats.balanceDue, language)}
+            helper={t("bookings.stats.pendingCollection")}
             icon={<CreditCard className="h-6 w-6 text-red-600" />}
           />
         </section>
@@ -777,10 +824,10 @@ export default function TicketingBookingsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Booking list
+                {t("bookings.list.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Review customers, pickup details, totals and payment status.
+                {t("bookings.list.subtitle")}
               </p>
             </div>
 
@@ -790,7 +837,7 @@ export default function TicketingBookingsPage() {
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              {t("bookings.actions.refresh")}
             </button>
           </div>
 
@@ -800,7 +847,7 @@ export default function TicketingBookingsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search code, customer, hotel, product..."
+                placeholder={t("bookings.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -812,7 +859,7 @@ export default function TicketingBookingsPage() {
             >
               {bookingStatusOptions.map((option) => (
                 <option key={option.value || "all"} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -824,7 +871,7 @@ export default function TicketingBookingsPage() {
             >
               {paymentStatusOptions.map((option) => (
                 <option key={option.value || "all"} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -836,7 +883,7 @@ export default function TicketingBookingsPage() {
             >
               {productTypeOptions.map((option) => (
                 <option key={option.value || "all-types"} value={option.value}>
-                  {option.label}
+                  {t(option.labelKey)}
                 </option>
               ))}
             </select>
@@ -851,20 +898,20 @@ export default function TicketingBookingsPage() {
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredBookings.length === 0 ? (
-              <EmptyState text="No bookings found." />
+              <EmptyState text={t("bookings.empty")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Booking</Th>
-                      <Th>Customer</Th>
-                      <Th>Product / Date</Th>
-                      <Th>Pickup / Route</Th>
-                      <Th>Total</Th>
-                      <Th>Status</Th>
-                      <Th>Payment</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("bookings.table.booking")}</Th>
+                      <Th>{t("bookings.table.customer")}</Th>
+                      <Th>{t("bookings.table.productDate")}</Th>
+                      <Th>{t("bookings.table.pickupRoute")}</Th>
+                      <Th>{t("bookings.table.total")}</Th>
+                      <Th>{t("bookings.table.status")}</Th>
+                      <Th>{t("bookings.table.payment")}</Th>
+                      <Th>{t("bookings.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -885,10 +932,10 @@ export default function TicketingBookingsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {booking.customer_name || "No name"}
+                              {booking.customer_name || t("bookings.fallbacks.noName")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {booking.customer_whatsapp || booking.customer_email || "No contact"}
+                              {booking.customer_whatsapp || booking.customer_email || t("bookings.fallbacks.noContact")}
                             </p>
                           </div>
                         </Td>
@@ -896,10 +943,10 @@ export default function TicketingBookingsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {getProductName(booking)}
+                              {getProductName(booking, t)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {formatDate(booking.service_date)} · {getTotalGuests(booking)} {isTransferBooking(booking) ? "passengers" : "guests"}
+                              {formatDate(booking.service_date, language)} · {getTotalGuests(booking)} {isTransferBooking(booking) ? t("bookings.guests.passengers") : t("bookings.guests.guests")}
                             </p>
                           </div>
                         </Td>
@@ -909,13 +956,13 @@ export default function TicketingBookingsPage() {
                             {isTransferBooking(booking) ? (
                               <>
                                 <p className="font-black text-slate-900">
-                                  {getTransferRouteLabel(booking)}
+                                  {getTransferRouteLabel(booking, t)}
                                 </p>
                                 <p className="mt-1 text-xs font-bold text-slate-500">
-                                  Pickup: {getTransferPickup(booking)} · {formatTime(getPickupTime(booking))}
+                                  {t("bookings.labels.pickup")}: {getTransferPickup(booking)} · {formatTime(getPickupTime(booking))}
                                 </p>
                                 <p className="mt-1 text-xs font-bold text-blue-600">
-                                  {getTransferVehicle(booking)}
+                                  {getTransferVehicle(booking, t)}
                                 </p>
                               </>
                             ) : (
@@ -934,13 +981,13 @@ export default function TicketingBookingsPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {formatMoney(booking.total_amount)}
+                              {formatMoney(booking.total_amount, language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-emerald-600">
-                              Paid: {formatMoney(booking.deposit_paid)}
+                              {t("bookings.labels.paid")}: {formatMoney(booking.deposit_paid, language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Balance: {formatMoney(booking.balance_due)}
+                              {t("bookings.labels.balance")}: {formatMoney(booking.balance_due, language)}
                             </p>
                           </div>
                         </Td>
@@ -958,7 +1005,7 @@ export default function TicketingBookingsPage() {
                               .filter((option) => option.value)
                               .map((option) => (
                                 <option key={option.value} value={option.value}>
-                                  {option.label}
+                                  {t(option.labelKey)}
                                 </option>
                               ))}
                           </select>
@@ -967,9 +1014,9 @@ export default function TicketingBookingsPage() {
                         <Td>
                           <span
                             className={`inline-flex h-10 items-center rounded-2xl px-3 text-xs font-black ring-1 ${getStatusClasses(booking.payment_status)}`}
-                            title="Payment status is controlled by confirmed payments, deposits and gateway payments."
+                            title={t("bookings.tooltips.paymentStatusControlled")}
                           >
-                            {statusLabel(booking.payment_status)}
+                            {statusLabel(booking.payment_status, t)}
                           </span>
                         </Td>
 
@@ -981,7 +1028,7 @@ export default function TicketingBookingsPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Eye className="h-4 w-4" />
-                              View
+                              {t("bookings.actions.view")}
                             </button>
 
                             {Number(booking.balance_due || 0) > 0 ? (
@@ -992,12 +1039,12 @@ export default function TicketingBookingsPage() {
                                 className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 <Banknote className="h-4 w-4" />
-                                Receive Payment
+                                {t("bookings.actions.receivePayment")}
                               </button>
                             ) : (
                               <span className="inline-flex h-10 items-center gap-2 rounded-2xl bg-emerald-50 px-3 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
                                 <CheckCircle2 className="h-4 w-4" />
-                                Paid
+                                {t("bookings.payment.fullyPaid")}
                               </span>
                             )}
 
@@ -1056,6 +1103,7 @@ function BookingDetailModal({
   onReceivePayment: (booking: Booking) => void;
   saving: boolean;
 }) {
+  const { language, t } = useTicketingAdminTranslation();
   const transferBooking = isTransferBooking(booking);
 
   return (
@@ -1064,13 +1112,13 @@ function BookingDetailModal({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              Booking detail
+              {t("bookings.detail.title")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
               {booking.booking_code || `#${booking.id}`}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
-              {getProductName(booking)}
+              {getProductName(booking, t)}
             </p>
           </div>
 
@@ -1087,83 +1135,83 @@ function BookingDetailModal({
           <div className="grid gap-4 lg:grid-cols-3">
             <InfoCard
               icon={<User className="h-5 w-5" />}
-              label="Customer"
+              label={t("bookings.detail.customer")}
               value={booking.customer_name || "—"}
-              helper={booking.customer_whatsapp || booking.customer_email || "No contact"}
+              helper={booking.customer_whatsapp || booking.customer_email || t("bookings.fallbacks.noContact")}
             />
             <InfoCard
               icon={<CalendarDays className="h-5 w-5" />}
-              label="Service date"
-              value={formatDate(booking.service_date)}
+              label={t("bookings.detail.serviceDate")}
+              value={formatDate(booking.service_date, language)}
               helper={formatTime(booking.service_time)}
             />
             <InfoCard
               icon={<Users className="h-5 w-5" />}
-              label={transferBooking ? "Passengers" : "Guests"}
-              value={`${getTotalGuests(booking)} total`}
-              helper={`${booking.adults || 0} adults · ${booking.children || 0} children · ${booking.infants || 0} infants`}
+              label={transferBooking ? t("bookings.guests.passengers") : t("bookings.guests.guests")}
+              value={t("bookings.guests.total", { count: getTotalGuests(booking) })}
+              helper={t("bookings.guests.breakdown", { adults: booking.adults || 0, children: booking.children || 0, infants: booking.infants || 0 })}
             />
             {transferBooking ? (
               <>
                 <InfoCard
                   icon={<Navigation className="h-5 w-5" />}
-                  label="Transfer route"
-                  value={getTransferRouteLabel(booking)}
-                  helper={booking.transfer_round_trip ? "Round trip" : "One way"}
+                  label={t("bookings.detail.transferRoute")}
+                  value={getTransferRouteLabel(booking, t)}
+                  helper={booking.transfer_round_trip ? t("bookings.transfer.roundTrip") : t("bookings.transfer.oneWay")}
                 />
                 <InfoCard
                   icon={<MapPin className="h-5 w-5" />}
-                  label="Pickup"
+                  label={t("bookings.labels.pickup")}
                   value={getTransferPickup(booking)}
-                  helper={getTransferPickupAddress(booking) || "Pickup address not provided"}
+                  helper={getTransferPickupAddress(booking) || t("bookings.fallbacks.pickupAddressMissing")}
                 />
                 <InfoCard
                   icon={<MapPin className="h-5 w-5" />}
-                  label="Drop-off"
-                  value={getTransferDropoff(booking)}
-                  helper={getTransferDropoffAddress(booking) || "Drop-off address not provided"}
+                  label={t("bookings.labels.dropoff")}
+                  value={getTransferDropoff(booking, t)}
+                  helper={getTransferDropoffAddress(booking) || t("bookings.fallbacks.dropoffAddressMissing")}
                 />
                 <InfoCard
                   icon={<Plane className="h-5 w-5" />}
-                  label="Vehicle"
-                  value={getTransferVehicle(booking)}
-                  helper={statusLabel(booking.transfer_status || "advance booking")}
+                  label={t("bookings.detail.vehicle")}
+                  value={getTransferVehicle(booking, t)}
+                  helper={statusLabel(booking.transfer_status || "advance_booking", t)}
                 />
               </>
             ) : (
               <>
                 <InfoCard
                   icon={<MapPin className="h-5 w-5" />}
-                  label="Pickup hotel"
+                  label={t("bookings.detail.pickupHotel")}
                   value={getPickupHotel(booking)}
-                  helper={booking.pickup_info?.pickup_point || "Pickup point not set"}
+                  helper={booking.pickup_info?.pickup_point || t("bookings.fallbacks.pickupPointMissing")}
                 />
                 <InfoCard
                   icon={<Clock3 className="h-5 w-5" />}
-                  label="Pickup time"
+                  label={t("bookings.detail.pickupTime")}
                   value={formatTime(getPickupTime(booking))}
-                  helper={booking.pickup_info?.instructions || "Automatic pickup"}
+                  helper={booking.pickup_info?.instructions || t("bookings.fallbacks.automaticPickup")}
                 />
               </>
             )}
             <InfoCard
               icon={<CreditCard className="h-5 w-5" />}
-              label="Total / balance"
-              value={formatMoney(booking.total_amount)}
-              helper={`Balance: ${formatMoney(booking.balance_due)}`}
+              label={t("bookings.detail.totalBalance")}
+              value={formatMoney(booking.total_amount, language)}
+              helper={`${t("bookings.labels.balance")}: ${formatMoney(booking.balance_due, language)}`}
             />
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-2">
             <div className="rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Booking status
+                {t("bookings.detail.bookingStatus")}
               </h3>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className="text-sm font-bold text-slate-700">
-                    Status
+                    {t("bookings.table.status")}
                   </span>
                   <select
                     value={booking.status || ""}
@@ -1177,7 +1225,7 @@ function BookingDetailModal({
                       .filter((option) => option.value)
                       .map((option) => (
                         <option key={option.value} value={option.value}>
-                          {option.label}
+                          {t(option.labelKey)}
                         </option>
                       ))}
                   </select>
@@ -1185,16 +1233,16 @@ function BookingDetailModal({
 
                 <label>
                   <span className="text-sm font-bold text-slate-700">
-                    Payment status
+                    {t("bookings.detail.paymentStatus")}
                   </span>
                   <div
                     className={`mt-2 flex h-12 w-full items-center rounded-2xl px-4 text-sm font-black ring-1 ${getStatusClasses(booking.payment_status)}`}
-                    title="Payment status is calculated from real confirmed payments. Add/confirm a payment to change it."
+                    title={t("bookings.tooltips.paymentStatusControlled")}
                   >
-                    {statusLabel(booking.payment_status)}
+                    {statusLabel(booking.payment_status, t)}
                   </div>
                   <p className="mt-2 text-xs font-bold text-slate-500">
-                    Payment status is automatic. To mark as paid, record or confirm a payment.
+                    {t("bookings.tooltips.paymentStatusControlled")}
                   </p>
                 </label>
               </div>
@@ -1202,16 +1250,16 @@ function BookingDetailModal({
 
             <div className="rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Payment summary
+                {t("bookings.detail.paymentSummary")}
               </h3>
 
               <div className="mt-3 space-y-2 text-sm">
-                <SummaryLine label="Subtotal" value={formatMoney(booking.subtotal_amount)} />
-                <SummaryLine label="Total" value={formatMoney(booking.total_amount)} />
-                <SummaryLine label="Deposit required" value={formatMoney(booking.deposit_required)} />
-                <SummaryLine label="Paid" value={formatMoney(booking.deposit_paid)} />
-                <SummaryLine label="Balance due" value={formatMoney(booking.balance_due)} />
-                <SummaryLine label="Payment mode" value={statusLabel(booking.payment_mode)} />
+                <SummaryLine label={t("bookings.payment.subtotal")} value={formatMoney(booking.subtotal_amount, language)} />
+                <SummaryLine label={t("bookings.table.total")} value={formatMoney(booking.total_amount, language)} />
+                <SummaryLine label={t("bookings.payment.depositRequired")} value={formatMoney(booking.deposit_required, language)} />
+                <SummaryLine label={t("bookings.labels.paid")} value={formatMoney(booking.deposit_paid, language)} />
+                <SummaryLine label={t("bookings.stats.balanceDue")} value={formatMoney(booking.balance_due, language)} />
+                <SummaryLine label={t("bookings.payment.mode")} value={statusLabel(booking.payment_mode, t)} />
               </div>
 
               {Number(booking.balance_due || 0) > 0 ? (
@@ -1222,12 +1270,12 @@ function BookingDetailModal({
                   className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Banknote className="h-5 w-5" />
-                  Receive Payment
+                  {t("bookings.actions.receivePayment")}
                 </button>
               ) : (
                 <div className="mt-4 flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 text-sm font-black text-emerald-700 ring-1 ring-emerald-200">
                   <CheckCircle2 className="h-5 w-5" />
-                  Fully Paid
+                  {t("bookings.payment.fullyPaid")}
                 </div>
               )}
             </div>
@@ -1236,16 +1284,16 @@ function BookingDetailModal({
           {transferBooking && (
             <section className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-blue-700">
-                Transfer details
+                {t("bookings.transfer.details")}
               </h3>
 
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                <TransferDetail label="Route" value={getTransferRouteLabel(booking)} />
-                <TransferDetail label="Preferred time" value={formatTime(getPickupTime(booking))} />
-                <TransferDetail label="Pickup" value={getTransferPickup(booking)} helper={getTransferPickupAddress(booking)} mapLink={getTransferPickupMap(booking)} />
-                <TransferDetail label="Drop-off" value={getTransferDropoff(booking)} helper={getTransferDropoffAddress(booking)} mapLink={getTransferDropoffMap(booking)} />
-                <TransferDetail label="Vehicle" value={getTransferVehicle(booking)} />
-                <TransferDetail label="Passengers" value={`${getTotalGuests(booking)} total`} />
+                <TransferDetail label={t("bookings.transfer.route")} value={getTransferRouteLabel(booking, t)} />
+                <TransferDetail label={t("bookings.transfer.preferredTime")} value={formatTime(getPickupTime(booking))} />
+                <TransferDetail label={t("bookings.labels.pickup")} value={getTransferPickup(booking)} helper={getTransferPickupAddress(booking)} mapLink={getTransferPickupMap(booking)} />
+                <TransferDetail label={t("bookings.labels.dropoff")} value={getTransferDropoff(booking, t)} helper={getTransferDropoffAddress(booking)} mapLink={getTransferDropoffMap(booking)} />
+                <TransferDetail label={t("bookings.detail.vehicle")} value={getTransferVehicle(booking, t)} />
+                <TransferDetail label={t("bookings.guests.passengers")} value={t("bookings.guests.total", { count: getTotalGuests(booking) })} />
               </div>
             </section>
           )}
@@ -1253,7 +1301,7 @@ function BookingDetailModal({
           {booking.customer_notes && (
             <section className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Customer notes
+                {t("bookings.detail.customerNotes")}
               </h3>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
                 {booking.customer_notes}
@@ -1264,7 +1312,7 @@ function BookingDetailModal({
           {booking.items && booking.items.length > 0 && (
             <section className="mt-5 rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Items
+                {t("bookings.detail.items")}
               </h3>
               <div className="mt-3 space-y-2">
                 {booking.items.map((item, index) => (
@@ -1274,14 +1322,14 @@ function BookingDetailModal({
                   >
                     <div>
                       <p className="font-black text-slate-900">
-                        {item.product_name || `Item ${index + 1}`}
+                        {item.product_name || t("bookings.detail.itemNumber", { number: index + 1 })}
                       </p>
                       <p className="text-xs font-bold text-slate-500">
-                        Qty: {item.quantity || 0} · {formatDate(item.service_date)}
+                        {t("bookings.detail.quantity")}: {item.quantity || 0} · {formatDate(item.service_date, language)}
                       </p>
                     </div>
                     <p className="font-black text-slate-950">
-                      {formatMoney(item.line_total ?? item.total)}
+                      {formatMoney(item.line_total ?? item.total, language)}
                     </p>
                   </div>
                 ))}
@@ -1292,7 +1340,7 @@ function BookingDetailModal({
           {booking.payments && booking.payments.length > 0 && (
             <section className="mt-5 rounded-3xl border border-slate-200 p-4">
               <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                Payments
+                {t("bookings.detail.payments")}
               </h3>
               <div className="mt-3 space-y-2">
                 {booking.payments.map((payment, index) => (
@@ -1302,14 +1350,14 @@ function BookingDetailModal({
                   >
                     <div>
                       <p className="font-black text-slate-900">
-                        {statusLabel(payment.payment_type)} · {statusLabel(payment.method)}
+                        {statusLabel(payment.payment_type, t)} · {statusLabel(payment.method, t)}
                       </p>
                       <p className="text-xs font-bold text-slate-500">
-                        {statusLabel(payment.status)}
+                        {statusLabel(payment.status, t)}
                       </p>
                     </div>
                     <p className="font-black text-slate-950">
-                      {formatMoney(payment.amount)}
+                      {formatMoney(payment.amount, language)}
                     </p>
                   </div>
                 ))}
@@ -1337,6 +1385,7 @@ function ReceivePaymentModal({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const { language, t } = useTicketingAdminTranslation();
   const balanceDue = Number(booking.balance_due || 0);
   const hasSeller = Boolean(booking.seller);
 
@@ -1346,14 +1395,14 @@ function ReceivePaymentModal({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-emerald-600">
-              Record confirmed payment
+              {t("bookings.payment.recordConfirmed")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              Receive Payment
+              {t("bookings.actions.receivePayment")}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
               {booking.booking_code || `#${booking.id}`} ·{" "}
-              {booking.customer_name || "Customer"}
+              {booking.customer_name || t("bookings.detail.customer")}
             </p>
           </div>
 
@@ -1370,20 +1419,19 @@ function ReceivePaymentModal({
         <div className="space-y-5 p-5">
           <div className="rounded-3xl bg-slate-950 p-5 text-white">
             <p className="text-xs font-black uppercase tracking-wide text-slate-300">
-              Outstanding balance
+              {t("bookings.payment.outstandingBalance")}
             </p>
             <p className="mt-2 text-3xl font-black">
-              {formatMoney(balanceDue)}
+              {formatMoney(balanceDue, language)}
             </p>
             <p className="mt-2 text-sm font-semibold text-slate-300">
-              The amount is prefilled with the full remaining balance. You may
-              reduce it to record a partial payment.
+              {t("bookings.payment.prefillHelp")}
             </p>
           </div>
 
           <label className="block">
             <span className="text-sm font-bold text-slate-700">
-              Amount received
+              {t("bookings.payment.amountReceived")}
             </span>
             <input
               type="number"
@@ -1400,7 +1448,7 @@ function ReceivePaymentModal({
 
           <label className="block">
             <span className="text-sm font-bold text-slate-700">
-              Payment method
+              {t("bookings.payment.method")}
             </span>
             <select
               value={form.method}
@@ -1412,18 +1460,18 @@ function ReceivePaymentModal({
               }
               className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none focus:border-emerald-400 focus:bg-white"
             >
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="bank_transfer">Bank transfer</option>
+              <option value="cash">{t("bookings.paymentMethods.cash")}</option>
+              <option value="card">{t("bookings.paymentMethods.card")}</option>
+              <option value="bank_transfer">{t("bookings.paymentMethods.bank_transfer")}</option>
               <option value="stripe">Stripe</option>
               <option value="paypal">PayPal</option>
-              <option value="other">Other</option>
+              <option value="other">{t("bookings.paymentMethods.other")}</option>
             </select>
           </label>
 
           <div>
             <span className="text-sm font-bold text-slate-700">
-              Collected by
+              {t("bookings.payment.collectedBy")}
             </span>
 
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -1438,9 +1486,9 @@ function ReceivePaymentModal({
                     : "border-slate-200 bg-white hover:bg-slate-50"
                 }`}
               >
-                <p className="text-sm font-black text-slate-950">Company</p>
+                <p className="text-sm font-black text-slate-950">{t("bookings.payment.company")}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">
-                  Money received directly by the owner or company.
+                  {t("bookings.payment.companyHelp")}
                 </p>
               </button>
 
@@ -1456,11 +1504,11 @@ function ReceivePaymentModal({
                     : "border-slate-200 bg-white hover:bg-slate-50"
                 }`}
               >
-                <p className="text-sm font-black text-slate-950">Seller</p>
+                <p className="text-sm font-black text-slate-950">{t("bookings.payment.seller")}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">
                   {hasSeller
-                    ? booking.seller_name || "Assigned seller collected it."
-                    : "No seller is assigned to this booking."}
+                    ? booking.seller_name || t("bookings.payment.assignedSellerCollected")
+                    : t("bookings.errors.noSellerAssigned")}
                 </p>
               </button>
             </div>
@@ -1468,35 +1516,32 @@ function ReceivePaymentModal({
 
           <label className="block">
             <span className="text-sm font-bold text-slate-700">
-              Reference
+              {t("bookings.payment.reference")}
             </span>
             <input
               value={form.reference}
               onChange={(event) =>
                 onChange({ ...form, reference: event.target.value })
               }
-              placeholder="Optional receipt, transfer or transaction reference"
+              placeholder={t("bookings.payment.referencePlaceholder")}
               className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none focus:border-emerald-400 focus:bg-white"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm font-bold text-slate-700">Note</span>
+            <span className="text-sm font-bold text-slate-700">{t("bookings.payment.note")}</span>
             <textarea
               value={form.note}
               onChange={(event) =>
                 onChange({ ...form, note: event.target.value })
               }
-              placeholder="Optional internal payment note"
+              placeholder={t("bookings.payment.notePlaceholder")}
               className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-emerald-400 focus:bg-white"
             />
           </label>
 
           <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-800">
-            The backend will create a real confirmed payment, recalculate the
-            booking balance and payment status, and keep the existing QR code.
-            Your existing payment-confirmation notification flow can generate
-            the refreshed ticket.
+            {t("bookings.payment.backendHelp")}
           </div>
         </div>
 
@@ -1507,7 +1552,7 @@ function ReceivePaymentModal({
             disabled={saving}
             className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
           >
-            Cancel
+            {t("bookings.actions.cancel")}
           </button>
 
           <button
@@ -1521,7 +1566,7 @@ function ReceivePaymentModal({
             ) : (
               <Banknote className="h-5 w-5" />
             )}
-            {saving ? "Recording payment..." : "Receive Payment"}
+            {saving ? t("bookings.payment.recording") : t("bookings.actions.receivePayment")}
           </button>
         </div>
       </div>
@@ -1540,6 +1585,8 @@ function TransferDetail({
   helper?: string | null;
   mapLink?: string | null;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="rounded-2xl border border-blue-100 bg-white p-3 text-sm">
       <p className="text-xs font-black uppercase tracking-wide text-blue-600">
@@ -1558,7 +1605,7 @@ function TransferDetail({
           rel="noreferrer"
           className="mt-2 inline-flex text-xs font-black text-blue-700 underline"
         >
-          Open map
+          {t("bookings.actions.openMap")}
         </a>
       )}
     </div>

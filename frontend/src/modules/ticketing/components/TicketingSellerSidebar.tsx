@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import type { Seller, SellerPermissions } from "../types/ticketingTypes";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type TicketingPermissionKey = keyof SellerPermissions;
 
@@ -65,7 +66,9 @@ function hasAnyPermission(
   if (!permissions || permissions.length === 0) return true;
   if (!seller) return false;
 
-  return permissions.some((permission) => getPermissionValue(seller, permission));
+  return permissions.some((permission) =>
+    getPermissionValue(seller, permission)
+  );
 }
 
 export default function TicketingSellerSidebar({
@@ -76,6 +79,7 @@ export default function TicketingSellerSidebar({
   currentSeller = null,
   currentSellerLoading = false,
 }: TicketingSellerSidebarProps) {
+  const { t } = useTicketingAdminTranslation();
   const location = useLocation();
   const params = useParams();
 
@@ -84,13 +88,13 @@ export default function TicketingSellerSidebar({
 
   const navItems: NavItem[] = [
     {
-      label: "Dashboard",
+      label: t("sellerSidebar.navigation.dashboard"),
       path: buildPath(safeSlug, "/dashboard"),
       icon: BarChart3,
       permissions: ["can_access_dashboard"],
     },
     {
-      label: "Products",
+      label: t("sellerSidebar.navigation.products"),
       path: buildPath(safeSlug, "/products"),
       icon: Package,
       permissions: [
@@ -102,31 +106,31 @@ export default function TicketingSellerSidebar({
       ],
     },
     {
-      label: "New Booking",
+      label: t("sellerSidebar.navigation.newBooking"),
       path: buildPath(safeSlug, "/new-booking"),
       icon: Ticket,
       permissions: ["can_create_bookings"],
     },
     {
-      label: "Bookings",
+      label: t("sellerSidebar.navigation.bookings"),
       path: buildPath(safeSlug, "/bookings"),
       icon: Receipt,
       permissions: ["can_view_own_sales", "can_create_bookings"],
     },
     {
-      label: "Customers",
+      label: t("sellerSidebar.navigation.customers"),
       path: buildPath(safeSlug, "/customers"),
       icon: Users,
       permissions: ["can_view_own_sales", "can_create_bookings"],
     },
     {
-      label: "Commissions",
+      label: t("sellerSidebar.navigation.commissions"),
       path: buildPath(safeSlug, "/commissions"),
       icon: BadgeDollarSign,
       permissions: ["can_view_own_commissions"],
     },
     {
-      label: "Profile",
+      label: t("sellerSidebar.navigation.profile"),
       path: buildPath(safeSlug, "/profile"),
       icon: UserCircle,
       alwaysShow: true,
@@ -134,18 +138,24 @@ export default function TicketingSellerSidebar({
   ];
 
   const visibleItems = currentSeller
-    ? navItems.filter((item) =>
-        item.alwaysShow || hasAnyPermission(currentSeller, item.permissions)
+    ? navItems.filter(
+        (item) =>
+          item.alwaysShow ||
+          hasAnyPermission(currentSeller, item.permissions)
       )
     : [];
 
   const sellerName =
     currentSeller?.full_name ||
-    (currentSellerLoading ? "Loading seller..." : "Seller");
+    (currentSellerLoading
+      ? t("sellerSidebar.seller.loading")
+      : t("sellerSidebar.seller.defaultName"));
 
   const sellerSubtitle =
     currentSeller?.role ||
-    (currentSellerLoading ? "Checking access" : "Seller Portal");
+    (currentSellerLoading
+      ? t("sellerSidebar.seller.checkingAccess")
+      : t("sellerSidebar.seller.portal"));
 
   const homePath = buildPath(safeSlug, "/dashboard");
 
@@ -158,9 +168,11 @@ export default function TicketingSellerSidebar({
           </div>
 
           <div>
-            <p className="text-sm font-black leading-tight">Seller Portal</p>
+            <p className="text-sm font-black leading-tight">
+              {t("sellerSidebar.header.title")}
+            </p>
             <p className="text-xs font-semibold text-white/50">
-              Products & Bookings
+              {t("sellerSidebar.header.subtitle")}
             </p>
           </div>
         </Link>
@@ -168,6 +180,7 @@ export default function TicketingSellerSidebar({
         <button
           type="button"
           onClick={onClose}
+          aria-label={t("sellerSidebar.actions.close")}
           className="rounded-xl p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
         >
           <X className="h-5 w-5" />
@@ -177,7 +190,7 @@ export default function TicketingSellerSidebar({
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {currentSellerLoading ? (
           <div className="rounded-2xl px-4 py-3 text-sm font-bold text-white/60">
-            Loading permissions...
+            {t("sellerSidebar.loadingPermissions")}
           </div>
         ) : visibleItems.length > 0 ? (
           visibleItems.map((item) => {
@@ -204,7 +217,7 @@ export default function TicketingSellerSidebar({
           })
         ) : (
           <div className="rounded-2xl px-4 py-3 text-sm font-bold leading-6 text-white/60">
-            No seller permissions are enabled yet.
+            {t("sellerSidebar.emptyPermissions")}
           </div>
         )}
       </nav>
@@ -212,7 +225,7 @@ export default function TicketingSellerSidebar({
       <div className="space-y-3 border-t border-white/10 p-4">
         <div className="rounded-3xl bg-white/5 p-4">
           <p className="text-xs font-black uppercase tracking-wide text-white/40">
-            Seller
+            {t("sellerSidebar.seller.label")}
           </p>
           <p className="mt-1 truncate text-sm font-black text-white">
             {sellerName}
@@ -228,7 +241,7 @@ export default function TicketingSellerSidebar({
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white transition hover:bg-white/15"
         >
           <LogOut className="h-4 w-4" />
-          Logout
+          {t("sellerSidebar.actions.logout")}
         </button>
       </div>
     </div>

@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   LedgerSummary,
@@ -69,7 +70,7 @@ function getMonthStart(): string {
   return date.toISOString().slice(0, 10);
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -89,7 +90,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "Could not process the ledger request."
+      fallback
     );
   }
 
@@ -97,7 +98,7 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not process the ledger request.";
+  return fallback;
 }
 
 function toNumber(value: string | number | null | undefined): number {
@@ -108,33 +109,58 @@ function toNumber(value: string | number | null | undefined): number {
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
+  language: "en" | "es" = "en",
 ): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(toNumber(value));
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    },
+  ).format(toNumber(value));
 }
 
-function formatDateTime(value?: string | null): string {
+function formatDateTime(
+  value: string | null | undefined,
+  language: "en" | "es" = "en",
+): string {
   if (!value) return "—";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
 
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+    },
+  ).format(date);
 }
 
-function formatLabel(value?: string | null): string {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function formatLabel(
+  value: string | null | undefined,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+  prefix: string,
+): string {
+  const normalized = String(value || "unknown");
+
+  return t(
+    `${prefix}.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  );
 }
 
 export default function TicketingLedgerPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -207,7 +233,7 @@ export default function TicketingLedgerPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("ledger.errors.process")),
       });
     }
   }, [
@@ -217,6 +243,7 @@ export default function TicketingLedgerPage() {
     selectedEntryType,
     selectedParty,
     slug,
+    t,
   ]);
 
   useEffect(() => {
@@ -261,8 +288,7 @@ export default function TicketingLedgerPage() {
     ) {
       setState((current) => ({
         ...current,
-        error:
-          "Enter a valid amount and description for the adjustment.",
+        error: t("ledger.errors.validAdjustment"),
       }));
       return;
     }
@@ -300,7 +326,7 @@ export default function TicketingLedgerPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("ledger.errors.process")),
       }));
     } finally {
       setSavingAdjustment(false);
@@ -309,7 +335,7 @@ export default function TicketingLedgerPage() {
 
   async function handleReverseGroup(entryGroup: string) {
     const reason = window.prompt(
-      "Enter the reason for reversing this ledger group:",
+      t("ledger.prompts.reverseReason"),
     )?.trim();
 
     if (!reason) return;
@@ -330,7 +356,7 @@ export default function TicketingLedgerPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("ledger.errors.process")),
       }));
     } finally {
       setReversingGroup(null);
@@ -359,7 +385,7 @@ export default function TicketingLedgerPage() {
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("ledger.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -369,10 +395,10 @@ export default function TicketingLedgerPage() {
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                Ticketing Ledger
+                {t("ledger.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Review append-only financial movements and balances.
+                {t("ledger.subtitle")}
               </p>
             </div>
           </div>
@@ -384,7 +410,7 @@ export default function TicketingLedgerPage() {
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
         >
           <Plus className="h-4 w-4" />
-          Manual adjustment
+          {t("ledger.actions.manualAdjustment")}
         </button>
       </section>
 
@@ -393,7 +419,7 @@ export default function TicketingLedgerPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Ledger operation failed
+              {t("ledger.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -404,17 +430,17 @@ export default function TicketingLedgerPage() {
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Platform", summary?.platform],
-          ["Partner", summary?.partner],
-          ["Seller", summary?.seller],
-          ["Customer", summary?.customer],
+          [t("ledger.parties.platform"), summary?.platform],
+          [t("ledger.parties.partner"), summary?.partner],
+          [t("ledger.parties.seller"), summary?.seller],
+          [t("ledger.parties.customer"), summary?.customer],
         ].map(([label, value]) => (
           <article
             key={String(label)}
             className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
           >
             <p className="text-sm font-bold text-slate-500">
-              {label} balance
+              {t("ledger.summary.balance", { party: label })}
             </p>
             <p className="mt-2 text-2xl font-black text-slate-950">
               {formatMoney(value, summaryCurrency)}
@@ -436,7 +462,7 @@ export default function TicketingLedgerPage() {
                 onChange={(event) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Reference, booking or description"
+                placeholder={t("ledger.filters.searchPlaceholder")}
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
             </div>
@@ -444,7 +470,7 @@ export default function TicketingLedgerPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Business entity
+              {t("ledger.filters.businessEntity")}
             </span>
             <select
               value={selectedEntityId}
@@ -457,7 +483,7 @@ export default function TicketingLedgerPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
             >
-              <option value="">All entities</option>
+              <option value="">{t("ledger.filters.allEntities")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
                   {entity.name}
@@ -468,7 +494,7 @@ export default function TicketingLedgerPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Party
+              {t("ledger.filters.party")}
             </span>
             <select
               value={selectedParty}
@@ -477,17 +503,17 @@ export default function TicketingLedgerPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
             >
-              <option value="">All parties</option>
-              <option value="platform">Platform</option>
-              <option value="partner">Partner</option>
-              <option value="seller">Seller</option>
-              <option value="customer">Customer</option>
+              <option value="">{t("ledger.filters.allParties")}</option>
+              <option value="platform">{t("ledger.parties.platform")}</option>
+              <option value="partner">{t("ledger.parties.partner")}</option>
+              <option value="seller">{t("ledger.parties.seller")}</option>
+              <option value="customer">{t("ledger.parties.customer")}</option>
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Entry type
+              {t("ledger.filters.entryType")}
             </span>
             <select
               value={selectedEntryType}
@@ -496,21 +522,21 @@ export default function TicketingLedgerPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
             >
-              <option value="">All types</option>
-              <option value="booking">Booking</option>
-              <option value="payment">Payment</option>
-              <option value="commission">Commission</option>
-              <option value="settlement">Settlement</option>
-              <option value="refund">Refund</option>
-              <option value="adjustment">Adjustment</option>
-              <option value="reversal">Reversal</option>
-              <option value="admission">Admission</option>
+              <option value="">{t("ledger.filters.allTypes")}</option>
+              <option value="booking">{t("ledger.entryTypes.booking")}</option>
+              <option value="payment">{t("ledger.entryTypes.payment")}</option>
+              <option value="commission">{t("ledger.entryTypes.commission")}</option>
+              <option value="settlement">{t("ledger.entryTypes.settlement")}</option>
+              <option value="refund">{t("ledger.entryTypes.refund")}</option>
+              <option value="adjustment">{t("ledger.entryTypes.adjustment")}</option>
+              <option value="reversal">{t("ledger.entryTypes.reversal")}</option>
+              <option value="admission">{t("ledger.entryTypes.admission")}</option>
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              From
+              {t("ledger.filters.from")}
             </span>
             <input
               type="date"
@@ -524,7 +550,7 @@ export default function TicketingLedgerPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              To
+              {t("ledger.filters.to")}
             </span>
             <input
               type="date"
@@ -542,7 +568,7 @@ export default function TicketingLedgerPage() {
             className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("ledger.actions.refresh")}
           </button>
         </div>
       </section>
@@ -552,18 +578,26 @@ export default function TicketingLedgerPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black text-slate-950">
-                Ledger entries
+                {t("ledger.entries.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-400">
-                {filteredEntries.length} entry
-                {filteredEntries.length === 1 ? "" : "ies"}
+                {t(
+                  filteredEntries.length === 1
+                    ? "ledger.entries.oneEntry"
+                    : "ledger.entries.entries",
+                  { count: filteredEntries.length },
+                )}
               </p>
             </div>
 
             <div className="flex items-center gap-2 text-sm font-black text-slate-500">
               <WalletCards className="h-4 w-4" />
-              {groupedByEntryGroup.size} entry group
-              {groupedByEntryGroup.size === 1 ? "" : "s"}
+              {t(
+                groupedByEntryGroup.size === 1
+                  ? "ledger.entries.oneGroup"
+                  : "ledger.entries.groups",
+                { count: groupedByEntryGroup.size },
+              )}
             </div>
           </div>
         </div>
@@ -572,17 +606,17 @@ export default function TicketingLedgerPage() {
           <div className="flex min-h-72 items-center justify-center">
             <div className="flex items-center gap-3 text-sm font-black text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading ledger...
+              {t("ledger.loading")}
             </div>
           </div>
         ) : filteredEntries.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <BookOpenCheck className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No ledger entries found
+              {t("ledger.empty.title")}
             </p>
             <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
-              Change your filters or create a manual adjustment.
+              {t("ledger.empty.description")}
             </p>
           </div>
         ) : (
@@ -592,15 +626,15 @@ export default function TicketingLedgerPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     {[
-                      "Date",
-                      "Type",
-                      "Party",
-                      "Direction",
-                      "Amount",
-                      "Reference",
-                      "Business entity",
-                      "Description",
-                      "Action",
+                      t("ledger.table.date"),
+                      t("ledger.table.type"),
+                      t("ledger.filters.party"),
+                      t("ledger.table.direction"),
+                      t("ledger.modal.amount"),
+                      t("ledger.modal.reference"),
+                      t("ledger.filters.businessEntity"),
+                      t("ledger.modal.description"),
+                      t("ledger.table.action"),
                     ].map((heading) => (
                       <th
                         key={heading}
@@ -616,17 +650,17 @@ export default function TicketingLedgerPage() {
                   {filteredEntries.map((entry) => (
                     <tr key={entry.id}>
                       <td className="px-5 py-4 text-sm font-bold text-slate-600">
-                        {formatDateTime(entry.effective_at)}
+                        {formatDateTime(entry.effective_at, language)}
                       </td>
 
                       <td className="px-5 py-4">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                          {formatLabel(entry.entry_type)}
+                          {formatLabel(entry.entry_type, t, "ledger.entryTypes")}
                         </span>
                       </td>
 
                       <td className="px-5 py-4 font-black capitalize text-slate-800">
-                        {entry.party_type}
+                        {formatLabel(entry.party_type, t, "ledger.parties")}
                       </td>
 
                       <td className="px-5 py-4">
@@ -637,7 +671,7 @@ export default function TicketingLedgerPage() {
                               : "bg-amber-100 text-amber-700"
                           }`}
                         >
-                          {entry.direction}
+                          {formatLabel(entry.direction, t, "ledger.directions")}
                         </span>
                       </td>
 
@@ -645,6 +679,7 @@ export default function TicketingLedgerPage() {
                         {formatMoney(
                           entry.amount,
                           entry.currency,
+                          language,
                         )}
                       </td>
 
@@ -693,13 +728,13 @@ export default function TicketingLedgerPage() {
                             ) : (
                               <RotateCcw className="h-4 w-4" />
                             )}
-                            Reverse group
+                            {t("ledger.actions.reverseGroup")}
                           </button>
                         ) : (
                           <span className="text-xs font-bold text-slate-400">
                             {entry.is_reversed
-                              ? "Reversed"
-                              : "Reversal entry"}
+                              ? t("ledger.statuses.reversed")
+                              : t("ledger.statuses.reversalEntry")}
                           </span>
                         )}
                       </td>
@@ -718,7 +753,7 @@ export default function TicketingLedgerPage() {
                         {entry.description}
                       </p>
                       <p className="mt-1 text-sm font-bold text-slate-500">
-                        {formatDateTime(entry.effective_at)}
+                        {formatDateTime(entry.effective_at, language)}
                       </p>
                     </div>
 
@@ -729,44 +764,45 @@ export default function TicketingLedgerPage() {
                           : "bg-amber-100 text-amber-700"
                       }`}
                     >
-                      {entry.direction}
+                      {formatLabel(entry.direction, t, "ledger.directions")}
                     </span>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        Amount
+                        {t("ledger.modal.amount")}
                       </p>
                       <p className="mt-2 font-black text-slate-900">
                         {formatMoney(
                           entry.amount,
                           entry.currency,
+                          language,
                         )}
                       </p>
                     </div>
 
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        Party
+                        {t("ledger.filters.party")}
                       </p>
                       <p className="mt-2 font-black capitalize text-slate-900">
-                        {entry.party_type}
+                        {formatLabel(entry.party_type, t, "ledger.parties")}
                       </p>
                     </div>
 
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        Type
+                        {t("ledger.table.type")}
                       </p>
                       <p className="mt-2 font-black text-slate-900">
-                        {formatLabel(entry.entry_type)}
+                        {formatLabel(entry.entry_type, t, "ledger.entryTypes")}
                       </p>
                     </div>
 
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        Reference
+                        {t("ledger.modal.reference")}
                       </p>
                       <p className="mt-2 truncate font-black text-slate-900">
                         {entry.reference || "—"}
@@ -794,7 +830,7 @@ export default function TicketingLedgerPage() {
                         ) : (
                           <RotateCcw className="h-4 w-4" />
                         )}
-                        Reverse entry group
+                        {t("ledger.actions.reverseEntryGroup")}
                       </button>
                     )}
                 </article>
@@ -810,10 +846,10 @@ export default function TicketingLedgerPage() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5">
               <div>
                 <h2 className="text-xl font-black text-slate-950">
-                  Manual ledger adjustment
+                  {t("ledger.modal.title")}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Post a balanced debit and credit entry.
+                  {t("ledger.modal.subtitle")}
                 </p>
               </div>
 
@@ -835,7 +871,7 @@ export default function TicketingLedgerPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Debit party
+                    {t("ledger.modal.debitParty")}
                   </span>
                   <select
                     value={adjustmentForm.debit_party}
@@ -847,16 +883,16 @@ export default function TicketingLedgerPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
-                    <option value="platform">Platform</option>
-                    <option value="partner">Partner</option>
-                    <option value="seller">Seller</option>
-                    <option value="customer">Customer</option>
+                    <option value="platform">{t("ledger.parties.platform")}</option>
+                    <option value="partner">{t("ledger.parties.partner")}</option>
+                    <option value="seller">{t("ledger.parties.seller")}</option>
+                    <option value="customer">{t("ledger.parties.customer")}</option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Credit party
+                    {t("ledger.modal.creditParty")}
                   </span>
                   <select
                     value={adjustmentForm.credit_party}
@@ -868,10 +904,10 @@ export default function TicketingLedgerPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
-                    <option value="platform">Platform</option>
-                    <option value="partner">Partner</option>
-                    <option value="seller">Seller</option>
-                    <option value="customer">Customer</option>
+                    <option value="platform">{t("ledger.parties.platform")}</option>
+                    <option value="partner">{t("ledger.parties.partner")}</option>
+                    <option value="seller">{t("ledger.parties.seller")}</option>
+                    <option value="customer">{t("ledger.parties.customer")}</option>
                   </select>
                 </label>
               </div>
@@ -879,7 +915,7 @@ export default function TicketingLedgerPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Amount
+                    {t("ledger.modal.amount")}
                   </span>
                   <input
                     type="number"
@@ -899,7 +935,7 @@ export default function TicketingLedgerPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Currency
+                    {t("ledger.modal.currency")}
                   </span>
                   <input
                     value={adjustmentForm.currency}
@@ -917,7 +953,7 @@ export default function TicketingLedgerPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Description
+                  {t("ledger.modal.description")}
                 </span>
                 <textarea
                   value={adjustmentForm.description}
@@ -936,7 +972,7 @@ export default function TicketingLedgerPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Business entity
+                    {t("ledger.filters.businessEntity")}
                   </span>
                   <select
                     value={adjustmentForm.business_entity_id}
@@ -949,7 +985,7 @@ export default function TicketingLedgerPage() {
                     }
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none"
                   >
-                    <option value="">No entity</option>
+                    <option value="">{t("ledger.modal.noEntity")}</option>
                     {entities.map((entity) => (
                       <option key={entity.id} value={entity.id}>
                         {entity.name}
@@ -960,7 +996,7 @@ export default function TicketingLedgerPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Booking ID
+                    {t("ledger.modal.bookingId")}
                   </span>
                   <input
                     type="number"
@@ -979,7 +1015,7 @@ export default function TicketingLedgerPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Reference
+                  {t("ledger.modal.reference")}
                 </span>
                 <input
                   value={adjustmentForm.reference}
@@ -1001,7 +1037,7 @@ export default function TicketingLedgerPage() {
                   }
                   className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
                 >
-                  Cancel
+                  {t("ledger.actions.cancel")}
                 </button>
 
                 <button
@@ -1018,7 +1054,7 @@ export default function TicketingLedgerPage() {
                   {savingAdjustment && (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   )}
-                  Post adjustment
+                  {t("ledger.actions.postAdjustment")}
                 </button>
               </div>
             </form>

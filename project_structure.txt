@@ -11,7 +11,8 @@
 │   │   ├── migrations
 │   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
-│   │   │   └── 0002_customuser_organisation.py
+│   │   │   ├── 0002_customuser_organisation.py
+│   │   │   └── 0003_customuser_preferred_language.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -282,6 +283,9 @@
 │   │   │   │   └── discoSlice.ts
 │   │   │   └── organisations
 │   │   │       └── organisationSlice.ts
+│   │   ├── i18n
+│   │   │   └── tools
+│   │   │       └── i18n
 │   │   ├── index.css
 │   │   ├── layouts
 │   │   │   └── DashboardLayout.tsx
@@ -364,9 +368,12 @@
 │   │   │   │       ├── discoPermissions.ts
 │   │   │   │       └── formatCurrency.ts
 │   │   │   ├── ticketing
+│   │   │   │   ├── admin-i18n
+│   │   │   │   │   └── translations
 │   │   │   │   ├── api
 │   │   │   │   │   └── ticketingApi.ts
 │   │   │   │   ├── components
+│   │   │   │   │   ├── language
 │   │   │   │   │   ├── seller
 │   │   │   │   │   │   ├── SellerBookingCard.tsx
 │   │   │   │   │   │   ├── SellerProductCard.tsx
@@ -544,6 +551,8 @@
 │   │       ├── getDashboardRedirect.ts
 │   │       └── pwaTenant.ts
 │   ├── tailwind.config.cjs
+│   ├── tools
+│   │   └── i18n
 │   ├── tsconfig.app.json
 │   ├── tsconfig.json
 │   ├── tsconfig.node.json
@@ -552,4 +561,4 @@
 ├── Pipfile
 └── project_structure.txt
 
-100 directories, 453 files
+108 directories, 454 files

@@ -7,8 +7,10 @@ import { useParams } from "react-router-dom";
 import ticketingApi from "../../api/ticketingApi";
 import type { Booking } from "../../types/ticketingTypes";
 import SellerBookingCard from "../../components/seller/SellerBookingCard";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
 export default function TicketingSellerBookingsPage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,18 +25,18 @@ export default function TicketingSellerBookingsPage() {
         setLoading(true);
         setErrorMessage("");
 
-      const data = await ticketingApi.getSellerBookings(slug);
+        const data = await ticketingApi.getSellerBookings(slug);
         setBookings(data);
       } catch (error) {
         console.error(error);
-        setErrorMessage("Could not load seller bookings.");
+        setErrorMessage(t("sellerBookings.errors.load"));
       } finally {
         setLoading(false);
       }
     }
 
     loadBookings();
-  }, [slug]);
+  }, [slug, t]);
 
   const filteredBookings = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -66,13 +68,13 @@ export default function TicketingSellerBookingsPage() {
       <div className="flex flex-col justify-between gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-            Seller Bookings
+            {t("sellerBookings.header.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Your bookings
+            {t("sellerBookings.header.title")}
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            Only bookings connected to your seller account are shown here.
+            {t("sellerBookings.header.description")}
           </p>
         </div>
 
@@ -81,7 +83,7 @@ export default function TicketingSellerBookingsPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search bookings..."
+            placeholder={t("sellerBookings.search.placeholder")}
             className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold outline-none transition focus:border-slate-400"
           />
         </div>
@@ -89,7 +91,7 @@ export default function TicketingSellerBookingsPage() {
 
       {loading && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          Loading bookings...
+          {t("sellerBookings.loading")}
         </div>
       )}
 
@@ -101,7 +103,7 @@ export default function TicketingSellerBookingsPage() {
 
       {!loading && !errorMessage && filteredBookings.length === 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          No seller bookings found.
+          {t("sellerBookings.empty")}
         </div>
       )}
 

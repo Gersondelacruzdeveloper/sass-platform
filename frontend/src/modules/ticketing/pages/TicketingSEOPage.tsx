@@ -24,6 +24,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type TicketingPublicSiteSettings = {
   id?: number;
@@ -218,10 +219,13 @@ function getProductAliasCount(product: ExperienceProduct) {
     : 0;
 }
 
-function getProductLegacyStatus(product: ExperienceProduct) {
-  if (product.imported_from_url) return "Imported";
-  if (getProductAliasCount(product) > 1) return "Aliases";
-  return "Native";
+function getProductLegacyStatus(
+  product: ExperienceProduct,
+  t: (key: string) => string
+) {
+  if (product.imported_from_url) return t("seo.status.imported");
+  if (getProductAliasCount(product) > 1) return t("seo.status.aliases");
+  return t("seo.status.native");
 }
 
 function getRequestParams(organisationSlug?: string) {
@@ -356,12 +360,15 @@ function getStatusClasses(status: "good" | "short" | "long" | "missing") {
   return "bg-amber-50 text-amber-700 ring-amber-200";
 }
 
-function getStatusText(status: "good" | "short" | "long" | "missing") {
-  if (status === "good") return "Good";
-  if (status === "short") return "Too short";
-  if (status === "long") return "Too long";
+function getStatusText(
+  status: "good" | "short" | "long" | "missing",
+  t: (key: string) => string
+) {
+  if (status === "good") return t("seo.status.good");
+  if (status === "short") return t("seo.status.tooShort");
+  if (status === "long") return t("seo.status.tooLong");
 
-  return "Missing";
+  return t("seo.status.missing");
 }
 
 function productSeoScore(product: ExperienceProduct) {
@@ -392,6 +399,7 @@ function copyToClipboard(value: string, onSuccess: () => void, onError: () => vo
 }
 
 export default function TicketingSEOPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -516,7 +524,7 @@ export default function TicketingSEOPage() {
       setProducts(normalizeList<ExperienceProduct>(productsResponse.data));
     } catch (err: any) {
       console.error("Could not load SEO settings:", err);
-      setError(getErrorMessage(err, "Could not load SEO settings."));
+      setError(getErrorMessage(err, t("seo.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -609,14 +617,14 @@ export default function TicketingSEOPage() {
       const parsed = JSON.parse(jsonLdText || "{}");
 
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setJsonError("JSON-LD must be a JSON object.");
+        setJsonError(t("seo.errors.jsonObject"));
         return null;
       }
 
       setJsonError("");
       return parsed as Record<string, unknown>;
     } catch (err: any) {
-      setJsonError(err?.message || "JSON-LD is not valid JSON.");
+      setJsonError(err?.message || t("seo.errors.invalidJson"));
       return null;
     }
   }
@@ -665,10 +673,10 @@ export default function TicketingSEOPage() {
         ...response.data,
       }));
 
-      setSavedMessage("SEO and AI discoverability settings saved.");
+      setSavedMessage(t("seo.messages.saved"));
     } catch (err: any) {
       console.error("Could not save SEO settings:", err);
-      setError(getErrorMessage(err, "Could not save SEO settings."));
+      setError(getErrorMessage(err, t("seo.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -677,19 +685,19 @@ export default function TicketingSEOPage() {
   async function copy(value: string, label: string) {
     copyToClipboard(
       value,
-      () => setSavedMessage(`${label} copied.`),
-      () => setError(`Could not copy ${label.toLowerCase()}.`)
+      () => setSavedMessage(t("seo.messages.copied").replace("{label}", label)),
+      () => setError(t("seo.errors.copy").replace("{label}", label.toLowerCase()))
     );
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="SEO & AI Discoverability"
-        subtitle="Manage metadata, sitemap, robots, JSON-LD and AI crawler visibility."
+        title={t("seo.page.title")}
+        subtitle={t("seo.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading SEO settings...
+          {t("seo.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -697,57 +705,57 @@ export default function TicketingSEOPage() {
 
   return (
     <TicketingPageShell
-      title="SEO & AI Discoverability"
-      subtitle="Manage metadata, sitemap, robots, JSON-LD and AI crawler visibility."
+      title={t("seo.page.title")}
+      subtitle={t("seo.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
           <StatCard
-            title="Public products"
+            title={t("seo.stats.publicProducts.title")}
             value={`${stats.publishedProducts}/${stats.products}`}
-            helper="Active and public"
+            helper={t("seo.stats.publicProducts.helper")}
             icon={<Globe2 className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="SEO titles"
+            title={t("seo.stats.seoTitles.title")}
             value={`${stats.titleComplete}/${stats.products}`}
-            helper="Product title fields"
+            helper={t("seo.stats.seoTitles.helper")}
             icon={<Tags className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Meta descriptions"
+            title={t("seo.stats.metaDescriptions.title")}
             value={`${stats.metaComplete}/${stats.products}`}
-            helper="Product descriptions"
+            helper={t("seo.stats.metaDescriptions.helper")}
             icon={<Search className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Canonical URLs"
+            title={t("seo.stats.canonicalUrls.title")}
             value={`${stats.canonicalComplete}/${stats.products}`}
-            helper="Dynamic public URLs"
+            helper={t("seo.stats.canonicalUrls.helper")}
             icon={<ExternalLink className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="URL aliases"
+            title={t("seo.stats.urlAliases.title")}
             value={`${stats.productsWithAliases}/${stats.products}`}
-            helper="Legacy redirects"
+            helper={t("seo.stats.urlAliases.helper")}
             icon={<Network className="h-6 w-6 text-cyan-600" />}
           />
           <StatCard
-            title="Imported URLs"
+            title={t("seo.stats.importedUrls.title")}
             value={`${stats.importedProducts}/${stats.products}`}
-            helper="Migration-ready"
+            helper={t("seo.stats.importedUrls.helper")}
             icon={<RefreshCw className="h-6 w-6 text-orange-600" />}
           />
           <StatCard
-            title="JSON-LD"
+            title={t("seo.stats.jsonLd.title")}
             value={`${stats.jsonLdComplete}/${stats.products}`}
-            helper="Product structured data"
+            helper={t("seo.stats.jsonLd.helper")}
             icon={<Code2 className="h-6 w-6 text-purple-600" />}
           />
           <StatCard
-            title="AI crawlers"
-            value={publicSite.robots_allow_ai_crawlers ? "Allowed" : "Blocked"}
-            helper="GPTBot / OAI SearchBot"
+            title={t("seo.stats.aiCrawlers.title")}
+            value={publicSite.robots_allow_ai_crawlers ? t("seo.status.allowed") : t("seo.status.blocked")}
+            helper={t("seo.stats.aiCrawlers.helper")}
             icon={<Bot className="h-6 w-6 text-indigo-600" />}
           />
         </section>
@@ -770,14 +778,13 @@ export default function TicketingSEOPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-                Public SEO foundation
+                {t("seo.foundation.eyebrow")}
               </p>
               <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
                 {publicSite.display_title || publicSite.site_title || "PCD Experiences"}
               </h2>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                Control the SEO metadata used by the public experience site,
-                robots.txt, sitemap visibility and AI-readable structured data.
+                {t("seo.foundation.description")}
               </p>
             </div>
 
@@ -788,7 +795,7 @@ export default function TicketingSEOPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("seo.actions.refresh")}
               </button>
 
               <button
@@ -802,7 +809,7 @@ export default function TicketingSEOPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save SEO
+                {t("seo.actions.save")}
               </button>
             </div>
           </div>
@@ -810,13 +817,13 @@ export default function TicketingSEOPage() {
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <Panel
-            title="URL structure & migration"
-            description="Preserve existing Google rankings by keeping old URLs alive and redirecting them to the current canonical product URL."
+            title={t("seo.urlMigration.title")}
+            description={t("seo.urlMigration.description")}
             icon={<Network className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Select
-                label="Product URL pattern"
+                label={t("seo.urlMigration.pattern")}
                 value={publicSite.product_url_pattern}
                 onChange={(value) => updateField("product_url_pattern", value)}
                 options={PRODUCT_URL_PATTERN_OPTIONS}
@@ -824,7 +831,7 @@ export default function TicketingSEOPage() {
 
               {publicSite.product_url_pattern === "custom" && (
                 <Input
-                  label="Custom product URL pattern"
+                  label={t("seo.urlMigration.customPattern")}
                   value={publicSite.custom_product_url_pattern}
                   onChange={(value) => updateField("custom_product_url_pattern", value)}
                   placeholder="/things-to-do/{slug}"
@@ -832,15 +839,15 @@ export default function TicketingSEOPage() {
               )}
 
               <Toggle
-                label="Preserve imported product URLs"
-                description="Keep previous product URLs as aliases when products are imported from another website."
+                label={t("seo.urlMigration.preserveImported")}
+                description={t("seo.urlMigration.preserveImportedDescription")}
                 checked={publicSite.preserve_imported_product_urls}
                 onChange={(value) => updateField("preserve_imported_product_urls", value)}
               />
 
               <Toggle
-                label="Automatically create 301 redirects"
-                description="Send old product URLs to the current canonical product URL with a permanent redirect."
+                label={t("seo.urlMigration.autoRedirects")}
+                description={t("seo.urlMigration.autoRedirectsDescription")}
                 checked={publicSite.auto_create_product_redirects}
                 onChange={(value) => updateField("auto_create_product_redirects", value)}
               />
@@ -848,19 +855,19 @@ export default function TicketingSEOPage() {
           </Panel>
 
           <Panel
-            title="Product URL preview"
-            description="This is the kind of product URL customers and Google will see for new products."
+            title={t("seo.urlPreview.title")}
+            description={t("seo.urlPreview.description")}
             icon={<ExternalLink className="h-5 w-5" />}
           >
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                Example product URL
+                {t("seo.urlPreview.example")}
               </p>
               <p className="mt-2 break-all text-sm font-black text-slate-900">
                 {exampleProductUrl}
               </p>
               <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-                Use a legacy pattern like /excursions/detail/{'{slug}'} when migrating a customer whose old site already ranks in Google.
+                {t("seo.urlPreview.helper")}
               </p>
             </div>
           </Panel>
@@ -868,45 +875,45 @@ export default function TicketingSEOPage() {
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <Panel
-            title="Metadata"
-            description="Main SEO, Open Graph and canonical URL settings for the public site."
+            title={t("seo.metadata.title")}
+            description={t("seo.metadata.description")}
             icon={<Search className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Input
-                label="SEO title"
+                label={t("seo.metadata.seoTitle")}
                 value={publicSite.seo_title}
                 onChange={(value) => updateField("seo_title", value)}
                 placeholder="Book Punta Cana Tours, Tickets & Transfers"
-                helper={`${publicSite.seo_title.length} characters`}
+                helper={`${publicSite.seo_title.length} ${t("seo.metadata.characters")}`}
                 status={seoTitleState}
               />
 
               <Input
-                label="Canonical URL"
+                label={t("seo.metadata.canonicalUrl")}
                 value={publicSite.canonical_url}
                 onChange={(value) => updateField("canonical_url", value)}
                 placeholder={buildCanonicalFallback(organisationSlug)}
               />
 
               <Input
-                label="Open Graph title"
+                label={t("seo.metadata.ogTitle")}
                 value={publicSite.og_title}
                 onChange={(value) => updateField("og_title", value)}
                 placeholder="PCD Experiences"
               />
 
               <Textarea
-                label="Meta description"
+                label={t("seo.metadata.metaDescription")}
                 value={publicSite.meta_description}
                 onChange={(value) => updateField("meta_description", value)}
                 placeholder="Book trusted tours, tickets, transfers and experiences in Punta Cana."
-                helper={`${publicSite.meta_description.length} characters`}
+                helper={`${publicSite.meta_description.length} ${t("seo.metadata.characters")}`}
                 status={metaDescriptionState}
               />
 
               <Textarea
-                label="Open Graph description"
+                label={t("seo.metadata.ogDescription")}
                 value={publicSite.og_description}
                 onChange={(value) => updateField("og_description", value)}
                 placeholder="A short social sharing description."
@@ -915,8 +922,8 @@ export default function TicketingSEOPage() {
           </Panel>
 
           <Panel
-            title="SEO preview"
-            description="Approximate preview for search and social sharing."
+            title={t("seo.preview.title")}
+            description={t("seo.preview.description")}
             icon={<Sparkles className="h-5 w-5" />}
           >
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -927,40 +934,40 @@ export default function TicketingSEOPage() {
                 {publicSite.seo_title ||
                   publicSite.og_title ||
                   publicSite.site_title ||
-                  "SEO title preview"}
+                  t("seo.preview.titleFallback")}
               </h3>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
                 {publicSite.meta_description ||
                   publicSite.og_description ||
-                  "Meta description preview will appear here."}
+                  t("seo.preview.descriptionFallback")}
               </p>
             </div>
 
             <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                Metadata health
+                {t("seo.preview.health")}
               </p>
 
               <div className="mt-3 space-y-2">
                 <HealthRow
-                  label="SEO title length"
+                  label={t("seo.preview.seoTitleLength")}
                   state={seoTitleState}
-                  value={getStatusText(seoTitleState)}
+                  value={getStatusText(seoTitleState, t)}
                 />
                 <HealthRow
-                  label="Meta description length"
+                  label={t("seo.preview.metaDescriptionLength")}
                   state={metaDescriptionState}
-                  value={getStatusText(metaDescriptionState)}
+                  value={getStatusText(metaDescriptionState, t)}
                 />
                 <HealthRow
-                  label="Canonical URL"
+                  label={t("seo.metadata.canonicalUrl")}
                   state={publicSite.canonical_url ? "good" : "missing"}
-                  value={publicSite.canonical_url ? "Configured" : "Missing"}
+                  value={publicSite.canonical_url ? t("seo.status.configured") : t("seo.status.missing")}
                 />
                 <HealthRow
-                  label="Open Graph title"
+                  label={t("seo.metadata.ogTitle")}
                   state={publicSite.og_title ? "good" : "missing"}
-                  value={publicSite.og_title ? "Configured" : "Missing"}
+                  value={publicSite.og_title ? t("seo.status.configured") : t("seo.status.missing")}
                 />
               </div>
             </div>
@@ -969,63 +976,63 @@ export default function TicketingSEOPage() {
 
         <section className="grid gap-5 xl:grid-cols-2">
           <Panel
-            title="Robots & AI crawlers"
-            description="Control indexing and AI search crawler visibility."
+            title={t("seo.robots.title")}
+            description={t("seo.robots.description")}
             icon={<ShieldCheck className="h-5 w-5" />}
           >
             <div className="grid gap-3 md:grid-cols-2">
               <Toggle
-                label="Allow public indexing"
-                description="Allows search engines to index the public site."
+                label={t("seo.robots.allowIndexing")}
+                description={t("seo.robots.allowIndexingDescription")}
                 checked={publicSite.robots_allow_indexing}
                 onChange={(value) => updateField("robots_allow_indexing", value)}
               />
 
               <Toggle
-                label="Allow AI crawlers"
-                description="Main switch for AI search/answer engines."
+                label={t("seo.robots.allowAi")}
+                description={t("seo.robots.allowAiDescription")}
                 checked={publicSite.robots_allow_ai_crawlers}
                 onChange={(value) => updateField("robots_allow_ai_crawlers", value)}
               />
 
               <Toggle
-                label="Allow GPTBot"
-                description="Allow OpenAI GPTBot when AI crawlers are enabled."
+                label={t("seo.robots.allowGptBot")}
+                description={t("seo.robots.allowGptBotDescription")}
                 checked={publicSite.allow_gptbot}
                 onChange={(value) => updateField("allow_gptbot", value)}
               />
 
               <Toggle
-                label="Allow OAI SearchBot"
-                description="Allow OpenAI search crawler when AI crawlers are enabled."
+                label={t("seo.robots.allowOai")}
+                description={t("seo.robots.allowOaiDescription")}
                 checked={publicSite.allow_oai_searchbot}
                 onChange={(value) => updateField("allow_oai_searchbot", value)}
               />
 
               <Toggle
-                label="Show public rankings"
-                description="Allows ranking sections on the public site."
+                label={t("seo.robots.showRankings")}
+                description={t("seo.robots.showRankingsDescription")}
                 checked={publicSite.show_public_rankings}
                 onChange={(value) => updateField("show_public_rankings", value)}
               />
 
               <Toggle
-                label="Show seller public pages"
-                description="Allows seller public URLs to be discoverable."
+                label={t("seo.robots.showSellerPages")}
+                description={t("seo.robots.showSellerPagesDescription")}
                 checked={publicSite.show_seller_public_pages}
                 onChange={(value) => updateField("show_seller_public_pages", value)}
               />
 
               <Toggle
-                label="Show reviews"
-                description="Allows customer reviews on public pages."
+                label={t("seo.robots.showReviews")}
+                description={t("seo.robots.showReviewsDescription")}
                 checked={publicSite.show_reviews}
                 onChange={(value) => updateField("show_reviews", value)}
               />
 
               <Toggle
-                label="Publish public site"
-                description="Public SEO endpoints depend on the site being published."
+                label={t("seo.robots.publishSite")}
+                description={t("seo.robots.publishSiteDescription")}
                 checked={publicSite.is_published}
                 onChange={(value) => updateField("is_published", value)}
               />
@@ -1033,33 +1040,33 @@ export default function TicketingSEOPage() {
           </Panel>
 
           <Panel
-            title="Sitemap, robots and public endpoints"
-            description="Quick links for testing the SEO outputs."
+            title={t("seo.endpoints.title")}
+            description={t("seo.endpoints.description")}
             icon={<Network className="h-5 w-5" />}
           >
             <div className="space-y-3">
               <EndpointRow
-                label="Public site"
+                label={t("seo.endpoints.publicSite")}
                 value={publicUrl}
                 onCopy={() => copy(publicUrl, "Public site URL")}
               />
               <EndpointRow
-                label="SEO JSON"
+                label={t("seo.endpoints.seoJson")}
                 value={seoApiUrl}
                 onCopy={() => copy(seoApiUrl, "SEO JSON URL")}
               />
               <EndpointRow
-                label="Sitemap XML"
+                label={t("seo.endpoints.sitemapXml")}
                 value={sitemapUrl}
                 onCopy={() => copy(sitemapUrl, "Sitemap URL")}
               />
               <EndpointRow
-                label="Robots TXT"
+                label={t("seo.endpoints.robotsTxt")}
                 value={robotsUrl}
                 onCopy={() => copy(robotsUrl, "Robots URL")}
               />
               <EndpointRow
-                label="Example product"
+                label={t("seo.endpoints.exampleProduct")}
                 value={exampleProductUrl}
                 onCopy={() => copy(exampleProductUrl, "Example product URL")}
               />
@@ -1067,20 +1074,18 @@ export default function TicketingSEOPage() {
 
             <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-black text-amber-900">
-                Important
+                {t("seo.endpoints.important")}
               </p>
               <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                For best SEO, set the canonical URL to the real public domain.
-                Sitemap and robots should also be reachable from that domain as
-                /sitemap.xml and /robots.txt when you configure custom domains.
+                {t("seo.endpoints.importantDescription")}
               </p>
             </div>
           </Panel>
         </section>
 
         <Panel
-          title="LocalBusiness JSON-LD"
-          description="Structured data for AI/search engines. This is stored as json_ld_local_business."
+          title={t("seo.jsonLd.title")}
+          description={t("seo.jsonLd.description")}
           icon={<FileCode2 className="h-5 w-5" />}
         >
           <div className="flex flex-wrap gap-2">
@@ -1090,7 +1095,7 @@ export default function TicketingSEOPage() {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <Sparkles className="h-4 w-4" />
-              Generate template
+              {t("seo.actions.generateTemplate")}
             </button>
 
             <button
@@ -1099,7 +1104,7 @@ export default function TicketingSEOPage() {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <Copy className="h-4 w-4" />
-              Copy JSON-LD
+              {t("seo.actions.copyJsonLd")}
             </button>
           </div>
 
@@ -1121,8 +1126,8 @@ export default function TicketingSEOPage() {
         </Panel>
 
         <Panel
-          title="Product SEO audit"
-          description="Quickly see which products are missing SEO fields. Edit product-specific SEO inside Products."
+          title={t("seo.audit.title")}
+          description={t("seo.audit.description")}
           icon={<Tags className="h-5 w-5" />}
         >
           <div className="mb-4 flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
@@ -1130,28 +1135,28 @@ export default function TicketingSEOPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search product, slug, type, metadata..."
+              placeholder={t("seo.audit.searchPlaceholder")}
               className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
             />
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-slate-200">
             {filteredProducts.length === 0 ? (
-              <EmptyState text="No products found." />
+              <EmptyState text={t("seo.audit.empty")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Product</Th>
-                      <Th>Status</Th>
-                      <Th>SEO score</Th>
-                      <Th>Title</Th>
-                      <Th>Meta</Th>
-                      <Th>Canonical</Th>
-                      <Th>URL aliases</Th>
-                      <Th>Migration</Th>
-                      <Th>Public link</Th>
+                      <Th>{t("seo.audit.product")}</Th>
+                      <Th>{t("seo.audit.status")}</Th>
+                      <Th>{t("seo.audit.score")}</Th>
+                      <Th>{t("seo.audit.titleColumn")}</Th>
+                      <Th>{t("seo.audit.meta")}</Th>
+                      <Th>{t("seo.audit.canonical")}</Th>
+                      <Th>{t("seo.audit.aliases")}</Th>
+                      <Th>{t("seo.audit.migration")}</Th>
+                      <Th>{t("seo.audit.publicLink")}</Th>
                     </tr>
                   </thead>
 
@@ -1176,13 +1181,13 @@ export default function TicketingSEOPage() {
                             <div className="space-y-1">
                               <StatusPill
                                 good={Boolean(product.public_enabled)}
-                                goodText="Public"
-                                badText="Hidden"
+                                goodText={t("seo.status.public")}
+                                badText={t("seo.status.hidden")}
                               />
                               <StatusPill
                                 good={product.status === "active" && Boolean(product.is_active)}
-                                goodText="Active"
-                                badText={product.status || "Inactive"}
+                                goodText={t("seo.status.active")}
+                                badText={product.status || t("seo.status.inactive")}
                               />
                             </div>
                           </Td>
@@ -1205,24 +1210,24 @@ export default function TicketingSEOPage() {
                           <Td>
                             <StatusPill
                               good={Boolean(product.seo_title)}
-                              goodText="Set"
-                              badText="Missing"
+                              goodText={t("seo.status.set")}
+                              badText={t("seo.status.missing")}
                             />
                           </Td>
 
                           <Td>
                             <StatusPill
                               good={Boolean(product.meta_description)}
-                              goodText="Set"
-                              badText="Missing"
+                              goodText={t("seo.status.set")}
+                              badText={t("seo.status.missing")}
                             />
                           </Td>
 
                           <Td>
                             <StatusPill
                               good={Boolean(product.canonical_url || product.primary_url || product.current_public_path)}
-                              goodText="Set"
-                              badText="Missing"
+                              goodText={t("seo.status.set")}
+                              badText={t("seo.status.missing")}
                             />
                           </Td>
 
@@ -1235,8 +1240,8 @@ export default function TicketingSEOPage() {
                           <Td>
                             <StatusPill
                               good={Boolean(product.imported_from_url || getProductAliasCount(product) > 1)}
-                              goodText={getProductLegacyStatus(product)}
-                              badText="Native"
+                              goodText={getProductLegacyStatus(product, t)}
+                              badText={t("seo.status.native")}
                             />
                           </Td>
 
@@ -1247,7 +1252,7 @@ export default function TicketingSEOPage() {
                               className="inline-flex items-center gap-2 text-xs font-black text-amber-700"
                             >
                               <ExternalLink className="h-4 w-4" />
-                              Open
+                              {t("seo.actions.open")}
                             </Link>
                           </Td>
                         </tr>
@@ -1272,7 +1277,7 @@ export default function TicketingSEOPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save SEO
+            {t("seo.actions.save")}
           </button>
         </div>
       </div>
@@ -1453,6 +1458,7 @@ function EndpointRow({
   value: string;
   onCopy: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">
@@ -1470,7 +1476,7 @@ function EndpointRow({
           className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
         >
           <Copy className="h-4 w-4" />
-          Copy
+          {t("seo.actions.copy")}
         </button>
 
         {value && (
@@ -1481,7 +1487,7 @@ function EndpointRow({
             className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
           >
             <ExternalLink className="h-4 w-4" />
-            Open
+            {t("seo.actions.open")}
           </a>
         )}
       </div>
@@ -1518,6 +1524,7 @@ function StatusLabel({
 }: {
   status: "good" | "short" | "long" | "missing";
 }) {
+  const { t } = useTicketingAdminTranslation();
   return (
     <span
       className={[
@@ -1525,7 +1532,7 @@ function StatusLabel({
         getStatusClasses(status),
       ].join(" ")}
     >
-      {getStatusText(status)}
+      {getStatusText(status, t)}
     </span>
   );
 }

@@ -15,6 +15,7 @@ import api from "../../../api/axios";
 import { logoutUser } from "../../../features/auth/authSlice";
 import { useAppDispatch, useAppSelector } from "../../../store/hooks";
 
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import TicketingSidebar from "../components/TicketingSidebar";
 import TicketingTopbar from "../components/TicketingTopbar";
 
@@ -185,13 +186,13 @@ function updateOrCreateMetaById(
   meta.content = content;
 }
 
-function getUserDisplayName(user: any) {
+function getUserDisplayName(user: any, fallback: string) {
   return (
     user?.full_name ||
     user?.name ||
     user?.username ||
     user?.email ||
-    "Staff Member"
+    fallback
   );
 }
 
@@ -233,12 +234,14 @@ function getPartnerDestination(
 }
 
 function PortalLoadingScreen() {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
         <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
         <span className="text-sm font-black text-slate-700">
-          Checking portal access...
+          {t("layout.checkingPortalAccess")}
         </span>
       </div>
     </div>
@@ -263,6 +266,7 @@ export default function TicketingDashboardLayout() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{
     organisationSlug: string;
   }>();
@@ -347,8 +351,8 @@ export default function TicketingDashboardLayout() {
 
   const isOperationsRoute = location.pathname.includes("/operations");
   const portalLabel = isOperationsRoute
-    ? "Operations Center"
-    : "Owner Portal";
+    ? t("navigation.portals.operations")
+    : t("navigation.portals.owner");
 
   useEffect(() => {
     async function loadBranding() {
@@ -405,7 +409,7 @@ export default function TicketingDashboardLayout() {
     authUser?.organisation?.name ||
     authUser?.seller?.organisation_name ||
     slug ||
-    "Ticketing Organisation";
+    t("navigation.defaults.platform");
 
   const companyName =
     branding?.platform_name ||
@@ -416,7 +420,10 @@ export default function TicketingDashboardLayout() {
     branding?.logo_url || branding?.logo || "",
   );
 
-  const userName = getUserDisplayName(authUser);
+  const userName = getUserDisplayName(
+    authUser,
+    t("common.staffMember"),
+  );
   const userEmail = authUser?.email || "";
   const userAvatarUrl = getUserAvatarUrl(authUser);
 
@@ -441,7 +448,7 @@ export default function TicketingDashboardLayout() {
       "PCD Experiences";
 
     document.title = isOperationsRoute
-      ? `${appName} · Operations`
+      ? `${appName} · ${t("navigation.sections.operations")}`
       : appName;
 
     if (faviconUrl) {
@@ -492,6 +499,7 @@ export default function TicketingDashboardLayout() {
     appleTouchIconUrl,
     companyName,
     isOperationsRoute,
+    t,
   ]);
 
   useEffect(() => {
@@ -653,7 +661,9 @@ export default function TicketingDashboardLayout() {
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-black text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Download className="h-4 w-4" />
-                  {installing ? "Installing..." : "Install App"}
+                  {installing
+                    ? t("layout.installing")
+                    : t("layout.installApp")}
                 </button>
               </div>
             )}

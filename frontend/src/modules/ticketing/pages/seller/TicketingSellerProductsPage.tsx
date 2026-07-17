@@ -7,20 +7,22 @@ import { useParams } from "react-router-dom";
 import ticketingApi from "../../api/ticketingApi";
 import type { ExperienceProduct } from "../../types/ticketingTypes";
 import SellerProductCard from "../../components/seller/SellerProductCard";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
-function getErrorMessage(error: any) {
+function getErrorMessage(error: any, fallback: string) {
   const data = error?.response?.data;
 
-  if (!data) return "Could not load seller products.";
+  if (!data) return fallback;
   if (typeof data === "string") return data;
   if (data.detail) return String(data.detail);
   if (data.message) return String(data.message);
   if (data.error) return String(data.error);
 
-  return "Could not load seller products.";
+  return fallback;
 }
 
 export default function TicketingSellerProductsPage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export default function TicketingSellerProductsPage() {
     async function loadProducts() {
       if (!slug) {
         setProducts([]);
-        setErrorMessage("Organisation slug is missing.");
+        setErrorMessage(t("sellerProducts.errors.missingOrganisation"));
         setLoading(false);
         return;
       }
@@ -55,7 +57,9 @@ export default function TicketingSellerProductsPage() {
         console.error("Could not load seller products:", error);
         if (!active) return;
         setProducts([]);
-        setErrorMessage(getErrorMessage(error));
+        setErrorMessage(
+          getErrorMessage(error, t("sellerProducts.errors.load"))
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -66,7 +70,7 @@ export default function TicketingSellerProductsPage() {
     return () => {
       active = false;
     };
-  }, [slug]);
+  }, [slug, t]);
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -92,13 +96,13 @@ export default function TicketingSellerProductsPage() {
       <div className="flex flex-col justify-between gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-            Seller Products
+            {t("sellerProducts.header.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Products you can sell
+            {t("sellerProducts.header.title")}
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            These products come from the seller-only API and are filtered by your permissions.
+            {t("sellerProducts.header.description")}
           </p>
         </div>
 
@@ -107,7 +111,7 @@ export default function TicketingSellerProductsPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search products..."
+            placeholder={t("sellerProducts.search.placeholder")}
             className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold outline-none transition focus:border-slate-400"
           />
         </div>
@@ -115,7 +119,7 @@ export default function TicketingSellerProductsPage() {
 
       {loading && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          Loading products...
+          {t("sellerProducts.loading")}
         </div>
       )}
 
@@ -127,7 +131,7 @@ export default function TicketingSellerProductsPage() {
 
       {!loading && !errorMessage && filteredProducts.length === 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          No products available for your seller account.
+          {t("sellerProducts.empty")}
         </div>
       )}
 

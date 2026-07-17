@@ -15,6 +15,7 @@ import ticketingApi from "../../api/ticketingApi";
 import type { SellerDashboard } from "../../types/ticketingTypes";
 import SellerStatCard from "../../components/seller/SellerStatCard";
 import SellerBookingCard from "../../components/seller/SellerBookingCard";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
 function money(value: string | number | null | undefined) {
   const amount = Number(value || 0);
@@ -48,6 +49,7 @@ function readAnyNumber(source: Record<string, unknown>, keys: string[]) {
 }
 
 export default function TicketingSellerDashboardPage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [dashboard, setDashboard] = useState<SellerDashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,7 +63,7 @@ export default function TicketingSellerDashboardPage() {
 
     async function loadDashboard() {
       if (!slug) {
-        setErrorMessage("Organisation slug is missing.");
+        setErrorMessage(t("sellerDashboard.errors.missingOrganisation"));
         setLoading(false);
         return;
       }
@@ -79,7 +81,7 @@ export default function TicketingSellerDashboardPage() {
         console.error("Could not load seller dashboard:", error);
 
         if (mounted) {
-          setErrorMessage("Could not load seller dashboard.");
+          setErrorMessage(t("sellerDashboard.errors.load"));
         }
       } finally {
         if (mounted) {
@@ -93,7 +95,7 @@ export default function TicketingSellerDashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [slug]);
+  }, [slug, t]);
 
   const permissions = useMemo(() => {
     return {
@@ -106,7 +108,7 @@ export default function TicketingSellerDashboardPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-        Loading seller dashboard...
+        {t("sellerDashboard.loading")}
       </div>
     );
   }
@@ -114,7 +116,7 @@ export default function TicketingSellerDashboardPage() {
   if (errorMessage || !dashboard) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center font-bold text-red-700">
-        {errorMessage || "Seller dashboard not available."}
+        {errorMessage || t("sellerDashboard.errors.unavailable")}
       </div>
     );
   }
@@ -184,14 +186,13 @@ export default function TicketingSellerDashboardPage() {
       <div className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950 p-6 text-white shadow-sm lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-amber-300">
-            Seller Portal
+            {t("sellerDashboard.header.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-black lg:text-3xl">
-            Welcome, {dashboard.seller?.full_name || "Seller"}
+            {t("sellerDashboard.header.welcome")} {dashboard.seller?.full_name || t("sellerDashboard.labels.seller")}
           </h1>
           <p className="mt-2 max-w-2xl text-sm font-semibold text-white/60">
-            Seller-only dashboard. Track your bookings, payments, commissions,
-            collected cash, and settlement balance.
+            {t("sellerDashboard.header.description")}
           </p>
         </div>
 
@@ -200,59 +201,59 @@ export default function TicketingSellerDashboardPage() {
             to={`${sellerBasePath}/new-booking`}
             className="inline-flex h-12 items-center justify-center rounded-2xl bg-amber-400 px-5 text-sm font-black text-slate-950 transition hover:bg-amber-300"
           >
-            New Booking
+            {t("sellerDashboard.actions.newBooking")}
           </Link>
         )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SellerStatCard
-          label="Gross Sales"
+          label={t("sellerDashboard.stats.grossSales")}
           value={money(grossSales)}
-          helper={`${totalBookings} total bookings`}
+          helper={`${totalBookings} ${t("sellerDashboard.helpers.totalBookings")}`}
           icon={Wallet}
         />
         <SellerStatCard
-          label="Seller Collected"
+          label={t("sellerDashboard.stats.sellerCollected")}
           value={money(sellerCollected)}
-          helper="Cash/payment collected by seller"
+          helper={t("sellerDashboard.helpers.sellerCollected")}
           icon={Receipt}
         />
         <SellerStatCard
-          label="Owed to Company"
+          label={t("sellerDashboard.stats.owedToCompany")}
           value={money(sellerDueToCompany)}
-          helper="Pending settlement balance"
+          helper={t("sellerDashboard.helpers.pendingSettlement")}
           icon={Clock}
         />
         <SellerStatCard
-          label="Commission"
+          label={t("sellerDashboard.stats.commission")}
           value={money(sellerCommissions)}
-          helper={`${money(commissionPending)} pending`}
+          helper={`${money(commissionPending)} ${t("sellerDashboard.helpers.pending")}`}
           icon={BadgeDollarSign}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SellerStatCard
-          label="Owner Net"
+          label={t("sellerDashboard.stats.ownerNet")}
           value={money(ownerNet)}
-          helper="Expected company revenue"
+          helper={t("sellerDashboard.helpers.expectedCompanyRevenue")}
           icon={Wallet}
         />
         <SellerStatCard
-          label="Owner Received"
+          label={t("sellerDashboard.stats.ownerReceived")}
           value={money(ownerReceived)}
-          helper="Money company already received"
+          helper={t("sellerDashboard.helpers.companyReceived")}
           icon={Receipt}
         />
         <SellerStatCard
-          label="Owner Pending"
+          label={t("sellerDashboard.stats.ownerPending")}
           value={money(ownerPending)}
-          helper="Still not received by company"
+          helper={t("sellerDashboard.helpers.companyPending")}
           icon={Clock}
         />
         <SellerStatCard
-          label="Available Products"
+          label={t("sellerDashboard.stats.availableProducts")}
           value={availableProducts.length}
           icon={Package}
         />
@@ -260,23 +261,23 @@ export default function TicketingSellerDashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SellerStatCard
-          label="Today Sales"
+          label={t("sellerDashboard.stats.todaySales")}
           value={money(todaySales)}
-          helper={`${todayBookings} bookings today`}
+          helper={`${todayBookings} ${t("sellerDashboard.helpers.bookingsToday")}`}
           icon={Wallet}
         />
         <SellerStatCard
-          label="Week Bookings"
+          label={t("sellerDashboard.stats.weekBookings")}
           value={weekBookings}
           icon={CalendarCheck}
         />
         <SellerStatCard
-          label="Month Bookings"
+          label={t("sellerDashboard.stats.monthBookings")}
           value={monthBookings}
           icon={CalendarCheck}
         />
         <SellerStatCard
-          label="Paid Commission"
+          label={t("sellerDashboard.stats.paidCommission")}
           value={money(commissionPaid)}
           icon={BadgeDollarSign}
         />
@@ -287,20 +288,20 @@ export default function TicketingSellerDashboardPage() {
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-amber-700">
-                Settlement pending
+                {t("sellerDashboard.settlement.title")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
-                {money(sellerDueToCompany)} owed to company
+                {money(sellerDueToCompany)} {t("sellerDashboard.settlement.owedToCompany")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-amber-800">
-                This means the seller collected money that the company has not received yet.
+                {t("sellerDashboard.settlement.description")}
               </p>
             </div>
             <Link
               to={`${sellerBasePath}/bookings?owed_only=true`}
               className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
             >
-              View owed bookings
+              {t("sellerDashboard.actions.viewOwed")}
             </Link>
           </div>
         </section>
@@ -309,9 +310,9 @@ export default function TicketingSellerDashboardPage() {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-black text-slate-950">Recent bookings</h2>
+            <h2 className="text-lg font-black text-slate-950">{t("sellerDashboard.recent.title")}</h2>
             <p className="text-sm font-semibold text-slate-500">
-              Your latest seller bookings only.
+              {t("sellerDashboard.recent.description")}
             </p>
           </div>
 
@@ -319,7 +320,7 @@ export default function TicketingSellerDashboardPage() {
             to={`${sellerBasePath}/bookings`}
             className="text-sm font-black text-amber-600 hover:text-amber-700"
           >
-            View all
+            {t("sellerDashboard.actions.viewAll")}
           </Link>
         </div>
 
@@ -330,7 +331,7 @@ export default function TicketingSellerDashboardPage() {
             ))
           ) : (
             <div className="rounded-3xl bg-slate-50 p-8 text-center text-sm font-bold text-slate-500">
-              No bookings yet.
+              {t("sellerDashboard.recent.empty")}
             </div>
           )}
         </div>

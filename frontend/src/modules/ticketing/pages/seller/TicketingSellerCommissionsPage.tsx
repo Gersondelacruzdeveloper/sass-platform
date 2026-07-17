@@ -14,6 +14,7 @@ import { useParams } from "react-router-dom";
 import ticketingApi from "../../api/ticketingApi";
 import type { SellerCommission } from "../../types/ticketingTypes";
 import SellerStatCard from "../../components/seller/SellerStatCard";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
 function money(value: string | number | null | undefined) {
   const amount = Number(value || 0);
@@ -56,13 +57,19 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleDateString();
 }
 
-function statusLabel(status: string | null | undefined) {
-  if (!status) return "Pending";
+function statusLabel(
+  status: string | null | undefined,
+  t: (key: string) => string
+) {
+  if (!status) return t("sellerCommissions.status.pending");
 
-  return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default function TicketingSellerCommissionsPage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [commissions, setCommissions] = useState<SellerCommission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +82,7 @@ export default function TicketingSellerCommissionsPage() {
   async function loadCommissions(showRefreshing = false) {
     if (!slug) {
       setCommissions([]);
-      setErrorMessage("Organisation slug is missing.");
+      setErrorMessage(t("sellerCommissions.errors.missingOrganisation"));
       setLoading(false);
       return;
     }
@@ -95,7 +102,7 @@ export default function TicketingSellerCommissionsPage() {
       setCommissions(normalized);
     } catch (error) {
       console.error("Could not load seller commissions", error);
-      setErrorMessage("Could not load seller commissions.");
+      setErrorMessage(t("sellerCommissions.errors.load"));
       setCommissions([]);
     } finally {
       setLoading(false);
@@ -163,13 +170,13 @@ export default function TicketingSellerCommissionsPage() {
       <div className="flex flex-col justify-between gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-            Seller Commissions
+            {t("sellerCommissions.header.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Your commission
+            {t("sellerCommissions.header.title")}
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-              These commissions are loaded from your dedicated seller portal and only include your own sales.
+              {t("sellerCommissions.header.description")}
           </p>
         </div>
 
@@ -179,7 +186,7 @@ export default function TicketingSellerCommissionsPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search commissions..."
+              placeholder={t("sellerCommissions.search.placeholder")}
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold outline-none transition focus:border-slate-400"
             />
           </div>
@@ -191,20 +198,20 @@ export default function TicketingSellerCommissionsPage() {
             className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
+            {t("sellerCommissions.actions.refresh")}
           </button>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <SellerStatCard label="Pending" value={money(summary.pending)} icon={Clock3} />
-        <SellerStatCard label="Paid" value={money(summary.paid)} icon={CheckCircle2} />
-        <SellerStatCard label="Lifetime" value={money(summary.lifetime)} icon={BadgeDollarSign} />
+        <SellerStatCard label={t("sellerCommissions.stats.pending")} value={money(summary.pending)} icon={Clock3} />
+        <SellerStatCard label={t("sellerCommissions.stats.paid")} value={money(summary.paid)} icon={CheckCircle2} />
+        <SellerStatCard label={t("sellerCommissions.stats.lifetime")} value={money(summary.lifetime)} icon={BadgeDollarSign} />
       </div>
 
       {loading && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          Loading commissions...
+          {t("sellerCommissions.loading")}
         </div>
       )}
 
@@ -218,19 +225,17 @@ export default function TicketingSellerCommissionsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center">
           <BadgeDollarSign className="mx-auto h-10 w-10 text-slate-300" />
           <h2 className="mt-4 text-lg font-black text-slate-950">
-            No seller commissions found
+            {t("sellerCommissions.empty.title")}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm font-semibold text-slate-500">
-            If you already created a seller booking, check that the booking has a seller,
-            at least one item with a price, and that the backend created a
-            SellerCommission record.
+            {t("sellerCommissions.empty.description")}
           </p>
         </div>
       )}
 
       {!loading && !errorMessage && commissions.length > 0 && filteredCommissions.length === 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          No commissions match your search.
+          {t("sellerCommissions.empty.search")}
         </div>
       )}
 
@@ -241,19 +246,19 @@ export default function TicketingSellerCommissionsPage() {
               <thead className="bg-slate-50">
                 <tr>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Booking
+                    {t("sellerCommissions.table.booking")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Amount
+                    {t("sellerCommissions.table.amount")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Rate
+                    {t("sellerCommissions.table.rate")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Status
+                    {t("sellerCommissions.table.status")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Date
+                    {t("sellerCommissions.table.date")}
                   </th>
                 </tr>
               </thead>
@@ -279,7 +284,7 @@ export default function TicketingSellerCommissionsPage() {
                     </td>
                     <td className="px-5 py-4">
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                        {statusLabel(commission.status)}
+                        {statusLabel(commission.status, t)}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-600">

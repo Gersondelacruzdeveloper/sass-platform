@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import TicketingPageShell from "../components/TicketingPageShell";
 
 type SellerRole =
@@ -152,6 +153,12 @@ type PermissionGroup = {
   description: string;
   keys: PermissionKey[];
 };
+
+type Translate = (
+  key: string,
+  values?: Record<string, string | number | boolean | null | undefined>,
+  fallback?: string,
+) => string;
 
 const roleOptions: RoleOption[] = [
   {
@@ -374,22 +381,35 @@ function getErrorMessage(err: any, fallback: string) {
   return fallback;
 }
 
-function formatMoney(value?: string | number | null, symbol = "US$") {
+function formatMoney(
+  value?: string | number | null,
+  language: "en" | "es" = "en",
+  symbol = "US$",
+) {
   const number = Number(value || 0);
 
-  return `${symbol} ${number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return `${symbol} ${number.toLocaleString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  )}`;
 }
 
-function formatPercent(value?: string | number | null) {
+function formatPercent(
+  value?: string | number | null,
+  language: "en" | "es" = "en",
+) {
   const number = Number(value || 0);
 
-  return `${number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}%`;
+  return `${number.toLocaleString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  )}%`;
 }
 
 
@@ -496,14 +516,19 @@ function getSellerOwnerPending(seller: Seller) {
   );
 }
 
-function roleLabel(value?: string | null) {
-  const option = roleOptions.find((item) => item.value === value);
+function roleLabel(
+  value: string | null | undefined,
+  t: Translate,
+) {
+  const normalized = String(value || "seller").toLowerCase();
 
-  if (option) return option.label;
-
-  return String(value || "Seller")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return t(
+    `sellers.roles.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
+  );
 }
 
 function slugify(value: string) {
@@ -636,6 +661,7 @@ function formToFormData(form: SellerFormState, photoFile: File | null) {
 }
 
 export default function TicketingSellersPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -675,7 +701,7 @@ export default function TicketingSellersPage() {
       setSellers(normalizeList<Seller>(response.data));
     } catch (err: any) {
       console.error("Could not load sellers:", err);
-      setError(getErrorMessage(err, "Could not load sellers."));
+      setError(getErrorMessage(err, t("sellers.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -805,12 +831,12 @@ export default function TicketingSellersPage() {
 
   async function saveSeller() {
     if (!form.full_name.trim()) {
-      setError("Seller name is required.");
+      setError(t("sellers.errors.nameRequired"));
       return;
     }
 
     if (form.email.trim() && !isValidEmail(form.email)) {
-      setError("Email is optional, but if you enter one it must be valid. Example: seller@email.com");
+      setError(t("sellers.errors.invalidOptionalEmail"));
       return;
     }
 
@@ -818,17 +844,17 @@ export default function TicketingSellersPage() {
       const loginEmail = form.login_email.trim() || form.email.trim();
 
       if (!loginEmail) {
-        setError("Login email is required when creating seller login.");
+        setError(t("sellers.errors.loginEmailRequired"));
         return;
       }
 
       if (!isValidEmail(loginEmail)) {
-        setError("Login email must be valid. Example: seller@email.com");
+        setError(t("sellers.errors.invalidLoginEmail"));
         return;
       }
 
       if (!form.login_password.trim() && !editingSeller) {
-        setError("Login password is required when creating seller login.");
+        setError(t("sellers.errors.loginPasswordRequired"));
         return;
       }
     }
@@ -863,10 +889,10 @@ export default function TicketingSellersPage() {
       setShowForm(false);
       setEditingSeller(null);
       setPhotoFile(null);
-      setSavedMessage(editingSeller ? "Seller updated." : "Seller created.");
+      setSavedMessage(editingSeller ? t("sellers.messages.updated") : t("sellers.messages.created"));
     } catch (err: any) {
       console.error("Could not save seller:", err);
-      setError(getErrorMessage(err, "Could not save seller."));
+      setError(getErrorMessage(err, t("sellers.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -897,11 +923,11 @@ export default function TicketingSellersPage() {
       );
 
       setSavedMessage(
-        updatedSeller.is_active ? "Seller activated." : "Seller deactivated."
+        updatedSeller.is_active ? t("sellers.messages.activated") : t("sellers.messages.deactivated")
       );
     } catch (err: any) {
       console.error("Could not update seller status:", err);
-      setError(getErrorMessage(err, "Could not update seller status."));
+      setError(getErrorMessage(err, t("sellers.errors.statusUpdate")));
     } finally {
       setSaving(false);
     }
@@ -910,20 +936,20 @@ export default function TicketingSellersPage() {
   async function copySellerLink(seller: Seller) {
     try {
       await navigator.clipboard.writeText(getSellerPublicUrl(organisationSlug, seller));
-      setSavedMessage("Seller public link copied.");
+      setSavedMessage(t("sellers.messages.linkCopied"));
     } catch {
-      setError("Could not copy seller link.");
+      setError(t("sellers.errors.copyLink"));
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Sellers"
-        subtitle="Create sellers, manage seller margins, permissions, settlement balances and sales access."
+        title={t("sellers.title")}
+        subtitle={t("sellers.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading sellers...
+          {t("sellers.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -931,51 +957,51 @@ export default function TicketingSellersPage() {
 
   return (
     <TicketingPageShell
-      title="Sellers"
-      subtitle="Create sellers, manage seller margins, permissions, settlement balances and sales access."
+      title={t("sellers.title")}
+      subtitle={t("sellers.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <StatCard
-            title="Total sellers"
+            title={t("sellers.stats.total")}
             value={String(stats.total)}
-            helper="All seller profiles"
+            helper={t("sellers.stats.allProfiles")}
             icon={<Users className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Active"
+            title={t("sellers.stats.active")}
             value={String(stats.active)}
-            helper="Can sell or access"
+            helper={t("sellers.stats.canSell")}
             icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Dashboard access"
+            title={t("sellers.stats.dashboardAccess")}
             value={String(stats.withDashboard)}
-            helper="Seller portal users"
+            helper={t("sellers.stats.portalUsers")}
             icon={<ShieldCheck className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Gross sales"
-            value={formatMoney(stats.totalSales)}
-            helper="Tracked seller sales"
+            title={t("sellers.stats.grossSales")}
+            value={formatMoney(stats.totalSales, language)}
+            helper={t("sellers.stats.trackedSales")}
             icon={<BadgeDollarSign className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Seller earned"
-            value={formatMoney(stats.totalCommission)}
-            helper="Commission generated"
+            title={t("sellers.stats.sellerEarned")}
+            value={formatMoney(stats.totalCommission, language)}
+            helper={t("sellers.stats.commissionGenerated")}
             icon={<Wallet className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Owed to company"
-            value={formatMoney(stats.owedToCompany)}
-            helper="Pending settlement"
+            title={t("sellers.stats.owedToCompany")}
+            value={formatMoney(stats.owedToCompany, language)}
+            helper={t("sellers.stats.pendingSettlement")}
             icon={<BadgeDollarSign className="h-6 w-6 text-red-600" />}
           />
           <StatCard
-            title="Owner pending"
-            value={formatMoney(stats.ownerPending)}
-            helper="Still not received by company"
+            title={t("sellers.stats.ownerPending")}
+            value={formatMoney(stats.ownerPending, language)}
+            helper={t("sellers.stats.notReceived")}
             icon={<CreditCard className="h-6 w-6 text-amber-600" />}
           />
         </section>
@@ -998,10 +1024,10 @@ export default function TicketingSellersPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Seller management
+                {t("sellers.management.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Create sellers, configure seller margin, login access, payment permissions and settlement control.
+                {t("sellers.management.subtitle")}
               </p>
             </div>
 
@@ -1012,7 +1038,7 @@ export default function TicketingSellersPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("sellers.actions.refresh")}
               </button>
 
               <button
@@ -1021,7 +1047,7 @@ export default function TicketingSellersPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
               >
                 <Plus className="h-4 w-4" />
-                New seller
+                {t("sellers.actions.new")}
               </button>
             </div>
           </div>
@@ -1032,7 +1058,7 @@ export default function TicketingSellersPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search seller, email, phone, slug..."
+                placeholder={t("sellers.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -1042,10 +1068,10 @@ export default function TicketingSellersPage() {
               onChange={(event) => setRoleFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All roles</option>
+              <option value="">{t("sellers.filters.allRoles")}</option>
               {roleOptions.map((role) => (
                 <option key={role.value} value={role.value}>
-                  {role.label}
+                  {t(`sellers.roles.${String(role.value).toLowerCase()}`)}
                 </option>
               ))}
             </select>
@@ -1055,28 +1081,28 @@ export default function TicketingSellersPage() {
               onChange={(event) => setStatusFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="">{t("sellers.filters.allStatuses")}</option>
+              <option value="active">{t("sellers.status.active")}</option>
+              <option value="inactive">{t("sellers.status.inactive")}</option>
             </select>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredSellers.length === 0 ? (
-              <EmptyState text="No sellers found." />
+              <EmptyState text={t("sellers.empty")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Seller</Th>
-                      <Th>Access</Th>
-                      <Th>Gross sales</Th>
-                      <Th>Seller earned</Th>
-                      <Th>Owed to company</Th>
-                      <Th>Owner pending</Th>
-                      <Th>Status</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("sellers.table.seller")}</Th>
+                      <Th>{t("sellers.table.access")}</Th>
+                      <Th>{t("sellers.table.grossSales")}</Th>
+                      <Th>{t("sellers.table.sellerEarned")}</Th>
+                      <Th>{t("sellers.table.owedToCompany")}</Th>
+                      <Th>{t("sellers.table.ownerPending")}</Th>
+                      <Th>{t("sellers.table.status")}</Th>
+                      <Th>{t("sellers.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -1091,7 +1117,7 @@ export default function TicketingSellersPage() {
                                 {seller.full_name}
                               </p>
                               <p className="mt-1 text-xs font-bold text-slate-500">
-                                {seller.email || seller.whatsapp || seller.phone || "No contact"}
+                                {seller.email || seller.whatsapp || seller.phone || t("sellers.fallbacks.noContact")}
                               </p>
                             </div>
                           </div>
@@ -1100,12 +1126,12 @@ export default function TicketingSellersPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {roleLabel(seller.role)}
+                              {roleLabel(seller.role, t)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
                               {seller.can_access_dashboard
-                                ? "Seller portal access"
-                                : "No seller portal access"}
+                                ? t("sellers.access.portal")
+                                : t("sellers.access.noPortal")}
                             </p>
                           </div>
                         </Td>
@@ -1113,10 +1139,10 @@ export default function TicketingSellersPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {formatMoney(seller.total_sales_amount)}
+                              {formatMoney(seller.total_sales_amount, language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Collected: {formatMoney(getSellerCollectedAmount(seller))}
+                              {t("sellers.labels.collected")}: {formatMoney(getSellerCollectedAmount(seller), language)}
                             </p>
                           </div>
                         </Td>
@@ -1124,10 +1150,10 @@ export default function TicketingSellersPage() {
                         <Td>
                           <div>
                             <p className="font-black text-slate-950">
-                              {formatMoney(seller.total_commission_amount)}
+                              {formatMoney(seller.total_commission_amount, language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Margin allowance: {formatPercent(getSellerMarginPercent(seller))}
+                              {t("sellers.labels.marginAllowance")}: {formatPercent(getSellerMarginPercent(seller), language)}
                             </p>
                           </div>
                         </Td>
@@ -1138,10 +1164,10 @@ export default function TicketingSellersPage() {
                               "font-black",
                               getSellerOwedToCompany(seller) > 0 ? "text-red-700" : "text-slate-950",
                             ].join(" ")}>
-                              {formatMoney(getSellerOwedToCompany(seller))}
+                              {formatMoney(getSellerOwedToCompany(seller), language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Pending settlement
+                              {t("sellers.stats.pendingSettlement")}
                             </p>
                           </div>
                         </Td>
@@ -1154,10 +1180,10 @@ export default function TicketingSellersPage() {
                                 ? "text-amber-700"
                                 : "text-slate-950",
                             ].join(" ")}>
-                              {formatMoney(getSellerOwnerPending(seller))}
+                              {formatMoney(getSellerOwnerPending(seller), language)}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              Still not received
+                              {t("sellers.stats.stillNotReceived")}
                             </p>
                           </div>
                         </Td>
@@ -1174,7 +1200,7 @@ export default function TicketingSellersPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Eye className="h-4 w-4" />
-                              View
+                              {t("sellers.actions.view")}
                             </button>
 
                             <button
@@ -1183,7 +1209,7 @@ export default function TicketingSellersPage() {
                               className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                             >
                               <Edit3 className="h-4 w-4" />
-                              Edit
+                              {t("sellers.actions.edit")}
                             </button>
 
                             <button
@@ -1202,7 +1228,7 @@ export default function TicketingSellersPage() {
                               ) : (
                                 <ToggleRight className="h-4 w-4" />
                               )}
-                              {seller.is_active ? "Deactivate" : "Activate"}
+                              {seller.is_active ? t("sellers.actions.deactivate") : t("sellers.actions.activate")}
                             </button>
                           </div>
                         </Td>
@@ -1273,6 +1299,7 @@ function SellerFormModal({
   ) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const photoPreview = photoFile
     ? URL.createObjectURL(photoFile)
     : editingSeller
@@ -1285,13 +1312,13 @@ function SellerFormModal({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              {editingSeller ? "Edit seller" : "New seller"}
+              {editingSeller ? t("sellers.actions.editSeller") : t("sellers.actions.new")}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              {form.full_name || "Seller profile"}
+              {form.full_name || t("sellers.form.profile")}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-500">
-              Configure sales access, commission and payment permissions.
+              {t("sellers.form.subtitle")}
             </p>
           </div>
 
@@ -1309,20 +1336,20 @@ function SellerFormModal({
             <div className="space-y-5">
               <section className="rounded-3xl border border-slate-200 p-4">
                 <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                  Basic information
+                  {t("sellers.form.basicInformation")}
                 </h3>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <Input
-                    label="Full name"
+                    label={t("sellers.form.fullName")}
                     value={form.full_name}
                     onChange={(value) => onChange("full_name", value)}
-                    placeholder="Seller name"
+                    placeholder={t("sellers.form.sellerNamePlaceholder")}
                     required
                   />
 
                   <Input
-                    label="Seller slug"
+                    label={t("sellers.form.sellerSlug")}
                     value={form.seller_slug}
                     onChange={(value) => onChange("seller_slug", slugify(value))}
                     placeholder="seller-public-slug"
@@ -1330,7 +1357,7 @@ function SellerFormModal({
 
                   <label className="block">
                     <span className="text-sm font-bold text-slate-700">
-                      Role
+                      {t("sellers.form.role")}
                     </span>
                     <select
                       value={form.role}
@@ -1341,23 +1368,23 @@ function SellerFormModal({
                     >
                       {roleOptions.map((role) => (
                         <option key={role.value} value={role.value}>
-                          {role.label}
+                          {t(`sellers.roles.${String(role.value).toLowerCase()}`)}
                         </option>
                       ))}
                     </select>
                     <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                      {roleOptions.find((role) => role.value === form.role)?.helper}
+                      {t(`sellers.roles.${String(form.role).toLowerCase()}Help`, undefined, roleOptions.find((role) => role.value === form.role)?.helper)}
                     </p>
                   </label>
 
                   <Toggle
-                    label="Active seller"
+                    label={t("sellers.form.activeSeller")}
                     checked={form.is_active}
                     onChange={(value) => onChange("is_active", value)}
                   />
 
                   <Input
-                    label="Email"
+                    label={t("sellers.form.email")}
                     type="email"
                     value={form.email}
                     onChange={(value) => onChange("email", value)}
@@ -1366,7 +1393,7 @@ function SellerFormModal({
                   />
 
                   <Input
-                    label="Phone"
+                    label={t("sellers.form.phone")}
                     value={form.phone}
                     onChange={(value) => onChange("phone", value)}
                     placeholder="+1 809 000 0000"
@@ -1374,7 +1401,7 @@ function SellerFormModal({
                   />
 
                   <Input
-                    label="WhatsApp"
+                    label={t("sellers.form.whatsapp")}
                     value={form.whatsapp}
                     onChange={(value) => onChange("whatsapp", value)}
                     placeholder="+1 829 000 0000"
@@ -1383,7 +1410,7 @@ function SellerFormModal({
 
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm font-black text-slate-800">
-                      Public seller link
+                      {t("sellers.form.publicLink")}
                     </p>
                     <p className="mt-2 break-all text-xs font-bold leading-5 text-slate-500">
                       {`${window.location.origin}/experiences/${organisationSlug}/s/${
@@ -1396,12 +1423,12 @@ function SellerFormModal({
 
               <section className="rounded-3xl border border-slate-200 p-4">
                 <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                  Seller margin / commission
+                  {t("sellers.form.marginCommission")}
                 </h3>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <Input
-                    label="Seller margin allowance (%)"
+                    label={t("sellers.form.marginAllowance")}
                     type="number"
                     value={form.commission_rate}
                     onChange={(value) => onChange("commission_rate", value)}
@@ -1410,7 +1437,7 @@ function SellerFormModal({
                   />
 
                   <Input
-                    label="Fixed commission override"
+                    label={t("sellers.form.fixedCommission")}
                     type="number"
                     value={form.fixed_commission_amount}
                     onChange={(value) => onChange("fixed_commission_amount", value)}
@@ -1419,7 +1446,7 @@ function SellerFormModal({
                   />
                 </div>
                 <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-                  Use the percentage as the seller margin allowance. The seller can give part of this allowance as a customer discount and keep the rest as commission. The backend finance engine remains the source of truth.
+                  {t("sellers.form.marginHelp")}
                 </p>
               </section>
 
@@ -1427,15 +1454,15 @@ function SellerFormModal({
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                      Login access
+                      {t("sellers.form.loginAccess")}
                     </h3>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Create a user login so the seller can access the seller dashboard.
+                      {t("sellers.form.loginHelp")}
                     </p>
                   </div>
 
                   <Toggle
-                    label="Create login"
+                    label={t("sellers.form.createLogin")}
                     checked={form.create_login}
                     onChange={(value) => onChange("create_login", value)}
                   />
@@ -1444,7 +1471,7 @@ function SellerFormModal({
                 {form.create_login && (
                   <div className="mt-4 grid gap-4 md:grid-cols-3">
                     <Input
-                      label="Username"
+                      label={t("sellers.form.username")}
                       value={form.login_username}
                       onChange={(value) => onChange("login_username", value)}
                       placeholder="seller.username"
@@ -1452,7 +1479,7 @@ function SellerFormModal({
                     />
 
                     <Input
-                      label="Login email"
+                      label={t("sellers.form.loginEmail")}
                       type="email"
                       value={form.login_email}
                       onChange={(value) => onChange("login_email", value)}
@@ -1461,11 +1488,11 @@ function SellerFormModal({
                     />
 
                     <Input
-                      label="Password"
+                      label={t("sellers.form.password")}
                       type="password"
                       value={form.login_password}
                       onChange={(value) => onChange("login_password", value)}
-                      placeholder={editingSeller ? "Leave blank to keep" : "Temporary password"}
+                      placeholder={editingSeller ? t("sellers.form.leaveBlank") : t("sellers.form.temporaryPassword")}
                       icon={<KeyRound className="h-4 w-4" />}
                     />
                   </div>
@@ -1476,15 +1503,15 @@ function SellerFormModal({
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                      Permissions
+                      {t("sellers.form.permissions")}
                     </h3>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Use role defaults or customize each permission manually.
+                      {t("sellers.form.permissionsHelp")}
                     </p>
                   </div>
 
                   <Toggle
-                    label="Apply role defaults on save"
+                    label={t("sellers.form.applyRoleDefaults")}
                     checked={form.apply_role_defaults}
                     onChange={(value) => onChange("apply_role_defaults", value)}
                   />
@@ -1493,7 +1520,7 @@ function SellerFormModal({
                 <div className="mt-5 space-y-5">
                   {permissionGroups.map((group) => (
                     <PermissionGroupCard
-                      key={group.title}
+                      key={t(`sellers.permissionGroups.${group.title.toLowerCase().replaceAll(" & ", "_").replaceAll(" ", "_")}.title`, undefined, group.title)}
                       group={group}
                       form={form}
                       onChange={onChange}
@@ -1506,7 +1533,7 @@ function SellerFormModal({
             <aside className="space-y-5">
               <section className="rounded-3xl border border-slate-200 p-4">
                 <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-                  Seller photo
+                  {t("sellers.form.photo")}
                 </h3>
 
                 <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
@@ -1514,13 +1541,13 @@ function SellerFormModal({
                     {photoPreview ? (
                       <img
                         src={photoPreview}
-                        alt="Seller"
+                        alt={t("sellers.form.photoAlt")}
                         className="h-full w-full object-cover"
                       />
                     ) : (
                       <div className="text-center text-slate-400">
                         <ImageIcon className="mx-auto h-10 w-10" />
-                        <p className="mt-2 text-sm font-bold">No photo</p>
+                        <p className="mt-2 text-sm font-bold">{t("sellers.form.noPhoto")}</p>
                       </div>
                     )}
                   </div>
@@ -1528,7 +1555,7 @@ function SellerFormModal({
                   <div className="border-t border-slate-200 p-4">
                     <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
                       <Upload className="h-4 w-4" />
-                      Upload photo
+                      {t("sellers.form.uploadPhoto")}
                       <input
                         type="file"
                         accept="image/*"
@@ -1545,7 +1572,7 @@ function SellerFormModal({
                         onClick={() => onPhotoChange(null)}
                         className="ml-2 h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
                       >
-                        Clear
+                        {t("sellers.actions.clear")}
                       </button>
                     )}
                   </div>
@@ -1554,12 +1581,10 @@ function SellerFormModal({
 
               <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
                 <h3 className="text-sm font-black text-amber-900">
-                  Important payment permission
+                  {t("sellers.form.importantPermission")}
                 </h3>
                 <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                  Enable “Generate ticket without online customer payment” only
-                  for trusted sellers. This lets them create a booking or ticket
-                  without forcing the customer to pay online at checkout.
+                  {t("sellers.form.importantPermissionHelp")}
                 </p>
               </section>
 
@@ -1574,7 +1599,7 @@ function SellerFormModal({
                 ) : (
                   <CheckCircle2 className="h-4 w-4" />
                 )}
-                {editingSeller ? "Save seller" : "Create seller"}
+                {editingSeller ? t("sellers.actions.save") : t("sellers.actions.create")}
               </button>
             </aside>
           </div>
@@ -1601,6 +1626,7 @@ function SellerDetailModal({
   onToggleStatus: () => void;
   saving: boolean;
 }) {
+  const { language, t } = useTicketingAdminTranslation();
   const activePermissions = permissionKeys.filter(
     (key) => Boolean(seller[key] ?? seller.permissions?.[key])
   );
@@ -1613,13 +1639,13 @@ function SellerDetailModal({
             <SellerAvatar seller={seller} large />
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-                Seller detail
+                {t("sellers.detail.title")}
               </p>
               <h2 className="mt-1 text-xl font-black text-slate-950">
                 {seller.full_name}
               </h2>
               <p className="mt-1 text-sm font-bold text-slate-500">
-                {roleLabel(seller.role)} · {seller.email || seller.whatsapp || seller.phone || "No contact"}
+                {roleLabel(seller.role, t)} · {seller.email || seller.whatsapp || seller.phone || t("sellers.fallbacks.noContact")}
               </p>
             </div>
           </div>
@@ -1641,7 +1667,7 @@ function SellerDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"
             >
               <Edit3 className="h-4 w-4" />
-              Edit
+              {t("sellers.actions.edit")}
             </button>
 
             <button
@@ -1650,7 +1676,7 @@ function SellerDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <Copy className="h-4 w-4" />
-              Copy public link
+              {t("sellers.actions.copyPublicLink")}
             </button>
 
             <Link
@@ -1659,7 +1685,7 @@ function SellerDetailModal({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
               <ExternalLink className="h-4 w-4" />
-              Open public link
+              {t("sellers.actions.openPublicLink")}
             </Link>
 
             <button
@@ -1676,52 +1702,52 @@ function SellerDetailModal({
               ) : (
                 <ToggleRight className="h-4 w-4" />
               )}
-              {seller.is_active ? "Deactivate" : "Activate"}
+              {seller.is_active ? t("sellers.actions.deactivate") : t("sellers.actions.activate")}
             </button>
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-5">
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
-              label="Gross sales"
-              value={formatMoney(seller.total_sales_amount)}
-              helper="Total seller sales"
+              label={t("sellers.stats.grossSales")}
+              value={formatMoney(seller.total_sales_amount, language)}
+              helper={t("sellers.detail.totalSellerSales")}
             />
             <InfoCard
               icon={<Wallet className="h-5 w-5" />}
-              label="Seller earned"
-              value={formatMoney(seller.total_commission_amount)}
-              helper={`${formatPercent(getSellerMarginPercent(seller))} margin allowance`}
+              label={t("sellers.stats.sellerEarned")}
+              value={formatMoney(seller.total_commission_amount, language)}
+              helper={`${formatPercent(getSellerMarginPercent(seller), language)} margin allowance`}
             />
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
-              label="Collected"
-              value={formatMoney(getSellerCollectedAmount(seller))}
-              helper="Money collected by seller"
+              label={t("sellers.labels.collected")}
+              value={formatMoney(getSellerCollectedAmount(seller), language)}
+              helper={t("sellers.detail.moneyCollected")}
             />
             <InfoCard
               icon={<BadgeDollarSign className="h-5 w-5" />}
-              label="Owed to company"
-              value={formatMoney(getSellerOwedToCompany(seller))}
-              helper="Pending settlement balance"
+              label={t("sellers.stats.owedToCompany")}
+              value={formatMoney(getSellerOwedToCompany(seller), language)}
+              helper={t("sellers.stats.pendingSettlement")}
             />
             <InfoCard
               icon={<CreditCard className="h-5 w-5" />}
-              label="Owner pending"
-              value={formatMoney(getSellerOwnerPending(seller))}
-              helper="Still not received by company"
+              label={t("sellers.stats.ownerPending")}
+              value={formatMoney(getSellerOwnerPending(seller), language)}
+              helper={t("sellers.stats.notReceived")}
             />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Public and login access
+              {t("sellers.detail.publicLoginAccess")}
             </h3>
 
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
-              <InfoLine label="Seller slug" value={seller.seller_slug} />
-              <InfoLine label="Public path" value={seller.public_path || `/s/${seller.seller_slug}`} />
-              <InfoLine label="Login user" value={seller.username || seller.user_email || "No login user"} />
+              <InfoLine label={t("sellers.form.sellerSlug")} value={seller.seller_slug} />
+              <InfoLine label={t("sellers.detail.publicPath")} value={seller.public_path || `/s/${seller.seller_slug}`} />
+              <InfoLine label={t("sellers.detail.loginUser")} value={seller.username || seller.user_email || t("sellers.detail.noLoginUser")} />
             </div>
 
             <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1736,29 +1762,29 @@ function SellerDetailModal({
 
           <section className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-amber-800">
-              Settlement summary
+              {t("sellers.detail.settlementSummary")}
             </h3>
 
             <div className="mt-4 grid gap-3 lg:grid-cols-5">
-              <InfoLine label="Gross sales" value={formatMoney(seller.total_sales_amount)} />
-              <InfoLine label="Seller collected" value={formatMoney(getSellerCollectedAmount(seller))} />
-              <InfoLine label="Seller earned" value={formatMoney(seller.total_commission_amount)} />
-              <InfoLine label="Owed to company" value={formatMoney(getSellerOwedToCompany(seller))} />
-              <InfoLine label="Owner pending" value={formatMoney(getSellerOwnerPending(seller))} />
+              <InfoLine label={t("sellers.stats.grossSales")} value={formatMoney(seller.total_sales_amount, language)} />
+              <InfoLine label={t("sellers.detail.sellerCollected")} value={formatMoney(getSellerCollectedAmount(seller), language)} />
+              <InfoLine label={t("sellers.stats.sellerEarned")} value={formatMoney(seller.total_commission_amount, language)} />
+              <InfoLine label={t("sellers.stats.owedToCompany")} value={formatMoney(getSellerOwedToCompany(seller), language)} />
+              <InfoLine label={t("sellers.stats.ownerPending")} value={formatMoney(getSellerOwnerPending(seller), language)} />
             </div>
 
             <p className="mt-3 text-sm font-semibold leading-6 text-amber-800">
-              If the seller collected cash or offline payments, this balance shows what still needs to be settled with the company.
+              {t("sellers.detail.settlementHelp")}
             </p>
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
-              Active permissions
+              {t("sellers.detail.activePermissions")}
             </h3>
 
             {activePermissions.length === 0 ? (
-              <EmptyState text="No active permissions." />
+              <EmptyState text={t("sellers.detail.noActivePermissions")} />
             ) : (
               <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {activePermissions.map((key) => (
@@ -1766,7 +1792,7 @@ function SellerDetailModal({
                     key={key}
                     className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700"
                   >
-                    {permissionLabels[key]}
+                    {t(`sellers.permissions.${key}`, undefined, permissionLabels[key])}
                   </div>
                 ))}
               </div>
@@ -1790,6 +1816,7 @@ function PermissionGroupCard({
     value: SellerFormState[K]
   ) => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const enabledCount = group.keys.filter((key) => form[key]).length;
 
   function setAll(value: boolean) {
@@ -1800,12 +1827,12 @@ function PermissionGroupCard({
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
         <div>
-          <h4 className="text-sm font-black text-slate-950">{group.title}</h4>
+          <h4 className="text-sm font-black text-slate-950">{t(`sellers.permissionGroups.${group.title.toLowerCase().replaceAll(" & ", "_").replaceAll(" ", "_")}.title`, undefined, group.title)}</h4>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-            {group.description}
+            {t(`sellers.permissionGroups.${group.title.toLowerCase().replaceAll(" & ", "_").replaceAll(" ", "_")}.description`, undefined, group.description)}
           </p>
           <p className="mt-1 text-xs font-black text-amber-700">
-            {enabledCount}/{group.keys.length} enabled
+            {t("sellers.permissions.enabledCount", { enabled: enabledCount, total: group.keys.length })}
           </p>
         </div>
 
@@ -1815,14 +1842,14 @@ function PermissionGroupCard({
             onClick={() => setAll(true)}
             className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
           >
-            Enable all
+            {t("sellers.permissions.enableAll")}
           </button>
           <button
             type="button"
             onClick={() => setAll(false)}
             className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
           >
-            Disable all
+            {t("sellers.permissions.disableAll")}
           </button>
         </div>
       </div>
@@ -1831,7 +1858,7 @@ function PermissionGroupCard({
         {group.keys.map((key) => (
           <Toggle
             key={key}
-            label={permissionLabels[key]}
+            label={t(`sellers.permissions.${key}`, undefined, permissionLabels[key])}
             checked={Boolean(form[key])}
             onChange={(value) => onChange(key, value)}
           />
@@ -1871,6 +1898,8 @@ function SellerAvatar({
 }
 
 function StatusBadge({ active }: { active: boolean }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <span
       className={[
@@ -1880,7 +1909,7 @@ function StatusBadge({ active }: { active: boolean }) {
           : "bg-red-50 text-red-700 ring-red-200",
       ].join(" ")}
     >
-      {active ? "Active" : "Inactive"}
+      {active ? t("sellers.status.active") : t("sellers.status.inactive")}
     </span>
   );
 }

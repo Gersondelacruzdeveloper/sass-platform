@@ -1,6 +1,12 @@
-// src/modules/ticketing/components/TicketingTopbar.tsx
+import {
+  Languages,
+  LogOut,
+  Menu,
+  Ticket,
+  UserCircle,
+} from "lucide-react";
 
-import { LogOut, Menu, Ticket, UserCircle } from "lucide-react";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type TicketingTopbarProps = {
   user: any;
@@ -27,15 +33,28 @@ export default function TicketingTopbar({
   organisationLogoUrl,
   companyName,
   companyLogoUrl,
-  portalLabel = "Tours, Tickets & Transfers",
+  portalLabel,
   onMenuClick,
   onLogout,
 }: TicketingTopbarProps) {
+  const { language, setLanguage, t } =
+    useTicketingAdminTranslation();
+
   const displayCompanyName =
-    companyName?.trim() || organisationName?.trim() || "Ticketing";
+    companyName?.trim() ||
+    organisationName?.trim() ||
+    t("navigation.defaults.ticketing");
 
   const displayCompanyLogo =
-    companyLogoUrl?.trim() || organisationLogoUrl?.trim() || null;
+    companyLogoUrl?.trim() ||
+    organisationLogoUrl?.trim() ||
+    null;
+
+  const resolvedPortalLabel =
+    portalLabel || t("navigation.portals.default");
+
+  const resolvedUserName =
+    userName || t("common.user");
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur-xl">
@@ -45,7 +64,9 @@ export default function TicketingTopbar({
             type="button"
             onClick={onMenuClick}
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 lg:hidden"
-            aria-label="Open navigation menu"
+            aria-label={t(
+              "navigation.accessibility.openMenu",
+            )}
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -54,7 +75,12 @@ export default function TicketingTopbar({
             <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <img
                 src={displayCompanyLogo}
-                alt={`${displayCompanyName} logo`}
+                alt={t(
+                  "navigation.accessibility.companyLogo",
+                  {
+                    company: displayCompanyName,
+                  },
+                )}
                 className="h-full w-full object-contain"
               />
             </div>
@@ -70,15 +96,37 @@ export default function TicketingTopbar({
             </p>
 
             <p className="truncate text-xs font-semibold text-slate-500">
-              {portalLabel}
+              {resolvedPortalLabel}
             </p>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <label className="relative hidden sm:block">
+            <span className="sr-only">Language</span>
+
+            <Languages className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+
+            <select
+              value={language}
+              onChange={(event) =>
+                setLanguage(
+                  event.target.value === "es"
+                    ? "es"
+                    : "en",
+                )
+              }
+              className="h-10 rounded-2xl border border-slate-200 bg-white py-0 pl-9 pr-8 text-xs font-black text-slate-700 shadow-sm outline-none transition hover:border-slate-300 focus:border-slate-400"
+              aria-label="Language"
+            >
+              <option value="en">EN</option>
+              <option value="es">ES</option>
+            </select>
+          </label>
+
           <div className="hidden max-w-[220px] text-right sm:block">
             <p className="truncate text-sm font-black text-slate-950">
-              {userName || "User"}
+              {resolvedUserName}
             </p>
 
             <p className="truncate text-xs font-semibold text-slate-500">
@@ -89,7 +137,7 @@ export default function TicketingTopbar({
           {userAvatarUrl ? (
             <img
               src={userAvatarUrl}
-              alt={userName || "User"}
+              alt={resolvedUserName}
               className="h-10 w-10 rounded-2xl border border-slate-200 object-cover shadow-sm"
             />
           ) : (
@@ -102,8 +150,10 @@ export default function TicketingTopbar({
             type="button"
             onClick={onLogout}
             className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-            title="Logout"
-            aria-label="Logout"
+            title={t("topbar.logout")}
+            aria-label={t(
+              "navigation.accessibility.logout",
+            )}
           >
             <LogOut className="h-5 w-5" />
           </button>

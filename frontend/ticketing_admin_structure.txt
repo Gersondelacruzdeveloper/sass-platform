@@ -1,0 +1,99 @@
+src/modules/ticketing
+├── api
+│   └── ticketingApi.ts
+├── components
+│   ├── language
+│   ├── seller
+│   │   ├── SellerBookingCard.tsx
+│   │   ├── SellerProductCard.tsx
+│   │   └── SellerStatCard.tsx
+│   ├── settings
+│   │   ├── BookingRulesSettings.tsx
+│   │   ├── BrandingSettings.tsx
+│   │   ├── common
+│   │   │   └── settings-common-components
+│   │   │       ├── ColorInput.tsx
+│   │   │       ├── FormInput.tsx
+│   │   │       ├── FormSelect.tsx
+│   │   │       ├── FormTextarea.tsx
+│   │   │       ├── index.ts
+│   │   │       ├── SectionCard.tsx
+│   │   │       ├── StatusBadge.tsx
+│   │   │       └── ToggleCard.tsx
+│   │   ├── EmailSettingsPanel.tsx
+│   │   ├── FinancialSettings.tsx
+│   │   ├── HomePageSettings.tsx
+│   │   ├── NotificationSettings.tsx
+│   │   ├── PaymentProvidersSettings.tsx
+│   │   ├── PublicSiteThemeSettings.tsx
+│   │   ├── PublicWebsiteSettings.tsx
+│   │   ├── SeoSettings.tsx
+│   │   ├── TicketingEmailSettingsPanel.tsx
+│   │   └── TicketingWhatsAppSettingsPanel.tsx
+│   ├── TicketingPageShell.tsx
+│   ├── TicketingSellerSidebar.tsx
+│   ├── TicketingSidebar.tsx
+│   └── TicketingTopbar.tsx
+├── hooks
+│   └── usePublicTicketingOrganisation.ts
+├── layouts
+│   ├── TicketingDashboardLayout.tsx
+│   ├── TicketingPartnerLayout.tsx
+│   └── TicketingSellerLayout.tsx
+├── pages
+│   ├── operations
+│   │   ├── TicketingAdmissionsPage.tsx
+│   │   ├── TicketingBusinessAgreementsPage.tsx
+│   │   ├── TicketingBusinessEntitiesPage.tsx
+│   │   ├── TicketingBusinessEntityDetailPage.tsx
+│   │   ├── TicketingLedgerPage.tsx
+│   │   ├── TicketingOperationsDashboardPage.tsx
+│   │   ├── TicketingScanAttemptsPage.tsx
+│   │   ├── TicketingScannerPage.tsx
+│   │   ├── TicketingSettlementDetailPage.tsx
+│   │   └── TicketingSettlementsPage.tsx
+│   ├── PublicCheckoutPage.tsx
+│   ├── PublicConfirmationPage.tsx
+│   ├── PublicExperienceHomePage.tsx
+│   ├── PublicProductDetailPage.tsx
+│   ├── PublicProductsListingPage.tsx
+│   ├── seller
+│   │   ├── TicketingSellerBookingsPage.tsx
+│   │   ├── TicketingSellerCommissionsPage.tsx
+│   │   ├── TicketingSellerCustomersPage.tsx
+│   │   ├── TicketingSellerDashboardPage.tsx
+│   │   ├── TicketingSellerNewBookingPage.tsx
+│   │   ├── TicketingSellerProductsPage.tsx
+│   │   └── TicketingSellerProfilePage.tsx
+│   ├── TicketingAvailabilityPage.tsx
+│   ├── TicketingBillingLockedPage.tsx
+│   ├── TicketingBookingsPage.tsx
+│   ├── TicketingBrandingPage.tsx
+│   ├── TicketingCommissionsPage.tsx
+│   ├── TicketingDashboardPage.tsx
+│   ├── TicketingDomainPage.tsx
+│   ├── TicketingEventsPage.tsx
+│   ├── TicketingExcursionsPage.tsx
+│   ├── TicketingIntegrationsPage.tsx
+│   ├── TicketingLandingPage.tsx
+│   ├── TicketingLoginPage.tsx
+│   ├── TicketingNewBookingPage.tsx
+│   ├── TicketingPickupSchedulesPage.tsx
+│   ├── TicketingProductsPage.tsx
+│   ├── TicketingReportsPage.tsx
+│   ├── TicketingSellerDashboardPage.tsx
+│   ├── TicketingSellersPage.tsx
+│   ├── TicketingSEOPage.tsx
+│   ├── TicketingSettingsPage.tsx
+│   ├── TicketingSignupPage.tsx
+│   ├── TicketingSubscriptionCancelPage.tsx
+│   ├── TicketingSubscriptionSuccessPage.tsx
+│   └── TicketingTransfersPage.tsx
+├── routes
+│   └── ticketingRoutes.tsx
+├── types
+│   └── ticketingTypes.ts
+└── utils
+    └── publicDomain.ts
+
+16 directories, 81 files

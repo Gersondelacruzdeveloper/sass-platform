@@ -20,6 +20,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type DomainDnsRecord = {
   purpose?: string;
@@ -220,68 +221,72 @@ function normalizeDomainStatus(value?: string): DomainHealthStatus {
   return "not_configured";
 }
 
-function getStatusConfig(status: DomainHealthStatus, isPublished: boolean) {
+function getStatusConfig(
+  status: DomainHealthStatus,
+  isPublished: boolean,
+  t: (key: string) => string
+) {
   if (!isPublished) {
     return {
-      label: "Site not published",
+      label: t("domain.status.siteNotPublished"),
       className: "bg-amber-50 text-amber-700 ring-amber-200",
-      description: "Publish the public site before sharing the custom domain.",
+      description: t("domain.status.siteNotPublishedDescription"),
     };
   }
 
   if (status === "active") {
     return {
-      label: "Active",
+      label: t("domain.status.active"),
       className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-      description: "The custom domain is connected and ready.",
+      description: t("domain.status.activeDescription"),
     };
   }
 
   if (status === "pending_dns") {
     return {
-      label: "Waiting for GoDaddy DNS",
+      label: t("domain.status.pendingDns"),
       className: "bg-amber-50 text-amber-700 ring-amber-200",
       description:
-        "Add the DNS records below in GoDaddy, then click Check Domain.",
+        t("domain.status.pendingDnsDescription"),
     };
   }
 
   if (status === "pending_ssl") {
     return {
-      label: "Waiting for SSL",
+      label: t("domain.status.pendingSsl"),
       className: "bg-blue-50 text-blue-700 ring-blue-200",
-      description: "AWS is waiting for the SSL certificate to be validated.",
+      description: t("domain.status.pendingSslDescription"),
     };
   }
 
   if (status === "pending_cloudfront") {
     return {
-      label: "Updating CloudFront",
+      label: t("domain.status.pendingCloudfront"),
       className: "bg-blue-50 text-blue-700 ring-blue-200",
-      description: "AWS is attaching the domain to CloudFront.",
+      description: t("domain.status.pendingCloudfrontDescription"),
     };
   }
 
   if (status === "pending_aws_setup") {
     return {
-      label: "Preparing AWS",
+      label: t("domain.status.pendingAws"),
       className: "bg-blue-50 text-blue-700 ring-blue-200",
-      description: "AWS setup has started. DNS records will appear shortly.",
+      description: t("domain.status.pendingAwsDescription"),
     };
   }
 
   if (status === "failed") {
     return {
-      label: "Failed",
+      label: t("domain.status.failed"),
       className: "bg-red-50 text-red-700 ring-red-200",
-      description: "The last domain setup attempt failed. Review the error.",
+      description: t("domain.status.failedDescription"),
     };
   }
 
   return {
-    label: "No domain configured",
+    label: t("domain.status.notConfigured"),
     className: "bg-slate-100 text-slate-700 ring-slate-200",
-    description: "Enter a custom domain and click Connect Domain.",
+    description: t("domain.status.notConfiguredDescription"),
   };
 }
 
@@ -307,6 +312,7 @@ function getRecordCopyValue(record: DomainDnsRecord, field: "host" | "godaddy_ho
 }
 
 export default function TicketingDomainPage() {
+  const { t } = useTicketingAdminTranslation();
   const organisationSlug =
     window.location.pathname.match(/\/ticketing\/([^/]+)/)?.[1] || "";
 
@@ -346,7 +352,7 @@ export default function TicketingDomainPage() {
   );
 
   const domainStatus = normalizeDomainStatus(settings.domain_status);
-  const statusConfig = getStatusConfig(domainStatus, isPublished);
+  const statusConfig = getStatusConfig(domainStatus, isPublished, t);
   const dnsRecords = getRecords(settings);
 
   function hydrateForm(data: TicketingPublicSiteSettings) {
@@ -384,7 +390,7 @@ export default function TicketingDomainPage() {
       hydrateForm(response.data);
     } catch (err: any) {
       console.error("Could not load domain settings:", err);
-      setError(getErrorMessage(err, "Could not load domain settings."));
+      setError(getErrorMessage(err, t("domain.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -400,12 +406,12 @@ export default function TicketingDomainPage() {
     const cleanedSubdomain = cleanSubdomain(subdomain);
 
     if (cleanedCustomDomain && !isValidDomain(cleanedCustomDomain)) {
-      setError("Custom domain is not valid. Example: www.example.com");
+      setError(t("domain.errors.invalidDomain"));
       return;
     }
 
     if (cleanedCustomDomain && !isSupportedCustomDomain(cleanedCustomDomain)) {
-      setError("Use a subdomain like www.example.com. Root domains need a different DNS setup.");
+      setError(t("domain.errors.rootDomain"));
       return;
     }
 
@@ -435,10 +441,10 @@ export default function TicketingDomainPage() {
       );
 
       hydrateForm(response.data);
-      setSavedMessage("Domain settings saved.");
+      setSavedMessage(t("domain.messages.saved"));
     } catch (err: any) {
       console.error("Could not save domain settings:", err);
-      setError(getErrorMessage(err, "Could not save domain settings."));
+      setError(getErrorMessage(err, t("domain.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -448,17 +454,17 @@ export default function TicketingDomainPage() {
     const cleanedCustomDomain = cleanDomain(customDomain);
 
     if (!cleanedCustomDomain) {
-      setError("Enter a custom domain first. Example: www.example.com");
+      setError(t("domain.errors.enterDomain"));
       return;
     }
 
     if (!isValidDomain(cleanedCustomDomain)) {
-      setError("Custom domain is not valid. Example: www.example.com");
+      setError(t("domain.errors.invalidDomain"));
       return;
     }
 
     if (!isSupportedCustomDomain(cleanedCustomDomain)) {
-      setError("Use a subdomain like www.example.com. Root domains need a different DNS setup.");
+      setError(t("domain.errors.rootDomain"));
       return;
     }
 
@@ -480,7 +486,7 @@ export default function TicketingDomainPage() {
       hydrateDomainResponse(response.data);
       setSavedMessage(
         response.data.message ||
-          "Domain setup started. Add the DNS records in GoDaddy, then click Check Domain."
+          t("domain.messages.setupStarted")
       );
     } catch (err: any) {
       console.error("Could not connect domain:", err);
@@ -491,7 +497,7 @@ export default function TicketingDomainPage() {
         hydrateDomainResponse(data);
       }
 
-      setError(getErrorMessage(err, "Could not connect domain."));
+      setError(getErrorMessage(err, t("domain.errors.connect")));
     } finally {
       setConnecting(false);
     }
@@ -512,7 +518,7 @@ export default function TicketingDomainPage() {
       );
 
       hydrateDomainResponse(response.data);
-      setSavedMessage(response.data.message || "Domain status checked.");
+      setSavedMessage(response.data.message || t("domain.messages.checked"));
     } catch (err: any) {
       console.error("Could not check domain:", err);
 
@@ -522,7 +528,7 @@ export default function TicketingDomainPage() {
         hydrateDomainResponse(data);
       }
 
-      setError(getErrorMessage(err, "Could not check domain."));
+      setError(getErrorMessage(err, t("domain.errors.check")));
     } finally {
       setChecking(false);
     }
@@ -531,20 +537,20 @@ export default function TicketingDomainPage() {
   async function copy(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setSavedMessage(`${label} copied.`);
+      setSavedMessage(t("domain.messages.copied", { label }));
     } catch {
-      setError(`Could not copy ${label.toLowerCase()}.`);
+      setError(t("domain.errors.copy", { label: label.toLowerCase() }));
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Domain"
-        subtitle="Connect a custom domain for the public booking website."
+        title={t("domain.page.title")}
+        subtitle={t("domain.page.loadingSubtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading domain settings...
+          {t("domain.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -552,15 +558,15 @@ export default function TicketingDomainPage() {
 
   return (
     <TicketingPageShell
-      title="Domain"
-      subtitle="Connect a custom domain and show the DNS records your customer must add in GoDaddy."
+      title={t("domain.page.title")}
+      subtitle={t("domain.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-                Public booking website
+                {t("domain.header.eyebrow")}
               </p>
               <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
                 {settings.display_title ||
@@ -569,8 +575,7 @@ export default function TicketingDomainPage() {
                   "PCD Experiences"}
               </h1>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                AWS setup is handled by your application. The customer only
-                copies the DNS records below into GoDaddy.
+                {t("domain.header.description")}
               </p>
             </div>
 
@@ -638,47 +643,47 @@ export default function TicketingDomainPage() {
 
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <Panel
-            title="Custom domain"
-            description="Enter the public domain that will open this tenant website."
+            title={t("domain.custom.title")}
+            description={t("domain.custom.description")}
             icon={<Globe2 className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Input
-                label="Custom domain"
+                label={t("domain.fields.customDomain")}
                 value={customDomain}
                 onChange={(value) => setCustomDomain(cleanDomain(value))}
                 placeholder="www.example.com"
-                helper="Use a subdomain such as www.example.com. Do not include https://."
+                helper={t("domain.fields.customDomainHelper")}
               />
 
               <Input
-                label="Canonical URL"
+                label={t("domain.fields.canonicalUrl")}
                 value={canonicalUrl}
                 onChange={setCanonicalUrl}
                 placeholder={customDomainUrl || defaultUrl}
-                helper="This is the preferred public URL for SEO."
+                helper={t("domain.fields.canonicalUrlHelper")}
               />
 
               <Input
-                label="Internal subdomain"
+                label={t("domain.fields.internalSubdomain")}
                 value={subdomain}
                 onChange={(value) => setSubdomain(cleanSubdomain(value))}
                 placeholder="experiences"
-                helper="Optional internal subdomain reference."
+                helper={t("domain.fields.internalSubdomainHelper")}
               />
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2">
               <Toggle
-                label="Publish public site"
-                description="Customers can access the public booking website."
+                label={t("domain.toggles.publish")}
+                description={t("domain.toggles.publishDescription")}
                 checked={isPublished}
                 onChange={setIsPublished}
               />
 
               <Toggle
-                label="Allow indexing"
-                description="Allow search engines to index this public site."
+                label={t("domain.toggles.indexing")}
+                description={t("domain.toggles.indexingDescription")}
                 checked={robotsAllowIndexing}
                 onChange={setRobotsAllowIndexing}
               />
@@ -716,14 +721,14 @@ export default function TicketingDomainPage() {
           </Panel>
 
           <Panel
-            title="Current domain status"
+            title={t("domain.current.title")}
             description={statusConfig.description}
             icon={<ShieldCheck className="h-5 w-5" />}
           >
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-black text-slate-950">
-                  Domain status
+                  {t("domain.current.status")}
                 </p>
                 <span
                   className={[
@@ -737,32 +742,32 @@ export default function TicketingDomainPage() {
 
               <div className="mt-4 space-y-3">
                 <DomainLine
-                  label="Default URL"
+                  label={t("domain.current.defaultUrl")}
                   value={defaultUrl}
-                  onCopy={() => copy(defaultUrl, "Default URL")}
+                  onCopy={() => copy(defaultUrl, t("domain.current.defaultUrl"))}
                 />
 
                 {customDomain && (
                   <DomainLine
-                    label="Custom domain URL"
+                    label={t("domain.current.customDomainUrl")}
                     value={customDomainUrl}
-                    onCopy={() => copy(customDomainUrl, "Custom domain URL")}
+                    onCopy={() => copy(customDomainUrl, t("domain.current.customDomainUrl"))}
                   />
                 )}
 
                 <DomainLine
-                  label="Preferred public URL"
+                  label={t("domain.current.preferredUrl")}
                   value={publicUrl}
-                  onCopy={() => copy(publicUrl, "Preferred public URL")}
+                  onCopy={() => copy(publicUrl, t("domain.current.preferredUrl"))}
                 />
               </div>
             </div>
 
             <div className="mt-4 grid gap-2 rounded-3xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">
-              <InfoLine label="ACM status" value={settings.aws_acm_certificate_status || "—"} />
-              <InfoLine label="Last checked" value={formatDateTime(settings.domain_last_checked_at)} />
-              <InfoLine label="Verified at" value={formatDateTime(settings.domain_verified_at)} />
-              <InfoLine label="CloudFront" value={settings.cloudfront_domain_name || "—"} />
+              <InfoLine label={t("domain.current.acmStatus")} value={settings.aws_acm_certificate_status || "—"} />
+              <InfoLine label={t("domain.current.lastChecked")} value={formatDateTime(settings.domain_last_checked_at)} />
+              <InfoLine label={t("domain.current.verifiedAt")} value={formatDateTime(settings.domain_verified_at)} />
+              <InfoLine label={t("domain.current.cloudfront")} value={settings.cloudfront_domain_name || "—"} />
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -794,8 +799,8 @@ export default function TicketingDomainPage() {
         </section>
 
         <Panel
-          title="DNS records for GoDaddy"
-          description="Give these records to the customer. They should create them in GoDaddy exactly as shown."
+          title={t("domain.dns.title")}
+          description={t("domain.dns.description")}
           icon={<Server className="h-5 w-5" />}
         >
           {dnsRecords.length > 0 ? (
@@ -805,10 +810,10 @@ export default function TicketingDomainPage() {
                   key={`${record.purpose || "dns"}-${index}`}
                   record={record}
                   onCopyHost={() =>
-                    copy(getRecordCopyValue(record, "godaddy_host") || getRecordCopyValue(record, "host"), "GoDaddy host")
+                    copy(getRecordCopyValue(record, "godaddy_host") || getRecordCopyValue(record, "host"), t("domain.dns.godaddyHost"))
                   }
                   onCopyValue={() =>
-                    copy(getRecordCopyValue(record, "value"), "DNS value")
+                    copy(getRecordCopyValue(record, "value"), t("domain.dns.dnsValue"))
                   }
                 />
               ))}
@@ -816,92 +821,90 @@ export default function TicketingDomainPage() {
           ) : (
             <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-black text-amber-950">
-                DNS records are not ready yet.
+                {t("domain.dns.notReadyTitle")}
               </p>
               <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                Enter a custom domain and click Connect Domain. Your backend
-                will create/read the AWS ACM validation record and return the
-                DNS records here.
+                {t("domain.dns.notReadyDescription")}
               </p>
             </div>
           )}
 
           <div className="mt-5 rounded-3xl border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm font-black text-blue-950">GoDaddy note</p>
+            <p className="text-sm font-black text-blue-950">{t("domain.dns.noteTitle")}</p>
             <p className="mt-2 text-sm font-semibold leading-6 text-blue-800">
-              In GoDaddy, use the <strong>GoDaddy Host</strong> value for the
-              Host/Name field and the <strong>Value / Target</strong> value for
-              the Points to/Value field. After adding DNS, click Check Domain.
+              {t("domain.dns.noteBeforeHost")} <strong>{t("domain.dns.godaddyHost")}</strong>{" "}
+              {t("domain.dns.noteBetween")} <strong>{t("domain.dns.valueTarget")}</strong>{" "}
+              {t("domain.dns.noteAfter")}
             </p>
           </div>
         </Panel>
 
         <section className="grid gap-5 xl:grid-cols-2">
           <Panel
-            title="Setup checklist"
-            description="Recommended steps before giving the link to customers."
+            title={t("domain.checklist.title")}
+            description={t("domain.checklist.description")}
             icon={<CheckCircle2 className="h-5 w-5" />}
           >
             <ChecklistItem
               complete={Boolean(customDomain)}
-              title="Enter custom domain"
-              description="Use a subdomain such as www.example.com."
+              title={t("domain.checklist.enterDomain")}
+              description={t("domain.checklist.enterDomainDescription")}
             />
             <ChecklistItem
               complete={Boolean(settings.aws_acm_certificate_arn)}
-              title="AWS ACM certificate requested"
-              description="Your backend creates or reuses the SSL certificate in AWS."
+              title={t("domain.checklist.acmRequested")}
+              description={t("domain.checklist.acmRequestedDescription")}
             />
             <ChecklistItem
               complete={dnsRecords.length > 0}
-              title="DNS records generated"
-              description="The customer can copy these DNS records into GoDaddy."
+              title={t("domain.checklist.dnsGenerated")}
+              description={t("domain.checklist.dnsGeneratedDescription")}
             />
             <ChecklistItem
               complete={settings.aws_acm_certificate_status === "ISSUED"}
-              title="SSL validated"
-              description="After DNS is added, AWS ACM changes to ISSUED."
+              title={t("domain.checklist.sslValidated")}
+              description={t("domain.checklist.sslValidatedDescription")}
             />
             <ChecklistItem
               complete={domainStatus === "active"}
-              title="Domain active"
-              description="CloudFront is connected and the public site is ready."
+              title={t("domain.checklist.domainActive")}
+              description={t("domain.checklist.domainActiveDescription")}
             />
           </Panel>
 
           <Panel
-            title="Public link examples"
-            description="Links generated from this domain configuration."
+            title={t("domain.examples.title")}
+            description={t("domain.examples.description")}
             icon={<Link2 className="h-5 w-5" />}
           >
             <div className="grid gap-3">
               <ExampleLink
-                title="Public home"
+                title={t("domain.examples.publicHome")}
                 value={publicUrl}
                 icon={<Home className="h-5 w-5" />}
-                onCopy={() => copy(publicUrl, "Public home URL")}
+                onCopy={() => copy(publicUrl, t("domain.examples.publicHomeUrl"))}
               />
 
               <ExampleLink
-                title="Product page pattern"
+                title={t("domain.examples.productPattern")}
                 value={`${publicUrl.replace(/\/$/, "")}/product/product-slug`}
                 icon={<Globe2 className="h-5 w-5" />}
                 onCopy={() =>
                   copy(
                     `${publicUrl.replace(/\/$/, "")}/product/product-slug`,
-                    "Product page URL pattern"
+                    t("domain.examples.productPatternUrl")
                   )
                 }
               />
 
               <ExampleLink
-                title="Checkout page"
+                title={t("domain.examples.checkout")}
                 value={`${publicUrl.replace(/\/$/, "")}/checkout`}
                 icon={<Link2 className="h-5 w-5" />}
                 onCopy={() =>
                   copy(
                     `${publicUrl.replace(/\/$/, "")}/checkout`,
-                    "Checkout page URL"
+                    t("domain.examples.checkoutUrl")
                   )
                 }
               />
@@ -1061,6 +1064,7 @@ function DnsRow({
   onCopyHost: () => void;
   onCopyValue: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const godaddyHost = normalizeText(record.godaddy_host || record.host);
   const fullHost = normalizeText(record.host);
   const value = normalizeText(record.value);
@@ -1070,7 +1074,7 @@ function DnsRow({
       <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <div>
           <p className="text-sm font-black text-slate-950">
-            {record.label || record.purpose || "DNS Record"}
+            {record.label || record.purpose || t("domain.dns.record")}
           </p>
           {record.instructions && (
             <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
@@ -1105,7 +1109,7 @@ function DnsRow({
           </p>
           {fullHost && fullHost !== godaddyHost && (
             <p className="mt-1 break-all text-xs font-bold text-slate-500">
-              Full host: {fullHost}
+              {t("domain.dns.fullHost")}: {fullHost}
             </p>
           )}
         </div>
@@ -1190,6 +1194,7 @@ function ExampleLink({
   icon: ReactNode;
   onCopy: () => void;
 }) {
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-amber-600">{icon}</div>

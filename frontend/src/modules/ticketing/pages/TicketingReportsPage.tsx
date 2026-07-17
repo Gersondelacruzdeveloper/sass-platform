@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import TicketingPageShell from "../components/TicketingPageShell";
 
 type Booking = {
@@ -133,6 +134,12 @@ type ProductRow = {
   balance: number;
 };
 
+type Translate = (
+  key: string,
+  values?: Record<string, string | number | boolean | null | undefined>,
+  fallback?: string,
+) => string;
+
 function getRequestParams(organisationSlug?: string) {
   return {
     slug: organisationSlug,
@@ -177,27 +184,40 @@ function numberValue(value?: string | number | null) {
   return Number.isFinite(number) ? number : 0;
 }
 
-function formatMoney(value?: string | number | null, symbol = "US$") {
+function formatMoney(
+  value?: string | number | null,
+  language: "en" | "es" = "en",
+  symbol = "US$",
+) {
   const number = numberValue(value);
 
-  return `${symbol} ${number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return `${symbol} ${number.toLocaleString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  )}`;
 }
 
-function formatDate(value?: string | null) {
+function formatDate(
+  value?: string | null,
+  language: "en" | "es" = "en",
+) {
   if (!value) return "—";
 
   const date = new Date(`${value}T00:00:00`);
 
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return date.toLocaleDateString(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  );
 }
 
 function getBookingDate(booking: Booking) {
@@ -223,11 +243,12 @@ function getProductId(booking: Booking) {
   );
 }
 
-function getProductName(booking: Booking) {
+function getProductName(booking: Booking, t?: Translate) {
   return (
     booking.primary_product_detail?.name ||
     booking.product_name ||
     booking.items?.[0]?.product_name ||
+    t?.("reports.fallbacks.unknownProduct") ||
     "Unknown product"
   );
 }
@@ -236,16 +257,31 @@ function getSellerId(booking: Booking) {
   return String(booking.seller || booking.seller_name || "direct");
 }
 
-function getSellerName(booking: Booking) {
-  return booking.seller_name || (booking.seller ? `Seller #${booking.seller}` : "Direct / Public");
+function getSellerName(booking: Booking, t?: Translate) {
+  return (
+    booking.seller_name ||
+    (booking.seller
+      ? t?.("reports.fallbacks.sellerNumber", { number: booking.seller }) ||
+        `Seller #${booking.seller}`
+      : t?.("reports.fallbacks.directPublic") || "Direct / Public")
+  );
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(
+  value: string | null | undefined,
+  t: Translate,
+) {
+  if (!value) return t("reports.statuses.unknown");
 
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  const normalized = String(value).toLowerCase();
+
+  return t(
+    `reports.statuses.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
+  );
 }
 
 function csvEscape(value: unknown) {
@@ -298,6 +334,7 @@ function addToReportMap(
 }
 
 export default function TicketingReportsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -362,7 +399,7 @@ export default function TicketingReportsPage() {
       }
     } catch (err: any) {
       console.error("Could not load reports:", err);
-      setError(getErrorMessage(err, "Could not load reports."));
+      setError(getErrorMessage(err, t("reports.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -391,8 +428,8 @@ export default function TicketingReportsPage() {
         booking.status,
         booking.payment_status,
         booking.source,
-        getProductName(booking),
-        getSellerName(booking),
+        getProductName(booking, t),
+        getSellerName(booking, t),
       ]
         .join(" ")
         .toLowerCase();
@@ -491,7 +528,7 @@ export default function TicketingReportsPage() {
     filteredBookings.forEach((booking) => {
       addToReportMap(
         map,
-        statusLabel(booking.payment_status || "unknown"),
+        statusLabel(booking.payment_status || "unknown", t),
         numberValue(booking.total_amount),
         numberValue(booking.deposit_paid),
         numberValue(booking.balance_due)
@@ -507,7 +544,7 @@ export default function TicketingReportsPage() {
     filteredBookings.forEach((booking) => {
       addToReportMap(
         map,
-        statusLabel(booking.status || "unknown"),
+        statusLabel(booking.status || "unknown", t),
         numberValue(booking.total_amount),
         numberValue(booking.deposit_paid),
         numberValue(booking.balance_due)
@@ -524,7 +561,7 @@ export default function TicketingReportsPage() {
       const sellerId = getSellerId(booking);
       const current = map.get(sellerId) || {
         sellerId,
-        sellerName: getSellerName(booking),
+        sellerName: getSellerName(booking, t),
         bookings: 0,
         sales: 0,
         commission: 0,
@@ -544,7 +581,7 @@ export default function TicketingReportsPage() {
       const sellerId = String(commission.seller || commission.seller_name || "direct");
       const current = map.get(sellerId) || {
         sellerId,
-        sellerName: commission.seller_name || `Seller #${commission.seller}`,
+        sellerName: commission.seller_name || t("reports.fallbacks.sellerNumber", { number: commission.seller }),
         bookings: 0,
         sales: 0,
         commission: 0,
@@ -576,7 +613,7 @@ export default function TicketingReportsPage() {
       const productId = getProductId(booking);
       const current = map.get(productId) || {
         productId,
-        productName: getProductName(booking),
+        productName: getProductName(booking, t),
         bookings: 0,
         guests: 0,
         sales: 0,
@@ -612,24 +649,24 @@ export default function TicketingReportsPage() {
     downloadCsv(
       "ticketing-booking-report.csv",
       [
-        "Booking Code",
-        "Date",
-        "Customer",
-        "Product",
-        "Seller",
-        "Status",
-        "Payment Status",
-        "Guests",
-        "Total",
-        "Paid",
-        "Balance",
+        t("reports.csv.bookingCode"),
+        t("reports.csv.date"),
+        t("reports.csv.customer"),
+        t("reports.csv.product"),
+        t("reports.csv.seller"),
+        t("reports.csv.status"),
+        t("reports.csv.paymentStatus"),
+        t("reports.csv.guests"),
+        t("reports.csv.total"),
+        t("reports.csv.paid"),
+        t("reports.csv.balance"),
       ],
       filteredBookings.map((booking) => [
         booking.booking_code || booking.id,
         getBookingDate(booking),
         booking.customer_name || "",
-        getProductName(booking),
-        getSellerName(booking),
+        getProductName(booking, t),
+        getSellerName(booking, t),
         booking.status || "",
         booking.payment_status || "",
         getTotalGuests(booking),
@@ -644,13 +681,13 @@ export default function TicketingReportsPage() {
     downloadCsv(
       "ticketing-seller-report.csv",
       [
-        "Seller",
-        "Bookings",
-        "Sales",
-        "Commission",
-        "Paid Commission",
-        "Pending Commission",
-        "Balance Due",
+        t("reports.csv.seller"),
+        t("reports.csv.bookings"),
+        t("reports.csv.sales"),
+        t("reports.csv.commission"),
+        t("reports.csv.paidCommission"),
+        t("reports.csv.pendingCommission"),
+        t("reports.csv.balanceDue"),
       ],
       sellerRows.map((row) => [
         row.sellerName,
@@ -667,11 +704,11 @@ export default function TicketingReportsPage() {
   if (loading) {
     return (
       <TicketingPageShell
-        title="Reports"
-        subtitle="Review sales by seller, products, payments, rankings and pending balances."
+        title={t("reports.title")}
+        subtitle={t("reports.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading reports...
+          {t("reports.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -679,45 +716,45 @@ export default function TicketingReportsPage() {
 
   return (
     <TicketingPageShell
-      title="Reports"
-      subtitle="Review sales by seller, products, payments, rankings and pending balances."
+      title={t("reports.title")}
+      subtitle={t("reports.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <StatCard
-            title="Bookings"
+            title={t("reports.stats.bookings")}
             value={String(stats.bookings)}
-            helper={`${stats.confirmedBookings} confirmed · ${stats.pendingBookings} pending`}
+            helper={t("reports.stats.bookingBreakdown", { confirmed: stats.confirmedBookings, pending: stats.pendingBookings })}
             icon={<Ticket className="h-6 w-6 text-slate-700" />}
           />
           <StatCard
-            title="Gross sales"
-            value={formatMoney(stats.grossSales)}
-            helper="Total booking value"
+            title={t("reports.stats.grossSales")}
+            value={formatMoney(stats.grossSales, language)}
+            helper={t("reports.stats.totalBookingValue")}
             icon={<DollarSign className="h-6 w-6 text-emerald-600" />}
           />
           <StatCard
-            title="Collected"
-            value={formatMoney(stats.depositPaid)}
-            helper={`${stats.paidBookings} paid bookings`}
+            title={t("reports.stats.collected")}
+            value={formatMoney(stats.depositPaid, language)}
+            helper={t("reports.stats.paidBookings", { count: stats.paidBookings })}
             icon={<CreditCard className="h-6 w-6 text-sky-600" />}
           />
           <StatCard
-            title="Balance due"
-            value={formatMoney(stats.balanceDue)}
-            helper="Pending to collect"
+            title={t("reports.stats.balanceDue")}
+            value={formatMoney(stats.balanceDue, language)}
+            helper={t("reports.stats.pendingCollection")}
             icon={<Clock3 className="h-6 w-6 text-amber-600" />}
           />
           <StatCard
-            title="Commission"
-            value={formatMoney(stats.totalCommission)}
-            helper={`${formatMoney(stats.pendingCommission)} pending`}
+            title={t("reports.stats.commission")}
+            value={formatMoney(stats.totalCommission, language)}
+            helper={t("reports.stats.pendingAmount", { amount: formatMoney(stats.pendingCommission, language) })}
             icon={<Wallet className="h-6 w-6 text-purple-600" />}
           />
           <StatCard
-            title="Guests"
+            title={t("reports.stats.guests")}
             value={String(stats.guests)}
-            helper="Total passengers/customers"
+            helper={t("reports.stats.totalGuests")}
             icon={<Users className="h-6 w-6 text-indigo-600" />}
           />
         </section>
@@ -733,10 +770,10 @@ export default function TicketingReportsPage() {
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Report filters
+                {t("reports.filters.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Filter by date, seller, product type, customer, product, payment status or booking code.
+                {t("reports.filters.subtitle")}
               </p>
             </div>
 
@@ -747,7 +784,7 @@ export default function TicketingReportsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <Download className="h-4 w-4" />
-                Export bookings
+                {t("reports.actions.exportBookings")}
               </button>
 
               <button
@@ -756,7 +793,7 @@ export default function TicketingReportsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <Download className="h-4 w-4" />
-                Export sellers
+                {t("reports.actions.exportSellers")}
               </button>
 
               <button
@@ -765,7 +802,7 @@ export default function TicketingReportsPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("reports.actions.refresh")}
               </button>
             </div>
           </div>
@@ -776,7 +813,7 @@ export default function TicketingReportsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search booking, customer, product, seller..."
+                placeholder={t("reports.filters.searchPlaceholder")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
               />
             </div>
@@ -800,8 +837,8 @@ export default function TicketingReportsPage() {
               onChange={(event) => setSellerFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All sellers</option>
-              <option value="direct">Direct / Public</option>
+              <option value="">{t("reports.filters.allSellers")}</option>
+              <option value="direct">{t("reports.fallbacks.directPublic")}</option>
               {sellers.map((seller) => (
                 <option key={seller.id} value={String(seller.id)}>
                   {seller.full_name}
@@ -814,10 +851,10 @@ export default function TicketingReportsPage() {
               onChange={(event) => setProductTypeFilter(event.target.value)}
               className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
             >
-              <option value="">All product types</option>
+              <option value="">{t("reports.filters.allProductTypes")}</option>
               {productTypes.map((type) => (
                 <option key={type} value={type}>
-                  {statusLabel(type)}
+                  {statusLabel(type, t)}
                 </option>
               ))}
             </select>
@@ -827,42 +864,44 @@ export default function TicketingReportsPage() {
               onClick={resetFilters}
               className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
-              Reset
+              {t("reports.actions.reset")}
             </button>
           </div>
         </section>
 
         <section className="grid gap-5 xl:grid-cols-2">
           <ReportPanel
-            title="Sales by seller"
-            description="Seller performance, commissions and pending balances."
+            title={t("reports.panels.salesBySeller")}
+            description={t("reports.panels.salesBySellerDescription")}
             icon={<UserRound className="h-5 w-5" />}
           >
             <ReportTable
               rows={sellerRows.slice(0, 8)}
+              language={language}
               maxValue={sellerRows[0]?.sales || 0}
               columns={[
-                { key: "sellerName", label: "Seller" },
-                { key: "bookings", label: "Bookings" },
-                { key: "sales", label: "Sales", money: true },
-                { key: "pendingCommission", label: "Pending comm.", money: true },
+                { key: "sellerName", label: t("reports.csv.seller") },
+                { key: "bookings", label: t("reports.csv.bookings") },
+                { key: "sales", label: t("reports.csv.sales"), money: true },
+                { key: "pendingCommission", label: t("reports.table.pendingCommission"), money: true },
               ]}
             />
           </ReportPanel>
 
           <ReportPanel
-            title="Sales by product"
-            description="Top products by sales, guests and pending balance."
+            title={t("reports.panels.salesByProduct")}
+            description={t("reports.panels.salesByProductDescription")}
             icon={<Package className="h-5 w-5" />}
           >
             <ReportTable
               rows={productRows.slice(0, 8)}
+              language={language}
               maxValue={productRows[0]?.sales || 0}
               columns={[
-                { key: "productName", label: "Product" },
-                { key: "bookings", label: "Bookings" },
-                { key: "guests", label: "Guests" },
-                { key: "sales", label: "Sales", money: true },
+                { key: "productName", label: t("reports.csv.product") },
+                { key: "bookings", label: t("reports.csv.bookings") },
+                { key: "guests", label: t("reports.csv.guests") },
+                { key: "sales", label: t("reports.csv.sales"), money: true },
               ]}
             />
           </ReportPanel>
@@ -870,19 +909,19 @@ export default function TicketingReportsPage() {
 
         <section className="grid gap-5 xl:grid-cols-2">
           <ReportPanel
-            title="Payment status"
-            description="How much is paid, unpaid, partial or pending."
+            title={t("reports.panels.paymentStatus")}
+            description={t("reports.panels.paymentStatusDescription")}
             icon={<CreditCard className="h-5 w-5" />}
           >
-            <SimpleReportRows rows={paymentRows} />
+            <SimpleReportRows rows={paymentRows} language={language} t={t} />
           </ReportPanel>
 
           <ReportPanel
-            title="Booking status"
-            description="Operational status of reservations."
+            title={t("reports.panels.bookingStatus")}
+            description={t("reports.panels.bookingStatusDescription")}
             icon={<CheckCircle2 className="h-5 w-5" />}
           >
-            <SimpleReportRows rows={statusRows} />
+            <SimpleReportRows rows={statusRows} language={language} t={t} />
           </ReportPanel>
         </section>
 
@@ -894,31 +933,31 @@ export default function TicketingReportsPage() {
 
             <div>
               <h2 className="text-lg font-black text-slate-950">
-                Recent bookings
+                {t("reports.recent.title")}
               </h2>
               <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                Latest bookings matching the current filters.
+                {t("reports.recent.subtitle")}
               </p>
             </div>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {recentBookings.length === 0 ? (
-              <EmptyState text="No bookings found for this report." />
+              <EmptyState text={t("reports.empty.noBookings")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Booking</Th>
-                      <Th>Date</Th>
-                      <Th>Customer</Th>
-                      <Th>Product</Th>
-                      <Th>Seller</Th>
-                      <Th>Total</Th>
-                      <Th>Paid</Th>
-                      <Th>Balance</Th>
-                      <Th>Status</Th>
+                      <Th>{t("reports.table.booking")}</Th>
+                      <Th>{t("reports.table.date")}</Th>
+                      <Th>{t("reports.table.customer")}</Th>
+                      <Th>{t("reports.table.product")}</Th>
+                      <Th>{t("reports.table.seller")}</Th>
+                      <Th>{t("reports.table.total")}</Th>
+                      <Th>{t("reports.table.paid")}</Th>
+                      <Th>{t("reports.table.balance")}</Th>
+                      <Th>{t("reports.table.status")}</Th>
                     </tr>
                   </thead>
 
@@ -930,25 +969,25 @@ export default function TicketingReportsPage() {
                             {booking.booking_code || `#${booking.id}`}
                           </p>
                         </Td>
-                        <Td>{formatDate(getBookingDate(booking))}</Td>
+                        <Td>{formatDate(getBookingDate(booking), language)}</Td>
                         <Td>
                           <div>
                             <p className="font-black text-slate-900">
-                              {booking.customer_name || "No name"}
+                              {booking.customer_name || t("reports.fallbacks.noName")}
                             </p>
                             <p className="mt-1 text-xs font-bold text-slate-500">
-                              {booking.customer_whatsapp || booking.customer_email || "No contact"}
+                              {booking.customer_whatsapp || booking.customer_email || t("reports.fallbacks.noContact")}
                             </p>
                           </div>
                         </Td>
-                        <Td>{getProductName(booking)}</Td>
-                        <Td>{getSellerName(booking)}</Td>
-                        <Td>{formatMoney(booking.total_amount)}</Td>
-                        <Td>{formatMoney(booking.deposit_paid)}</Td>
-                        <Td>{formatMoney(booking.balance_due)}</Td>
+                        <Td>{getProductName(booking, t)}</Td>
+                        <Td>{getSellerName(booking, t)}</Td>
+                        <Td>{formatMoney(booking.total_amount, language)}</Td>
+                        <Td>{formatMoney(booking.deposit_paid, language)}</Td>
+                        <Td>{formatMoney(booking.balance_due, language)}</Td>
                         <Td>
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
-                            {statusLabel(booking.status)}
+                            {statusLabel(booking.status, t)}
                           </span>
                         </Td>
                       </tr>
@@ -1020,13 +1059,17 @@ function ReportTable({
   rows,
   maxValue,
   columns,
+  language,
 }: {
   rows: Array<Record<string, any>>;
   maxValue: number;
   columns: Array<{ key: string; label: string; money?: boolean }>;
+  language: "en" | "es";
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   if (rows.length === 0) {
-    return <EmptyState text="No report data available." />;
+    return <EmptyState text={t("reports.empty.noData")} />;
   }
 
   return (
@@ -1047,7 +1090,7 @@ function ReportTable({
                     {column.label}
                   </p>
                   <p className="mt-1 truncate font-black text-slate-950">
-                    {column.money ? formatMoney(row[column.key]) : row[column.key]}
+                    {column.money ? formatMoney(row[column.key], language) : row[column.key]}
                   </p>
                 </div>
               ))}
@@ -1066,9 +1109,17 @@ function ReportTable({
   );
 }
 
-function SimpleReportRows({ rows }: { rows: ReportRow[] }) {
+function SimpleReportRows({
+  rows,
+  language,
+  t,
+}: {
+  rows: ReportRow[];
+  language: "en" | "es";
+  t: Translate;
+}) {
   if (rows.length === 0) {
-    return <EmptyState text="No report data available." />;
+    return <EmptyState text={t("reports.empty.noData")} />;
   }
 
   const maxTotal = rows[0]?.total || 0;
@@ -1087,16 +1138,16 @@ function SimpleReportRows({ rows }: { rows: ReportRow[] }) {
               <div>
                 <p className="text-sm font-black text-slate-950">{row.label}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">
-                  {row.count} bookings
+                  {t("reports.rows.bookingCount", { count: row.count })}
                 </p>
               </div>
 
               <div className="text-left sm:text-right">
                 <p className="text-sm font-black text-slate-950">
-                  {formatMoney(row.total)}
+                  {formatMoney(row.total, language)}
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-500">
-                  Paid {formatMoney(row.paid)} · Balance {formatMoney(row.balance)}
+                  {t("reports.rows.paidBalance", { paid: formatMoney(row.paid, language), balance: formatMoney(row.balance, language) })}
                 </p>
               </div>
             </div>

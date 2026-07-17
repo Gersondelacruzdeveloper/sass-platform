@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../../api/ticketingApi";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import type {
   Booking,
   BookingCreatePayload,
@@ -339,20 +340,23 @@ function getPaymentPayload(
   return null;
 }
 
-function getAllowedPaymentActions(seller: Seller | null) {
+function getAllowedPaymentActions(
+  seller: Seller | null,
+  t: (key: string) => string
+) {
   if (!seller) return [] as Array<{ value: SellerPaymentAction; label: string; shortLabel: string; icon: ReactNode }>;
 
   const actions: Array<{ value: SellerPaymentAction; label: string; shortLabel: string; icon: ReactNode }> = [];
 
-  if (seller.can_take_deposits) actions.push({ value: "deposit_online", label: "Deposit", shortLabel: "Deposit", icon: <CreditCard className="h-5 w-5" /> });
-  if (seller.can_take_full_payments) actions.push({ value: "full_online", label: "Full payment", shortLabel: "Full", icon: <CreditCard className="h-5 w-5" /> });
-  if (seller.can_collect_cash_payment && seller.can_take_full_payments) actions.push({ value: "cash_full", label: "Cash", shortLabel: "Cash", icon: <Banknote className="h-5 w-5" /> });
-  if (seller.can_create_pending_payment_booking) actions.push({ value: "pending_payment", label: "Pay later", shortLabel: "Later", icon: <ReceiptText className="h-5 w-5" /> });
-  if (seller.can_generate_ticket_without_customer_online_payment) actions.push({ value: "generate_ticket", label: "Generate ticket", shortLabel: "Ticket", icon: <Ticket className="h-5 w-5" /> });
-  if (seller.can_pay_deposit_as_seller) actions.push({ value: "seller_deposit", label: "Seller deposit", shortLabel: "Seller deposit", icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_pay_full_amount_as_seller) actions.push({ value: "seller_full", label: "Seller full", shortLabel: "Seller full", icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_pay_commission_only) actions.push({ value: "commission_only", label: "Commission only", shortLabel: "Commission", icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_request_supervisor_approval) actions.push({ value: "requires_supervisor_approval", label: "Ask approval", shortLabel: "Approval", icon: <Send className="h-5 w-5" /> });
+  if (seller.can_take_deposits) actions.push({ value: "deposit_online", label: t("sellerNewBooking.paymentActions.deposit"), shortLabel: t("sellerNewBooking.paymentActions.depositShort"), icon: <CreditCard className="h-5 w-5" /> });
+  if (seller.can_take_full_payments) actions.push({ value: "full_online", label: t("sellerNewBooking.paymentActions.full"), shortLabel: t("sellerNewBooking.paymentActions.fullShort"), icon: <CreditCard className="h-5 w-5" /> });
+  if (seller.can_collect_cash_payment && seller.can_take_full_payments) actions.push({ value: "cash_full", label: t("sellerNewBooking.paymentActions.cash"), shortLabel: t("sellerNewBooking.paymentActions.cashShort"), icon: <Banknote className="h-5 w-5" /> });
+  if (seller.can_create_pending_payment_booking) actions.push({ value: "pending_payment", label: t("sellerNewBooking.paymentActions.later"), shortLabel: t("sellerNewBooking.paymentActions.laterShort"), icon: <ReceiptText className="h-5 w-5" /> });
+  if (seller.can_generate_ticket_without_customer_online_payment) actions.push({ value: "generate_ticket", label: t("sellerNewBooking.paymentActions.generateTicket"), shortLabel: t("sellerNewBooking.paymentActions.ticketShort"), icon: <Ticket className="h-5 w-5" /> });
+  if (seller.can_pay_deposit_as_seller) actions.push({ value: "seller_deposit", label: t("sellerNewBooking.paymentActions.sellerDeposit"), shortLabel: t("sellerNewBooking.paymentActions.sellerDepositShort"), icon: <ShieldCheck className="h-5 w-5" /> });
+  if (seller.can_pay_full_amount_as_seller) actions.push({ value: "seller_full", label: t("sellerNewBooking.paymentActions.sellerFull"), shortLabel: t("sellerNewBooking.paymentActions.sellerFullShort"), icon: <ShieldCheck className="h-5 w-5" /> });
+  if (seller.can_pay_commission_only) actions.push({ value: "commission_only", label: t("sellerNewBooking.paymentActions.commissionOnly"), shortLabel: t("sellerNewBooking.paymentActions.commissionShort"), icon: <ShieldCheck className="h-5 w-5" /> });
+  if (seller.can_request_supervisor_approval) actions.push({ value: "requires_supervisor_approval", label: t("sellerNewBooking.paymentActions.askApproval"), shortLabel: t("sellerNewBooking.paymentActions.approvalShort"), icon: <Send className="h-5 w-5" /> });
 
   return actions;
 }
@@ -539,6 +543,7 @@ function getProductImage(product: ExperienceProduct) {
 }
 
 export default function TicketingSellerNewBookingPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams<{ organisationSlug?: string; slug?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -627,7 +632,7 @@ export default function TicketingSellerNewBookingPage() {
       }));
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(getErrorMessage(error, "Could not load seller booking form."));
+      setErrorMessage(getErrorMessage(error, t("sellerNewBooking.errors.loadForm")));
       setProducts([]);
     } finally {
       setLoading(false);
@@ -636,7 +641,7 @@ export default function TicketingSellerNewBookingPage() {
 
   useEffect(() => {
     loadPage();
-  }, [slug, productIdFromUrl]);
+  }, [slug, productIdFromUrl, t]);
 
   const selectedProduct = useMemo(() => products.find((product) => String(product.id) === String(form.productId)) || null, [products, form.productId]);
 
@@ -710,7 +715,7 @@ export default function TicketingSellerNewBookingPage() {
         setLiveAvailabilityError(
           getErrorMessage(
             error,
-            "Coco Bongo availability is not available for this date."
+            t("sellerNewBooking.errors.liveAvailability")
           )
         );
       } finally {
@@ -731,6 +736,7 @@ export default function TicketingSellerNewBookingPage() {
     selectedProduct?.slug,
     isLiveCocoBongoProduct,
     form.serviceDate,
+    t,
   ]);
 
   const selectedPickupLocation = useMemo(
@@ -780,14 +786,14 @@ export default function TicketingSellerNewBookingPage() {
         }
       } catch (error) {
         console.warn("Could not resolve pickup schedule:", error);
-        setResolvedPickup({ found: false, message: "Pickup time is not available yet for this product, date and hotel/location." });
+        setResolvedPickup({ found: false, message: t("sellerNewBooking.pickup.unavailable") });
       } finally {
         setResolvingPickup(false);
       }
     }
 
     resolvePickup();
-  }, [slug, selectedProduct?.id, form.serviceDate, form.pickupLocationId, selectedPickupLocation?.name]);
+  }, [slug, selectedProduct?.id, form.serviceDate, form.pickupLocationId, selectedPickupLocation?.name, t]);
 
   useEffect(() => {
     if (!form.pickupLocationId) return;
@@ -814,14 +820,14 @@ export default function TicketingSellerNewBookingPage() {
   const paymentPayload = getPaymentPayload(form.paymentAction, totalAmount, depositRequired, form.paymentReference, form.paymentNote);
   const paymentNow = paymentPayload ? numberValue(paymentPayload.amount) : 0;
   const balanceDue = Math.max(totalAmount - paymentNow, 0);
-  const allowedPaymentActions = getAllowedPaymentActions(seller);
+  const allowedPaymentActions = getAllowedPaymentActions(seller, t);
   const selectedAction = allowedPaymentActions.find((action) => action.value === form.paymentAction);
 
   const pickupTime = resolvedPickup?.found && resolvedPickup.schedule ? resolvedPickup.schedule.pickup_time : assignedPickupSchedule?.pickup_time || null;
   const pickupPoint =
     resolvedPickup?.found && resolvedPickup.schedule
-      ? resolvedPickup.schedule.resolved_pickup_point || resolvedPickup.schedule.pickup_point || selectedPickupLocation?.default_pickup_point || "Lobby"
-      : assignedPickupSchedule?.resolved_pickup_point || assignedPickupSchedule?.pickup_point || selectedPickupLocation?.default_pickup_point || "Lobby";
+      ? resolvedPickup.schedule.resolved_pickup_point || resolvedPickup.schedule.pickup_point || selectedPickupLocation?.default_pickup_point || t("sellerNewBooking.pickup.lobby")
+      : assignedPickupSchedule?.resolved_pickup_point || assignedPickupSchedule?.pickup_point || selectedPickupLocation?.default_pickup_point || t("sellerNewBooking.pickup.lobby");
 
   const filteredProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
@@ -876,33 +882,33 @@ export default function TicketingSellerNewBookingPage() {
   }
 
   async function saveBooking() {
-    if (!seller) return setErrorMessage("No active seller profile was found for this user.");
-    if (!seller.can_create_bookings) return setErrorMessage("You do not have permission to create bookings.");
-    if (!selectedProduct) return setErrorMessage("Select a tour before creating the booking.");
-    if (!form.serviceDate) return setErrorMessage("Service date is required.");
-    if (!form.customerName.trim()) return setErrorMessage("Customer name is required.");
-    if (form.customerEmail.trim() && !isValidEmail(form.customerEmail)) return setErrorMessage("Customer email is optional, but if entered it must be valid.");
-    if (requiresPickup && !form.pickupLocationId) return setErrorMessage("This product requires a hotel or pickup location.");
+    if (!seller) return setErrorMessage(t("sellerNewBooking.errors.noSeller"));
+    if (!seller.can_create_bookings) return setErrorMessage(t("sellerNewBooking.errors.noPermission"));
+    if (!selectedProduct) return setErrorMessage(t("sellerNewBooking.errors.selectTour"));
+    if (!form.serviceDate) return setErrorMessage(t("sellerNewBooking.errors.serviceDate"));
+    if (!form.customerName.trim()) return setErrorMessage(t("sellerNewBooking.errors.customerName"));
+    if (form.customerEmail.trim() && !isValidEmail(form.customerEmail)) return setErrorMessage(t("sellerNewBooking.errors.invalidEmail"));
+    if (requiresPickup && !form.pickupLocationId) return setErrorMessage(t("sellerNewBooking.errors.pickupRequired"));
     if (requiresPickup && form.pickupLocationId && !resolvedPickup?.found && !assignedPickupSchedule && selectedProduct.requires_pickup_location) {
-      return setErrorMessage("No pickup schedule was found for this product, date and pickup location.");
+      return setErrorMessage(t("sellerNewBooking.errors.noPickupSchedule"));
     }
     if (isLiveCocoBongoProduct && loadingLiveAvailability) {
-      return setErrorMessage("Please wait while Coco Bongo availability is checked.");
+      return setErrorMessage(t("sellerNewBooking.errors.waitLiveAvailability"));
     }
     if (isLiveCocoBongoProduct && liveAvailabilityError) {
       return setErrorMessage(liveAvailabilityError);
     }
     if (isLiveCocoBongoProduct && !selectedLiveOption) {
-      return setErrorMessage("Select an available Coco Bongo ticket option.");
+      return setErrorMessage(t("sellerNewBooking.errors.selectLiveOption"));
     }
     if (
       selectedLiveOption &&
       (selectedLiveOption.available === false ||
         selectedLiveOption.sold_out === true)
     ) {
-      return setErrorMessage("The selected Coco Bongo option is sold out.");
+      return setErrorMessage(t("sellerNewBooking.errors.soldOut"));
     }
-    if (!selectedAction) return setErrorMessage("Select an allowed payment option before creating the booking.");
+    if (!selectedAction) return setErrorMessage(t("sellerNewBooking.errors.selectPayment"));
 
     try {
       setSaving(true);
@@ -1017,10 +1023,10 @@ export default function TicketingSellerNewBookingPage() {
         booking = await ticketingApi.markSellerTicketGenerated(booking.id, slug);
       }
       setCreatedBooking(booking);
-      setSuccessMessage(`Booking created${booking.booking_code ? `: ${booking.booking_code}` : ""}.`);
+      setSuccessMessage(`${t("sellerNewBooking.success.created")}${booking.booking_code ? `: ${booking.booking_code}` : ""}.`);
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(getErrorMessage(error, "Could not create seller booking."));
+      setErrorMessage(getErrorMessage(error, t("sellerNewBooking.errors.create")));
     } finally {
       setSaving(false);
     }
@@ -1053,7 +1059,7 @@ export default function TicketingSellerNewBookingPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm font-black text-slate-500 shadow-sm">
-        Loading seller checkout...
+        {t("sellerNewBooking.loading")}
       </div>
     );
   }
@@ -1065,18 +1071,18 @@ export default function TicketingSellerNewBookingPage() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white">
             <CheckCircle2 className="h-9 w-9" />
           </div>
-          <p className="mt-4 text-sm font-black uppercase tracking-wide text-emerald-700">Booking created</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-950">{createdBooking.booking_code || "New booking"}</h1>
+          <p className="mt-4 text-sm font-black uppercase tracking-wide text-emerald-700">{t("sellerNewBooking.success.title")}</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-950">{createdBooking.booking_code || t("sellerNewBooking.success.newBooking")}</h1>
           <p className="mt-2 text-sm font-bold text-emerald-700">{successMessage}</p>
         </section>
 
         <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
-            <SummaryLine label="Customer" value={createdBooking.customer_name || form.customerName} />
-            <SummaryLine label="Tour" value={selectedProduct?.name || createdBooking.primary_product_detail?.name || "—"} />
-            <SummaryLine label="Hotel" value={createdBooking.customer_hotel || selectedPickupLocation?.name || "—"} />
-            <SummaryLine label="Today paid" value={formatMoney(paymentNow)} strong />
-            <SummaryLine label="Balance" value={formatMoney(balanceDue)} strong />
+            <SummaryLine label={t("sellerNewBooking.summary.customer")} value={createdBooking.customer_name || form.customerName} />
+            <SummaryLine label={t("sellerNewBooking.summary.tour")} value={selectedProduct?.name || createdBooking.primary_product_detail?.name || "—"} />
+            <SummaryLine label={t("sellerNewBooking.summary.hotel")} value={createdBooking.customer_hotel || selectedPickupLocation?.name || "—"} />
+            <SummaryLine label={t("sellerNewBooking.summary.todayPaid")} value={formatMoney(paymentNow)} strong />
+            <SummaryLine label={t("sellerNewBooking.summary.balance")} value={formatMoney(balanceDue)} strong />
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -1096,12 +1102,12 @@ export default function TicketingSellerNewBookingPage() {
     <div className="space-y-5 pb-24">
       <div className="flex flex-col justify-between gap-4 rounded-[2rem] bg-slate-950 p-6 text-white shadow-sm lg:flex-row lg:items-center">
         <div>
-          <p className="text-sm font-black uppercase tracking-wide text-amber-300">Seller POS</p>
-          <h1 className="mt-2 text-3xl font-black">New booking</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-300">Fast checkout for sellers. Select tour, date, hotel, customer, payment.</p>
+          <p className="text-sm font-black uppercase tracking-wide text-amber-300">{t("sellerNewBooking.header.eyebrow")}</p>
+          <h1 className="mt-2 text-3xl font-black">{t("sellerNewBooking.header.title")}</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-300">{t("sellerNewBooking.header.description")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white ring-1 ring-white/10">{seller?.full_name || "Seller"}</div>
+          <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white ring-1 ring-white/10">{seller?.full_name || t("sellerNewBooking.labels.seller")}</div>
           <Link to={`/ticketing/${slug}/seller/products`} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100">
             <ArrowLeft className="h-4 w-4" />
             Products
@@ -1110,12 +1116,12 @@ export default function TicketingSellerNewBookingPage() {
       </div>
 
       {errorMessage && <AlertBox tone="red" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{errorMessage}</AlertBox>}
-      {seller && !seller.can_create_bookings && <AlertBox tone="red" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>Your seller account cannot create bookings.</AlertBox>}
+      {seller && !seller.can_create_bookings && <AlertBox tone="red" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{t("sellerNewBooking.errors.accountCannotCreate")}</AlertBox>}
 
       <section className="grid gap-5 xl:grid-cols-[1fr_390px]">
         <div className="space-y-5">
-          <Panel eyebrow="Step 1" title="Choose tour" icon={<Ticket className="h-5 w-5" />}>
-            <SearchInput value={productSearch} onChange={setProductSearch} placeholder="Search tour..." />
+          <Panel eyebrow={t("sellerNewBooking.steps.step1")} title={t("sellerNewBooking.steps.chooseTour")} icon={<Ticket className="h-5 w-5" />}>
+            <SearchInput value={productSearch} onChange={setProductSearch} placeholder={t("sellerNewBooking.search.tour")} />
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filteredProducts.map((product) => {
                 const selected = String(product.id) === String(form.productId);
@@ -1132,7 +1138,7 @@ export default function TicketingSellerNewBookingPage() {
                   >
                     <div className="relative h-36 bg-slate-100">
                       {image ? <img src={image} alt={product.image_alt_text || product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Ticket className="h-10 w-10" /></div>}
-                      {selected && <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-3 py-1 text-xs font-black text-slate-950">Selected</span>}
+                      {selected && <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-3 py-1 text-xs font-black text-slate-950">{t("sellerNewBooking.labels.selected")}</span>}
                     </div>
                     <div className="p-4">
                       <p className="line-clamp-2 min-h-10 text-sm font-black text-slate-950">{product.name}</p>
@@ -1144,8 +1150,8 @@ export default function TicketingSellerNewBookingPage() {
             </div>
           </Panel>
 
-          <Panel eyebrow="Step 2" title="Choose date" icon={<CalendarDays className="h-5 w-5" />}>
-            <Input label="Service date" type="date" value={form.serviceDate} onChange={(value) => updateForm("serviceDate", value)} required />
+          <Panel eyebrow={t("sellerNewBooking.steps.step2")} title={t("sellerNewBooking.steps.chooseDate")} icon={<CalendarDays className="h-5 w-5" />}>
+            <Input label={t("sellerNewBooking.fields.serviceDate")} type="date" value={form.serviceDate} onChange={(value) => updateForm("serviceDate", value)} required />
 
             {isLiveCocoBongoProduct && (
               <div className="mt-5 rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4">
@@ -1222,13 +1228,13 @@ export default function TicketingSellerNewBookingPage() {
                               <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-600">
                                 {option.start_time && (
                                   <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                                    Show {formatTime(option.start_time)}
+                                    {t("sellerNewBooking.live.show")} {formatTime(option.start_time)}
                                   </span>
                                 )}
                                 {option.available_quantity !== null &&
                                   option.available_quantity !== undefined && (
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                                      {option.available_quantity} available
+                                      {option.available_quantity} {t("sellerNewBooking.live.available")}
                                     </span>
                                   )}
                                 {unavailable && (
@@ -1257,10 +1263,10 @@ export default function TicketingSellerNewBookingPage() {
             )}
           </Panel>
 
-          <Panel eyebrow="Step 3" title="Choose hotel" icon={<Hotel className="h-5 w-5" />}>
+          <Panel eyebrow={t("sellerNewBooking.steps.step3")} title={t("sellerNewBooking.steps.chooseHotel")} icon={<Hotel className="h-5 w-5" />}>
             {requiresPickup ? (
               <>
-                <SearchInput value={hotelSearch} onChange={setHotelSearch} placeholder="Search hotel or pickup point..." />
+                <SearchInput value={hotelSearch} onChange={setHotelSearch} placeholder={t("sellerNewBooking.search.hotel")} />
                 <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
                   {filteredPickupLocations.map((location) => {
                     const selected = String(location.id) === String(form.pickupLocationId);
@@ -1276,7 +1282,7 @@ export default function TicketingSellerNewBookingPage() {
                       >
                         <span>
                           <span className="block text-sm font-black text-slate-950">{location.name}</span>
-                          <span className="mt-1 block text-xs font-bold text-slate-500">{location.zone_name || location.default_pickup_point || "Pickup location"}</span>
+                          <span className="mt-1 block text-xs font-bold text-slate-500">{location.zone_name || location.default_pickup_point || t("sellerNewBooking.pickup.location")}</span>
                         </span>
                         {selected && <CheckCircle2 className="h-5 w-5 text-amber-600" />}
                       </button>
@@ -1286,38 +1292,38 @@ export default function TicketingSellerNewBookingPage() {
 
                 <div className="mt-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                   {resolvingPickup ? (
-                    <div className="flex items-center gap-3 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Finding pickup...</div>
+                    <div className="flex items-center gap-3 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />{t("sellerNewBooking.pickup.finding")}</div>
                   ) : selectedPickupLocation && (resolvedPickup?.found || assignedPickupSchedule) ? (
                     <div className="flex items-start gap-3">
                       <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-600" />
                       <div>
-                        <p className="text-sm font-black text-slate-950">Pickup assigned</p>
+                        <p className="text-sm font-black text-slate-950">{t("sellerNewBooking.pickup.assigned")}</p>
                         <p className="mt-1 text-lg font-black text-slate-950">{formatTime(pickupTime)}</p>
                         <p className="mt-1 text-sm font-bold text-slate-600">{selectedPickupLocation.name} · {pickupPoint}</p>
                       </div>
                     </div>
                   ) : form.pickupLocationId && form.serviceDate ? (
-                    <div className="flex items-start gap-3 text-amber-700"><AlertCircle className="mt-1 h-5 w-5 shrink-0" /><p className="text-sm font-bold">{resolvedPickup?.message || "No pickup schedule found for this product, date and location."}</p></div>
+                    <div className="flex items-start gap-3 text-amber-700"><AlertCircle className="mt-1 h-5 w-5 shrink-0" /><p className="text-sm font-bold">{resolvedPickup?.message || t("sellerNewBooking.pickup.notFound")}</p></div>
                   ) : (
-                    <p className="text-sm font-bold text-slate-500">Select the date and hotel. Pickup time appears automatically.</p>
+                    <p className="text-sm font-bold text-slate-500">{t("sellerNewBooking.pickup.selectDateHotel")}</p>
                   )}
                 </div>
               </>
             ) : (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">This tour does not require pickup.</div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">{t("sellerNewBooking.pickup.notRequired")}</div>
             )}
           </Panel>
 
-          <Panel eyebrow="Step 4" title="Customer" icon={<UserRound className="h-5 w-5" />}>
+          <Panel eyebrow={t("sellerNewBooking.steps.step4")} title={t("sellerNewBooking.steps.customer")} icon={<UserRound className="h-5 w-5" />}>
             <div className="grid gap-4 md:grid-cols-2">
-              <Input label="Customer name" value={form.customerName} onChange={(value) => updateForm("customerName", value)} required />
-              <Input label="WhatsApp" value={form.customerWhatsapp} onChange={(value) => updateForm("customerWhatsapp", value)} placeholder="+1 809 000 0000" />
+              <Input label={t("sellerNewBooking.fields.customerName")} value={form.customerName} onChange={(value) => updateForm("customerName", value)} required />
+              <Input label={t("sellerNewBooking.fields.whatsapp")} value={form.customerWhatsapp} onChange={(value) => updateForm("customerWhatsapp", value)} placeholder="+1 809 000 0000" />
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <GuestCounter label="Adults" value={form.adults} onMinus={() => changeGuest("adults", -1)} onPlus={() => changeGuest("adults", 1)} />
-              <GuestCounter label="Children" value={form.children} onMinus={() => changeGuest("children", -1)} onPlus={() => changeGuest("children", 1)} />
-              <GuestCounter label="Infants" value={form.infants} onMinus={() => changeGuest("infants", -1)} onPlus={() => changeGuest("infants", 1)} />
+              <GuestCounter label={t("sellerNewBooking.guests.adults")} value={form.adults} onMinus={() => changeGuest("adults", -1)} onPlus={() => changeGuest("adults", 1)} />
+              <GuestCounter label={t("sellerNewBooking.guests.children")} value={form.children} onMinus={() => changeGuest("children", -1)} onPlus={() => changeGuest("children", 1)} />
+              <GuestCounter label={t("sellerNewBooking.guests.infants")} value={form.infants} onMinus={() => changeGuest("infants", -1)} onPlus={() => changeGuest("infants", 1)} />
             </div>
 
             <button type="button" onClick={() => setShowOptionalCustomer((current) => !current)} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
@@ -1327,16 +1333,16 @@ export default function TicketingSellerNewBookingPage() {
 
             {showOptionalCustomer && (
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <Input label="Email" type="email" value={form.customerEmail} onChange={(value) => updateForm("customerEmail", value)} placeholder="customer@email.com" />
-                {seller?.can_apply_discounts && <Input label="Discount" type="number" value={form.discountAmount} onChange={(value) => updateForm("discountAmount", value)} />}
-                <div className="md:col-span-2"><Textarea label="Notes" value={form.customerNotes} onChange={(value) => updateForm("customerNotes", value)} placeholder="Room number, allergies, special requests..." /></div>
+                <Input label={t("sellerNewBooking.fields.email")} type="email" value={form.customerEmail} onChange={(value) => updateForm("customerEmail", value)} placeholder="customer@email.com" />
+                {seller?.can_apply_discounts && <Input label={t("sellerNewBooking.fields.discount")} type="number" value={form.discountAmount} onChange={(value) => updateForm("discountAmount", value)} />}
+                <div className="md:col-span-2"><Textarea label={t("sellerNewBooking.fields.notes")} value={form.customerNotes} onChange={(value) => updateForm("customerNotes", value)} placeholder={t("sellerNewBooking.placeholders.notes")} /></div>
               </div>
             )}
           </Panel>
 
-          <Panel eyebrow="Step 5" title="Payment" icon={<CreditCard className="h-5 w-5" />}>
+          <Panel eyebrow={t("sellerNewBooking.steps.step5")} title={t("sellerNewBooking.steps.payment")} icon={<CreditCard className="h-5 w-5" />}>
             {allowedPaymentActions.length === 0 ? (
-              <AlertBox tone="amber" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>No payment actions are enabled for your seller account.</AlertBox>
+              <AlertBox tone="amber" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{t("sellerNewBooking.payment.noneEnabled")}</AlertBox>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {allowedPaymentActions.map((action) => (
@@ -1364,8 +1370,8 @@ export default function TicketingSellerNewBookingPage() {
                 </button>
                 {showPaymentDetails && (
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <Input label="Payment reference" value={form.paymentReference} onChange={(value) => updateForm("paymentReference", value)} placeholder="Receipt, transfer or note" />
-                    <Input label="Payment note" value={form.paymentNote} onChange={(value) => updateForm("paymentNote", value)} placeholder="Optional payment note" />
+                    <Input label={t("sellerNewBooking.fields.paymentReference")} value={form.paymentReference} onChange={(value) => updateForm("paymentReference", value)} placeholder={t("sellerNewBooking.placeholders.paymentReference")} />
+                    <Input label={t("sellerNewBooking.fields.paymentNote")} value={form.paymentNote} onChange={(value) => updateForm("paymentNote", value)} placeholder={t("sellerNewBooking.placeholders.paymentNote")} />
                   </div>
                 )}
               </>
@@ -1373,7 +1379,7 @@ export default function TicketingSellerNewBookingPage() {
 
             {seller?.can_send_receipt_before_full_payment && (
               <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <span><span className="block text-sm font-black text-slate-800">Send receipt before full payment</span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">Use only when allowed for this seller.</span></span>
+                <span><span className="block text-sm font-black text-slate-800">{t("sellerNewBooking.payment.sendReceiptBeforeFull")}</span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">{t("sellerNewBooking.payment.receiptHelper")}</span></span>
                 <input type="checkbox" checked={form.receiptSentBeforeFullPayment} onChange={(event) => updateForm("receiptSentBeforeFullPayment", event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-amber-500" />
               </label>
             )}
@@ -1385,41 +1391,41 @@ export default function TicketingSellerNewBookingPage() {
             <div className="flex items-start gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white"><ReceiptText className="h-6 w-6" /></div>
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Booking summary</p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">{selectedProduct?.name || "Choose tour"}</h2>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">{t("sellerNewBooking.summary.title")}</p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">{selectedProduct?.name || t("sellerNewBooking.summary.chooseTour")}</h2>
               </div>
             </div>
 
             <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4">
-              <SummaryLine label="Date" value={form.serviceDate || "—"} />
+              <SummaryLine label={t("sellerNewBooking.summary.date")} value={form.serviceDate || "—"} />
               {isLiveCocoBongoProduct && (
                 <SummaryLine
-                  label="Ticket option"
+                  label={t("sellerNewBooking.summary.ticketOption")}
                   value={
                     selectedLiveOption
                       ? getLiveOptionLabel(selectedLiveOption)
-                      : "Select availability"
+                      : t("sellerNewBooking.summary.selectAvailability")
                   }
                 />
               )}
               <SummaryLine
-                label="Guests"
+                label={t("sellerNewBooking.summary.guests")}
                 value={
                   isLiveCocoBongoProduct
-                    ? `${getTotalGuests(form)} ticket${getTotalGuests(form) === 1 ? "" : "s"}`
-                    : `${getTotalGuests(form)} total · ${getChargeableGuests(form)} charged`
+                    ? `${getTotalGuests(form)} ${getTotalGuests(form) === 1 ? t("sellerNewBooking.summary.ticket") : t("sellerNewBooking.summary.tickets")}`
+                    : `${getTotalGuests(form)} ${t("sellerNewBooking.summary.totalGuests")} · ${getChargeableGuests(form)} ${t("sellerNewBooking.summary.charged")}`
                 }
               />
-              <SummaryLine label="Hotel" value={selectedPickupLocation?.name || "—"} />
-              <SummaryLine label="Pickup" value={pickupTime ? `${formatTime(pickupTime)} · ${pickupPoint}` : "—"} />
+              <SummaryLine label={t("sellerNewBooking.summary.hotel")} value={selectedPickupLocation?.name || "—"} />
+              <SummaryLine label={t("sellerNewBooking.summary.pickup")} value={pickupTime ? `${formatTime(pickupTime)} · ${pickupPoint}` : "—"} />
             </div>
 
             <div className="mt-5 space-y-3">
-              <SummaryLine label="Subtotal" value={formatMoney(subtotal)} />
-              {seller?.can_apply_discounts && discountAmount > 0 && <SummaryLine label="Discount" value={`-${formatMoney(discountAmount)}`} />}
-              <BigMoney label="Total" value={formatMoney(totalAmount)} />
-              <BigMoney label="Today" value={paymentPayload ? formatMoney(paymentPayload.amount) : "No payment"} />
-              <BigMoney label="Balance" value={formatMoney(balanceDue)} muted />
+              <SummaryLine label={t("sellerNewBooking.summary.subtotal")} value={formatMoney(subtotal)} />
+              {seller?.can_apply_discounts && discountAmount > 0 && <SummaryLine label={t("sellerNewBooking.fields.discount")} value={`-${formatMoney(discountAmount)}`} />}
+              <BigMoney label={t("sellerNewBooking.summary.total")} value={formatMoney(totalAmount)} />
+              <BigMoney label={t("sellerNewBooking.summary.today")} value={paymentPayload ? formatMoney(paymentPayload.amount) : t("sellerNewBooking.summary.noPayment")} />
+              <BigMoney label={t("sellerNewBooking.summary.balance")} value={formatMoney(balanceDue)} muted />
             </div>
 
             <button

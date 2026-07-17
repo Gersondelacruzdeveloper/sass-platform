@@ -6,6 +6,7 @@ import { useParams } from "react-router-dom";
 
 import ticketingApi from "../../api/ticketingApi";
 import type { Booking } from "../../types/ticketingTypes";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 
 type SellerCustomerRow = {
   id: string;
@@ -28,19 +29,22 @@ function numberValue(value: string | number | null | undefined) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-function normalizeCustomerKey(booking: Booking) {
+function normalizeCustomerKey(booking: Booking, guestLabel: string) {
   const email = String(booking.customer_email || "").trim().toLowerCase();
   const whatsapp = String(booking.customer_whatsapp || "").trim().toLowerCase();
-  const name = String(booking.customer_name || "Guest").trim().toLowerCase();
+  const name = String(booking.customer_name || guestLabel).trim().toLowerCase();
 
   return email || whatsapp || name || `booking-${booking.id}`;
 }
 
-function buildSellerCustomers(bookings: Booking[]): SellerCustomerRow[] {
+function buildSellerCustomers(
+  bookings: Booking[],
+  guestLabel: string
+): SellerCustomerRow[] {
   const map = new Map<string, SellerCustomerRow>();
 
   bookings.forEach((booking) => {
-    const key = normalizeCustomerKey(booking);
+    const key = normalizeCustomerKey(booking, guestLabel);
     const existing = map.get(key);
     const totalAmount = numberValue(
       (booking as any).total_amount ||
@@ -51,7 +55,7 @@ function buildSellerCustomers(bookings: Booking[]): SellerCustomerRow[] {
     if (!existing) {
       map.set(key, {
         id: key,
-        full_name: booking.customer_name || "Guest",
+        full_name: booking.customer_name || guestLabel,
         email: booking.customer_email || "",
         phone: (booking as any).customer_phone || "",
         whatsapp: booking.customer_whatsapp || "",
@@ -65,10 +69,21 @@ function buildSellerCustomers(bookings: Booking[]): SellerCustomerRow[] {
     existing.total_bookings += 1;
     existing.total_spent += totalAmount;
 
-    if (!existing.email && booking.customer_email) existing.email = booking.customer_email;
-    if (!existing.whatsapp && booking.customer_whatsapp) existing.whatsapp = booking.customer_whatsapp;
-    if (!existing.phone && (booking as any).customer_phone) existing.phone = (booking as any).customer_phone;
-    if (!existing.hotel_name && booking.customer_hotel) existing.hotel_name = booking.customer_hotel;
+    if (!existing.email && booking.customer_email) {
+      existing.email = booking.customer_email;
+    }
+
+    if (!existing.whatsapp && booking.customer_whatsapp) {
+      existing.whatsapp = booking.customer_whatsapp;
+    }
+
+    if (!existing.phone && (booking as any).customer_phone) {
+      existing.phone = (booking as any).customer_phone;
+    }
+
+    if (!existing.hotel_name && booking.customer_hotel) {
+      existing.hotel_name = booking.customer_hotel;
+    }
   });
 
   return Array.from(map.values()).sort((a, b) =>
@@ -77,6 +92,7 @@ function buildSellerCustomers(bookings: Booking[]): SellerCustomerRow[] {
 }
 
 export default function TicketingSellerCustomersPage() {
+  const { t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +104,7 @@ export default function TicketingSellerCustomersPage() {
   useEffect(() => {
     async function loadCustomers() {
       if (!slug) {
-        setErrorMessage("Organisation slug is missing.");
+        setErrorMessage(t("sellerCustomers.errors.missingOrganisation"));
         setLoading(false);
         return;
       }
@@ -101,16 +117,19 @@ export default function TicketingSellerCustomersPage() {
         setBookings(data);
       } catch (error) {
         console.error(error);
-        setErrorMessage("Could not load seller customers.");
+        setErrorMessage(t("sellerCustomers.errors.load"));
       } finally {
         setLoading(false);
       }
     }
 
     loadCustomers();
-  }, [slug]);
+  }, [slug, t]);
 
-  const customers = useMemo(() => buildSellerCustomers(bookings), [bookings]);
+  const customers = useMemo(
+    () => buildSellerCustomers(bookings, t("sellerCustomers.labels.guest")),
+    [bookings, t]
+  );
 
   const filteredCustomers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -136,13 +155,13 @@ export default function TicketingSellerCustomersPage() {
       <div className="flex flex-col justify-between gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-            Seller Customers
+            {t("sellerCustomers.header.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Your customers
+            {t("sellerCustomers.header.title")}
           </h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">
-            Built only from your seller bookings. No owner customer list is used.
+            {t("sellerCustomers.header.description")}
           </p>
         </div>
 
@@ -151,7 +170,7 @@ export default function TicketingSellerCustomersPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search customers..."
+            placeholder={t("sellerCustomers.search.placeholder")}
             className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold outline-none transition focus:border-slate-400"
           />
         </div>
@@ -159,7 +178,7 @@ export default function TicketingSellerCustomersPage() {
 
       {loading && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          Loading customers...
+          {t("sellerCustomers.loading")}
         </div>
       )}
 
@@ -171,7 +190,7 @@ export default function TicketingSellerCustomersPage() {
 
       {!loading && !errorMessage && filteredCustomers.length === 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center font-bold text-slate-500">
-          No seller customers found.
+          {t("sellerCustomers.empty")}
         </div>
       )}
 
@@ -182,19 +201,19 @@ export default function TicketingSellerCustomersPage() {
               <thead className="bg-slate-50">
                 <tr>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Customer
+                    {t("sellerCustomers.table.customer")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Contact
+                    {t("sellerCustomers.table.contact")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Hotel
+                    {t("sellerCustomers.table.hotel")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Bookings
+                    {t("sellerCustomers.table.bookings")}
                   </th>
                   <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">
-                    Total Spent
+                    {t("sellerCustomers.table.totalSpent")}
                   </th>
                 </tr>
               </thead>

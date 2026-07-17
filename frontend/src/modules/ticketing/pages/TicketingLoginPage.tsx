@@ -20,6 +20,7 @@ import {
 import api from "../../../api/axios";
 import { useAppDispatch } from "../../../store/hooks";
 import { loginUser } from "../../../features/auth/authSlice";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type Branding = {
   company_name?: string;
@@ -115,6 +116,7 @@ async function userHasSellerPortalAccess(slug: string, user: any) {
 }
 
 export default function TicketingLoginPage() {
+  const { t } = useTicketingAdminTranslation();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
@@ -169,12 +171,12 @@ export default function TicketingLoginPage() {
     setErrorMessage("");
 
     if (!form.email.trim()) {
-      setErrorMessage("Please enter your email.");
+      setErrorMessage(t("login.errors.emailRequired"));
       return;
     }
 
     if (!form.password) {
-      setErrorMessage("Please enter your password.");
+      setErrorMessage(t("login.errors.passwordRequired"));
       return;
     }
 
@@ -232,17 +234,11 @@ export default function TicketingLoginPage() {
       if (rejectedMessage) {
         setErrorMessage(rejectedMessage);
       } else if (statusCode === 400 || statusCode === 401) {
-        setErrorMessage(
-          "Incorrect email or password. Please check your credentials and try again."
-        );
+        setErrorMessage(t("login.errors.invalidCredentials"));
       } else if (!statusCode) {
-        setErrorMessage(
-          "We could not connect to the server. Please check your connection and try again."
-        );
+        setErrorMessage(t("login.errors.connection"));
       } else {
-        setErrorMessage(
-          "Unable to sign you in at the moment. Please try again."
-        );
+        setErrorMessage(t("login.errors.generic"));
       }
     } finally {
       setSubmitting(false);
@@ -267,26 +263,25 @@ export default function TicketingLoginPage() {
     branding?.company_name || branding?.platform_name || "PCD Experiences";
 
   const subtitle =
-    branding?.login_subtitle ||
-    "Sign in to manage tours, tickets, transfers, sellers, bookings, payments, commissions, pickup schedules, and public website settings.";
+    branding?.login_subtitle || t("login.branding.defaultSubtitle");
 
   const logo = resolveImageUrl(branding?.logo_url || branding?.logo);
 
   const workspaceCards = [
     {
       icon: Ticket,
-      label: "Bookings",
-      text: "Reservations and receipts",
+      label: t("login.workspace.bookings"),
+      text: t("login.workspace.bookingsDescription"),
     },
     {
       icon: BadgeCheck,
-      label: "Sellers",
-      text: "Permissions and commissions",
+      label: t("login.workspace.sellers"),
+      text: t("login.workspace.sellersDescription"),
     },
     {
       icon: MapPinned,
-      label: "Pickup",
-      text: "Automatic schedules",
+      label: t("login.workspace.pickup"),
+      text: t("login.workspace.pickupDescription"),
     },
   ];
 
@@ -326,7 +321,7 @@ export default function TicketingLoginPage() {
 
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.25em] text-white/50">
-                    Welcome to
+                    {t("login.hero.welcomeTo")}
                   </p>
 
                   <h2 className="text-2xl font-black text-white">
@@ -336,7 +331,7 @@ export default function TicketingLoginPage() {
               </div>
 
               <h1 className="mt-10 max-w-xl text-5xl font-black leading-tight xl:text-6xl">
-                {loadingBranding ? "Loading workspace..." : title}
+                {loadingBranding ? t("login.loading.workspace") : title}
               </h1>
 
               <p className="mt-5 max-w-lg text-lg font-medium leading-8 text-white/75">
@@ -368,7 +363,7 @@ export default function TicketingLoginPage() {
                 <Sparkles className="h-5 w-5 text-white/80" />
 
                 <p className="text-sm font-semibold text-white/70">
-                  Branded ticketing workspace for {companyName}.
+                  {t("login.hero.brandedWorkspace").replace("{company}", companyName)}
                 </p>
               </div>
             </div>
@@ -397,22 +392,22 @@ export default function TicketingLoginPage() {
                     className="text-xs font-black uppercase tracking-wide"
                     style={{ color: colors.accent }}
                   >
-                    Ticketing Login
+                    {t("login.card.eyebrow")}
                   </p>
 
                   <h1 className="truncate text-2xl font-black text-slate-950">
-                    {loadingBranding ? "Loading..." : companyName}
+                    {loadingBranding ? t("login.loading.short") : companyName}
                   </h1>
                 </div>
               </div>
 
               <div className="mt-6">
                 <h2 className="text-3xl font-black tracking-tight text-slate-950">
-                  Sign in
+                  {t("login.card.signInTitle")}
                 </h2>
 
                 <p className="mt-2 text-sm font-medium leading-6 text-slate-500">
-                  Access your dashboard for {companyName}.
+                  {t("login.card.accessDashboard").replace("{company}", companyName)}
                 </p>
               </div>
 
@@ -425,7 +420,7 @@ export default function TicketingLoginPage() {
                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
 
                   <div>
-                    <p className="font-black">Sign-in unsuccessful</p>
+                    <p className="font-black">{t("login.errors.unsuccessfulTitle")}</p>
                     <p className="mt-1 font-semibold">{errorMessage}</p>
                   </div>
                 </div>
@@ -434,7 +429,7 @@ export default function TicketingLoginPage() {
               <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Email address
+                    {t("login.fields.email")}
                   </span>
 
                   <div className="relative mt-2">
@@ -461,7 +456,7 @@ export default function TicketingLoginPage() {
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Password
+                    {t("login.fields.password")}
                   </span>
 
                   <div className="relative mt-2">
@@ -489,7 +484,7 @@ export default function TicketingLoginPage() {
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
                       aria-label={
-                        showPassword ? "Hide password" : "Show password"
+                        showPassword ? t("login.actions.hidePassword") : t("login.actions.showPassword")
                       }
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
                     >
@@ -513,11 +508,11 @@ export default function TicketingLoginPage() {
                   {submitting ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Signing in...
+                      {t("login.actions.signingIn")}
                     </>
                   ) : (
                     <>
-                      Sign in
+                      {t("login.card.signInTitle")}
                       <ArrowRight className="h-5 w-5" />
                     </>
                   )}
@@ -532,25 +527,25 @@ export default function TicketingLoginPage() {
                 }}
               >
                 <p className="text-xs font-bold leading-5 text-slate-500">
-                  Organisation:
+                  {t("login.meta.organisation")}:
                   <span className="ml-1 text-slate-800">
                     {organisationSlug || "default"}
                   </span>
                 </p>
 
                 <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                  Platform:
+                  {t("login.meta.platform")}:
                   <span className="ml-1 text-slate-800">{companyName}</span>
                 </p>
               </div>
 
               <p className="mt-5 text-center text-xs font-semibold text-slate-500">
-                New to PCD Experiences?{" "}
+                {t("login.signup.prompt")}{" "}
                 <Link
                   to="/ticketing/signup"
                   className="font-black text-slate-950 hover:underline"
                 >
-                  Create an organisation
+                  {t("login.signup.createOrganisation")}
                 </Link>
               </p>
             </div>

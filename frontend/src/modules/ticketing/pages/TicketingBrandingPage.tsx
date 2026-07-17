@@ -21,6 +21,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type TicketingPublicSiteSettings = {
   id?: number;
@@ -198,6 +199,7 @@ function filePreview(file: File | null, existingUrl?: string | null) {
 }
 
 export default function TicketingBrandingPage() {
+  const { t } = useTicketingAdminTranslation();
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -311,7 +313,7 @@ export default function TicketingBrandingPage() {
       });
     } catch (err: any) {
       console.error("Could not load ticketing branding:", err);
-      setError(getErrorMessage(err, "No se pudo cargar el branding público."));
+      setError(getErrorMessage(err, t("branding.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -407,10 +409,10 @@ export default function TicketingBrandingPage() {
       setHeroImageFile(null);
       setOgImageFile(null);
 
-      setSavedMessage("Branding saved successfully.");
+      setSavedMessage(t("branding.messages.saved"));
     } catch (err: any) {
       console.error("Could not save ticketing branding:", err);
-      setError(getErrorMessage(err, "Could not save branding."));
+      setError(getErrorMessage(err, t("branding.errors.save")));
     } finally {
       setSaving(false);
     }
@@ -421,20 +423,20 @@ export default function TicketingBrandingPage() {
 
     try {
       await navigator.clipboard.writeText(absoluteUrl);
-      setSavedMessage("Public URL copied.");
+      setSavedMessage(t("branding.messages.urlCopied"));
     } catch {
-      setError("Could not copy public URL.");
+      setError(t("branding.errors.copyUrl"));
     }
   }
 
   if (loading) {
     return (
       <TicketingPageShell
-        title="Branding"
-        subtitle="Configure public website logo, colors, hero image and contact details."
+        title={t("branding.page.title")}
+        subtitle={t("branding.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading branding...
+          {t("branding.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -442,22 +444,21 @@ export default function TicketingBrandingPage() {
 
   return (
     <TicketingPageShell
-      title="Branding"
-      subtitle="Configure public website logo, colors, hero image and contact details."
+      title={t("branding.page.title")}
+      subtitle={t("branding.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-                Public website branding
+                {t("branding.header.eyebrow")}
               </p>
               <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-                {publicSite.display_title || publicSite.site_title || "PCD Experiences"}
+                {publicSite.display_title || publicSite.site_title || t("branding.defaults.siteTitle")}
               </h1>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                This controls the public marketplace website: logo, hero image,
-                colors, contact details, social sharing image and published state.
+                {t("branding.header.description")}
               </p>
             </div>
 
@@ -468,7 +469,7 @@ export default function TicketingBrandingPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <ExternalLink className="h-4 w-4" />
-                View site
+                {t("branding.actions.viewSite")}
               </Link>
 
               <button
@@ -477,7 +478,7 @@ export default function TicketingBrandingPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
               >
                 <Copy className="h-4 w-4" />
-                Copy URL
+                {t("branding.actions.copyUrl")}
               </button>
 
               <button
@@ -491,7 +492,7 @@ export default function TicketingBrandingPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save branding
+                {t("branding.actions.save")}
               </button>
             </div>
           </div>
@@ -513,67 +514,67 @@ export default function TicketingBrandingPage() {
 
         <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
           <Panel
-            title="Website identity"
-            description="Name, description, email, WhatsApp and published status."
+            title={t("branding.identity.title")}
+            description={t("branding.identity.description")}
             icon={<Globe2 className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <Input
-                label="Website title"
+                label={t("branding.fields.websiteTitle")}
                 value={publicSite.site_title}
                 onChange={(value) => updateField("site_title", value)}
-                placeholder="PCD Experiences"
+                placeholder={t("branding.placeholders.siteTitle")}
               />
 
               <Input
-                label="WhatsApp"
+                label={t("branding.fields.whatsapp")}
                 value={publicSite.public_whatsapp || ""}
                 onChange={(value) => updateField("public_whatsapp", value)}
-                placeholder="+1 809 000 0000"
+                placeholder={t("branding.placeholders.whatsapp")}
                 icon={<MessageCircle className="h-4 w-4" />}
               />
 
               <Input
-                label="Public email"
+                label={t("branding.fields.publicEmail")}
                 type="email"
                 value={publicSite.public_email || ""}
                 onChange={(value) => updateField("public_email", value)}
-                placeholder="reservations@example.com"
+                placeholder={t("branding.placeholders.publicEmail")}
                 icon={<Mail className="h-4 w-4" />}
               />
 
               <Input
-                label="Subdomain"
+                label={t("branding.fields.subdomain")}
                 value={publicSite.subdomain || ""}
                 onChange={(value) => updateField("subdomain", value)}
-                placeholder="experiences"
+                placeholder={t("branding.placeholders.subdomain")}
               />
 
               <Input
-                label="Custom domain"
+                label={t("branding.fields.customDomain")}
                 value={publicSite.custom_domain || ""}
                 onChange={(value) => updateField("custom_domain", value)}
-                placeholder="experiences.example.com"
+                placeholder={t("branding.placeholders.customDomain")}
               />
 
               <Toggle
-                label="Publish public site"
+                label={t("branding.fields.publishSite")}
                 checked={publicSite.is_published}
                 onChange={(value) => updateField("is_published", value)}
               />
             </div>
 
             <Textarea
-              label="Public description"
+              label={t("branding.fields.publicDescription")}
               value={publicSite.public_description}
               onChange={(value) => updateField("public_description", value)}
-              placeholder="Book tours, tickets, transfers and experiences in Punta Cana."
+              placeholder={t("branding.placeholders.publicDescription")}
             />
           </Panel>
 
           <Panel
-            title="Preview"
-            description="Quick preview of your public website colors and images."
+            title={t("branding.preview.title")}
+            description={t("branding.preview.description")}
             icon={<Eye className="h-5 w-5" />}
           >
             <div
@@ -592,12 +593,12 @@ export default function TicketingBrandingPage() {
                 {heroPreview ? (
                   <img
                     src={heroPreview}
-                    alt="Hero preview"
+                    alt={t("branding.preview.heroAlt")}
                     className="h-full w-full object-cover"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm font-black text-white/80">
-                    Hero image preview
+                    {t("branding.preview.heroPlaceholder")}
                   </div>
                 )}
 
@@ -611,7 +612,7 @@ export default function TicketingBrandingPage() {
                       {logoPreview ? (
                         <img
                           src={logoPreview}
-                          alt="Logo preview"
+                          alt={t("branding.preview.logoAlt")}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -621,10 +622,10 @@ export default function TicketingBrandingPage() {
 
                     <div>
                       <p className="text-lg font-black text-white">
-                        {publicSite.site_title || "PCD Experiences"}
+                        {publicSite.site_title || t("branding.defaults.siteTitle")}
                       </p>
                       <p className="text-xs font-bold text-white/80">
-                        Tours, Tickets & Transfers
+                        {t("branding.preview.tagline")}
                       </p>
                     </div>
                   </div>
@@ -634,7 +635,7 @@ export default function TicketingBrandingPage() {
                     className="mt-4 rounded-2xl px-4 py-2 text-sm font-black text-white"
                     style={{ backgroundColor: publicSite.button_color }}
                   >
-                    Book now
+                    {t("branding.preview.bookNow")}
                   </button>
                 </div>
               </div>
@@ -644,8 +645,7 @@ export default function TicketingBrandingPage() {
                   className="text-sm font-bold leading-6"
                   style={{ color: publicSite.primary_color }}
                 >
-                  {publicSite.public_description ||
-                    "Your public website description will appear here."}
+                  {publicSite.public_description || t("branding.preview.descriptionFallback")}
                 </p>
 
                 <div className="mt-3 flex gap-2">
@@ -656,13 +656,13 @@ export default function TicketingBrandingPage() {
                       color: publicSite.primary_color,
                     }}
                   >
-                    Featured
+                    {t("branding.preview.featured")}
                   </span>
                   <span
                     className="rounded-full px-3 py-1 text-xs font-black text-white"
                     style={{ backgroundColor: publicSite.primary_color }}
                   >
-                    Secure booking
+                    {t("branding.preview.secureBooking")}
                   </span>
                 </div>
               </div>
@@ -672,30 +672,30 @@ export default function TicketingBrandingPage() {
 
         <section className="grid gap-5 xl:grid-cols-2">
           <Panel
-            title="Images"
-            description="Upload public logo, favicon, hero image and social sharing image."
+            title={t("branding.images.title")}
+            description={t("branding.images.description")}
             icon={<ImageIcon className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <FileInput
-                label="Logo"
-                helper="Used in the public header."
+                label={t("branding.images.logo")}
+                helper={t("branding.images.logoHelper")}
                 file={logoFile}
                 existingUrl={publicSite.logo_url || publicSite.logo}
                 onChange={setLogoFile}
               />
 
               <FileInput
-                label="Favicon"
-                helper="Browser icon. SVG/PNG/ICO recommended."
+                label={t("branding.images.favicon")}
+                helper={t("branding.images.faviconHelper")}
                 file={faviconFile}
                 existingUrl={publicSite.favicon_url || publicSite.favicon}
                 onChange={setFaviconFile}
               />
 
               <FileInput
-                label="Hero image"
-                helper="Main public website hero image."
+                label={t("branding.images.hero")}
+                helper={t("branding.images.heroHelper")}
                 file={heroImageFile}
                 existingUrl={publicSite.hero_image_url || publicSite.hero_image}
                 onChange={setHeroImageFile}
@@ -703,8 +703,8 @@ export default function TicketingBrandingPage() {
               />
 
               <FileInput
-                label="OG / social image"
-                helper="Used when sharing on social media."
+                label={t("branding.images.og")}
+                helper={t("branding.images.ogHelper")}
                 file={ogImageFile}
                 existingUrl={publicSite.og_image_url || publicSite.og_image}
                 onChange={setOgImageFile}
@@ -714,37 +714,37 @@ export default function TicketingBrandingPage() {
           </Panel>
 
           <Panel
-            title="Colors"
-            description="Customize the public booking website visual style."
+            title={t("branding.colors.title")}
+            description={t("branding.colors.description")}
             icon={<Palette className="h-5 w-5" />}
           >
             <div className="grid gap-4 md:grid-cols-2">
               <ColorInput
-                label="Primary color"
+                label={t("branding.colors.primary")}
                 value={publicSite.primary_color}
                 onChange={(value) => updateField("primary_color", value)}
               />
 
               <ColorInput
-                label="Secondary color"
+                label={t("branding.colors.secondary")}
                 value={publicSite.secondary_color}
                 onChange={(value) => updateField("secondary_color", value)}
               />
 
               <ColorInput
-                label="Accent color"
+                label={t("branding.colors.accent")}
                 value={publicSite.accent_color}
                 onChange={(value) => updateField("accent_color", value)}
               />
 
               <ColorInput
-                label="Background color"
+                label={t("branding.colors.background")}
                 value={publicSite.background_color}
                 onChange={(value) => updateField("background_color", value)}
               />
 
               <ColorInput
-                label="Button color"
+                label={t("branding.colors.button")}
                 value={publicSite.button_color}
                 onChange={(value) => updateField("button_color", value)}
               />
@@ -753,65 +753,65 @@ export default function TicketingBrandingPage() {
         </section>
 
         <Panel
-          title="SEO & sharing"
-          description="Basic SEO and social preview settings for the public website."
+          title={t("branding.seo.title")}
+          description={t("branding.seo.description")}
           icon={<Globe2 className="h-5 w-5" />}
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Input
-              label="SEO title"
+              label={t("branding.seo.seoTitle")}
               value={publicSite.seo_title || ""}
               onChange={(value) => updateField("seo_title", value)}
-              placeholder="Book Punta Cana tours and transfers"
+              placeholder={t("branding.placeholders.seoTitle")}
             />
 
             <Input
-              label="Canonical URL"
+              label={t("branding.seo.canonicalUrl")}
               value={publicSite.canonical_url || ""}
               onChange={(value) => updateField("canonical_url", value)}
-              placeholder="https://example.com"
+              placeholder={t("branding.placeholders.canonicalUrl")}
             />
 
             <Input
-              label="OG title"
+              label={t("branding.seo.ogTitle")}
               value={publicSite.og_title || ""}
               onChange={(value) => updateField("og_title", value)}
-              placeholder="PCD Experiences"
+              placeholder={t("branding.placeholders.siteTitle")}
             />
 
             <Textarea
-              label="Meta description"
+              label={t("branding.seo.metaDescription")}
               value={publicSite.meta_description || ""}
               onChange={(value) => updateField("meta_description", value)}
-              placeholder="Short search description..."
+              placeholder={t("branding.placeholders.metaDescription")}
             />
 
             <Textarea
-              label="OG description"
+              label={t("branding.seo.ogDescription")}
               value={publicSite.og_description || ""}
               onChange={(value) => updateField("og_description", value)}
-              placeholder="Short social sharing description..."
+              placeholder={t("branding.placeholders.ogDescription")}
             />
           </div>
 
           <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Toggle
-              label="Allow indexing"
+              label={t("branding.seo.allowIndexing")}
               checked={Boolean(publicSite.robots_allow_indexing)}
               onChange={(value) => updateField("robots_allow_indexing", value)}
             />
             <Toggle
-              label="Allow AI crawlers"
+              label={t("branding.seo.allowAiCrawlers")}
               checked={Boolean(publicSite.robots_allow_ai_crawlers)}
               onChange={(value) => updateField("robots_allow_ai_crawlers", value)}
             />
             <Toggle
-              label="Allow GPTBot"
+              label={t("branding.seo.allowGptbot")}
               checked={Boolean(publicSite.allow_gptbot)}
               onChange={(value) => updateField("allow_gptbot", value)}
             />
             <Toggle
-              label="Allow OAI SearchBot"
+              label={t("branding.seo.allowOaiSearchbot")}
               checked={Boolean(publicSite.allow_oai_searchbot)}
               onChange={(value) => updateField("allow_oai_searchbot", value)}
             />
@@ -830,7 +830,7 @@ export default function TicketingBrandingPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save branding
+            {t("branding.actions.save")}
           </button>
         </div>
       </div>
@@ -998,6 +998,7 @@ function FileInput({
   onChange: (file: File | null) => void;
   wide?: boolean;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const preview = filePreview(file, existingUrl);
 
   return (
@@ -1014,7 +1015,7 @@ function FileInput({
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm font-bold text-slate-400">
-              No image selected
+              {t("branding.images.noImageSelected")}
             </div>
           )}
         </div>
@@ -1022,7 +1023,7 @@ function FileInput({
         <div className="border-t border-slate-200 p-4">
           <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
             <Upload className="h-4 w-4" />
-            Upload
+            {t("branding.actions.upload")}
             <input
               type="file"
               accept="image/*,.ico,.svg"
@@ -1037,7 +1038,7 @@ function FileInput({
               onClick={() => onChange(null)}
               className="ml-2 h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
-              Clear
+              {t("branding.actions.clear")}
             </button>
           )}
 

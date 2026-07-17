@@ -28,6 +28,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type ProductStatus = "draft" | "active" | "inactive" | "archived" | string;
 
@@ -224,21 +225,16 @@ const blankBandForm: BandFormState = {
   sort_order: "0",
 };
 
-const statusOptions = [
-  { value: "draft", label: "Draft" },
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "archived", label: "Archived" },
-];
+const statusOptionValues = ["draft", "active", "inactive", "archived"];
 
-const vehicleOptions = [
-  { value: "standard_car", label: "Standard Car" },
-  { value: "suv", label: "SUV" },
-  { value: "van", label: "Van" },
-  { value: "minibus", label: "Minibus" },
-  { value: "bus", label: "Bus" },
-  { value: "luxury", label: "Luxury" },
-  { value: "other", label: "Other" },
+const vehicleOptionValues = [
+  "standard_car",
+  "suv",
+  "van",
+  "minibus",
+  "bus",
+  "luxury",
+  "other",
 ];
 
 function getRequestParams(organisationSlug?: string) {
@@ -288,15 +284,20 @@ function formatMoney(value?: string | number | null, symbol = "US$") {
   })}`;
 }
 
-function formatVehicle(value?: string | null) {
+function formatVehicle(value: string | null | undefined, t: (key: string) => string) {
   if (!value) return "—";
 
-  const option = vehicleOptions.find((item) => item.value === value);
-  if (option) return option.label;
+  const keys: Record<string, string> = {
+    standard_car: "transfers.vehicles.standardCar",
+    suv: "transfers.vehicles.suv",
+    van: "transfers.vehicles.van",
+    minibus: "transfers.vehicles.minibus",
+    bus: "transfers.vehicles.bus",
+    luxury: "transfers.vehicles.luxury",
+    other: "transfers.vehicles.other",
+  };
 
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return keys[value] ? t(keys[value]) : String(value).replaceAll("_", " ");
 }
 
 function slugify(value: string) {
@@ -309,12 +310,16 @@ function slugify(value: string) {
     .slice(0, 70);
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(value: string | null | undefined, t: (key: string) => string) {
+  const keys: Record<string, string> = {
+    draft: "transfers.status.draft",
+    active: "transfers.status.active",
+    inactive: "transfers.status.inactive",
+    archived: "transfers.status.archived",
+  };
 
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  if (!value) return t("transfers.status.unknown");
+  return keys[value] ? t(keys[value]) : String(value).replaceAll("_", " ");
 }
 
 function getStatusClasses(product: ExperienceProduct) {
@@ -475,26 +480,32 @@ function getProductPublicUrl(organisationSlug: string, product: ExperienceProduc
   return `${window.location.origin}/experiences/${organisationSlug}/product/${product.slug}`;
 }
 
-function routeLabel(route?: TransferRoute | null) {
-  if (!route) return "Route not configured";
-  return `${route.origin || "Origin"} → ${route.destination || "Destination"}`;
+function routeLabel(route: TransferRoute | null | undefined, t: (key: string) => string) {
+  if (!route) return t("transfers.labels.routeNotConfigured");
+  return `${route.origin || t("transfers.labels.origin")} → ${route.destination || t("transfers.labels.destination")}`;
 }
 
-function bandLabel(band: TransferPriceBand) {
-  return `${band.min_passengers}-${band.max_passengers} passengers`;
+function bandLabel(band: TransferPriceBand, t: (key: string) => string) {
+  return `${band.min_passengers}-${band.max_passengers} ${t("transfers.labels.passengers")}`;
 }
 
 function getProductRoutes(product: ExperienceProduct, routes: TransferRoute[]) {
   return routes.filter((route) => route.product === product.id);
 }
 
-function getPrimaryRouteLabel(product: ExperienceProduct, routes: TransferRoute[]) {
+function getPrimaryRouteLabel(product: ExperienceProduct, routes: TransferRoute[], t: (key: string) => string) {
   const route = getProductRoutes(product, routes)[0] || product.transfer_routes?.[0];
-  if (route) return routeLabel(route);
-  return product.location || product.location_name || "Route not configured";
+  if (route) return routeLabel(route, t);
+  return product.location || product.location_name || t("transfers.labels.routeNotConfigured");
 }
 
 export default function TicketingTransfersPage() {
+  const { t } = useTicketingAdminTranslation();
+  const statusOptions = statusOptionValues.map((value) => ({
+    value,
+    label: t(`transfers.status.${value}`),
+  }));
+
   const params = useParams();
   const organisationSlug = params.organisationSlug || params.slug || "";
 
@@ -569,7 +580,7 @@ export default function TicketingTransfersPage() {
       }
     } catch (err: any) {
       console.error("Could not load transfers:", err);
-      setError(getErrorMessage(err, "Could not load transfers."));
+      setError(getErrorMessage(err, t("transfers.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -614,7 +625,7 @@ export default function TicketingTransfersPage() {
         product.address,
         product.category_detail?.name,
         product.short_description,
-        ...productRoutes.map(routeLabel),
+        ...productRoutes.map((route) => routeLabel(route, t)),
       ]
         .join(" ")
         .toLowerCase();
@@ -726,7 +737,7 @@ export default function TicketingTransfersPage() {
 
   async function saveTransfer() {
     if (!transferForm.name.trim()) {
-      setError("Transfer name is required.");
+      setError(t("transfers.errors.nameRequired"));
       return;
     }
 
@@ -759,10 +770,10 @@ export default function TicketingTransfersPage() {
 
       setShowTransferForm(false);
       setEditingTransfer(null);
-      setSavedMessage(editingTransfer ? "Transfer updated." : "Transfer created.");
+      setSavedMessage(editingTransfer ? t("transfers.messages.transferUpdated") : t("transfers.messages.transferCreated"));
     } catch (err: any) {
       console.error("Could not save transfer:", err);
-      setError(getErrorMessage(err, "Could not save transfer."));
+      setError(getErrorMessage(err, t("transfers.errors.saveTransfer")));
     } finally {
       setSaving(false);
     }
@@ -770,12 +781,12 @@ export default function TicketingTransfersPage() {
 
   async function saveRoute() {
     if (!routeForm.product) {
-      setError("Select a transfer product for this route.");
+      setError(t("transfers.errors.selectProduct"));
       return;
     }
 
     if (!routeForm.origin.trim() || !routeForm.destination.trim()) {
-      setError("Origin and destination are required.");
+      setError(t("transfers.errors.originDestination"));
       return;
     }
 
@@ -810,10 +821,10 @@ export default function TicketingTransfersPage() {
 
       setShowRouteForm(false);
       setEditingRoute(null);
-      setSavedMessage(editingRoute ? "Route updated." : "Route created.");
+      setSavedMessage(editingRoute ? t("transfers.messages.routeUpdated") : t("transfers.messages.routeCreated"));
     } catch (err: any) {
       console.error("Could not save route:", err);
-      setError(getErrorMessage(err, "Could not save route."));
+      setError(getErrorMessage(err, t("transfers.errors.saveRoute")));
     } finally {
       setSaving(false);
     }
@@ -821,12 +832,12 @@ export default function TicketingTransfersPage() {
 
   async function saveBand() {
     if (!bandForm.route) {
-      setError("Select a route for this price band.");
+      setError(t("transfers.errors.selectBandRoute"));
       return;
     }
 
     if (Number(bandForm.max_passengers) < Number(bandForm.min_passengers)) {
-      setError("Max passengers must be greater than or equal to min passengers.");
+      setError(t("transfers.errors.passengerRange"));
       return;
     }
 
@@ -857,17 +868,17 @@ export default function TicketingTransfersPage() {
 
       setShowBandForm(false);
       setEditingBand(null);
-      setSavedMessage(editingBand ? "Price band updated." : "Price band created.");
+      setSavedMessage(editingBand ? t("transfers.messages.bandUpdated") : t("transfers.messages.bandCreated"));
     } catch (err: any) {
       console.error("Could not save price band:", err);
-      setError(getErrorMessage(err, "Could not save price band."));
+      setError(getErrorMessage(err, t("transfers.errors.saveBand")));
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteBand(band: TransferPriceBand) {
-    const confirmed = window.confirm(`Delete ${bandLabel(band)}?`);
+    const confirmed = window.confirm(t("transfers.confirm.deleteBand").replace("{band}", bandLabel(band, t)));
     if (!confirmed) return;
 
     try {
@@ -880,10 +891,10 @@ export default function TicketingTransfersPage() {
       });
 
       setPriceBands((current) => current.filter((item) => item.id !== band.id));
-      setSavedMessage("Price band deleted.");
+      setSavedMessage(t("transfers.messages.bandDeleted"));
     } catch (err: any) {
       console.error("Could not delete price band:", err);
-      setError(getErrorMessage(err, "Could not delete price band."));
+      setError(getErrorMessage(err, t("transfers.errors.deleteBand")));
     } finally {
       setSaving(false);
     }
@@ -913,12 +924,12 @@ export default function TicketingTransfersPage() {
 
       setSavedMessage(
         updatedProduct.public_enabled
-          ? "Transfer is now public."
-          : "Transfer is now hidden."
+          ? t("transfers.messages.public")
+          : t("transfers.messages.hidden")
       );
     } catch (err: any) {
       console.error("Could not update transfer:", err);
-      setError(getErrorMessage(err, "Could not update transfer."));
+      setError(getErrorMessage(err, t("transfers.errors.update")));
     } finally {
       setSaving(false);
     }
@@ -927,15 +938,15 @@ export default function TicketingTransfersPage() {
   async function copyPublicLink(product: ExperienceProduct) {
     try {
       await navigator.clipboard.writeText(getProductPublicUrl(organisationSlug, product));
-      setSavedMessage("Public transfer link copied.");
+      setSavedMessage(t("transfers.messages.linkCopied"));
     } catch {
-      setError("Could not copy public link.");
+      setError(t("transfers.errors.copy"));
     }
   }
 
   async function testQuote() {
     if (!quoteRouteId) {
-      setError("Select a route before testing a quote.");
+      setError(t("transfers.errors.selectQuoteRoute"));
       return;
     }
 
@@ -957,7 +968,7 @@ export default function TicketingTransfersPage() {
       setQuoteResult(response.data as QuoteResult);
     } catch (err: any) {
       console.error("Could not calculate quote:", err);
-      setError(getErrorMessage(err, "Could not calculate transfer quote."));
+      setError(getErrorMessage(err, t("transfers.errors.quote")));
     } finally {
       setQuoting(false);
     }
@@ -966,11 +977,11 @@ export default function TicketingTransfersPage() {
   if (loading) {
     return (
       <TicketingPageShell
-        title="Transfers"
-        subtitle="Manage airport, hotel and private transfer services."
+        title={t("transfers.page.title")}
+        subtitle={t("transfers.page.loadingSubtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading transfers...
+          {t("transfers.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -978,17 +989,17 @@ export default function TicketingTransfersPage() {
 
   return (
     <TicketingPageShell
-      title="Transfers"
-      subtitle="Manage transfer products, routes and passenger price bands."
+      title={t("transfers.page.title")}
+      subtitle={t("transfers.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <StatCard title="Transfer products" value={String(stats.total)} helper="Services" icon={<Car className="h-6 w-6 text-slate-700" />} />
-          <StatCard title="Active" value={String(stats.active)} helper="Available to sell" icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />} />
-          <StatCard title="Public" value={String(stats.publicProducts)} helper="Visible online" icon={<ExternalLink className="h-6 w-6 text-sky-600" />} />
-          <StatCard title="Routes" value={String(stats.activeRoutes)} helper="Active routes" icon={<MapPin className="h-6 w-6 text-amber-600" />} />
-          <StatCard title="Price bands" value={String(stats.activeBands)} helper="Passenger ranges" icon={<Users className="h-6 w-6 text-indigo-600" />} />
-          <StatCard title="From" value={formatMoney(stats.lowestPrice)} helper="Lowest band" icon={<DollarSign className="h-6 w-6 text-emerald-600" />} />
+          <StatCard title={t("transfers.stats.products")} value={String(stats.total)} helper={t("transfers.stats.services")} icon={<Car className="h-6 w-6 text-slate-700" />} />
+          <StatCard title={t("transfers.stats.active")} value={String(stats.active)} helper={t("transfers.stats.available")} icon={<CheckCircle2 className="h-6 w-6 text-emerald-600" />} />
+          <StatCard title={t("transfers.stats.public")} value={String(stats.publicProducts)} helper={t("transfers.stats.visibleOnline")} icon={<ExternalLink className="h-6 w-6 text-sky-600" />} />
+          <StatCard title={t("transfers.stats.routes")} value={String(stats.activeRoutes)} helper={t("transfers.stats.activeRoutes")} icon={<MapPin className="h-6 w-6 text-amber-600" />} />
+          <StatCard title={t("transfers.stats.priceBands")} value={String(stats.activeBands)} helper={t("transfers.stats.passengerRanges")} icon={<Users className="h-6 w-6 text-indigo-600" />} />
+          <StatCard title={t("transfers.stats.from")} value={formatMoney(stats.lowestPrice)} helper={t("transfers.stats.lowestBand")} icon={<DollarSign className="h-6 w-6 text-emerald-600" />} />
         </section>
 
         {error && (
@@ -1008,31 +1019,31 @@ export default function TicketingTransfersPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div>
-              <h2 className="text-lg font-black text-slate-950">Transfer manager</h2>
+              <h2 className="text-lg font-black text-slate-950">{t("transfers.manager.title")}</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Keep the product simple, then add routes and passenger-based prices.
+                {t("transfers.manager.description")}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={loadPage} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                 <RefreshCw className="h-4 w-4" />
-                Refresh
+                {t("transfers.actions.refresh")}
               </button>
 
               <button type="button" onClick={() => openCreateRouteForm(selectedTransfer)} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                 <MapPin className="h-4 w-4" />
-                New route
+                {t("transfers.actions.newRoute")}
               </button>
 
               <button type="button" onClick={() => openCreateBandForm()} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                 <DollarSign className="h-4 w-4" />
-                New price band
+                {t("transfers.actions.newPriceBand")}
               </button>
 
               <button type="button" onClick={openCreateTransferForm} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
                 <Plus className="h-4 w-4" />
-                New transfer
+                {t("transfers.actions.newTransfer")}
               </button>
             </div>
           </div>
@@ -1040,38 +1051,38 @@ export default function TicketingTransfersPage() {
           <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_220px_180px]">
             <div className="flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
               <Search className="h-4 w-4 text-slate-400" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search transfer, route, airport, destination..." className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("transfers.filters.search")} className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
             </div>
 
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none">
-              <option value="">All statuses</option>
+              <option value="">{t("transfers.filters.allStatuses")}</option>
               {statusOptions.map((status) => (
                 <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
 
             <select value={publicFilter} onChange={(event) => setPublicFilter(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none">
-              <option value="">All visibility</option>
-              <option value="public">Public</option>
-              <option value="hidden">Hidden</option>
+              <option value="">{t("transfers.filters.allVisibility")}</option>
+              <option value="public">{t("transfers.status.public")}</option>
+              <option value="hidden">{t("transfers.status.hidden")}</option>
             </select>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
             {filteredTransfers.length === 0 ? (
-              <EmptyState text="No transfer services found." />
+              <EmptyState text={t("transfers.empty.services")} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Transfer</Th>
-                      <Th>Primary route</Th>
-                      <Th>Routes</Th>
-                      <Th>Price bands</Th>
-                      <Th>Status</Th>
-                      <Th>Public</Th>
-                      <Th>Actions</Th>
+                      <Th>{t("transfers.table.transfer")}</Th>
+                      <Th>{t("transfers.table.primaryRoute")}</Th>
+                      <Th>{t("transfers.table.routes")}</Th>
+                      <Th>{t("transfers.table.priceBands")}</Th>
+                      <Th>{t("transfers.table.status")}</Th>
+                      <Th>{t("transfers.table.public")}</Th>
+                      <Th>{t("transfers.table.actions")}</Th>
                     </tr>
                   </thead>
 
@@ -1096,8 +1107,8 @@ export default function TicketingTransfersPage() {
 
                           <Td>
                             <div>
-                              <p className="font-black text-slate-900">{getPrimaryRouteLabel(product, routes)}</p>
-                              <p className="mt-1 text-xs font-bold text-slate-500">{product.category_detail?.name || "Transfer"}</p>
+                              <p className="font-black text-slate-900">{getPrimaryRouteLabel(product, routes, t)}</p>
+                              <p className="mt-1 text-xs font-bold text-slate-500">{product.category_detail?.name || t("transfers.labels.transfer")}</p>
                             </div>
                           </Td>
 
@@ -1105,28 +1116,28 @@ export default function TicketingTransfersPage() {
                           <Td><p className="font-black text-slate-950">{productBands.length}</p></Td>
 
                           <Td>
-                            <span className={["inline-flex rounded-full px-3 py-1 text-xs font-black ring-1", getStatusClasses(product)].join(" ")}>{statusLabel(product.status)}</span>
+                            <span className={["inline-flex rounded-full px-3 py-1 text-xs font-black ring-1", getStatusClasses(product)].join(" ")}>{statusLabel(product.status, t)}</span>
                           </Td>
 
                           <Td>
                             <button type="button" disabled={saving} onClick={() => togglePublic(product)} className={["inline-flex h-10 items-center justify-center gap-2 rounded-2xl px-3 text-xs font-black text-white transition disabled:opacity-60", product.public_enabled ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-500 hover:bg-slate-600"].join(" ")}>
                               {product.public_enabled ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
-                              {product.public_enabled ? "Public" : "Hidden"}
+                              {product.public_enabled ? t("transfers.status.public") : t("transfers.status.hidden")}
                             </button>
                           </Td>
 
                           <Td>
                             <div className="flex items-center gap-2">
                               <button type="button" onClick={() => setSelectedTransfer(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                <Eye className="h-4 w-4" /> View
+                                <Eye className="h-4 w-4" /> {t("transfers.actions.view")}
                               </button>
 
                               <button type="button" onClick={() => openEditTransferForm(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                <Edit3 className="h-4 w-4" /> Edit
+                                <Edit3 className="h-4 w-4" /> {t("transfers.actions.edit")}
                               </button>
 
                               <button type="button" onClick={() => openCreateRouteForm(product)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                <MapPin className="h-4 w-4" /> Route
+                                <MapPin className="h-4 w-4" /> {t("transfers.actions.route")}
                               </button>
                             </div>
                           </Td>
@@ -1253,14 +1264,15 @@ function RoutesAndBandsPanel({
   onEditBand: (band: TransferPriceBand) => void;
   onDeleteBand: (band: TransferPriceBand) => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-black text-slate-950">Routes and price bands</h2>
-      <p className="mt-1 text-sm font-semibold text-slate-500">Each route can have multiple passenger ranges.</p>
+      <h2 className="text-lg font-black text-slate-950">{t("transfers.routesBands.title")}</h2>
+      <p className="mt-1 text-sm font-semibold text-slate-500">{t("transfers.routesBands.description")}</p>
 
       <div className="mt-5 space-y-4">
         {routes.length === 0 ? (
-          <EmptyState text="No routes yet. Create a route first, then add price bands." />
+          <EmptyState text={t("transfers.routesBands.emptyRoutes")} />
         ) : (
           routes.map((route) => {
             const product = products.find((item) => item.id === route.product);
@@ -1272,38 +1284,38 @@ function RoutesAndBandsPanel({
               <div key={route.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{product?.name || route.product_name || "Transfer"}</p>
-                    <h3 className="mt-1 text-base font-black text-slate-950">{routeLabel(route)}</h3>
-                    <p className="mt-1 text-xs font-bold text-slate-500">{route.airport || "No airport set"} · {formatVehicle(route.vehicle_type)} · Legacy price {formatMoney(route.price)}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{product?.name || route.product_name || t("transfers.labels.transfer")}</p>
+                    <h3 className="mt-1 text-base font-black text-slate-950">{routeLabel(route, t)}</h3>
+                    <p className="mt-1 text-xs font-bold text-slate-500">{route.airport || t("transfers.routesBands.noAirport")} · {formatVehicle(route.vehicle_type, t)} · {t("transfers.routesBands.legacyPrice")} {formatMoney(route.price)}</p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => onEditRoute(route)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
-                      <Edit3 className="h-4 w-4" /> Edit route
+                      <Edit3 className="h-4 w-4" /> {t("transfers.actions.edit")} route
                     </button>
                     <button type="button" onClick={() => onCreateBand(route)} className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-3 text-xs font-black text-white">
-                      <Plus className="h-4 w-4" /> Add band
+                      <Plus className="h-4 w-4" /> {t("transfers.actions.addBand")}
                     </button>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
                   {routeBands.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">No price bands yet.</div>
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">{t("transfers.routesBands.noBands")}</div>
                   ) : (
                     routeBands.map((band) => (
                       <div key={band.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-black text-slate-950">{band.name || bandLabel(band)}</p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band)} · {formatVehicle(band.vehicle_type)}</p>
+                            <p className="text-sm font-black text-slate-950">{band.name || bandLabel(band, t)}</p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band, t)} · {formatVehicle(band.vehicle_type, t)}</p>
                           </div>
-                          <span className={["rounded-full px-2 py-1 text-[11px] font-black", band.is_active !== false ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"].join(" ")}>{band.is_active !== false ? "Active" : "Off"}</span>
+                          <span className={["rounded-full px-2 py-1 text-[11px] font-black", band.is_active !== false ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"].join(" ")}>{band.is_active !== false ? t("transfers.status.active") : t("transfers.status.off")}</span>
                         </div>
                         <div className="mt-3 flex items-end justify-between gap-3">
                           <div>
                             <p className="text-lg font-black text-slate-950">{formatMoney(band.one_way_price)}</p>
-                            <p className="text-xs font-bold text-slate-500">Round trip: {band.round_trip_price ? formatMoney(band.round_trip_price) : "—"}</p>
+                            <p className="text-xs font-bold text-slate-500">{t("transfers.routesBands.roundTrip")}: {band.round_trip_price ? formatMoney(band.round_trip_price) : "—"}</p>
                           </div>
                           <div className="flex gap-2">
                             <button type="button" onClick={() => onEditBand(band)} className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><Edit3 className="h-4 w-4" /></button>
@@ -1346,38 +1358,39 @@ function QuoteTester({
   onRoundTripChange: (value: boolean) => void;
   onTest: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   const price = quoteResult?.total_price ?? quoteResult?.price ?? quoteResult?.one_way_price;
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-black text-slate-950">Quote tester</h2>
-      <p className="mt-1 text-sm font-semibold text-slate-500">Test the exact backend price calculation.</p>
+      <h2 className="text-lg font-black text-slate-950">{t("transfers.quote.title")}</h2>
+      <p className="mt-1 text-sm font-semibold text-slate-500">{t("transfers.quote.description")}</p>
 
       <div className="mt-5 space-y-4">
         <label className="block">
-          <span className="text-sm font-bold text-slate-700">Route</span>
+          <span className="text-sm font-bold text-slate-700">{t("transfers.quote.route")}</span>
           <select value={quoteRouteId} onChange={(event) => onRouteChange(event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
-            <option value="">Select route</option>
+            <option value="">{t("transfers.quote.selectRoute")}</option>
             {routes.map((route) => (
-              <option key={route.id} value={String(route.id)}>{routeLabel(route)}</option>
+              <option key={route.id} value={String(route.id)}>{routeLabel(route, t)}</option>
             ))}
           </select>
         </label>
 
-        <Input label="Passengers" type="number" value={quotePassengers} onChange={onPassengersChange} />
+        <Input label={t("transfers.quote.passengers")} type="number" value={quotePassengers} onChange={onPassengersChange} />
 
-        <Toggle label="Round trip" description="Use round-trip price when available." checked={quoteRoundTrip} onChange={onRoundTripChange} />
+        <Toggle label={t("transfers.quote.roundTrip")} description={t("transfers.quote.roundTripDescription")} checked={quoteRoundTrip} onChange={onRoundTripChange} />
 
         <button type="button" onClick={onTest} disabled={quoting || !quoteRouteId} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60">
           {quoting ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
-          Calculate quote
+          {t("transfers.actions.calculateQuote")}
         </button>
 
         {quoteResult && (
           <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Calculated price</p>
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">{t("transfers.quote.calculatedPrice")}</p>
             <p className="mt-1 text-3xl font-black text-emerald-900">{formatMoney(price)}</p>
-            <p className="mt-2 text-sm font-bold text-emerald-800">{quoteResult.price_band || `${quoteResult.passengers || quotePassengers} passengers`} · {formatVehicle(quoteResult.vehicle_type || quoteResult.vehicle)}</p>
+            <p className="mt-2 text-sm font-bold text-emerald-800">{quoteResult.price_band || `${quoteResult.passengers || quotePassengers} ${t("transfers.labels.passengers")}`} · {formatVehicle(quoteResult.vehicle_type || quoteResult.vehicle, t)}</p>
           </div>
         )}
       </div>
@@ -1402,55 +1415,61 @@ function TransferFormModal({
   onChange: <K extends keyof TransferFormState>(field: K, value: TransferFormState[K]) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+  const statusOptions = statusOptionValues.map((value) => ({
+    value,
+    label: t(`transfers.status.${value}`),
+  }));
+
   return (
-    <ModalShell title={editingTransfer ? "Edit transfer" : "New transfer"} subtitle={form.name || "Transfer service"} onClose={onClose}>
+    <ModalShell title={editingTransfer ? t("transfers.form.editTransfer") : t("transfers.form.newTransfer")} subtitle={form.name || t("transfers.form.transferService")} onClose={onClose}>
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Basic information" description="Name, category and public description." icon={<Plane className="h-5 w-5" />}>
+        <Panel title={t("transfers.form.basic.title")} description={t("transfers.form.basic.description")} icon={<Plane className="h-5 w-5" />}>
           <div className="grid gap-4 md:grid-cols-2">
-            <Input label="Transfer name" value={form.name} onChange={(value) => onChange("name", value)} placeholder="Private Transfers" required />
-            <Input label="Slug" value={form.slug} onChange={(value) => onChange("slug", slugify(value))} placeholder="private-transfers" />
+            <Input label={t("transfers.form.transferName")} value={form.name} onChange={(value) => onChange("name", value)} placeholder={t("transfers.placeholders.transferName")} required />
+            <Input label={t("transfers.form.slug")} value={form.slug} onChange={(value) => onChange("slug", slugify(value))} placeholder="private-transfers" />
 
             <label className="block">
-              <span className="text-sm font-bold text-slate-700">Category</span>
+              <span className="text-sm font-bold text-slate-700">{t("transfers.form.category")}</span>
               <select value={form.category} onChange={(event) => onChange("category", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
-                <option value="">No category</option>
+                <option value="">{t("transfers.form.noCategory")}</option>
                 {categories.map((category) => <option key={category.id} value={String(category.id)}>{category.name}</option>)}
               </select>
             </label>
 
             <label className="block">
-              <span className="text-sm font-bold text-slate-700">Status</span>
+              <span className="text-sm font-bold text-slate-700">{t("transfers.form.status")}</span>
               <select value={form.status} onChange={(event) => onChange("status", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
                 {statusOptions.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
               </select>
             </label>
           </div>
 
-          <Textarea label="Short description" value={form.short_description} onChange={(value) => onChange("short_description", value)} placeholder="Private transfers across Punta Cana, Bayahibe, La Romana and Santo Domingo." />
-          <Textarea label="Full description" value={form.long_description} onChange={(value) => onChange("long_description", value)} placeholder="Explain luggage, waiting time, airport pickup instructions and payment rules." />
+          <Textarea label={t("transfers.form.shortDescription")} value={form.short_description} onChange={(value) => onChange("short_description", value)} placeholder={t("transfers.placeholders.shortDescription")} />
+          <Textarea label={t("transfers.form.fullDescription")} value={form.long_description} onChange={(value) => onChange("long_description", value)} placeholder={t("transfers.placeholders.fullDescription")} />
         </Panel>
 
-        <Panel title="Product defaults" description="General transfer product defaults. Route pricing is managed separately." icon={<MapPin className="h-5 w-5" />}>
+        <Panel title={t("transfers.form.defaults.title")} description={t("transfers.form.defaults.description")} icon={<MapPin className="h-5 w-5" />}>
           <div className="grid gap-4 md:grid-cols-2">
-            <Input label="Base price" type="number" value={form.base_price} onChange={(value) => onChange("base_price", value)} placeholder="0.00" />
-            <Input label="Deposit amount" type="number" value={form.deposit_amount} onChange={(value) => onChange("deposit_amount", value)} placeholder="10.00" />
-            <Input label="Deposit percentage" type="number" value={form.deposit_percentage} onChange={(value) => onChange("deposit_percentage", value)} placeholder="0.00" />
-            <Input label="Default capacity" type="number" value={form.capacity} onChange={(value) => onChange("capacity", value)} placeholder="6" />
-            <Input label="Duration text" value={form.duration_text} onChange={(value) => onChange("duration_text", value)} placeholder="45 minutes" />
-            <Input label="Location label" value={form.location} onChange={(value) => onChange("location", value)} placeholder="Punta Cana / Bayahibe" />
+            <Input label={t("transfers.form.basePrice")} type="number" value={form.base_price} onChange={(value) => onChange("base_price", value)} placeholder="0.00" />
+            <Input label={t("transfers.form.depositAmount")} type="number" value={form.deposit_amount} onChange={(value) => onChange("deposit_amount", value)} placeholder="10.00" />
+            <Input label={t("transfers.form.depositPercentage")} type="number" value={form.deposit_percentage} onChange={(value) => onChange("deposit_percentage", value)} placeholder="0.00" />
+            <Input label={t("transfers.form.defaultCapacity")} type="number" value={form.capacity} onChange={(value) => onChange("capacity", value)} placeholder="6" />
+            <Input label={t("transfers.form.durationText")} value={form.duration_text} onChange={(value) => onChange("duration_text", value)} placeholder={t("transfers.placeholders.duration")} />
+            <Input label={t("transfers.form.locationLabel")} value={form.location} onChange={(value) => onChange("location", value)} placeholder={t("transfers.placeholders.location")} />
           </div>
 
-          <Textarea label="Default meeting instructions" value={form.address} onChange={(value) => onChange("address", value)} placeholder="Driver will meet you at the selected pickup address or hotel lobby." />
+          <Textarea label={t("transfers.form.meetingInstructions")} value={form.address} onChange={(value) => onChange("address", value)} placeholder={t("transfers.placeholders.meeting")} />
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <Toggle label="Active" description="Can be used internally." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
-            <Toggle label="Public" description="Show on public website." checked={form.public_enabled} onChange={(value) => onChange("public_enabled", value)} />
-            <Toggle label="Seller enabled" description="Allow sellers to sell it." checked={form.seller_enabled} onChange={(value) => onChange("seller_enabled", value)} />
+            <Toggle label={t("transfers.form.active")} description={t("transfers.form.activeDescription")} checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+            <Toggle label={t("transfers.form.public")} description={t("transfers.form.publicDescription")} checked={form.public_enabled} onChange={(value) => onChange("public_enabled", value)} />
+            <Toggle label={t("transfers.form.sellerEnabled")} description={t("transfers.form.sellerEnabledDescription")} checked={form.seller_enabled} onChange={(value) => onChange("seller_enabled", value)} />
           </div>
         </Panel>
       </div>
 
-      <ModalActions saving={saving} label={editingTransfer ? "Save transfer" : "Create transfer"} onSave={onSave} />
+      <ModalActions saving={saving} label={editingTransfer ? t("transfers.actions.saveTransfer") : t("transfers.actions.createTransfer")} onSave={onSave} />
     </ModalShell>
   );
 }
@@ -1472,42 +1491,52 @@ function RouteFormModal({
   onChange: <K extends keyof RouteFormState>(field: K, value: RouteFormState[K]) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
+  const vehicleOptions = vehicleOptionValues.map((value) => ({
+    value,
+    label: t(
+      value === "standard_car"
+        ? "transfers.vehicles.standardCar"
+        : `transfers.vehicles.${value}`
+    ),
+  }));
   return (
-    <ModalShell title={editingRoute ? "Edit route" : "New route"} subtitle={form.origin && form.destination ? `${form.origin} → ${form.destination}` : "Transfer route"} onClose={onClose}>
-      <Panel title="Route" description="Define where this transfer goes. Prices are handled by passenger bands." icon={<MapPin className="h-5 w-5" />}>
+    <ModalShell title={editingRoute ? t("transfers.route.edit") : t("transfers.route.new")} subtitle={form.origin && form.destination ? `${form.origin} → ${form.destination}` : t("transfers.route.fallback")} onClose={onClose}>
+      <Panel title={t("transfers.route.panelTitle")} description={t("transfers.route.panelDescription")} icon={<MapPin className="h-5 w-5" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block md:col-span-2">
-            <span className="text-sm font-bold text-slate-700">Transfer product</span>
+            <span className="text-sm font-bold text-slate-700">{t("transfers.route.product")}</span>
             <select value={form.product} onChange={(event) => onChange("product", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
-              <option value="">Select transfer product</option>
+              <option value="">{t("transfers.route.selectProduct")}</option>
               {products.map((product) => <option key={product.id} value={String(product.id)}>{product.name}</option>)}
             </select>
           </label>
 
-          <Input label="Origin" value={form.origin} onChange={(value) => onChange("origin", value)} placeholder="Punta Cana Airport" required />
-          <Input label="Destination" value={form.destination} onChange={(value) => onChange("destination", value)} placeholder="Bayahibe" required />
-          <Input label="Airport" value={form.airport} onChange={(value) => onChange("airport", value)} placeholder="PUJ" />
+          <Input label={t("transfers.route.origin")} value={form.origin} onChange={(value) => onChange("origin", value)} placeholder={t("transfers.placeholders.origin")} required />
+          <Input label={t("transfers.route.destination")} value={form.destination} onChange={(value) => onChange("destination", value)} placeholder={t("transfers.placeholders.destination")} required />
+          <Input label={t("transfers.route.airport")} value={form.airport} onChange={(value) => onChange("airport", value)} placeholder="PUJ" />
 
           <label className="block">
-            <span className="text-sm font-bold text-slate-700">Default vehicle</span>
+            <span className="text-sm font-bold text-slate-700">{t("transfers.route.defaultVehicle")}</span>
             <select value={form.vehicle_type} onChange={(event) => onChange("vehicle_type", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
               {vehicleOptions.map((vehicle) => <option key={vehicle.value} value={vehicle.value}>{vehicle.label}</option>)}
             </select>
           </label>
 
-          <Input label="Legacy base passengers" type="number" value={form.base_passengers} onChange={(value) => onChange("base_passengers", value)} />
-          <Input label="Legacy max passengers" type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} />
-          <Input label="Legacy one-way price" type="number" value={form.price} onChange={(value) => onChange("price", value)} />
-          <Input label="Legacy round-trip price" type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} />
+          <Input label={t("transfers.route.legacyBasePassengers")} type="number" value={form.base_passengers} onChange={(value) => onChange("base_passengers", value)} />
+          <Input label={t("transfers.route.legacyMaxPassengers")} type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} />
+          <Input label={t("transfers.route.legacyOneWay")} type="number" value={form.price} onChange={(value) => onChange("price", value)} />
+          <Input label={t("transfers.route.legacyRoundTrip")} type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} />
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <Toggle label="Round trip supported" description="This route can be sold as round trip." checked={form.is_round_trip} onChange={(value) => onChange("is_round_trip", value)} />
-          <Toggle label="Active" description="Route is available to quote and sell." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+          <Toggle label={t("transfers.route.roundTripSupported")} description={t("transfers.route.roundTripSupportedDescription")} checked={form.is_round_trip} onChange={(value) => onChange("is_round_trip", value)} />
+          <Toggle label={t("transfers.form.active")} description={t("transfers.route.activeDescription")} checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
         </div>
       </Panel>
 
-      <ModalActions saving={saving} label={editingRoute ? "Save route" : "Create route"} onSave={onSave} />
+      <ModalActions saving={saving} label={editingRoute ? t("transfers.actions.saveRoute") : t("transfers.actions.createRoute")} onSave={onSave} />
     </ModalShell>
   );
 }
@@ -1529,40 +1558,49 @@ function BandFormModal({
   onChange: <K extends keyof BandFormState>(field: K, value: BandFormState[K]) => void;
   onSave: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
+  const vehicleOptions = vehicleOptionValues.map((value) => ({
+    value,
+    label: t(
+      value === "standard_car"
+        ? "transfers.vehicles.standardCar"
+        : `transfers.vehicles.${value}`
+    ),
+  }));
   return (
-    <ModalShell title={editingBand ? "Edit price band" : "New price band"} subtitle={form.name || `${form.min_passengers}-${form.max_passengers} passengers`} onClose={onClose}>
-      <Panel title="Passenger price band" description="The customer enters passenger count; the backend selects the matching band." icon={<DollarSign className="h-5 w-5" />}>
+    <ModalShell title={editingBand ? t("transfers.band.edit") : t("transfers.band.new")} subtitle={form.name || `${form.min_passengers}-${form.max_passengers} ${t("transfers.labels.passengers")}`} onClose={onClose}>
+      <Panel title={t("transfers.band.panelTitle")} description={t("transfers.band.panelDescription")} icon={<DollarSign className="h-5 w-5" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block md:col-span-2">
-            <span className="text-sm font-bold text-slate-700">Route</span>
+            <span className="text-sm font-bold text-slate-700">{t("transfers.quote.route")}</span>
             <select value={form.route} onChange={(event) => onChange("route", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
-              <option value="">Select route</option>
-              {routes.map((route) => <option key={route.id} value={String(route.id)}>{routeLabel(route)}</option>)}
+              <option value="">{t("transfers.quote.selectRoute")}</option>
+              {routes.map((route) => <option key={route.id} value={String(route.id)}>{routeLabel(route, t)}</option>)}
             </select>
           </label>
 
-          <Input label="Band name" value={form.name} onChange={(value) => onChange("name", value)} placeholder="Small Group" />
-          <Input label="Sort order" type="number" value={form.sort_order} onChange={(value) => onChange("sort_order", value)} />
-          <Input label="Min passengers" type="number" value={form.min_passengers} onChange={(value) => onChange("min_passengers", value)} required />
-          <Input label="Max passengers" type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} required />
+          <Input label={t("transfers.band.name")} value={form.name} onChange={(value) => onChange("name", value)} placeholder={t("transfers.placeholders.bandName")} />
+          <Input label={t("transfers.band.sortOrder")} type="number" value={form.sort_order} onChange={(value) => onChange("sort_order", value)} />
+          <Input label={t("transfers.band.minPassengers")} type="number" value={form.min_passengers} onChange={(value) => onChange("min_passengers", value)} required />
+          <Input label={t("transfers.band.maxPassengers")} type="number" value={form.max_passengers} onChange={(value) => onChange("max_passengers", value)} required />
 
           <label className="block">
-            <span className="text-sm font-bold text-slate-700">Vehicle</span>
+            <span className="text-sm font-bold text-slate-700">{t("transfers.band.vehicle")}</span>
             <select value={form.vehicle_type} onChange={(event) => onChange("vehicle_type", event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none">
               {vehicleOptions.map((vehicle) => <option key={vehicle.value} value={vehicle.value}>{vehicle.label}</option>)}
             </select>
           </label>
 
-          <Input label="One-way price" type="number" value={form.one_way_price} onChange={(value) => onChange("one_way_price", value)} required />
-          <Input label="Round-trip price" type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} placeholder="Optional" />
+          <Input label={t("transfers.band.oneWayPrice")} type="number" value={form.one_way_price} onChange={(value) => onChange("one_way_price", value)} required />
+          <Input label={t("transfers.band.roundTripPrice")} type="number" value={form.round_trip_price} onChange={(value) => onChange("round_trip_price", value)} placeholder={t("transfers.band.optional")} />
         </div>
 
         <div className="mt-5">
-          <Toggle label="Active" description="This band can be used for quotes." checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
+          <Toggle label={t("transfers.form.active")} description={t("transfers.band.activeDescription")} checked={form.is_active} onChange={(value) => onChange("is_active", value)} />
         </div>
       </Panel>
 
-      <ModalActions saving={saving} label={editingBand ? "Save price band" : "Create price band"} onSave={onSave} />
+      <ModalActions saving={saving} label={editingBand ? t("transfers.actions.savePriceBand") : t("transfers.actions.createPriceBand")} onSave={onSave} />
     </ModalShell>
   );
 }
@@ -1598,6 +1636,7 @@ function TransferDetailModal({
   onCopyLink: () => void;
   onTogglePublic: () => void;
 }) {
+  const { t } = useTicketingAdminTranslation();
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -1605,9 +1644,9 @@ function TransferDetailModal({
           <div className="flex items-center gap-4">
             <TransferImage product={product} large />
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-amber-600">Transfer detail</p>
+              <p className="text-xs font-black uppercase tracking-wide text-amber-600">{t("transfers.detail.title")}</p>
               <h2 className="mt-1 text-xl font-black text-slate-950">{product.name}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-500">{routes[0] ? routeLabel(routes[0]) : "No route configured yet"}</p>
+              <p className="mt-1 text-sm font-bold text-slate-500">{routes[0] ? routeLabel(routes[0], t) : t("transfers.detail.noRoute")}</p>
             </div>
           </div>
 
@@ -1616,25 +1655,25 @@ function TransferDetailModal({
 
         <div className="max-h-[calc(92vh-92px)] overflow-y-auto p-5">
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={onEdit} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" /> Edit product</button>
-            <button type="button" onClick={onCreateRoute} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><MapPin className="h-4 w-4" /> Add route</button>
-            <button type="button" onClick={onCopyLink} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Copy className="h-4 w-4" /> Copy public link</button>
-            <Link to={`/experiences/${organisationSlug}/product/${product.slug}`} target="_blank" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><ExternalLink className="h-4 w-4" /> Open public page</Link>
-            <button type="button" disabled={saving} onClick={onTogglePublic} className={["inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white disabled:opacity-60", product.public_enabled ? "bg-red-600" : "bg-emerald-600"].join(" ")}>{product.public_enabled ? <ToggleLeft className="h-4 w-4" /> : <ToggleRight className="h-4 w-4" />}{product.public_enabled ? "Hide public" : "Make public"}</button>
+            <button type="button" onClick={onEdit} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white"><Edit3 className="h-4 w-4" /> {t("transfers.actions.edit")} product</button>
+            <button type="button" onClick={onCreateRoute} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><MapPin className="h-4 w-4" /> {t("transfers.actions.addRoute")}</button>
+            <button type="button" onClick={onCopyLink} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><Copy className="h-4 w-4" /> {t("transfers.actions.copyPublicLink")}</button>
+            <Link to={`/experiences/${organisationSlug}/product/${product.slug}`} target="_blank" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"><ExternalLink className="h-4 w-4" /> {t("transfers.actions.openPublicPage")}</Link>
+            <button type="button" disabled={saving} onClick={onTogglePublic} className={["inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white disabled:opacity-60", product.public_enabled ? "bg-red-600" : "bg-emerald-600"].join(" ")}>{product.public_enabled ? <ToggleLeft className="h-4 w-4" /> : <ToggleRight className="h-4 w-4" />}{product.public_enabled ? t("transfers.actions.hidePublic") : t("transfers.actions.makePublic")}</button>
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-4">
-            <InfoCard icon={<DollarSign className="h-5 w-5" />} label="Base price" value={formatMoney(product.base_price)} helper="Fallback only" />
-            <InfoCard icon={<Clock3 className="h-5 w-5" />} label="Duration" value={String(product.duration_text || product.duration_minutes || "—")} helper="Product default" />
-            <InfoCard icon={<MapPin className="h-5 w-5" />} label="Routes" value={String(routes.length)} helper="Configured routes" />
-            <InfoCard icon={<Users className="h-5 w-5" />} label="Price bands" value={String(priceBands.filter((band) => routes.some((route) => route.id === band.route)).length)} helper="Passenger ranges" />
+            <InfoCard icon={<DollarSign className="h-5 w-5" />} label={t("transfers.form.basePrice")} value={formatMoney(product.base_price)} helper={t("transfers.detail.fallbackOnly")} />
+            <InfoCard icon={<Clock3 className="h-5 w-5" />} label={t("transfers.detail.duration")} value={String(product.duration_text || product.duration_minutes || "—")} helper={t("transfers.detail.productDefault")} />
+            <InfoCard icon={<MapPin className="h-5 w-5" />} label={t("transfers.detail.routes")} value={String(routes.length)} helper={t("transfers.detail.configuredRoutes")} />
+            <InfoCard icon={<Users className="h-5 w-5" />} label={t("transfers.detail.priceBands")} value={String(priceBands.filter((band) => routes.some((route) => route.id === band.route)).length)} helper={t("transfers.stats.passengerRanges")} />
           </section>
 
           <section className="mt-5 rounded-3xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Routes</h3>
+            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">{t("transfers.detail.routes")}</h3>
             <div className="mt-4 space-y-4">
               {routes.length === 0 ? (
-                <EmptyState text="No routes configured for this transfer." />
+                <EmptyState text={t("transfers.detail.noRoutes")} />
               ) : (
                 routes.map((route) => {
                   const routeBands = priceBands.filter((band) => band.route === route.id);
@@ -1642,23 +1681,23 @@ function TransferDetailModal({
                     <div key={route.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
                         <div>
-                          <h4 className="font-black text-slate-950">{routeLabel(route)}</h4>
-                          <p className="mt-1 text-xs font-bold text-slate-500">{formatVehicle(route.vehicle_type)} · {routeBands.length} price bands</p>
+                          <h4 className="font-black text-slate-950">{routeLabel(route, t)}</h4>
+                          <p className="mt-1 text-xs font-bold text-slate-500">{formatVehicle(route.vehicle_type, t)} · {routeBands.length} {t("transfers.detail.priceBands").toLowerCase()}</p>
                         </div>
                         <div className="flex gap-2">
                           <button type="button" onClick={() => onEditRoute(route)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600"><Edit3 className="h-4 w-4" /></button>
-                          <button type="button" onClick={() => onCreateBand(route)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white"><Plus className="h-4 w-4" /> Band</button>
+                          <button type="button" onClick={() => onCreateBand(route)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white"><Plus className="h-4 w-4" /> {t("transfers.actions.band")}</button>
                         </div>
                       </div>
 
                       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                         {routeBands.length === 0 ? (
-                          <div className="rounded-2xl bg-white p-3 text-sm font-bold text-slate-500">No bands yet.</div>
+                          <div className="rounded-2xl bg-white p-3 text-sm font-bold text-slate-500">{t("transfers.detail.noBands")}</div>
                         ) : (
                           routeBands.map((band) => (
                             <div key={band.id} className="rounded-2xl bg-white p-3">
-                              <p className="font-black text-slate-950">{band.name || bandLabel(band)}</p>
-                              <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band)} · {formatVehicle(band.vehicle_type)}</p>
+                              <p className="font-black text-slate-950">{band.name || bandLabel(band, t)}</p>
+                              <p className="mt-1 text-xs font-bold text-slate-500">{bandLabel(band, t)} · {formatVehicle(band.vehicle_type, t)}</p>
                               <p className="mt-2 text-sm font-black text-slate-900">{formatMoney(band.one_way_price)} / {band.round_trip_price ? formatMoney(band.round_trip_price) : "—"}</p>
                               <div className="mt-2 flex gap-2">
                                 <button type="button" onClick={() => onEditBand(band)} className="rounded-xl border border-slate-200 p-2 text-slate-600"><Edit3 className="h-4 w-4" /></button>

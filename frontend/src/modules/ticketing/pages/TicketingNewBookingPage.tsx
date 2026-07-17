@@ -23,6 +23,7 @@ import {
 
 import api from "../../../api/axios";
 import TicketingPageShell from "../components/TicketingPageShell";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type PaymentMode =
   | "customer_full_online"
@@ -253,7 +254,7 @@ const initialForm: FormState = {
   receiptSentBeforeFullPayment: false,
 };
 
-const paymentModeOptions: Array<{
+const paymentModeOptionDefinitions: Array<{
   value: PaymentMode;
   label: string;
   helper: string;
@@ -396,8 +397,8 @@ function formatTime(value?: string | null) {
   return `${hour12}:${minutesRaw || "00"} ${suffix}`;
 }
 
-function statusLabel(value?: string | null) {
-  if (!value) return "Unknown";
+function statusLabel(value?: string | null, unknownLabel = "Unknown") {
+  if (!value) return unknownLabel;
 
   return String(value)
     .replaceAll("_", " ")
@@ -412,8 +413,8 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
 }
 
-function getProductLocation(product?: ExperienceProduct | null) {
-  return product?.location || product?.location_name || product?.address || "No location";
+function getProductLocation(product: ExperienceProduct | null | undefined, fallback: string) {
+  return product?.location || product?.location_name || product?.address || fallback;
 }
 
 function getProductCapacity(product?: ExperienceProduct | null) {
@@ -539,6 +540,13 @@ function shouldAttachSellerToPayment(paymentMode: PaymentMode) {
 }
 
 export default function TicketingNewBookingPage() {
+  const { t } = useTicketingAdminTranslation();
+  const paymentModeOptions = paymentModeOptionDefinitions.map((option) => ({
+    ...option,
+    label: t(`newBooking.paymentModes.${option.value}.label`),
+    helper: t(`newBooking.paymentModes.${option.value}.helper`),
+  }));
+
   const params = useParams();
   const navigate = useNavigate();
   const organisationSlug = params.organisationSlug || params.slug || "";
@@ -597,7 +605,7 @@ export default function TicketingNewBookingPage() {
       setPickupSchedules(normalizeList<PickupSchedule>(pickupSchedulesResponse.data));
     } catch (err: any) {
       console.error("Could not load booking data:", err);
-      setError(getErrorMessage(err, "Could not load booking data."));
+      setError(getErrorMessage(err, t("newBooking.errors.load")));
     } finally {
       setLoading(false);
     }
@@ -773,27 +781,27 @@ export default function TicketingNewBookingPage() {
 
   async function saveBooking() {
     if (!selectedProduct) {
-      setError("Select a product before creating the booking.");
+      setError(t("newBooking.errors.selectProduct"));
       return;
     }
 
     if (!form.serviceDate) {
-      setError("Service date is required.");
+      setError(t("newBooking.errors.serviceDateRequired"));
       return;
     }
 
     if (!form.customerName.trim()) {
-      setError("Customer name is required.");
+      setError(t("newBooking.errors.customerNameRequired"));
       return;
     }
 
     if (form.customerEmail.trim() && !isValidEmail(form.customerEmail)) {
-      setError("Customer email is optional, but if entered it must be valid.");
+      setError(t("newBooking.errors.invalidEmail"));
       return;
     }
 
     if (requiresPickup && !form.pickupLocationId) {
-      setError("This product requires a hotel or pickup location.");
+      setError(t("newBooking.errors.pickupRequired"));
       return;
     }
 
@@ -803,9 +811,7 @@ export default function TicketingNewBookingPage() {
       !assignedPickupSchedule &&
       selectedProduct.requires_pickup_location
     ) {
-      setError(
-        "No pickup schedule was found for this product, date and pickup location."
-      );
+      setError(t("newBooking.errors.noPickupSchedule"));
       return;
     }
 
@@ -815,7 +821,7 @@ export default function TicketingNewBookingPage() {
       numberValue(form.paymentAmount) > 0 &&
       !form.sellerId
     ) {
-      setError("Select a seller for seller-collected or seller-paid bookings.");
+      setError(t("newBooking.errors.sellerRequired"));
       return;
     }
 
@@ -919,12 +925,17 @@ export default function TicketingNewBookingPage() {
 
       setCreatedBooking(response.data);
       setSavedMessage(
-        `Booking created${response.data.booking_code ? `: ${response.data.booking_code}` : ""}.`
+        response.data.booking_code
+          ? t("newBooking.messages.createdWithCode").replace(
+              "{code}",
+              response.data.booking_code
+            )
+          : t("newBooking.messages.created")
       );
       setForm(initialForm);
     } catch (err: any) {
       console.error("Could not create booking:", err);
-      setError(getErrorMessage(err, "Could not create booking."));
+      setError(getErrorMessage(err, t("newBooking.errors.create")));
     } finally {
       setSaving(false);
     }
@@ -933,11 +944,11 @@ export default function TicketingNewBookingPage() {
   if (loading) {
     return (
       <TicketingPageShell
-        title="New Booking"
-        subtitle="Create a seller-assisted or owner-created booking."
+        title={t("newBooking.page.title")}
+        subtitle={t("newBooking.page.subtitle")}
       >
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600 shadow-sm">
-          Loading booking form...
+          {t("newBooking.loading")}
         </div>
       </TicketingPageShell>
     );
@@ -945,8 +956,8 @@ export default function TicketingNewBookingPage() {
 
   return (
     <TicketingPageShell
-      title="New Booking"
-      subtitle="Create a seller-assisted or owner-created booking."
+      title={t("newBooking.page.title")}
+      subtitle={t("newBooking.page.subtitle")}
     >
       <div className="space-y-5 pb-24">
         {error && (
@@ -972,7 +983,7 @@ export default function TicketingNewBookingPage() {
                   }
                   className="inline-flex h-10 items-center justify-center rounded-2xl bg-emerald-600 px-4 text-xs font-black text-white"
                 >
-                  View bookings
+                  {t("newBooking.actions.viewBookings")}
                 </button>
               </div>
             )}
@@ -982,8 +993,8 @@ export default function TicketingNewBookingPage() {
         <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
           <div className="space-y-5">
             <Panel
-              title="1. Select product"
-              description="Choose the excursion, transfer, event, ticket or custom product."
+              title={t("newBooking.sections.product.title")}
+              description={t("newBooking.sections.product.description")}
               icon={<Package className="h-5 w-5" />}
             >
               <div className="grid gap-3 xl:grid-cols-[1fr_220px]">
@@ -992,7 +1003,7 @@ export default function TicketingNewBookingPage() {
                   <input
                     value={productSearch}
                     onChange={(event) => setProductSearch(event.target.value)}
-                    placeholder="Search product, Saona, transfer, event..."
+                    placeholder={t("newBooking.product.searchPlaceholder")}
                     className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
                   />
                 </div>
@@ -1002,10 +1013,10 @@ export default function TicketingNewBookingPage() {
                   onChange={(event) => setProductTypeFilter(event.target.value)}
                   className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
                 >
-                  <option value="">All product types</option>
+                  <option value="">{t("newBooking.product.allTypes")}</option>
                   {productTypes.map((type) => (
                     <option key={type} value={type}>
-                      {statusLabel(type)}
+                      {statusLabel(type, t("newBooking.common.unknown"))}
                     </option>
                   ))}
                 </select>
@@ -1030,7 +1041,7 @@ export default function TicketingNewBookingPage() {
                           {product.name}
                         </p>
                         <p className="mt-1 text-xs font-bold text-slate-500">
-                          {statusLabel(product.product_type)} · {getProductLocation(product)}
+                          {statusLabel(product.product_type, t("newBooking.common.unknown"))} · {getProductLocation(product, t("newBooking.product.noLocation"))}
                         </p>
                       </div>
 
@@ -1040,11 +1051,11 @@ export default function TicketingNewBookingPage() {
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <MiniPill text={`Capacity ${getProductCapacity(product)}`} />
+                      <MiniPill text={`${t("newBooking.product.capacity")} ${getProductCapacity(product)}`} />
                       <MiniPill text={getProductDuration(product)} />
                       {(product.supports_pickup ||
                         product.requires_pickup_location) && (
-                        <MiniPill text="Pickup" />
+                        <MiniPill text={t("newBooking.product.pickup")} />
                       )}
                     </div>
                   </button>
@@ -1052,33 +1063,33 @@ export default function TicketingNewBookingPage() {
               </div>
 
               {filteredProducts.length === 0 && (
-                <EmptyState text="No products found." />
+                <EmptyState text={t("newBooking.product.empty")} />
               )}
             </Panel>
 
             <Panel
-              title="2. Customer and service details"
-              description="Enter the customer, service date and guest quantity."
+              title={t("newBooking.sections.customer.title")}
+              description={t("newBooking.sections.customer.description")}
               icon={<UserRound className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
-                  label="Customer name"
+                  label={t("newBooking.fields.customerName")}
                   value={form.customerName}
                   onChange={(value) => updateForm("customerName", value)}
-                  placeholder="Customer full name"
+                  placeholder={t("newBooking.placeholders.customerName")}
                   required
                 />
 
                 <Input
-                  label="WhatsApp"
+                  label={t("newBooking.fields.whatsapp")}
                   value={form.customerWhatsapp}
                   onChange={(value) => updateForm("customerWhatsapp", value)}
                   placeholder="+1 809 000 0000"
                 />
 
                 <Input
-                  label="Email"
+                  label={t("newBooking.fields.email")}
                   type="email"
                   value={form.customerEmail}
                   onChange={(value) => updateForm("customerEmail", value)}
@@ -1086,14 +1097,14 @@ export default function TicketingNewBookingPage() {
                 />
 
                 <Input
-                  label="Hotel / pickup location name"
+                  label={t("newBooking.fields.hotelName")}
                   value={form.customerHotel}
                   onChange={(value) => updateForm("customerHotel", value)}
-                  placeholder="Hotel name"
+                  placeholder={t("newBooking.placeholders.hotelName")}
                 />
 
                 <Input
-                  label="Service date"
+                  label={t("newBooking.fields.serviceDate")}
                   type="date"
                   value={form.serviceDate}
                   onChange={(value) => updateForm("serviceDate", value)}
@@ -1101,7 +1112,7 @@ export default function TicketingNewBookingPage() {
                 />
 
                 <Input
-                  label="Service time"
+                  label={t("newBooking.fields.serviceTime")}
                   type="time"
                   value={form.serviceTime}
                   onChange={(value) => updateForm("serviceTime", value)}
@@ -1110,21 +1121,21 @@ export default function TicketingNewBookingPage() {
 
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <Input
-                  label="Adults"
+                  label={t("newBooking.fields.adults")}
                   type="number"
                   value={String(form.adults)}
                   onChange={(value) => updateForm("adults", Number(value || 0))}
                 />
 
                 <Input
-                  label="Children"
+                  label={t("newBooking.fields.children")}
                   type="number"
                   value={String(form.children)}
                   onChange={(value) => updateForm("children", Number(value || 0))}
                 />
 
                 <Input
-                  label="Infants"
+                  label={t("newBooking.fields.infants")}
                   type="number"
                   value={String(form.infants)}
                   onChange={(value) => updateForm("infants", Number(value || 0))}
@@ -1132,43 +1143,43 @@ export default function TicketingNewBookingPage() {
               </div>
 
               <Textarea
-                label="Customer notes"
+                label={t("newBooking.fields.customerNotes")}
                 value={form.customerNotes}
                 onChange={(value) => updateForm("customerNotes", value)}
-                placeholder="Special instructions, allergies, room number, pickup notes..."
+                placeholder={t("newBooking.placeholders.customerNotes")}
               />
             </Panel>
 
             {selectedProduct?.product_type === "transfer" && (
               <Panel
-                title="Transfer information"
-                description="Optional fields for airport, hotel and private transfers."
+                title={t("newBooking.transfer.title")}
+                description={t("newBooking.transfer.description")}
                 icon={<MapPin className="h-5 w-5" />}
               >
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input
-                    label="Origin"
+                    label={t("newBooking.transfer.origin")}
                     value={form.transferOrigin}
                     onChange={(value) => updateForm("transferOrigin", value)}
                     placeholder="PUJ Airport"
                   />
 
                   <Input
-                    label="Destination"
+                    label={t("newBooking.transfer.destination")}
                     value={form.transferDestination}
                     onChange={(value) => updateForm("transferDestination", value)}
                     placeholder="Bávaro hotel"
                   />
 
                   <Input
-                    label="Airport"
+                    label={t("newBooking.transfer.airport")}
                     value={form.transferAirport}
                     onChange={(value) => updateForm("transferAirport", value)}
                     placeholder="PUJ"
                   />
 
                   <Input
-                    label="Flight number"
+                    label={t("newBooking.transfer.flightNumber")}
                     value={form.transferFlightNumber}
                     onChange={(value) =>
                       updateForm("transferFlightNumber", value)
@@ -1177,15 +1188,15 @@ export default function TicketingNewBookingPage() {
                   />
 
                   <Input
-                    label="Vehicle type"
+                    label={t("newBooking.transfer.vehicleType")}
                     value={form.transferVehicleType}
                     onChange={(value) => updateForm("transferVehicleType", value)}
-                    placeholder="Private van"
+                    placeholder={t("newBooking.placeholders.privateVan")}
                   />
 
                   <Toggle
-                    label="Round trip"
-                    description="The transfer includes a return service."
+                    label={t("newBooking.transfer.roundTrip")}
+                    description={t("newBooking.transfer.roundTripDescription")}
                     checked={form.transferRoundTrip}
                     onChange={(value) => updateForm("transferRoundTrip", value)}
                   />
@@ -1193,7 +1204,7 @@ export default function TicketingNewBookingPage() {
                   {form.transferRoundTrip && (
                     <>
                       <Input
-                        label="Return date"
+                        label={t("newBooking.transfer.returnDate")}
                         type="date"
                         value={form.transferReturnDate}
                         onChange={(value) =>
@@ -1202,7 +1213,7 @@ export default function TicketingNewBookingPage() {
                       />
 
                       <Input
-                        label="Return time"
+                        label={t("newBooking.transfer.returnTime")}
                         type="time"
                         value={form.transferReturnTime}
                         onChange={(value) =>
@@ -1216,15 +1227,15 @@ export default function TicketingNewBookingPage() {
             )}
 
             <Panel
-              title="3. Pickup assignment"
-              description="Pickup time is automatically selected from ProductPickupSchedule."
+              title={t("newBooking.pickup.title")}
+              description={t("newBooking.pickup.description")}
               icon={<Hotel className="h-5 w-5" />}
             >
               {requiresPickup ? (
                 <>
                   <label className="block">
                     <span className="text-sm font-bold text-slate-700">
-                      Hotel / pickup location
+                      {t("newBooking.pickup.locationLabel")}
                     </span>
                     <select
                       value={form.pickupLocationId}
@@ -1241,7 +1252,7 @@ export default function TicketingNewBookingPage() {
                       }}
                       className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                     >
-                      <option value="">Select hotel / pickup location</option>
+                      <option value="">{t("newBooking.pickup.selectLocation")}</option>
                       {pickupLocations.map((location) => (
                         <option key={location.id} value={String(location.id)}>
                           {location.name}
@@ -1257,15 +1268,15 @@ export default function TicketingNewBookingPage() {
                         <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-600" />
                         <div>
                           <p className="text-sm font-black text-slate-950">
-                            Pickup assigned
+                            {t("newBooking.pickup.assigned")}
                           </p>
                           <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                            {selectedPickupLocation?.name || "Selected location"} ·{" "}
+                            {selectedPickupLocation?.name || t("newBooking.pickup.selectedLocation")} ·{" "}
                             {formatTime(assignedPickupSchedule.pickup_time)} ·{" "}
                             {assignedPickupSchedule.resolved_pickup_point ||
                               assignedPickupSchedule.pickup_point ||
                               selectedPickupLocation?.default_pickup_point ||
-                              "Pickup point not configured"}
+                              t("newBooking.pickup.pointNotConfigured")}
                           </p>
                           {assignedPickupSchedule.instructions && (
                             <p className="mt-2 text-xs font-bold leading-5 text-slate-500">
@@ -1279,11 +1290,10 @@ export default function TicketingNewBookingPage() {
                         <AlertCircle className="mt-1 h-5 w-5 shrink-0 text-amber-600" />
                         <div>
                           <p className="text-sm font-black text-slate-950">
-                            No pickup schedule found
+                            {t("newBooking.pickup.notFound")}
                           </p>
                           <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                            Add a ProductPickupSchedule for this product, hotel
-                            and date/day before creating the booking.
+                            {t("newBooking.pickup.notFoundDescription")}
                           </p>
                         </div>
                       </div>
@@ -1292,11 +1302,10 @@ export default function TicketingNewBookingPage() {
                         <Clock3 className="mt-1 h-5 w-5 shrink-0 text-slate-500" />
                         <div>
                           <p className="text-sm font-black text-slate-950">
-                            Waiting for pickup selection
+                            {t("newBooking.pickup.waiting")}
                           </p>
                           <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                            Select service date and pickup location to assign
-                            the pickup time automatically.
+                            {t("newBooking.pickup.waitingDescription")}
                           </p>
                         </div>
                       </div>
@@ -1305,27 +1314,27 @@ export default function TicketingNewBookingPage() {
                 </>
               ) : (
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">
-                  This product does not require pickup.
+                  {t("newBooking.pickup.notRequired")}
                 </div>
               )}
             </Panel>
 
             <Panel
-              title="4. Seller and payment"
-              description="Choose seller-assisted booking and payment mode."
+              title={t("newBooking.payment.title")}
+              description={t("newBooking.payment.description")}
               icon={<CreditCard className="h-5 w-5" />}
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Seller
+                    {t("newBooking.fields.seller")}
                   </span>
                   <select
                     value={form.sellerId}
                     onChange={(event) => updateForm("sellerId", event.target.value)}
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                   >
-                    <option value="">Owner / direct booking</option>
+                    <option value="">{t("newBooking.payment.ownerDirectBooking")}</option>
                     {sellers.map((seller) => (
                       <option key={seller.id} value={String(seller.id)}>
                         {seller.full_name}
@@ -1336,7 +1345,7 @@ export default function TicketingNewBookingPage() {
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Payment mode
+                    {t("newBooking.payment.mode")}
                   </span>
                   <select
                     value={form.paymentMode}
@@ -1364,15 +1373,15 @@ export default function TicketingNewBookingPage() {
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <Toggle
-                  label="Record payment now"
-                  description="Add a BookingPayment when this booking is created."
+                  label={t("newBooking.payment.recordNow")}
+                  description={t("newBooking.payment.recordNowDescription")}
                   checked={form.recordPayment}
                   onChange={(value) => updateForm("recordPayment", value)}
                 />
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Payment status
+                    {t("newBooking.payment.status")}
                   </span>
                   <select
                     value={form.paymentStatus}
@@ -1385,13 +1394,13 @@ export default function TicketingNewBookingPage() {
                     className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-black outline-none"
                     disabled={!form.recordPayment}
                   >
-                    <option value="confirmed">Confirmed</option>
-                    <option value="pending">Pending</option>
+                    <option value="confirmed">{t("newBooking.payment.confirmed")}</option>
+                    <option value="pending">{t("newBooking.payment.pending")}</option>
                   </select>
                 </label>
 
                 <Input
-                  label="Payment amount"
+                  label={t("newBooking.payment.amount")}
                   type="number"
                   value={form.paymentAmount}
                   onChange={(value) => updateForm("paymentAmount", value)}
@@ -1399,26 +1408,26 @@ export default function TicketingNewBookingPage() {
                 />
 
                 <Input
-                  label="Payment reference"
+                  label={t("newBooking.payment.reference")}
                   value={form.paymentReference}
                   onChange={(value) => updateForm("paymentReference", value)}
-                  placeholder="Receipt, transaction or note"
+                  placeholder={t("newBooking.placeholders.paymentReference")}
                   disabled={!form.recordPayment}
                 />
               </div>
 
               <Textarea
-                label="Payment note"
+                label={t("newBooking.payment.note")}
                 value={form.paymentNote}
                 onChange={(value) => updateForm("paymentNote", value)}
-                placeholder="Optional internal payment note"
+                placeholder={t("newBooking.placeholders.paymentNote")}
                 disabled={!form.recordPayment}
               />
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <Toggle
-                  label="Requires supervisor approval"
-                  description="Create this booking as pending approval."
+                  label={t("newBooking.payment.requiresApproval")}
+                  description={t("newBooking.payment.requiresApprovalDescription")}
                   checked={form.requiresSupervisorApproval}
                   onChange={(value) =>
                     updateForm("requiresSupervisorApproval", value)
@@ -1426,8 +1435,8 @@ export default function TicketingNewBookingPage() {
                 />
 
                 <Toggle
-                  label="Receipt before full payment"
-                  description="Allow receipt/ticket before full balance is paid."
+                  label={t("newBooking.payment.receiptBeforeFull")}
+                  description={t("newBooking.payment.receiptBeforeFullDescription")}
                   checked={form.receiptSentBeforeFullPayment}
                   onChange={(value) =>
                     updateForm("receiptSentBeforeFullPayment", value)
@@ -1438,23 +1447,23 @@ export default function TicketingNewBookingPage() {
               {selectedSeller && (
                 <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-sm font-black text-slate-950">
-                    Selected seller permissions
+                    {t("newBooking.seller.permissions")}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selectedSeller.can_generate_ticket_without_customer_online_payment && (
-                      <MiniPill text="Can generate unpaid tickets" />
+                      <MiniPill text={t("newBooking.seller.canGenerateUnpaid")} />
                     )}
                     {selectedSeller.can_create_pending_payment_booking && (
-                      <MiniPill text="Can create pending bookings" />
+                      <MiniPill text={t("newBooking.seller.canCreatePending")} />
                     )}
                     {selectedSeller.can_collect_cash_payment && (
-                      <MiniPill text="Can collect cash" />
+                      <MiniPill text={t("newBooking.seller.canCollectCash")} />
                     )}
                     {selectedSeller.can_pay_deposit_as_seller && (
-                      <MiniPill text="Can pay deposit" />
+                      <MiniPill text={t("newBooking.seller.canPayDeposit")} />
                     )}
                     {selectedSeller.can_pay_full_amount_as_seller && (
-                      <MiniPill text="Can pay full amount" />
+                      <MiniPill text={t("newBooking.seller.canPayFull")} />
                     )}
                   </div>
                 </div>
@@ -1470,58 +1479,58 @@ export default function TicketingNewBookingPage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-slate-950">
-                    Booking summary
+                    {t("newBooking.summary.title")}
                   </h2>
                   <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                    Review totals before creating.
+                    {t("newBooking.summary.description")}
                   </p>
                 </div>
               </div>
 
               <div className="mt-5 space-y-3">
                 <SummaryLine
-                  label="Product"
-                  value={selectedProduct?.name || "Not selected"}
+                  label={t("newBooking.summary.product")}
+                  value={selectedProduct?.name || t("newBooking.summary.notSelected")}
                 />
                 <SummaryLine
-                  label="Seller"
-                  value={selectedSeller?.full_name || "Owner / direct"}
+                  label={t("newBooking.summary.seller")}
+                  value={selectedSeller?.full_name || t("newBooking.summary.ownerDirect")}
                 />
                 <SummaryLine
-                  label="Service date"
+                  label={t("newBooking.fields.serviceDate")}
                   value={form.serviceDate || "—"}
                 />
                 <SummaryLine
-                  label="Guests"
-                  value={`${getTotalGuests(form)} total · ${getChargeableGuests(
+                  label={t("newBooking.summary.guests")}
+                  value={`${getTotalGuests(form)} ${t("newBooking.summary.totalGuests")} · ${getChargeableGuests(
                     form
-                  )} charged`}
+                  )} ${t("newBooking.summary.charged")}`}
                 />
                 <SummaryLine
-                  label="Unit price"
+                  label={t("newBooking.summary.unitPrice")}
                   value={formatMoney(form.unitPrice)}
                 />
-                <SummaryLine label="Subtotal" value={formatMoney(subtotal)} />
+                <SummaryLine label={t("newBooking.summary.subtotal")} value={formatMoney(subtotal)} />
                 <SummaryLine
-                  label="Discount"
+                  label={t("newBooking.summary.discount")}
                   value={`-${formatMoney(discountAmount)}`}
                 />
-                <SummaryLine label="Tax" value={formatMoney(taxAmount)} />
+                <SummaryLine label={t("newBooking.summary.tax")} value={formatMoney(taxAmount)} />
                 <SummaryLine
-                  label="Total"
+                  label={t("newBooking.summary.total")}
                   value={formatMoney(totalAmount)}
                   strong
                 />
                 <SummaryLine
-                  label="Required deposit"
+                  label={t("newBooking.summary.requiredDeposit")}
                   value={formatMoney(depositRequired)}
                 />
                 <SummaryLine
-                  label="Payment now"
-                  value={form.recordPayment ? formatMoney(form.paymentAmount) : "No payment"}
+                  label={t("newBooking.summary.paymentNow")}
+                  value={form.recordPayment ? formatMoney(form.paymentAmount) : t("newBooking.summary.noPayment")}
                 />
                 <SummaryLine
-                  label="Balance after payment"
+                  label={t("newBooking.summary.balanceAfterPayment")}
                   value={formatMoney(balanceDue)}
                   strong
                 />
@@ -1539,7 +1548,7 @@ export default function TicketingNewBookingPage() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  Create booking
+                  {t("newBooking.actions.createBooking")}
                 </button>
 
                 <Link
@@ -1547,7 +1556,7 @@ export default function TicketingNewBookingPage() {
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  Back to bookings
+                  {t("newBooking.actions.backToBookings")}
                 </Link>
 
                 <button
@@ -1556,7 +1565,7 @@ export default function TicketingNewBookingPage() {
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
                   <RefreshCw className="h-4 w-4" />
-                  Refresh data
+                  {t("newBooking.actions.refreshData")}
                 </button>
               </div>
             </section>
@@ -1566,12 +1575,10 @@ export default function TicketingNewBookingPage() {
                 <Wallet className="mt-1 h-5 w-5 shrink-0 text-amber-700" />
                 <div>
                   <h3 className="text-sm font-black text-amber-950">
-                    Seller payment flexibility
+                    {t("newBooking.fields.seller")} payment flexibility
                   </h3>
                   <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-                    Use pending payment or seller commission only when the seller
-                    is allowed to create the booking without forcing the customer
-                    to pay online.
+                    {t("newBooking.info.sellerFlexibilityDescription")}
                   </p>
                 </div>
               </div>
@@ -1582,11 +1589,10 @@ export default function TicketingNewBookingPage() {
                 <MapPin className="mt-1 h-5 w-5 shrink-0 text-amber-600" />
                 <div>
                   <h3 className="text-sm font-black text-slate-950">
-                    Automatic pickup
+                    {t("newBooking.info.automaticPickupTitle")}
                   </h3>
                   <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                    This page only sends the pickup location. Your backend finds
-                    the matching schedule and creates the booking pickup info.
+                    {t("newBooking.info.automaticPickupDescription")}
                   </p>
                 </div>
               </div>

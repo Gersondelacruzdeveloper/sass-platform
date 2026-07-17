@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import { logoutUser } from "../../../features/auth/authSlice";
 import {
   useAppDispatch,
@@ -158,12 +159,14 @@ function getPartnerHome(
 }
 
 function PortalLoadingScreen() {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
         <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
         <span className="text-sm font-black text-slate-700">
-          Loading Partner Portal...
+          {t("navigation.account.loadingAccess")}
         </span>
       </div>
     </div>
@@ -177,13 +180,15 @@ function PortalErrorScreen({
   message: string;
   loginPath: string;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="w-full max-w-xl rounded-[2rem] border border-rose-200 bg-white p-7 text-center shadow-sm">
         <ShieldCheck className="mx-auto h-11 w-11 text-rose-600" />
 
         <h1 className="mt-4 text-2xl font-black text-slate-950">
-          Partner access unavailable
+          {t("navigation.errors.partnerAccessUnavailable", undefined, "Partner access unavailable")}
         </h1>
 
         <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
@@ -194,7 +199,7 @@ function PortalErrorScreen({
           to={loginPath}
           className="mt-6 inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
         >
-          Return to login
+          {t("navigation.actions.returnToLogin", undefined, "Return to login")}
         </Link>
       </div>
     </div>
@@ -216,6 +221,7 @@ function initials(value: string) {
 }
 
 export default function TicketingPartnerLayout() {
+  const { t } = useTicketingAdminTranslation();
   const [bootstrap, setBootstrap] =
     useState<PartnerBootstrap | null>(null);
   const [loading, setLoading] = useState(true);
@@ -246,7 +252,7 @@ export default function TicketingPartnerLayout() {
     async function loadPartnerBootstrap() {
       if (!slug) {
         setLoading(false);
-        setLoadError("Organisation could not be resolved.");
+        setLoadError(t("navigation.defaults.platform"));
         return;
       }
 
@@ -268,7 +274,7 @@ export default function TicketingPartnerLayout() {
 
         if (response.data?.portal_type !== "partner") {
           setLoadError(
-            "This account does not have Partner Portal access.",
+            t("navigation.errors.noOperationsAccess", undefined, "This account does not have Operations access."),
           );
           setBootstrap(null);
           return;
@@ -281,7 +287,7 @@ export default function TicketingPartnerLayout() {
         const message =
           error?.response?.data?.detail ||
           error?.response?.data?.message ||
-          "Could not load your Partner Portal access.";
+          t("navigation.errors.loadOperationsAccess", undefined, "Could not load your Operations access.");
 
         setLoadError(message);
         setBootstrap(null);
@@ -297,7 +303,7 @@ export default function TicketingPartnerLayout() {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, t]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -312,7 +318,7 @@ export default function TicketingPartnerLayout() {
     return [
       permissions.can_access_dashboard
         ? {
-            label: "Dashboard",
+            label: t("navigation.items.operationsDashboard"),
             to: `${base}/dashboard`,
             icon: LayoutDashboard,
             permission: "can_access_dashboard",
@@ -320,7 +326,7 @@ export default function TicketingPartnerLayout() {
         : null,
       permissions.can_scan
         ? {
-            label: "Scanner",
+            label: t("navigation.items.qrScanner"),
             to: `${base}/scanner`,
             icon: QrCode,
             permission: "can_scan",
@@ -328,7 +334,7 @@ export default function TicketingPartnerLayout() {
         : null,
       permissions.can_view_admissions
         ? {
-            label: "Admissions",
+            label: t("navigation.items.admissions"),
             to: `${base}/admissions`,
             icon: CalendarCheck2,
             permission: "can_view_admissions",
@@ -336,7 +342,7 @@ export default function TicketingPartnerLayout() {
         : null,
       permissions.can_view_today_bookings
         ? {
-            label: "Scan history",
+            label: t("navigation.items.scanHistory"),
             to: `${base}/scan-history`,
             icon: History,
             permission: "can_view_today_bookings",
@@ -344,19 +350,19 @@ export default function TicketingPartnerLayout() {
         : null,
       permissions.can_view_settlements
         ? {
-            label: "Settlements",
+            label: t("navigation.items.settlements"),
             to: `${base}/settlements`,
             icon: WalletCards,
             permission: "can_view_settlements",
           }
         : null,
       {
-        label: "Profile",
+        label: t("navigation.account.account"),
         to: `${base}/profile`,
         icon: UserRound,
       },
     ].filter(Boolean) as NavigationItem[];
-  }, [bootstrap, slug]);
+  }, [bootstrap, slug, t]);
 
   const outletContext = useMemo<
     TicketingPartnerOutletContext | null
@@ -397,7 +403,7 @@ export default function TicketingPartnerLayout() {
       <PortalErrorScreen
         message={
           loadError ||
-          "This account does not have active Partner Portal access."
+          t("navigation.errors.noActiveOperationsAccess", undefined, "This account does not have active Operations access.")
         }
         loginPath={`/ticketing/${slug}/login`}
       />
@@ -419,7 +425,7 @@ export default function TicketingPartnerLayout() {
     bootstrap.user?.name ||
     bootstrap.user?.username ||
     bootstrap.user?.email ||
-    "Partner user";
+    t("common.user");
 
   const homePath = getPartnerHome(
     slug,
@@ -433,7 +439,7 @@ export default function TicketingPartnerLayout() {
       {mobileOpen && (
         <button
           type="button"
-          aria-label="Close partner menu"
+          aria-label={t("navigation.actions.closePartnerMenu", undefined, "Close partner menu")}
           onClick={() => setMobileOpen(false)}
           className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-sm lg:hidden"
         />
@@ -468,7 +474,7 @@ export default function TicketingPartnerLayout() {
                 {businessEntityName}
               </p>
               <p className="truncate text-xs font-bold text-slate-400">
-                Partner Portal
+                {t("navigation.portals.operations")}
               </p>
             </div>
           </Link>
@@ -484,7 +490,7 @@ export default function TicketingPartnerLayout() {
 
         <div className="border-b border-slate-800 px-5 py-4">
           <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
-            Signed in as
+            {t("navigation.account.account")}
           </p>
 
           <p className="mt-2 truncate text-sm font-black text-white">
@@ -538,7 +544,7 @@ export default function TicketingPartnerLayout() {
             className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white/10 text-sm font-black text-white transition hover:bg-white/15"
           >
             <LogOut className="h-4 w-4" />
-            Logout
+            {t("topbar.logout")}
           </button>
         </div>
       </aside>
@@ -559,7 +565,7 @@ export default function TicketingPartnerLayout() {
                 {businessEntityName}
               </p>
               <p className="truncate text-xs font-semibold text-slate-500">
-                Restricted Partner Portal
+                {t("navigation.labels.restrictedOperations", undefined, "Restricted Operations")}
               </p>
             </div>
 

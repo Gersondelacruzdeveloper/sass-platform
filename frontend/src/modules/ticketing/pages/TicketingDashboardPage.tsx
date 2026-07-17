@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../api/ticketingApi";
 import type {
   DashboardProductRanking,
@@ -38,22 +39,34 @@ type StatCardProps = {
   icon: LucideIcon;
 };
 
-function formatMoney(value: unknown) {
+function formatMoney(
+  value: unknown,
+  language: "en" | "es",
+) {
   const amount = Number(value || 0);
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(amount);
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+    },
+  ).format(amount);
 }
 
-function formatNumber(value: unknown) {
+function formatNumber(
+  value: unknown,
+  language: "en" | "es",
+) {
   const amount = Number(value || 0);
 
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 0,
-  }).format(amount);
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      maximumFractionDigits: 0,
+    },
+  ).format(amount);
 }
 
 function numberValue(value: unknown) {
@@ -100,17 +113,19 @@ function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
 }
 
 
-function productTypeLabel(value?: string | null) {
+function productTypeLabel(
+  value: string | null | undefined,
+  t: (key: string, values?: Record<string, string | number | boolean | null | undefined>, fallback?: string) => string,
+) {
   const normalized = String(value || "product").toLowerCase();
 
-  if (normalized === "transfer") return "Transfer";
-  if (normalized === "excursion") return "Excursion";
-  if (normalized === "ticket") return "Ticket";
-  if (normalized === "event") return "Event";
-  if (normalized === "nightlife") return "Nightlife";
-  if (normalized === "custom") return "Custom";
-
-  return normalized.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return t(
+    `dashboard.productTypes.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
+  );
 }
 
 function productTypeClasses(value?: string | null) {
@@ -135,7 +150,13 @@ function productTypeClasses(value?: string | null) {
   return "bg-slate-100 text-slate-600 ring-slate-200";
 }
 
-function ProductTypeBadge({ type }: { type?: string | null }) {
+function ProductTypeBadge({
+  type,
+}: {
+  type?: string | null;
+}) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <span
       className={[
@@ -143,7 +164,7 @@ function ProductTypeBadge({ type }: { type?: string | null }) {
         productTypeClasses(type),
       ].join(" ")}
     >
-      {productTypeLabel(type)}
+      {productTypeLabel(type, t)}
     </span>
   );
 }
@@ -155,6 +176,8 @@ function TransferSnapshot({
   slug?: string;
   products: DashboardProductRanking[];
 }) {
+  const { language, t } = useTicketingAdminTranslation();
+
   const transferProducts = products.filter(
     (product) => String(product.product_type || "").toLowerCase() === "transfer"
   );
@@ -179,14 +202,13 @@ function TransferSnapshot({
 
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-sky-700">
-              Transfer engine
+              {t("dashboard.transfer.engine")}
             </p>
             <h2 className="mt-1 text-lg font-black text-slate-950">
-              Private transfers, routes and passenger price bands
+              {t("dashboard.transfer.title")}
             </h2>
             <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-              Transfers now work separately from excursion pickup schedules. Customers book a
-              route, passenger count, pickup, drop-off, date and preferred time.
+              {t("dashboard.transfer.description")}
             </p>
           </div>
         </div>
@@ -194,19 +216,19 @@ function TransferSnapshot({
         <div className="grid grid-cols-2 gap-3 sm:min-w-[320px]">
           <div className="rounded-2xl border border-sky-100 bg-white p-4">
             <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-              Transfers sold
+              {t("dashboard.transfer.sold")}
             </p>
             <p className="mt-1 text-xl font-black text-slate-950">
-              {formatNumber(transfersSold)}
+              {formatNumber(transfersSold, language)}
             </p>
           </div>
 
           <div className="rounded-2xl border border-sky-100 bg-white p-4">
             <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-              Transfer revenue
+              {t("dashboard.transfer.revenue")}
             </p>
             <p className="mt-1 text-xl font-black text-emerald-600">
-              {formatMoney(transferRevenue)}
+              {formatMoney(transferRevenue, language)}
             </p>
           </div>
         </div>
@@ -218,7 +240,7 @@ function TransferSnapshot({
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
         >
           <MapPin className="h-4 w-4" />
-          Manage transfer routes
+          {t("dashboard.transfer.manageRoutes")}
         </Link>
 
         <Link
@@ -226,7 +248,7 @@ function TransferSnapshot({
           className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
         >
           <Plane className="h-4 w-4" />
-          View transfer bookings
+          {t("dashboard.transfer.viewBookings")}
         </Link>
       </div>
     </div>
@@ -234,6 +256,8 @@ function TransferSnapshot({
 }
 
 function EmptyState() {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-50 text-amber-600">
@@ -241,12 +265,11 @@ function EmptyState() {
       </div>
 
       <h2 className="mt-4 text-xl font-black text-slate-950">
-        Todavía no hay data suficiente
+        {t("dashboard.empty.title")}
       </h2>
 
       <p className="mx-auto mt-2 max-w-xl text-sm font-semibold text-slate-500">
-        Cuando empieces a crear productos, vendedores y reservas, aquí verás
-        ventas, comisiones, pagos pendientes, rankings y actividad del módulo.
+        {t("dashboard.empty.description")}
       </p>
     </div>
   );
@@ -257,13 +280,15 @@ function ProductRankingTable({
 }: {
   products: DashboardProductRanking[];
 }) {
+  const { language, t } = useTicketingAdminTranslation();
+
   if (!products.length) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center gap-3">
           <Package className="h-5 w-5 text-slate-400" />
           <p className="text-sm font-bold text-slate-500">
-            No hay productos vendidos todavía.
+            {t("dashboard.products.noSales")}
           </p>
         </div>
       </div>
@@ -280,10 +305,10 @@ function ProductRankingTable({
 
           <div>
             <h2 className="text-base font-black text-slate-950">
-              Productos más vendidos
+              {t("dashboard.products.title")}
             </h2>
             <p className="text-xs font-semibold text-slate-500">
-              Ranking por cantidad vendida e ingresos.
+              {t("dashboard.products.subtitle")}
             </p>
           </div>
         </div>
@@ -293,10 +318,10 @@ function ProductRankingTable({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-5 py-4">Producto</th>
-              <th className="px-5 py-4">Tipo</th>
-              <th className="px-5 py-4 text-right">Vendidos</th>
-              <th className="px-5 py-4 text-right">Ingresos</th>
+              <th className="px-5 py-4">{t("dashboard.table.product")}</th>
+              <th className="px-5 py-4">{t("dashboard.table.type")}</th>
+              <th className="px-5 py-4 text-right">{t("dashboard.table.sold")}</th>
+              <th className="px-5 py-4 text-right">{t("dashboard.table.revenue")}</th>
             </tr>
           </thead>
 
@@ -305,17 +330,17 @@ function ProductRankingTable({
               <tr key={`${product.product_name}-${index}`} className="hover:bg-slate-50">
                 <td className="px-5 py-4">
                   <p className="font-black text-slate-950">
-                    {product.product_name || "Producto sin nombre"}
+                    {product.product_name || t("dashboard.products.unnamed")}
                   </p>
                 </td>
                 <td className="px-5 py-4">
                   <ProductTypeBadge type={product.product_type} />
                 </td>
                 <td className="px-5 py-4 text-right font-black text-slate-900">
-                  {formatNumber(product.quantity_sold)}
+                  {formatNumber(product.quantity_sold, language)}
                 </td>
                 <td className="px-5 py-4 text-right font-black text-emerald-600">
-                  {formatMoney(product.revenue)}
+                  {formatMoney(product.revenue, language)}
                 </td>
               </tr>
             ))}
@@ -331,13 +356,15 @@ function SellerRankingTable({
 }: {
   sellers: DashboardSellerRanking[];
 }) {
+  const { language, t } = useTicketingAdminTranslation();
+
   if (!sellers.length) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center gap-3">
           <Users className="h-5 w-5 text-slate-400" />
           <p className="text-sm font-bold text-slate-500">
-            No hay ventas por vendedores todavía.
+            {t("dashboard.sellers.noSales")}
           </p>
         </div>
       </div>
@@ -354,10 +381,10 @@ function SellerRankingTable({
 
           <div>
             <h2 className="text-base font-black text-slate-950">
-              Ranking de vendedores
+              {t("dashboard.sellers.title")}
             </h2>
             <p className="text-xs font-semibold text-slate-500">
-              Ventas, reservas y comisiones generadas.
+              {t("dashboard.sellers.subtitle")}
             </p>
           </div>
         </div>
@@ -367,10 +394,10 @@ function SellerRankingTable({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-5 py-4">Vendedor</th>
-              <th className="px-5 py-4 text-right">Reservas</th>
-              <th className="px-5 py-4 text-right">Ventas</th>
-              <th className="px-5 py-4 text-right">Comisión</th>
+              <th className="px-5 py-4">{t("dashboard.table.seller")}</th>
+              <th className="px-5 py-4 text-right">{t("dashboard.table.bookings")}</th>
+              <th className="px-5 py-4 text-right">{t("dashboard.table.sales")}</th>
+              <th className="px-5 py-4 text-right">{t("dashboard.table.commission")}</th>
             </tr>
           </thead>
 
@@ -379,20 +406,20 @@ function SellerRankingTable({
               <tr key={seller.id} className="hover:bg-slate-50">
                 <td className="px-5 py-4">
                   <p className="font-black text-slate-950">
-                    {seller.full_name || "Vendedor"}
+                    {seller.full_name || t("dashboard.sellers.fallback")}
                   </p>
                   <p className="text-xs font-semibold text-slate-400">
                     /s/{seller.seller_slug}
                   </p>
                 </td>
                 <td className="px-5 py-4 text-right font-black text-slate-900">
-                  {formatNumber(seller.bookings_count)}
+                  {formatNumber(seller.bookings_count, language)}
                 </td>
                 <td className="px-5 py-4 text-right font-black text-emerald-600">
-                  {formatMoney(seller.sales_total)}
+                  {formatMoney(seller.sales_total, language)}
                 </td>
                 <td className="px-5 py-4 text-right font-black text-amber-600">
-                  {formatMoney(seller.commission_total)}
+                  {formatMoney(seller.commission_total, language)}
                 </td>
               </tr>
             ))}
@@ -404,6 +431,7 @@ function SellerRankingTable({
 }
 
 export default function TicketingDashboardPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
   const [dashboard, setDashboard] = useState<TicketingDashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -420,9 +448,7 @@ export default function TicketingDashboardPage() {
       setDashboard(data);
     } catch (error) {
       console.error("Could not load ticketing dashboard:", error);
-      setErrorMessage(
-        "No se pudo cargar el dashboard. Revisa que el backend esté corriendo y que el usuario tenga permisos."
-      );
+      setErrorMessage(t("dashboard.errors.load"));
     } finally {
       setLoading(false);
     }
@@ -452,7 +478,7 @@ export default function TicketingDashboardPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <Loader2 className="mx-auto h-10 w-10 animate-spin text-slate-950" />
           <p className="mt-4 text-sm font-black text-slate-700">
-            Cargando dashboard...
+            {t("dashboard.loading")}
           </p>
         </div>
       </div>
@@ -468,7 +494,7 @@ export default function TicketingDashboardPage() {
           </div>
 
           <h1 className="mt-4 text-xl font-black text-slate-950">
-            Error cargando el dashboard
+            {t("dashboard.errors.title")}
           </h1>
 
           <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -481,7 +507,7 @@ export default function TicketingDashboardPage() {
             className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800"
           >
             <RefreshCw className="h-4 w-4" />
-            Intentar de nuevo
+            {t("dashboard.actions.retry")}
           </button>
         </div>
       </div>
@@ -534,12 +560,11 @@ export default function TicketingDashboardPage() {
           </p>
 
           <h1 className="mt-2 text-2xl font-black text-slate-950">
-            Dashboard
+            {t("dashboard.title")}
           </h1>
 
           <p className="mt-2 max-w-3xl text-sm font-semibold text-slate-500">
-            Resumen de reservas, ventas, pagos pendientes, comisiones y
-            rendimiento de vendedores.
+            {t("dashboard.subtitle")}
           </p>
         </div>
 
@@ -550,7 +575,7 @@ export default function TicketingDashboardPage() {
             className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refrescar
+            {t("dashboard.actions.refresh")}
           </button>
 
           <Link
@@ -558,7 +583,7 @@ export default function TicketingDashboardPage() {
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
-            Nueva reserva
+            {t("dashboard.actions.newBooking")}
           </Link>
         </div>
       </div>
@@ -569,67 +594,67 @@ export default function TicketingDashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          title="Reservas totales"
-          value={formatNumber(summary.total_bookings)}
-          subtitle={`${formatNumber(summary.today_bookings)} creadas hoy`}
+          title={t("dashboard.stats.totalBookings")}
+          value={formatNumber(summary.total_bookings, language)}
+          subtitle={t("dashboard.stats.createdToday", { count: formatNumber(summary.today_bookings, language) })}
           icon={Receipt}
         />
 
         <StatCard
-          title="Ventas totales"
-          value={formatMoney(summary.total_sales)}
-          subtitle="Ingresos generados"
+          title={t("dashboard.stats.totalSales")}
+          value={formatMoney(summary.total_sales, language)}
+          subtitle={t("dashboard.stats.revenueGenerated")}
           icon={BadgeDollarSign}
         />
 
         <StatCard
-          title="Pagos pendientes"
-          value={formatNumber(summary.pending_payments)}
-          subtitle={`${formatMoney(summary.balance_due)} por cobrar`}
+          title={t("dashboard.stats.pendingPayments")}
+          value={formatNumber(summary.pending_payments, language)}
+          subtitle={t("dashboard.stats.toCollect", { amount: formatMoney(summary.balance_due, language) })}
           icon={CreditCard}
         />
 
         <StatCard
-          title="Aprobaciones"
-          value={formatNumber(summary.pending_approvals)}
-          subtitle="Pendientes de supervisor"
+          title={t("dashboard.stats.approvals")}
+          value={formatNumber(summary.pending_approvals, language)}
+          subtitle={t("dashboard.stats.pendingSupervisor")}
           icon={Clock3}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
-          title="Confirmadas"
-          value={formatNumber(summary.confirmed_bookings)}
-          subtitle="Reservas confirmadas"
+          title={t("dashboard.stats.confirmed")}
+          value={formatNumber(summary.confirmed_bookings, language)}
+          subtitle={t("dashboard.stats.confirmedBookings")}
           icon={CheckCircle2}
         />
 
         <StatCard
-          title="Próximas"
-          value={formatNumber(summary.upcoming_bookings)}
-          subtitle="Servicios futuros"
+          title={t("dashboard.stats.upcoming")}
+          value={formatNumber(summary.upcoming_bookings, language)}
+          subtitle={t("dashboard.stats.futureServices")}
           icon={CalendarClock}
         />
 
         <StatCard
-          title="Comisión generada"
-          value={formatMoney(summary.commission_generated)}
-          subtitle={`${formatMoney(summary.commission_pending)} pendiente`}
+          title={t("dashboard.stats.commissionGenerated")}
+          value={formatMoney(summary.commission_generated, language)}
+          subtitle={t("dashboard.stats.pendingAmount", { amount: formatMoney(summary.commission_pending, language) })}
           icon={BarChart3}
         />
 
         <StatCard
-          title="Debe a compañía"
-          value={formatMoney(sellerDueToCompany)}
-          subtitle="Cobrado por vendedores"
+          title={t("dashboard.stats.owedToCompany")}
+          value={formatMoney(sellerDueToCompany, language)}
+          subtitle={t("dashboard.stats.collectedBySellers")}
           icon={Users}
         />
 
         <StatCard
-          title="Owner pendiente"
-          value={formatMoney(ownerPending)}
-          subtitle="Todavía no recibido por la compañía"
+          title={t("dashboard.stats.ownerPending")}
+          value={formatMoney(ownerPending, language)}
+          subtitle={t("dashboard.stats.notReceived")}
           icon={CreditCard}
         />
       </div>

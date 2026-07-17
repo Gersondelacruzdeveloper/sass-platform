@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type Plan = {
   id: number;
@@ -56,15 +57,6 @@ const initialForm: SignupForm = {
   subdomain: "",
 };
 
-const featureItems = [
-  "Public booking website with branded domain",
-  "Seller dashboard with permissions",
-  "Excursions, transfers, tickets and events",
-  "Automatic pickup time by hotel/location",
-  "Flexible payments: full, deposit, cash and pending",
-  "Seller commissions and rankings",
-];
-
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -73,13 +65,23 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function translateInterval(interval: string) {
-  if (interval === "month" || interval === "monthly") return "month";
-  if (interval === "year" || interval === "yearly") return "year";
+function translateInterval(
+  interval: string,
+  t: (key: string) => string
+) {
+  if (interval === "month" || interval === "monthly") {
+    return t("signup.plan.month");
+  }
+
+  if (interval === "year" || interval === "yearly") {
+    return t("signup.plan.year");
+  }
+
   return interval;
 }
 
 export default function TicketingSignupPage() {
+  const { t } = useTicketingAdminTranslation();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState("pro");
   const [loadingPlans, setLoadingPlans] = useState(true);
@@ -87,6 +89,33 @@ export default function TicketingSignupPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const [form, setForm] = useState<SignupForm>(initialForm);
+
+  const featureItems = [
+    t("signup.features.publicWebsite"),
+    t("signup.features.sellerDashboard"),
+    t("signup.features.products"),
+    t("signup.features.pickup"),
+    t("signup.features.payments"),
+    t("signup.features.commissions"),
+  ];
+
+  const highlightItems = [
+    {
+      icon: Globe2,
+      title: t("signup.highlights.publicWebsite.title"),
+      text: t("signup.highlights.publicWebsite.text"),
+    },
+    {
+      icon: MapPinned,
+      title: t("signup.highlights.pickupAutomation.title"),
+      text: t("signup.highlights.pickupAutomation.text"),
+    },
+    {
+      icon: BadgeCheck,
+      title: t("signup.highlights.sellerControl.title"),
+      text: t("signup.highlights.sellerControl.text"),
+    },
+  ];
 
   const publicUrlPreview = useMemo(() => {
     const slug =
@@ -113,7 +142,7 @@ export default function TicketingSignupPage() {
         }
       } catch (error) {
         console.error("Could not load subscription plans:", error);
-        setErrorMessage("Could not load subscription plans. Please try again.");
+        setErrorMessage(t("signup.errors.loadPlans"));
       } finally {
         setLoadingPlans(false);
       }
@@ -150,32 +179,32 @@ export default function TicketingSignupPage() {
     setErrorMessage("");
 
     if (!form.company_name.trim()) {
-      setErrorMessage("Please enter the company name.");
+      setErrorMessage(t("signup.errors.companyRequired"));
       return;
     }
 
     if (!form.owner_name.trim()) {
-      setErrorMessage("Please enter the owner name.");
+      setErrorMessage(t("signup.errors.ownerRequired"));
       return;
     }
 
     if (!form.email.trim()) {
-      setErrorMessage("Please enter the owner email.");
+      setErrorMessage(t("signup.errors.emailRequired"));
       return;
     }
 
     if (!form.password) {
-      setErrorMessage("Please enter a password.");
+      setErrorMessage(t("signup.errors.passwordRequired"));
       return;
     }
 
     if (form.password.length < 8) {
-      setErrorMessage("Password must have at least 8 characters.");
+      setErrorMessage(t("signup.errors.passwordLength"));
       return;
     }
 
     if (form.password !== form.confirmPassword) {
-      setErrorMessage("Passwords do not match.");
+      setErrorMessage(t("signup.errors.passwordMismatch"));
       return;
     }
 
@@ -199,7 +228,7 @@ export default function TicketingSignupPage() {
       setErrorMessage(
         error?.response?.data?.detail ||
           error?.response?.data?.error ||
-          "Could not create the checkout session. Please try again."
+          t("signup.errors.checkout")
       );
     } finally {
       setSubmitting(false);
@@ -227,27 +256,24 @@ export default function TicketingSignupPage() {
                   PCD Experiences
                 </p>
                 <p className="mt-1 text-sm font-bold text-white/45">
-                  Tours, Tickets & Transfers
+                  {t("signup.brand.tagline")}
                 </p>
               </div>
             </Link>
 
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white/80">
               <Sparkles className="h-4 w-4 text-amber-300" />
-              Built for tourism sellers
+              {t("signup.badge.builtForTourism")}
             </div>
           </div>
 
           <div>
             <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-5xl lg:text-7xl">
-              Launch your booking platform in minutes.
+              {t("signup.hero.title")}
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-white/65">
-              Create your organisation, activate your subscription and start
-              selling excursions, transfers, tickets, local events and custom
-              experiences with sellers, commissions, receipts and automatic
-              pickup schedules.
+              {t("signup.hero.description")}
             </p>
           </div>
 
@@ -267,23 +293,7 @@ export default function TicketingSignupPage() {
           </div>
 
           <div className="grid max-w-3xl gap-3 sm:grid-cols-3">
-            {[
-              {
-                icon: Globe2,
-                title: "Public website",
-                text: "SEO-ready booking site.",
-              },
-              {
-                icon: MapPinned,
-                title: "Pickup automation",
-                text: "Hotel-based pickup time.",
-              },
-              {
-                icon: BadgeCheck,
-                title: "Seller control",
-                text: "Permissions and sales links.",
-              },
-            ].map((item) => {
+            {highlightItems.map((item) => {
               const Icon = item.icon;
 
               return (
@@ -316,15 +326,15 @@ export default function TicketingSignupPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-                  Start your platform
+                  {t("signup.form.eyebrow")}
                 </p>
 
                 <h2 className="mt-2 text-2xl font-black text-slate-950">
-                  Create your Ticketing organisation
+                  {t("signup.form.title")}
                 </h2>
 
                 <p className="mt-2 text-sm font-semibold text-slate-500">
-                  Register your company and continue to payment.
+                  {t("signup.form.subtitle")}
                 </p>
               </div>
 
@@ -342,7 +352,7 @@ export default function TicketingSignupPage() {
             <div className="mt-6 space-y-4">
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Company / Organisation name
+                  {t("signup.fields.companyName")}
                 </span>
 
                 <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -353,7 +363,7 @@ export default function TicketingSignupPage() {
                     onChange={(event) =>
                       updateField("company_name", event.target.value)
                     }
-                    placeholder="Punta Cana VIP Tours"
+                    placeholder={t("signup.placeholders.companyName")}
                     className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-300"
                   />
                 </div>
@@ -362,7 +372,7 @@ export default function TicketingSignupPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Owner name
+                    {t("signup.fields.ownerName")}
                   </span>
 
                   <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -373,7 +383,7 @@ export default function TicketingSignupPage() {
                       onChange={(event) =>
                         updateField("owner_name", event.target.value)
                       }
-                      placeholder="Gerson De la Cruz"
+                      placeholder={t("signup.placeholders.ownerName")}
                       className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-300"
                     />
                   </div>
@@ -381,7 +391,7 @@ export default function TicketingSignupPage() {
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    WhatsApp / phone
+                    {t("signup.fields.phone")}
                   </span>
 
                   <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -400,7 +410,7 @@ export default function TicketingSignupPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Owner email
+                  {t("signup.fields.email")}
                 </span>
 
                 <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -421,7 +431,7 @@ export default function TicketingSignupPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Password
+                    {t("signup.fields.password")}
                   </span>
 
                   <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -442,7 +452,7 @@ export default function TicketingSignupPage() {
 
                 <label className="block">
                   <span className="text-sm font-bold text-slate-700">
-                    Confirm password
+                    {t("signup.fields.confirmPassword")}
                   </span>
 
                   <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -464,7 +474,7 @@ export default function TicketingSignupPage() {
 
               <label className="block">
                 <span className="text-sm font-bold text-slate-700">
-                  Public site subdomain
+                  {t("signup.fields.subdomain")}
                 </span>
 
                 <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 focus-within:border-slate-950">
@@ -474,25 +484,25 @@ export default function TicketingSignupPage() {
                     onChange={(event) =>
                       updateField("subdomain", event.target.value)
                     }
-                    placeholder="punta-cana-vip-tours"
+                    placeholder={t("signup.placeholders.subdomain")}
                     className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-300"
                   />
                 </div>
 
                 <p className="mt-2 text-xs font-bold text-slate-400">
-                  Preview:{" "}
+                  {t("signup.fields.preview")}:{" "}
                   <span className="text-slate-700">{publicUrlPreview}</span>
                 </p>
               </label>
 
               <div>
                 <p className="text-sm font-black text-slate-900">
-                  Choose your plan
+                  {t("signup.plan.choose")}
                 </p>
 
                 {loadingPlans ? (
                   <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-500">
-                    Loading plans...
+                    {t("signup.plan.loading")}
                   </div>
                 ) : (
                   <div className="mt-3 grid gap-3">
@@ -523,8 +533,8 @@ export default function TicketingSignupPage() {
                               </div>
 
                               <p className="mt-1 text-xs font-bold opacity-70">
-                                {plan.max_users} user logins ·{" "}
-                                {plan.max_employees} employees
+                                {plan.max_users} {t("signup.plan.userLogins")} ·{" "}
+                                {plan.max_employees} {t("signup.plan.employees")}
                               </p>
                             </div>
 
@@ -534,7 +544,7 @@ export default function TicketingSignupPage() {
                               </p>
 
                               <p className="text-xs font-bold opacity-70">
-                                /{translateInterval(plan.interval)}
+                                /{translateInterval(plan.interval, t)}
                               </p>
                             </div>
                           </div>
@@ -553,29 +563,28 @@ export default function TicketingSignupPage() {
                 {submitting ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Redirecting to payment...
+                    {t("signup.actions.redirecting")}
                   </>
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5" />
-                    Continue to payment
+                    {t("signup.actions.continueToPayment")}
                     <ArrowRight className="h-5 w-5" />
                   </>
                 )}
               </button>
 
               <p className="text-center text-xs font-semibold text-slate-400">
-                Secure checkout powered by Stripe. Your organisation is created
-                after subscription checkout.
+                {t("signup.footer.secureCheckout")}
               </p>
 
               <p className="text-center text-xs font-semibold text-slate-400">
-                Already have an account?{" "}
+                {t("signup.footer.haveAccount")}{" "}
                 <Link
                   to="/login"
                   className="font-black text-slate-950 hover:underline"
                 >
-                  Log in
+                  {t("signup.actions.login")}
                 </Link>
               </p>
             </div>

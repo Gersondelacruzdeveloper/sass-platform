@@ -33,6 +33,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   TicketScanResolution,
@@ -49,7 +50,13 @@ type ScannerStatus =
   | "admitting"
   | "admitted";
 
-function getErrorMessage(error: unknown): string {
+type Translate = (
+  key: string,
+  values?: Record<string, string | number | boolean | null | undefined>,
+  fallback?: string,
+) => string;
+
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -70,7 +77,7 @@ function getErrorMessage(error: unknown): string {
     return (
       response?.data?.detail ||
       response?.data?.message ||
-      "The ticket could not be processed."
+      fallback
     );
   }
 
@@ -78,7 +85,7 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "The ticket could not be processed.";
+  return fallback;
 }
 
 function createDeviceId(): string {
@@ -96,18 +103,25 @@ function createDeviceId(): string {
   return value;
 }
 
-function formatServiceDate(value?: string | null): string {
-  if (!value) return "Date not available";
+function formatServiceDate(
+  value?: string | null,
+  language: "en" | "es" = "en",
+  fallback = "Date not available",
+): string {
+  if (!value) return fallback;
 
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    },
+  ).format(date);
 }
 
 function getDaysUntilService(value?: string | null): number | null {
@@ -130,8 +144,9 @@ function getDaysUntilService(value?: string | null): number | null {
 }
 
 function getResultPresentation(
-  result?: string,
-  serviceDate?: string | null,
+  result: string | undefined,
+  serviceDate: string | null | undefined,
+  t: Translate,
 ) {
   const daysUntilService = getDaysUntilService(serviceDate);
 
@@ -144,10 +159,9 @@ function getResultPresentation(
         title: "text-emerald-950",
         body: "text-emerald-800",
         badge: "bg-emerald-100 text-emerald-700",
-        heading: "Ticket is ready for admission",
-        description:
-          "The ticket is valid for this venue. Review the guest quantity and confirm entry.",
-        actionLabel: "Scan next ticket",
+        heading: t("scanner.results.valid.heading"),
+        description: t("scanner.results.valid.description"),
+        actionLabel: t("scanner.actions.scanNext"),
       };
 
     case "wrong_date":
@@ -157,14 +171,17 @@ function getResultPresentation(
         title: "text-amber-950",
         body: "text-amber-800",
         badge: "bg-amber-100 text-amber-700",
-        heading: "Valid ticket — scheduled for another date",
+        heading: t("scanner.results.wrongDate.heading"),
         description:
           daysUntilService !== null && daysUntilService > 0
-            ? `This booking is valid, but entry begins in ${daysUntilService} ${
-                daysUntilService === 1 ? "day" : "days"
-              }. Ask the guest to return on the scheduled service date.`
-            : "This booking is valid, but it is not scheduled for today. Check the service date below before allowing entry.",
-        actionLabel: "Scan another ticket",
+            ? t(
+                daysUntilService === 1
+                  ? "scanner.results.wrongDate.futureOneDay"
+                  : "scanner.results.wrongDate.futureDays",
+                { count: daysUntilService },
+              )
+            : t("scanner.results.wrongDate.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     case "already_used":
@@ -174,10 +191,9 @@ function getResultPresentation(
         title: "text-amber-950",
         body: "text-amber-800",
         badge: "bg-amber-100 text-amber-700",
-        heading: "Ticket has already been fully used",
-        description:
-          "No admissions remain on this ticket. Review the booking details before taking any further action.",
-        actionLabel: "Scan another ticket",
+        heading: t("scanner.results.alreadyUsed.heading"),
+        description: t("scanner.results.alreadyUsed.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     case "wrong_partner":
@@ -187,10 +203,9 @@ function getResultPresentation(
         title: "text-violet-950",
         body: "text-violet-800",
         badge: "bg-violet-100 text-violet-700",
-        heading: "Ticket belongs to another venue",
-        description:
-          "The ticket is valid, but it must be scanned by the business entity shown in the ticket details.",
-        actionLabel: "Scan another ticket",
+        heading: t("scanner.results.wrongPartner.heading"),
+        description: t("scanner.results.wrongPartner.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     case "expired":
@@ -200,10 +215,9 @@ function getResultPresentation(
         title: "text-slate-950",
         body: "text-slate-700",
         badge: "bg-slate-200 text-slate-700",
-        heading: "Ticket has expired",
-        description:
-          "The permitted admission period has ended. Do not admit the guest without manager approval.",
-        actionLabel: "Scan another ticket",
+        heading: t("scanner.results.expired.heading"),
+        description: t("scanner.results.expired.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     case "revoked":
@@ -215,10 +229,9 @@ function getResultPresentation(
         title: "text-rose-950",
         body: "text-rose-800",
         badge: "bg-rose-100 text-rose-700",
-        heading: "Ticket is not eligible for admission",
-        description:
-          "This ticket was cancelled, refunded, or revoked. Do not admit the guest.",
-        actionLabel: "Scan another ticket",
+        heading: t("scanner.results.ineligible.heading"),
+        description: t("scanner.results.ineligible.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     default:
@@ -228,10 +241,9 @@ function getResultPresentation(
         title: "text-rose-950",
         body: "text-rose-800",
         badge: "bg-rose-100 text-rose-700",
-        heading: "Ticket could not be validated",
-        description:
-          "Review the message and ticket information below. Do not admit the guest unless the ticket becomes valid.",
-        actionLabel: "Scan another ticket",
+        heading: t("scanner.results.invalid.heading"),
+        description: t("scanner.results.invalid.description"),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
   }
 }
@@ -271,6 +283,7 @@ function getScanResolutionFromError(
 
 
 export default function TicketingScannerPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const {
     slug,
     companyName,
@@ -311,8 +324,10 @@ export default function TicketingScannerPage() {
   );
 
   const scannerName = useMemo(() => {
-    return `${companyName} Operations Scanner`;
-  }, [companyName]);
+    return t("scanner.device.name", {
+      company: companyName,
+    });
+  }, [companyName, t]);
 
   const stopCamera = useCallback(() => {
     try {
@@ -390,7 +405,7 @@ export default function TicketingScannerPage() {
         }
 
         setResolution(null);
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t("scanner.errors.process")));
         setStatus("invalid");
       }
     },
@@ -401,20 +416,21 @@ export default function TicketingScannerPage() {
       selectedEntity,
       selectedEntityId,
       slug,
+      t,
     ],
   );
 
   const startCamera = useCallback(async () => {
     if (!selectedEntityId) {
       setCameraError(
-        "Select a business entity before starting the scanner.",
+        t("scanner.errors.selectEntityBeforeCamera"),
       );
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError(
-        "Camera access is not supported by this browser.",
+        t("scanner.errors.cameraUnsupported"),
       );
       return;
     }
@@ -423,7 +439,7 @@ export default function TicketingScannerPage() {
 
     if (!video) {
       setCameraError(
-        "The camera preview is not ready. Reload the page and try again.",
+        t("scanner.errors.previewNotReady"),
       );
       return;
     }
@@ -495,21 +511,21 @@ export default function TicketingScannerPage() {
       const message =
         cameraRequestError instanceof Error
           ? cameraRequestError.message
-          : "The camera could not be started.";
+          : t("scanner.errors.cameraStart");
 
       if (
         message.toLowerCase().includes("permission") ||
         message.toLowerCase().includes("notallowed")
       ) {
         setCameraError(
-          "Camera permission was denied. Allow camera access for this website in Safari settings, then reload the page.",
+          t("scanner.errors.permissionDenied"),
         );
         return;
       }
 
       setCameraError(message);
     }
-  }, [resolveToken, selectedEntityId, stopCamera]);
+  }, [resolveToken, selectedEntityId, stopCamera, t]);
 
   useEffect(() => {
     setDeviceId(createDeviceId());
@@ -536,14 +552,14 @@ export default function TicketingScannerPage() {
           setSelectedEntityId(data[0].id);
         }
       } catch (requestError) {
-        setError(getErrorMessage(requestError));
+        setError(getErrorMessage(requestError, t("scanner.errors.process")));
       } finally {
         setLoadingEntities(false);
       }
     }
 
     void loadEntities();
-  }, [slug]);
+  }, [slug, t]);
 
   useEffect(() => {
     return () => {
@@ -576,12 +592,12 @@ export default function TicketingScannerPage() {
     event.preventDefault();
 
     if (!manualValue.trim()) {
-      setError("Enter or scan a ticket QR value.");
+      setError(t("scanner.errors.enterToken"));
       return;
     }
 
     if (!selectedEntityId) {
-      setError("Select the business entity checking in this guest.");
+      setError(t("scanner.errors.selectEntity"));
       return;
     }
 
@@ -615,7 +631,7 @@ export default function TicketingScannerPage() {
         navigator.vibrate([100, 60, 100]);
       }
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      setError(getErrorMessage(requestError, t("scanner.errors.process")));
       setStatus("invalid");
     }
   }
@@ -640,6 +656,7 @@ export default function TicketingScannerPage() {
   const presentation = getResultPresentation(
     resolution?.result,
     resolution?.service_date,
+    t,
   );
 
   return (
@@ -651,7 +668,7 @@ export default function TicketingScannerPage() {
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("scanner.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -661,10 +678,10 @@ export default function TicketingScannerPage() {
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                QR Ticket Scanner
+                {t("scanner.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Validate tickets and admit guests securely.
+                {t("scanner.subtitle")}
               </p>
             </div>
           </div>
@@ -672,10 +689,10 @@ export default function TicketingScannerPage() {
 
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-white/40">
-            Scanner device
+            {t("scanner.device.label")}
           </p>
           <p className="mt-1 max-w-[18rem] truncate text-sm font-bold text-white/80">
-            {deviceId || "Preparing device..."}
+            {deviceId || t("scanner.device.preparing")}
           </p>
         </div>
       </section>
@@ -686,7 +703,7 @@ export default function TicketingScannerPage() {
             <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Business entity
+                  {t("scanner.fields.businessEntity")}
                 </span>
 
                 <select
@@ -704,8 +721,8 @@ export default function TicketingScannerPage() {
                 >
                   <option value="">
                     {loadingEntities
-                      ? "Loading entities..."
-                      : "Select business entity"}
+                      ? t("scanner.fields.loadingEntities")
+                      : t("scanner.fields.selectEntity")}
                   </option>
 
                   {entities.map((entity) => (
@@ -724,7 +741,7 @@ export default function TicketingScannerPage() {
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-5 text-sm font-black text-rose-700 transition hover:bg-rose-100 sm:w-auto"
                   >
                     <CameraOff className="h-4 w-4" />
-                    Stop camera
+                    {t("scanner.actions.stopCamera")}
                   </button>
                 ) : (
                   <button
@@ -737,7 +754,7 @@ export default function TicketingScannerPage() {
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   >
                     <Camera className="h-4 w-4" />
-                    Start camera
+                    {t("scanner.actions.startCamera")}
                   </button>
                 )}
               </div>
@@ -762,13 +779,13 @@ export default function TicketingScannerPage() {
 
                   <p className="mt-5 text-lg font-black">
                     {resolution
-                      ? "QR captured successfully"
-                      : "Camera scanner is ready"}
+                      ? t("scanner.camera.captured")
+                      : t("scanner.camera.ready")}
                   </p>
                   <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/50">
                     {resolution
-                      ? "The camera has stopped. Review the ticket result and confirm entry."
-                      : "Select a business entity and start the rear camera. You can also enter the ticket token manually."}
+                      ? t("scanner.camera.capturedHelp")
+                      : t("scanner.camera.readyHelp")}
                   </p>
                 </div>
               )}
@@ -778,7 +795,7 @@ export default function TicketingScannerPage() {
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(2,6,23,.25),transparent_25%,transparent_75%,rgba(2,6,23,.35))]" />
                   <div className="pointer-events-none absolute inset-1/2 h-52 w-52 -translate-x-1/2 -translate-y-1/2 rounded-[2rem] border-4 border-white/80 shadow-[0_0_0_999px_rgba(2,6,23,.3)] sm:h-64 sm:w-64" />
                   <div className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/70 px-4 py-2 text-xs font-black text-white backdrop-blur">
-                    Place the QR code inside the frame
+                    {t("scanner.camera.frameHelp")}
                   </div>
                 </>
               )}
@@ -801,10 +818,10 @@ export default function TicketingScannerPage() {
               </div>
               <div>
                 <h2 className="font-black text-slate-950">
-                  Manual ticket entry
+                  {t("scanner.manual.title")}
                 </h2>
                 <p className="mt-1 text-xs font-semibold text-slate-400">
-                  Paste the UUID or full QR verification URL.
+                  {t("scanner.manual.subtitle")}
                 </p>
               </div>
             </div>
@@ -818,7 +835,7 @@ export default function TicketingScannerPage() {
                 onChange={(event) =>
                   setManualValue(event.target.value)
                 }
-                placeholder="Paste ticket token or QR URL..."
+                placeholder={t("scanner.manual.placeholder")}
                 rows={3}
                 className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
@@ -826,7 +843,7 @@ export default function TicketingScannerPage() {
               <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Guests to admit
+                    {t("scanner.fields.guestsToAdmit")}
                   </span>
                   <input
                     type="number"
@@ -859,7 +876,7 @@ export default function TicketingScannerPage() {
                   ) : (
                     <ShieldCheck className="h-4 w-4" />
                   )}
-                  Validate ticket
+                  {t("scanner.actions.validate")}
                 </button>
               </div>
             </form>
@@ -877,12 +894,10 @@ export default function TicketingScannerPage() {
               </div>
 
               <h2 className="mt-5 text-xl font-black text-slate-950">
-                Waiting for a ticket
+                {t("scanner.waiting.title")}
               </h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                Scan a customer QR code or enter the ticket token
-                manually. Ticket details will appear here before
-                admission is confirmed.
+                {t("scanner.waiting.description")}
               </p>
             </article>
           )}
@@ -894,7 +909,7 @@ export default function TicketingScannerPage() {
               </div>
 
               <h2 className="mt-5 text-xl font-black text-rose-950">
-                Ticket could not be processed
+                {t("scanner.errors.title")}
               </h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-rose-800">
                 {error}
@@ -906,7 +921,7 @@ export default function TicketingScannerPage() {
                 className="mt-5 inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-rose-700 px-4 text-sm font-black text-white transition hover:bg-rose-800"
               >
                 <RefreshCw className="h-4 w-4" />
-                Scan another ticket
+                {t("scanner.actions.scanAnother")}
               </button>
             </article>
           )}
@@ -936,10 +951,11 @@ export default function TicketingScannerPage() {
                   }`}
                 >
                   {status === "admitted"
-                    ? "Admitted"
-                    : String(resolution.result).replaceAll(
-                        "_",
-                        " ",
+                    ? t("scanner.statuses.admitted")
+                    : t(
+                        `scanner.resultLabels.${String(resolution.result)}`,
+                        undefined,
+                        String(resolution.result).replaceAll("_", " "),
                       )}
                 </span>
               </div>
@@ -948,7 +964,7 @@ export default function TicketingScannerPage() {
                 className={`mt-5 text-2xl font-black ${presentation.title}`}
               >
                 {status === "admitted"
-                  ? "Guests admitted successfully"
+                  ? t("scanner.admitted.title")
                   : presentation.heading}
               </h2>
 
@@ -956,7 +972,7 @@ export default function TicketingScannerPage() {
                 className={`mt-2 text-sm font-semibold leading-6 ${presentation.body}`}
               >
                 {status === "admitted"
-                  ? "The admission has been recorded and the ticket balance has been updated."
+                  ? t("scanner.admitted.description")
                   : presentation.description}
               </p>
 
@@ -967,7 +983,7 @@ export default function TicketingScannerPage() {
                   <p
                     className={`mt-2 text-xs font-bold ${presentation.body}`}
                   >
-                    System message: {resolution.message}
+                    {t("scanner.labels.systemMessage")}: {resolution.message}
                   </p>
                 )}
 
@@ -980,15 +996,17 @@ export default function TicketingScannerPage() {
 
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-600">
-                        Valid service date
+                        {t("scanner.labels.validServiceDate")}
                       </p>
                       <p className="mt-1 text-base font-black text-amber-950">
                         {formatServiceDate(
                           resolution.service_date,
+                          language,
+                          t("scanner.dateUnavailable"),
                         )}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-amber-700">
-                        Entry must not be confirmed before this date.
+                        {t("scanner.labels.entryNotBeforeDate")}
                       </p>
                     </div>
                   </div>
@@ -997,7 +1015,7 @@ export default function TicketingScannerPage() {
               <div className="mt-5 space-y-3 rounded-3xl bg-white/80 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                    Booking
+                    {t("scanner.labels.booking")}
                   </span>
                   <span className="text-sm font-black text-slate-900">
                     {resolution.booking_code || "—"}
@@ -1006,7 +1024,7 @@ export default function TicketingScannerPage() {
 
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                    Product
+                    {t("scanner.labels.product")}
                   </span>
                   <span className="max-w-[60%] text-right text-sm font-black text-slate-900">
                     {resolution.product_name || "—"}
@@ -1015,7 +1033,7 @@ export default function TicketingScannerPage() {
 
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                    Entity
+                    {t("scanner.labels.entity")}
                   </span>
                   <span className="max-w-[60%] text-right text-sm font-black text-slate-900">
                     {resolution.business_entity_name ||
@@ -1026,23 +1044,31 @@ export default function TicketingScannerPage() {
 
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                    Service date
+                    {t("scanner.labels.serviceDate")}
                   </span>
                   <span className="max-w-[65%] text-right text-sm font-black text-slate-900">
                     {formatServiceDate(
                       resolution.service_date,
+                      language,
+                      t("scanner.dateUnavailable"),
                     )}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                    Booking status
+                    {t("scanner.labels.booking")} status
                   </span>
                   <span className="text-right text-sm font-black capitalize text-slate-900">
-                    {String(
-                      resolution.booking_status || "—",
-                    ).replaceAll("_", " ")}
+                    {t(
+                      `scanner.bookingStatuses.${String(
+                        resolution.booking_status || "unknown",
+                      )}`,
+                      undefined,
+                      String(
+                        resolution.booking_status || "—",
+                      ).replaceAll("_", " "),
+                    )}
                   </span>
                 </div>
 
@@ -1052,7 +1078,7 @@ export default function TicketingScannerPage() {
                       {resolution.total_admissions ?? 0}
                     </p>
                     <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                      Total
+                      {t("scanner.labels.total")}
                     </p>
                   </div>
 
@@ -1061,7 +1087,7 @@ export default function TicketingScannerPage() {
                       {resolution.admitted_quantity ?? 0}
                     </p>
                     <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                      Used
+                      {t("scanner.labels.used")}
                     </p>
                   </div>
 
@@ -1070,7 +1096,7 @@ export default function TicketingScannerPage() {
                       {remainingAdmissions}
                     </p>
                     <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
-                      Remaining
+                      {t("scanner.labels.remaining")}
                     </p>
                   </div>
                 </div>
@@ -1083,7 +1109,7 @@ export default function TicketingScannerPage() {
                       <span
                         className={`mb-2 block text-sm font-black ${presentation.body}`}
                       >
-                        Number of guests entering
+                        {t("scanner.fields.numberEntering")}
                       </span>
                       <select
                         value={requestedQuantity}
@@ -1114,7 +1140,7 @@ export default function TicketingScannerPage() {
                     ) : (
                       <Users className="h-4 w-4" />
                     )}
-                    Confirm entry
+                    {t("scanner.actions.confirmEntry")}
                   </button>
                 </div>
               )}
@@ -1127,7 +1153,7 @@ export default function TicketingScannerPage() {
                 >
                   <RefreshCw className="h-4 w-4" />
                   {status === "admitted"
-                    ? "Scan next ticket"
+                    ? t("scanner.actions.scanNext")
                     : presentation.actionLabel}
                 </button>
               )}
@@ -1142,11 +1168,11 @@ export default function TicketingScannerPage() {
 
               <div>
                 <p className="font-black text-slate-950">
-                  Current scanner location
+                  {t("scanner.location.title")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-slate-500">
                   {selectedEntity?.name ||
-                    "No business entity selected"}
+                    t("scanner.location.noneSelected")}
                 </p>
               </div>
             </div>

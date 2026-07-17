@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type {
   CreatePayload,
@@ -81,7 +82,7 @@ const initialFormState: AgreementFormState = {
   is_active: true,
 };
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -103,7 +104,7 @@ function getErrorMessage(error: unknown): string {
       response?.data?.detail ||
       response?.data?.message ||
       response?.data?.non_field_errors?.[0] ||
-      "Could not save the agreement."
+      fallback
     );
   }
 
@@ -111,29 +112,48 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Could not save the agreement.";
+  return fallback;
 }
 
-function formatAgreementType(value?: string | null): string {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+function formatAgreementValue(
+  value: string | null | undefined,
+  prefix: string,
+  t: (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+    fallback?: string,
+  ) => string,
+): string {
+  const normalized = String(value || "");
+
+  return t(
+    `${prefix}.${normalized}`,
+    undefined,
+    normalized
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  );
 }
 
 function formatMoney(
   value: string | number | null | undefined,
   currency = "USD",
+  language: "en" | "es" = "en",
 ): string {
   const amount = Number(value ?? 0);
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(Number.isFinite(amount) ? amount : 0);
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    },
+  ).format(Number.isFinite(amount) ? amount : 0);
 }
 
 export default function TicketingBusinessAgreementsPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { slug } =
     useOutletContext<TicketingDashboardOutletContext>();
 
@@ -203,7 +223,7 @@ export default function TicketingBusinessAgreementsPage() {
     } catch (error) {
       setState({
         loading: false,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessAgreements.errors.save")),
       });
     }
   }, [
@@ -211,6 +231,7 @@ export default function TicketingBusinessAgreementsPage() {
     selectedProductId,
     selectedStatus,
     slug,
+    t,
   ]);
 
   useEffect(() => {
@@ -315,8 +336,7 @@ export default function TicketingBusinessAgreementsPage() {
     if (!form.business_entity_id || !form.product_id) {
       setState((current) => ({
         ...current,
-        error:
-          "Select both a business entity and a product.",
+        error: t("businessAgreements.errors.selectEntityAndProduct"),
       }));
       return;
     }
@@ -382,7 +402,7 @@ export default function TicketingBusinessAgreementsPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessAgreements.errors.save")),
       }));
     } finally {
       setSaving(false);
@@ -393,7 +413,9 @@ export default function TicketingBusinessAgreementsPage() {
     agreement: ProductBusinessAgreement,
   ) {
     const confirmed = window.confirm(
-      `Delete agreement "${agreement.name}"? Historical snapshots will remain unchanged.`,
+      t("businessAgreements.confirm.delete", {
+        name: agreement.name,
+      }),
     );
 
     if (!confirmed) return;
@@ -409,7 +431,7 @@ export default function TicketingBusinessAgreementsPage() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error, t("businessAgreements.errors.save")),
       }));
     } finally {
       setDeletingId(null);
@@ -425,7 +447,7 @@ export default function TicketingBusinessAgreementsPage() {
             className="mb-4 inline-flex items-center gap-2 text-sm font-black text-white/60 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
-            Operations dashboard
+            {t("businessAgreements.navigation.operationsDashboard")}
           </Link>
 
           <div className="flex items-center gap-3">
@@ -435,10 +457,10 @@ export default function TicketingBusinessAgreementsPage() {
 
             <div>
               <h1 className="text-3xl font-black tracking-tight">
-                Business Agreements
+                {t("businessAgreements.title")}
               </h1>
               <p className="mt-1 text-sm font-semibold text-white/50">
-                Define commercial rules between products and partners.
+                {t("businessAgreements.subtitle")}
               </p>
             </div>
           </div>
@@ -450,7 +472,7 @@ export default function TicketingBusinessAgreementsPage() {
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
         >
           <Plus className="h-4 w-4" />
-          Add agreement
+          {t("businessAgreements.actions.add")}
         </button>
       </section>
 
@@ -459,7 +481,7 @@ export default function TicketingBusinessAgreementsPage() {
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-black">
-              Agreement operation failed
+              {t("businessAgreements.errors.title")}
             </p>
             <p className="mt-1 text-sm font-semibold text-rose-700">
               {state.error}
@@ -471,7 +493,7 @@ export default function TicketingBusinessAgreementsPage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Total agreements
+            {t("businessAgreements.stats.total")}
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950">
             {summary.total}
@@ -480,7 +502,7 @@ export default function TicketingBusinessAgreementsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Active agreements
+            {t("businessAgreements.stats.active")}
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {summary.active}
@@ -489,7 +511,7 @@ export default function TicketingBusinessAgreementsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Checked-in basis
+            {t("businessAgreements.stats.checkedIn")}
           </p>
           <p className="mt-2 text-2xl font-black text-blue-700">
             {summary.checkedIn}
@@ -498,7 +520,7 @@ export default function TicketingBusinessAgreementsPage() {
 
         <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">
-            Partner collects
+            {t("businessAgreements.stats.partnerCollects")}
           </p>
           <p className="mt-2 text-2xl font-black text-amber-700">
             {summary.partnerCollects}
@@ -510,7 +532,7 @@ export default function TicketingBusinessAgreementsPage() {
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_auto]">
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Search
+              {t("businessAgreements.filters.search")}
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -519,7 +541,7 @@ export default function TicketingBusinessAgreementsPage() {
                 onChange={(event) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Agreement, product or partner"
+                placeholder={t("businessAgreements.filters.searchPlaceholder")}
                 className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
               />
             </div>
@@ -527,7 +549,7 @@ export default function TicketingBusinessAgreementsPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Business entity
+              {t("businessAgreements.filters.businessEntity")}
             </span>
             <select
               value={selectedEntityId}
@@ -540,7 +562,7 @@ export default function TicketingBusinessAgreementsPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All entities</option>
+              <option value="">{t("businessAgreements.filters.allEntities")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
                   {entity.name}
@@ -551,7 +573,7 @@ export default function TicketingBusinessAgreementsPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Product
+              {t("businessAgreements.filters.product")}
             </span>
             <select
               value={selectedProductId}
@@ -564,7 +586,7 @@ export default function TicketingBusinessAgreementsPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All products</option>
+              <option value="">{t("businessAgreements.filters.allProducts")}</option>
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
                   {product.name}
@@ -575,7 +597,7 @@ export default function TicketingBusinessAgreementsPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700">
-              Status
+              {t("businessAgreements.filters.status")}
             </span>
             <select
               value={selectedStatus}
@@ -584,9 +606,9 @@ export default function TicketingBusinessAgreementsPage() {
               }
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             >
-              <option value="">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="">{t("businessAgreements.filters.allStatuses")}</option>
+              <option value="active">{t("businessAgreements.statuses.active")}</option>
+              <option value="inactive">{t("businessAgreements.statuses.inactive")}</option>
             </select>
           </label>
 
@@ -596,7 +618,7 @@ export default function TicketingBusinessAgreementsPage() {
             className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("businessAgreements.actions.refresh")}
           </button>
         </div>
       </section>
@@ -604,11 +626,15 @@ export default function TicketingBusinessAgreementsPage() {
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
           <h2 className="text-xl font-black text-slate-950">
-            Agreement directory
+            {t("businessAgreements.directory.title")}
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-400">
-            {filteredAgreements.length} record
-            {filteredAgreements.length === 1 ? "" : "s"}
+            {t(
+              filteredAgreements.length === 1
+                ? "businessAgreements.directory.oneRecord"
+                : "businessAgreements.directory.records",
+              { count: filteredAgreements.length },
+            )}
           </p>
         </div>
 
@@ -616,17 +642,17 @@ export default function TicketingBusinessAgreementsPage() {
           <div className="flex min-h-72 items-center justify-center">
             <div className="flex items-center gap-3 text-sm font-black text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading agreements...
+              {t("businessAgreements.loading")}
             </div>
           </div>
         ) : filteredAgreements.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <Handshake className="h-10 w-10 text-slate-300" />
             <p className="mt-4 text-lg font-black text-slate-700">
-              No agreements found
+              {t("businessAgreements.empty.title")}
             </p>
             <p className="mt-2 max-w-md text-sm font-semibold text-slate-400">
-              Create a commercial agreement between a product and business entity.
+              {t("businessAgreements.empty.description")}
             </p>
           </div>
         ) : (
@@ -654,7 +680,9 @@ export default function TicketingBusinessAgreementsPage() {
                         : "bg-slate-100 text-slate-500"
                     }`}
                   >
-                    {agreement.is_active ? "Active" : "Inactive"}
+                    {agreement.is_active
+                      ? t("businessAgreements.statuses.active")
+                      : t("businessAgreements.statuses.inactive")}
                   </span>
                 </div>
 
@@ -666,29 +694,33 @@ export default function TicketingBusinessAgreementsPage() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Agreement type
+                      {t("businessAgreements.labels.agreementType")}
                     </p>
                     <p className="mt-2 font-black text-slate-900">
-                      {formatAgreementType(
+                      {formatAgreementValue(
                         agreement.agreement_type,
+                        "businessAgreements.agreementTypes",
+                        t,
                       )}
                     </p>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Settlement basis
+                      {t("businessAgreements.labels.settlementBasis")}
                     </p>
                     <p className="mt-2 font-black text-slate-900">
-                      {formatAgreementType(
+                      {formatAgreementValue(
                         agreement.settlement_basis,
+                        "businessAgreements.settlementBasis",
+                        t,
                       )}
                     </p>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Partner share
+                      {t("businessAgreements.labels.partnerShare")}
                     </p>
                     <p className="mt-2 font-black text-slate-900">
                       {Number(agreement.partner_percentage) > 0
@@ -696,13 +728,14 @@ export default function TicketingBusinessAgreementsPage() {
                         : formatMoney(
                             agreement.partner_fixed_amount,
                             agreement.currency,
+                            language,
                           )}
                     </p>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                      Platform share
+                      {t("businessAgreements.labels.platformShare")}
                     </p>
                     <p className="mt-2 font-black text-slate-900">
                       {Number(agreement.platform_percentage) > 0
@@ -710,6 +743,7 @@ export default function TicketingBusinessAgreementsPage() {
                         : formatMoney(
                             agreement.platform_fixed_amount,
                             agreement.currency,
+                            language,
                           )}
                     </p>
                   </div>
@@ -717,8 +751,10 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
-                    {formatAgreementType(
+                    {formatAgreementValue(
                       agreement.collection_mode,
+                      "businessAgreements.collectionModes",
+                      t,
                     )}
                   </span>
 
@@ -727,7 +763,9 @@ export default function TicketingBusinessAgreementsPage() {
                   </span>
 
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                    {agreement.settlement_cycle_days} days
+                    {t("businessAgreements.labels.days", {
+                      count: agreement.settlement_cycle_days,
+                    })}
                   </span>
                 </div>
 
@@ -740,7 +778,7 @@ export default function TicketingBusinessAgreementsPage() {
                     className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                   >
                     <Edit3 className="h-4 w-4" />
-                    Edit
+                    {t("businessAgreements.actions.edit")}
                   </button>
 
                   <button
@@ -756,7 +794,7 @@ export default function TicketingBusinessAgreementsPage() {
                     ) : (
                       <Trash2 className="h-4 w-4" />
                     )}
-                    Delete
+                    {t("businessAgreements.actions.delete")}
                   </button>
                 </div>
               </article>
@@ -772,11 +810,11 @@ export default function TicketingBusinessAgreementsPage() {
               <div>
                 <h2 className="text-xl font-black text-slate-950">
                   {editingAgreement
-                    ? "Edit agreement"
-                    : "Add agreement"}
+                    ? t("businessAgreements.modal.editTitle")
+                    : t("businessAgreements.modal.addTitle")}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Define settlement, collection and entitlement rules.
+                  {t("businessAgreements.modal.subtitle")}
                 </p>
               </div>
 
@@ -813,7 +851,7 @@ export default function TicketingBusinessAgreementsPage() {
                     required
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
-                    <option value="">Select entity</option>
+                    <option value="">{t("businessAgreements.form.selectEntity")}</option>
                     {entities.map((entity) => (
                       <option key={entity.id} value={entity.id}>
                         {entity.name}
@@ -838,7 +876,7 @@ export default function TicketingBusinessAgreementsPage() {
                     required
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
-                    <option value="">Select product</option>
+                    <option value="">{t("businessAgreements.form.selectProduct")}</option>
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name}
@@ -849,7 +887,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Agreement name
+                    {t("businessAgreements.form.name")}
                   </span>
                   <input
                     value={form.name}
@@ -866,7 +904,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Version
+                    {t("businessAgreements.form.version")}
                   </span>
                   <input
                     type="number"
@@ -900,18 +938,20 @@ export default function TicketingBusinessAgreementsPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
                     <option value="fixed_partner_net">
-                      Fixed partner net
+                      {t("businessAgreements.agreementTypes.fixed_partner_net")}
                     </option>
                     <option value="percentage_split">
-                      Percentage split
+                      {t("businessAgreements.agreementTypes.percentage_split")}
                     </option>
                     <option value="fixed_platform_commission">
-                      Fixed platform commission
+                      {t("businessAgreements.agreementTypes.fixed_platform_commission")}
                     </option>
                     <option value="percentage_platform_commission">
-                      Percentage platform commission
+                      {t("businessAgreements.agreementTypes.percentage_platform_commission")}
                     </option>
-                    <option value="custom">Custom</option>
+                    <option value="custom">
+                      {t("businessAgreements.agreementTypes.custom")}
+                    </option>
                   </select>
                 </label>
 
@@ -931,23 +971,23 @@ export default function TicketingBusinessAgreementsPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
                     <option value="confirmed_booking">
-                      Confirmed booking
+                      {t("businessAgreements.settlementBasis.confirmed_booking")}
                     </option>
                     <option value="checked_in">
-                      Checked in
+                      {t("businessAgreements.settlementBasis.checked_in")}
                     </option>
                     <option value="fully_paid_booking">
-                      Fully paid booking
+                      {t("businessAgreements.settlementBasis.fully_paid_booking")}
                     </option>
                     <option value="provider_confirmation">
-                      Provider confirmation
+                      {t("businessAgreements.settlementBasis.provider_confirmation")}
                     </option>
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Collection mode
+                    {t("businessAgreements.form.collectionMode")}
                   </span>
                   <select
                     value={form.collection_mode}
@@ -960,18 +1000,20 @@ export default function TicketingBusinessAgreementsPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
                   >
                     <option value="platform_collects">
-                      Platform collects
+                      {t("businessAgreements.collectionModes.platform_collects")}
                     </option>
                     <option value="partner_collects">
-                      Partner collects
+                      {t("businessAgreements.collectionModes.partner_collects")}
                     </option>
                     <option value="seller_collects">
-                      Seller collects
+                      {t("businessAgreements.collectionModes.seller_collects")}
                     </option>
                     <option value="customer_pays_partner">
-                      Customer pays partner
+                      {t("businessAgreements.collectionModes.customer_pays_partner")}
                     </option>
-                    <option value="mixed">Mixed</option>
+                    <option value="mixed">
+                      {t("businessAgreements.collectionModes.mixed")}
+                    </option>
                   </select>
                 </label>
               </div>
@@ -980,19 +1022,19 @@ export default function TicketingBusinessAgreementsPage() {
                 {[
                   [
                     "partner_fixed_amount",
-                    "Partner fixed amount",
+                    t("businessAgreements.form.partnerFixedAmount"),
                   ],
                   [
                     "partner_percentage",
-                    "Partner percentage",
+                    t("businessAgreements.form.partnerPercentage"),
                   ],
                   [
                     "platform_fixed_amount",
-                    "Platform fixed amount",
+                    t("businessAgreements.form.platformFixedAmount"),
                   ],
                   [
                     "platform_percentage",
-                    "Platform percentage",
+                    t("businessAgreements.form.platformPercentage"),
                   ],
                 ].map(([key, label]) => (
                   <label key={key} className="block">
@@ -1026,7 +1068,7 @@ export default function TicketingBusinessAgreementsPage() {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Currency
+                    {t("businessAgreements.form.currency")}
                   </span>
                   <input
                     value={form.currency}
@@ -1043,7 +1085,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Settlement cycle
+                    {t("businessAgreements.form.settlementCycle")}
                   </span>
                   <input
                     type="number"
@@ -1062,7 +1104,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Payment due days
+                    {t("businessAgreements.form.paymentDueDays")}
                   </span>
                   <input
                     type="number"
@@ -1081,7 +1123,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4">
                   <span className="text-sm font-black text-slate-700">
-                    Seller commission included
+                    {t("businessAgreements.form.sellerCommissionIncluded")}
                   </span>
                   <input
                     type="checkbox"
@@ -1103,7 +1145,7 @@ export default function TicketingBusinessAgreementsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Effective from
+                    {t("businessAgreements.form.effectiveFrom")}
                   </span>
                   <input
                     type="date"
@@ -1121,7 +1163,7 @@ export default function TicketingBusinessAgreementsPage() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-black text-slate-700">
-                    Effective until
+                    {t("businessAgreements.form.effectiveUntil")}
                   </span>
                   <input
                     type="date"
@@ -1139,7 +1181,7 @@ export default function TicketingBusinessAgreementsPage() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-black text-slate-700">
-                  Terms
+                  {t("businessAgreements.form.terms")}
                 </span>
                 <textarea
                   value={form.terms}
@@ -1156,7 +1198,7 @@ export default function TicketingBusinessAgreementsPage() {
 
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4">
                 <span className="text-sm font-black text-slate-700">
-                  Agreement is active
+                  {t("businessAgreements.form.isActive")}
                 </span>
                 <input
                   type="checkbox"
@@ -1180,7 +1222,7 @@ export default function TicketingBusinessAgreementsPage() {
                   }}
                   className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  Cancel
+                  {t("businessAgreements.actions.cancel")}
                 </button>
 
                 <button
@@ -1197,8 +1239,8 @@ export default function TicketingBusinessAgreementsPage() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                   )}
                   {editingAgreement
-                    ? "Save changes"
-                    : "Create agreement"}
+                    ? t("businessAgreements.actions.saveChanges")
+                    : t("businessAgreements.actions.create")}
                 </button>
               </div>
             </form>

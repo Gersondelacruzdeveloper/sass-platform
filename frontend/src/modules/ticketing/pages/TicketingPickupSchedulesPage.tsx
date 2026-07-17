@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type ProductType =
   | "excursion"
@@ -161,16 +162,20 @@ type ScheduleForm = {
   is_active: boolean;
 };
 
-const dayOptions = [
-  { value: "", label: "Every day / fallback" },
-  { value: "0", label: "Monday" },
-  { value: "1", label: "Tuesday" },
-  { value: "2", label: "Wednesday" },
-  { value: "3", label: "Thursday" },
-  { value: "4", label: "Friday" },
-  { value: "5", label: "Saturday" },
-  { value: "6", label: "Sunday" },
-];
+type Translate = (key: string) => string;
+
+function getDayOptions(t: Translate) {
+  return [
+    { value: "", label: t("pickupSchedules.days.fallback") },
+    { value: "0", label: t("pickupSchedules.days.monday") },
+    { value: "1", label: t("pickupSchedules.days.tuesday") },
+    { value: "2", label: t("pickupSchedules.days.wednesday") },
+    { value: "3", label: t("pickupSchedules.days.thursday") },
+    { value: "4", label: t("pickupSchedules.days.friday") },
+    { value: "5", label: t("pickupSchedules.days.saturday") },
+    { value: "6", label: t("pickupSchedules.days.sunday") },
+  ];
+}
 
 const emptyZoneForm: ZoneForm = {
   name: "",
@@ -240,37 +245,42 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function formatTime(value?: string | null) {
+function formatTime(
+  value: string | null | undefined,
+  language: "en" | "es"
+) {
   if (!value) return "—";
 
   const [hoursRaw, minutesRaw] = value.split(":");
   const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw || "0");
 
-  if (Number.isNaN(hours)) return value;
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
 
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const hour12 = hours % 12 || 12;
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
 
-  return `${hour12}:${minutesRaw || "00"} ${suffix}`;
+  return new Intl.DateTimeFormat(language === "es" ? "es-DO" : "en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
-function dayLabel(value: number | null | undefined) {
-  if (value === null || value === undefined) return "Every day";
+function dayLabel(
+  value: number | null | undefined,
+  dayOptions: { value: string; label: string }[],
+  fallback: string
+) {
+  if (value === null || value === undefined) return fallback;
 
-  return dayOptions.find((item) => item.value === String(value))?.label || "Every day";
+  return (
+    dayOptions.find((item) => item.value === String(value))?.label || fallback
+  );
 }
 
-function productTypeLabel(value: ProductType) {
-  if (value === "excursion") return "Excursion";
-  if (value === "transfer") return "Transfer";
-  if (value === "ticket") return "Ticket";
-  if (value === "event") return "Event";
-  if (value === "nightlife") return "Nightlife";
-  return "Custom";
+function productTypeLabel(value: ProductType, t: Translate) {
+  return t(`pickupSchedules.productTypes.${value}`);
 }
-
-
-const importDayOptions = dayOptions.filter((option) => option.value !== "");
 
 function toggleStringValue(values: string[], value: string) {
   return values.includes(value)
@@ -386,7 +396,14 @@ async function buildImportFileForSelectedDays(
 }
 
 export default function TicketingPickupSchedulesPage() {
+  const { language, t } = useTicketingAdminTranslation();
   const { organisationSlug } = useParams<{ organisationSlug: string }>();
+
+  const dayOptions = useMemo(() => getDayOptions(t), [t]);
+  const importDayOptions = useMemo(
+    () => dayOptions.filter((option) => option.value !== ""),
+    [dayOptions]
+  );
 
   const requestParams = useMemo(
     () => getRequestParams(organisationSlug),
@@ -471,7 +488,7 @@ export default function TicketingPickupSchedulesPage() {
       setError(
         getErrorMessage(
           err,
-          "No se pudo cargar la configuración de pickup."
+          t("pickupSchedules.errors.load")
         )
       );
     } finally {
@@ -575,7 +592,7 @@ export default function TicketingPickupSchedulesPage() {
 
   async function saveZone() {
     if (!zoneForm.name.trim()) {
-      setError("Zone name is required.");
+      setError(t("pickupSchedules.validation.zoneNameRequired"));
       return;
     }
 
@@ -594,18 +611,18 @@ export default function TicketingPickupSchedulesPage() {
         await api.patch(`/ticketing/pickup-zones/${zoneForm.id}/`, payload, {
           params: requestParams,
         });
-        setSavedMessage("Pickup zone updated.");
+        setSavedMessage(t("pickupSchedules.messages.zoneUpdated"));
       } else {
         await api.post("/ticketing/pickup-zones/", payload, {
           params: requestParams,
         });
-        setSavedMessage("Pickup zone created.");
+        setSavedMessage(t("pickupSchedules.messages.zoneCreated"));
       }
 
       resetZoneForm();
       await loadData();
     } catch (err: any) {
-      setError(getErrorMessage(err, "Could not save pickup zone."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.saveZone")));
     } finally {
       setSavingZone(false);
     }
@@ -613,7 +630,7 @@ export default function TicketingPickupSchedulesPage() {
 
   async function saveLocation() {
     if (!locationForm.name.trim()) {
-      setError("Hotel / pickup location name is required.");
+      setError(t("pickupSchedules.validation.locationNameRequired"));
       return;
     }
 
@@ -647,18 +664,18 @@ export default function TicketingPickupSchedulesPage() {
             params: requestParams,
           }
         );
-        setSavedMessage("Hotel / pickup location updated.");
+        setSavedMessage(t("pickupSchedules.messages.locationUpdated"));
       } else {
         await api.post("/ticketing/pickup-locations/", payload, {
           params: requestParams,
         });
-        setSavedMessage("Hotel / pickup location created.");
+        setSavedMessage(t("pickupSchedules.messages.locationCreated"));
       }
 
       resetLocationForm();
       await loadData();
     } catch (err: any) {
-      setError(getErrorMessage(err, "Could not save pickup location."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.saveLocation")));
     } finally {
       setSavingLocation(false);
     }
@@ -666,17 +683,17 @@ export default function TicketingPickupSchedulesPage() {
 
   async function saveSchedule() {
     if (!scheduleForm.product_id) {
-      setError("Select a product.");
+      setError(t("pickupSchedules.validation.selectProduct"));
       return;
     }
 
     if (!scheduleForm.pickup_location_id) {
-      setError("Select a hotel / pickup location.");
+      setError(t("pickupSchedules.validation.selectLocation"));
       return;
     }
 
     if (!scheduleForm.pickup_time) {
-      setError("Pickup time is required.");
+      setError(t("pickupSchedules.validation.pickupTimeRequired"));
       return;
     }
 
@@ -712,18 +729,18 @@ export default function TicketingPickupSchedulesPage() {
             params: requestParams,
           }
         );
-        setSavedMessage("Pickup schedule updated.");
+        setSavedMessage(t("pickupSchedules.messages.scheduleUpdated"));
       } else {
         await api.post("/ticketing/pickup-schedules/", payload, {
           params: requestParams,
         });
-        setSavedMessage("Pickup schedule created.");
+        setSavedMessage(t("pickupSchedules.messages.scheduleCreated"));
       }
 
       resetScheduleForm();
       await loadData();
     } catch (err: any) {
-      setError(getErrorMessage(err, "Could not save pickup schedule."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.saveSchedule")));
     } finally {
       setSavingSchedule(false);
     }
@@ -733,7 +750,7 @@ export default function TicketingPickupSchedulesPage() {
     type: "zone" | "location" | "schedule",
     id: number
   ) {
-    const confirmed = window.confirm("Are you sure you want to delete this item?");
+    const confirmed = window.confirm(t("pickupSchedules.confirm.delete"));
 
     if (!confirmed) return;
 
@@ -762,10 +779,10 @@ export default function TicketingPickupSchedulesPage() {
         });
       }
 
-      setSavedMessage("Item deleted.");
+      setSavedMessage(t("pickupSchedules.messages.itemDeleted"));
       await loadData();
     } catch (err: any) {
-      setError(getErrorMessage(err, "Could not delete item."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.deleteItem")));
     } finally {
       setDeletingId(null);
     }
@@ -795,12 +812,12 @@ export default function TicketingPickupSchedulesPage() {
 
   async function submitImport(mode: "preview" | "import") {
     if (!importProductId) {
-      setError("Select the product this pickup schedule belongs to.");
+      setError(t("pickupSchedules.validation.importProductRequired"));
       return;
     }
 
     if (!importFile) {
-      setError("Choose a CSV file to import.");
+      setError(t("pickupSchedules.validation.csvRequired"));
       return;
     }
 
@@ -841,12 +858,12 @@ export default function TicketingPickupSchedulesPage() {
 
       if (mode === "import") {
         setSavedMessage(
-          `Import completed. Created ${response.data.summary.created_locations} hotel(s) and ${response.data.summary.created_schedules} schedule(s).`
+          `${t("pickupSchedules.messages.importCompleted")} ${response.data.summary.created_locations} ${t("pickupSchedules.messages.hotelsCreated")} ${response.data.summary.created_schedules} ${t("pickupSchedules.messages.schedulesCreated")}`
         );
         await loadData();
       }
     } catch (err: any) {
-      setError(getErrorMessage(err, "Could not import pickup schedule CSV."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.importCsv")));
     } finally {
       setPreviewingImport(false);
       setCommittingImport(false);
@@ -855,7 +872,7 @@ export default function TicketingPickupSchedulesPage() {
 
   async function testResolver() {
     if (!testProductId || !testLocationId || !testServiceDate) {
-      setError("For the test, select product, hotel/location and service date.");
+      setError(t("pickupSchedules.validation.testFieldsRequired"));
       return;
     }
 
@@ -888,7 +905,7 @@ export default function TicketingPickupSchedulesPage() {
           message:
             data.detail ||
             data.message ||
-            "No pickup schedule found for this product, date and location.",
+            t("pickupSchedules.resolver.notFoundMessage"),
           product: data.product,
           pickup_location: data.pickup_location,
           service_date: data.service_date,
@@ -896,7 +913,7 @@ export default function TicketingPickupSchedulesPage() {
         return;
       }
 
-      setError(getErrorMessage(err, "Could not test pickup resolver."));
+      setError(getErrorMessage(err, t("pickupSchedules.errors.testResolver")));
     } finally {
       setTesting(false);
     }
@@ -905,7 +922,7 @@ export default function TicketingPickupSchedulesPage() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-bold text-slate-600">
-        Loading pickup schedules...
+        {t("pickupSchedules.loading")}
       </div>
     );
   }
@@ -920,17 +937,15 @@ export default function TicketingPickupSchedulesPage() {
 
           <div>
             <p className="text-sm font-black uppercase tracking-wide text-amber-600">
-              Pickup Automation
+              {t("pickupSchedules.header.eyebrow")}
             </p>
 
             <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-              Pickup Times & Hotels
+              {t("pickupSchedules.header.title")}
             </h1>
 
             <p className="mt-1 max-w-4xl text-sm font-semibold leading-6 text-slate-500">
-              Configure hotel pickup locations and product pickup schedules.
-              When a customer selects a date and hotel on the public product page,
-              the system calculates the pickup time and pickup point automatically.
+              {t("pickupSchedules.header.description")}
             </p>
           </div>
         </div>
@@ -941,49 +956,49 @@ export default function TicketingPickupSchedulesPage() {
           className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 transition hover:bg-slate-50"
         >
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          {t("pickupSchedules.actions.refresh")}
         </button>
       </div>
 
       <section className="grid gap-3 md:grid-cols-4">
         <StatCard
-          title="Products"
+          title={t("pickupSchedules.stats.products.title")}
           value={String(pickupProducts.length)}
-          helper="Excursions/transfers/pickup-enabled"
+          helper={t("pickupSchedules.stats.products.helper")}
           icon={Package}
         />
         <StatCard
-          title="Zones"
+          title={t("pickupSchedules.stats.zones.title")}
           value={String(zones.length)}
-          helper="Bávaro, Cap Cana, Uvero Alto..."
+          helper={t("pickupSchedules.stats.zones.helper")}
           icon={MapPin}
         />
         <StatCard
-          title="Hotels"
+          title={t("pickupSchedules.stats.hotels.title")}
           value={String(locations.length)}
-          helper="Pickup locations"
+          helper={t("pickupSchedules.stats.hotels.helper")}
           icon={Hotel}
         />
         <StatCard
-          title="Schedules"
+          title={t("pickupSchedules.stats.schedules.title")}
           value={String(schedules.length)}
-          helper="Product + hotel + time"
+          helper={t("pickupSchedules.stats.schedules.helper")}
           icon={Clock3}
         />
       </section>
 
       <Panel
-        title="Import pickup schedule CSV"
-        description="Upload a CSV with hotel names and pickup times. The system creates missing hotels for this organisation and adds pickup schedules for the selected product."
+        title={t("pickupSchedules.import.title")}
+        description={t("pickupSchedules.import.description")}
         icon={FileSpreadsheet}
       >
         <div className="grid gap-4 xl:grid-cols-[1fr_1fr_auto_auto]">
           <Select
-            label="Product for this schedule"
+            label={t("pickupSchedules.import.productLabel")}
             value={importProductId}
             onChange={setImportProductId}
             options={[
-              { value: "", label: "Select product" },
+              { value: "", label: t("pickupSchedules.options.selectProduct") },
               ...pickupProducts.map((product) => ({
                 value: String(product.id),
                 label: product.name,
@@ -992,7 +1007,7 @@ export default function TicketingPickupSchedulesPage() {
           />
 
           <label className="block">
-            <span className="text-sm font-bold text-slate-700">CSV file</span>
+            <span className="text-sm font-bold text-slate-700">{t("pickupSchedules.import.csvLabel")}</span>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -1011,7 +1026,7 @@ export default function TicketingPickupSchedulesPage() {
               className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <Download className="h-4 w-4" />
-              Template
+              {t("pickupSchedules.import.template")}
             </button>
           </div>
 
@@ -1027,14 +1042,14 @@ export default function TicketingPickupSchedulesPage() {
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              Analyze
+              {t("pickupSchedules.import.analyze")}
             </button>
           </div>
         </div>
 
         <div className="mt-4">
           <Toggle
-            label="Update existing schedules when product + hotel + rule already exists"
+            label={t("pickupSchedules.import.updateExisting")}
             checked={importUpdateExisting}
             onChange={setImportUpdateExisting}
           />
@@ -1044,12 +1059,10 @@ export default function TicketingPickupSchedulesPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-black text-slate-800">
-                Available days for this import
+                {t("pickupSchedules.import.daysTitle")}
               </p>
               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                Select one or more days and upload a normal hotel/time template.
-                The page will generate one pickup schedule per selected day.
-                Leave all days unselected if your CSV already includes day_of_week or specific_date.
+                {t("pickupSchedules.import.daysDescription")}
               </p>
             </div>
 
@@ -1059,7 +1072,7 @@ export default function TicketingPickupSchedulesPage() {
               disabled={!importSelectedDays.length}
               className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
             >
-              Clear days
+              {t("pickupSchedules.import.clearDays")}
             </button>
           </div>
 
@@ -1091,23 +1104,22 @@ export default function TicketingPickupSchedulesPage() {
 
           {importSelectedDays.length > 0 && (
             <p className="mt-3 text-xs font-bold text-amber-700">
-              Selected: {importSelectedDays.map((day) => dayLabel(Number(day))).join(", ")}.
-              Each CSV row will be duplicated for these days before import.
+              {t("pickupSchedules.import.selectedPrefix")} {importSelectedDays.map((day) => dayLabel(Number(day), dayOptions, t("pickupSchedules.days.everyDay"))).join(", ")}. {t("pickupSchedules.import.selectedSuffix")}
             </p>
           )}
         </div>
 
         <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-6 text-slate-500">
-          Required CSV columns: <strong>hotel</strong> and <strong>pickup_time</strong>. Optional columns: <strong>zone</strong>, <strong>pickup_point</strong>, <strong>instructions</strong>, <strong>day_of_week</strong>, <strong>specific_date</strong>. If you select days above, the frontend will add <strong>day_of_week</strong> automatically.
+          {t("pickupSchedules.import.columnsHelp")}
         </div>
 
         {importResult && (
           <div className="mt-5 space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
-              <ResultBox label="Rows" value={String(importResult.summary.rows_read)} />
-              <ResultBox label="New hotels" value={String(importResult.summary.new_locations)} />
-              <ResultBox label="New schedules" value={String(importResult.summary.new_schedules)} />
-              <ResultBox label="Invalid" value={String(importResult.summary.invalid_rows)} />
+              <ResultBox label={t("pickupSchedules.import.summary.rows")} value={String(importResult.summary.rows_read)} />
+              <ResultBox label={t("pickupSchedules.import.summary.newHotels")} value={String(importResult.summary.new_locations)} />
+              <ResultBox label={t("pickupSchedules.import.summary.newSchedules")} value={String(importResult.summary.new_schedules)} />
+              <ResultBox label={t("pickupSchedules.import.summary.invalid")} value={String(importResult.summary.invalid_rows)} />
             </div>
 
             <div className="overflow-hidden rounded-3xl border border-slate-200">
@@ -1115,13 +1127,13 @@ export default function TicketingPickupSchedulesPage() {
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <Th>Row</Th>
-                      <Th>Hotel</Th>
-                      <Th>Time</Th>
-                      <Th>Day</Th>
-                      <Th>Zone</Th>
-                      <Th>Status</Th>
-                      <Th>Action</Th>
+                      <Th>{t("pickupSchedules.table.row")}</Th>
+                      <Th>{t("pickupSchedules.table.hotel")}</Th>
+                      <Th>{t("pickupSchedules.table.time")}</Th>
+                      <Th>{t("pickupSchedules.table.day")}</Th>
+                      <Th>{t("pickupSchedules.table.zone")}</Th>
+                      <Th>{t("pickupSchedules.table.status")}</Th>
+                      <Th>{t("pickupSchedules.table.action")}</Th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
@@ -1130,7 +1142,7 @@ export default function TicketingPickupSchedulesPage() {
                         <Td>{row.row_number}</Td>
                         <Td>{row.hotel_name || "—"}</Td>
                         <Td>{row.pickup_time || "—"}</Td>
-                        <Td>{dayLabel(row.day_of_week)}</Td>
+                        <Td>{dayLabel(row.day_of_week, dayOptions, t("pickupSchedules.days.everyDay"))}</Td>
                         <Td>{row.zone_name || "—"}</Td>
                         <Td>
                           <span
@@ -1143,7 +1155,7 @@ export default function TicketingPickupSchedulesPage() {
                                 : "bg-emerald-50 text-emerald-700",
                             ].join(" ")}
                           >
-                            {row.errors.length ? "Error" : row.status}
+                            {row.errors.length ? t("pickupSchedules.status.error") : t(`pickupSchedules.importStatus.${row.status}`)}
                           </span>
                         </Td>
                         <Td>
@@ -1158,7 +1170,7 @@ export default function TicketingPickupSchedulesPage() {
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm font-semibold leading-6 text-slate-500">
-                Review the preview before importing. Invalid rows will be skipped.
+                {t("pickupSchedules.import.reviewHelp")}
               </p>
 
               <button
@@ -1172,7 +1184,7 @@ export default function TicketingPickupSchedulesPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Import Valid Rows
+                {t("pickupSchedules.import.commit")}
               </button>
             </div>
           </div>
@@ -1195,31 +1207,35 @@ export default function TicketingPickupSchedulesPage() {
 
       <section className="grid gap-5 xl:grid-cols-3">
         <Panel
-          title={zoneForm.id ? "Edit pickup zone" : "Create pickup zone"}
-          description="Zones help group hotels by area. Example: Bávaro, Cap Cana, Uvero Alto, Macao."
+          title={
+            zoneForm.id
+              ? t("pickupSchedules.zoneForm.editTitle")
+              : t("pickupSchedules.zoneForm.createTitle")
+          }
+           description={t("pickupSchedules.zoneForm.description")}
           icon={MapPin}
         >
           <div className="space-y-4">
             <Input
-              label="Zone name"
+              label={t("pickupSchedules.zoneForm.nameLabel")}
               value={zoneForm.name}
               onChange={(value) =>
                 setZoneForm((current) => ({ ...current, name: value }))
               }
-              placeholder="Bávaro"
+              placeholder={t("pickupSchedules.zoneForm.namePlaceholder")}
             />
 
             <Textarea
-              label="Description"
+              label={t("pickupSchedules.common.description")}
               value={zoneForm.description}
               onChange={(value) =>
                 setZoneForm((current) => ({ ...current, description: value }))
               }
-              placeholder="Hotels located in the Bávaro area."
+              placeholder={t("pickupSchedules.zoneForm.descriptionPlaceholder")}
             />
 
             <Toggle
-              label="Active"
+              label={t("pickupSchedules.common.active")}
               checked={zoneForm.is_active}
               onChange={(value) =>
                 setZoneForm((current) => ({ ...current, is_active: value }))
@@ -1240,7 +1256,7 @@ export default function TicketingPickupSchedulesPage() {
                 ) : (
                   <Plus className="h-4 w-4" />
                 )}
-                {zoneForm.id ? "Update Zone" : "Create Zone"}
+                {zoneForm.id ? t("pickupSchedules.actions.updateZone") : t("pickupSchedules.actions.createZone")}
               </button>
 
               {zoneForm.id && (
@@ -1249,7 +1265,7 @@ export default function TicketingPickupSchedulesPage() {
                   onClick={resetZoneForm}
                   className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
                 >
-                  Cancel
+                  {t("pickupSchedules.actions.cancel")}
                 </button>
               )}
             </div>
@@ -1257,29 +1273,33 @@ export default function TicketingPickupSchedulesPage() {
         </Panel>
 
         <Panel
-          title={locationForm.id ? "Edit hotel / location" : "Create hotel / location"}
-          description="This is what the customer selects in the public product detail page."
+          title={
+            locationForm.id
+              ? t("pickupSchedules.locationForm.editTitle")
+              : t("pickupSchedules.locationForm.createTitle")
+          }
+           description={t("pickupSchedules.locationForm.description")}
           icon={Hotel}
           className="xl:col-span-2"
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Input
-              label="Hotel / pickup location name"
+              label={t("pickupSchedules.locationForm.nameLabel")}
               value={locationForm.name}
               onChange={(value) =>
                 setLocationForm((current) => ({ ...current, name: value }))
               }
-              placeholder="Barceló Bávaro Palace"
+              placeholder={t("pickupSchedules.locationForm.namePlaceholder")}
             />
 
             <Select
-              label="Zone"
+              label={t("pickupSchedules.common.zone")}
               value={locationForm.zone_id}
               onChange={(value) =>
                 setLocationForm((current) => ({ ...current, zone_id: value }))
               }
               options={[
-                { value: "", label: "No zone" },
+                { value: "", label: t("pickupSchedules.options.noZone") },
                 ...zones.map((zone) => ({
                   value: String(zone.id),
                   label: zone.name,
@@ -1288,7 +1308,7 @@ export default function TicketingPickupSchedulesPage() {
             />
 
             <Select
-              label="Location type"
+              label={t("pickupSchedules.locationForm.typeLabel")}
               value={locationForm.location_type}
               onChange={(value) =>
                 setLocationForm((current) => ({
@@ -1297,16 +1317,16 @@ export default function TicketingPickupSchedulesPage() {
                 }))
               }
               options={[
-                { value: "hotel", label: "Hotel" },
-                { value: "airport", label: "Airport" },
-                { value: "meeting_point", label: "Meeting point" },
-                { value: "private_address", label: "Private address" },
-                { value: "other", label: "Other" },
+                { value: "hotel", label: t("pickupSchedules.locationTypes.hotel") },
+                { value: "airport", label: t("pickupSchedules.locationTypes.airport") },
+                { value: "meeting_point", label: t("pickupSchedules.locationTypes.meeting_point") },
+                { value: "private_address", label: t("pickupSchedules.locationTypes.private_address") },
+                { value: "other", label: t("pickupSchedules.locationTypes.other") },
               ]}
             />
 
             <Input
-              label="Default pickup point"
+              label={t("pickupSchedules.locationForm.defaultPointLabel")}
               value={locationForm.default_pickup_point}
               onChange={(value) =>
                 setLocationForm((current) => ({
@@ -1314,20 +1334,20 @@ export default function TicketingPickupSchedulesPage() {
                   default_pickup_point: value,
                 }))
               }
-              placeholder="Main lobby"
+              placeholder={t("pickupSchedules.locationForm.defaultPointPlaceholder")}
             />
 
             <Textarea
-              label="Address"
+              label={t("pickupSchedules.locationForm.addressLabel")}
               value={locationForm.address}
               onChange={(value) =>
                 setLocationForm((current) => ({ ...current, address: value }))
               }
-              placeholder="Hotel address..."
+              placeholder={t("pickupSchedules.locationForm.addressPlaceholder")}
             />
 
             <Textarea
-              label="Default instructions"
+              label={t("pickupSchedules.locationForm.instructionsLabel")}
               value={locationForm.default_instructions}
               onChange={(value) =>
                 setLocationForm((current) => ({
@@ -1335,11 +1355,11 @@ export default function TicketingPickupSchedulesPage() {
                   default_instructions: value,
                 }))
               }
-              placeholder="Please wait in the main lobby 10 minutes before pickup."
+              placeholder={t("pickupSchedules.locationForm.instructionsPlaceholder")}
             />
 
             <Input
-              label="Google Maps link"
+              label={t("pickupSchedules.locationForm.mapsLabel")}
               value={locationForm.google_maps_link}
               onChange={(value) =>
                 setLocationForm((current) => ({
@@ -1347,11 +1367,11 @@ export default function TicketingPickupSchedulesPage() {
                   google_maps_link: value,
                 }))
               }
-              placeholder="https://maps.google.com/..."
+              placeholder={t("pickupSchedules.locationForm.mapsPlaceholder")}
             />
 
             <Toggle
-              label="Active"
+              label={t("pickupSchedules.common.active")}
               checked={locationForm.is_active}
               onChange={(value) =>
                 setLocationForm((current) => ({ ...current, is_active: value }))
@@ -1373,7 +1393,7 @@ export default function TicketingPickupSchedulesPage() {
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              {locationForm.id ? "Update Location" : "Create Location"}
+              {locationForm.id ? t("pickupSchedules.actions.updateLocation") : t("pickupSchedules.actions.createLocation")}
             </button>
 
             {locationForm.id && (
@@ -1382,21 +1402,25 @@ export default function TicketingPickupSchedulesPage() {
                 onClick={resetLocationForm}
                 className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
               >
-                Cancel
+                {t("pickupSchedules.actions.cancel")}
               </button>
             )}
           </div>
         </Panel>
 
         <Panel
-          title={scheduleForm.id ? "Edit pickup schedule" : "Create pickup schedule"}
-          description="Create the exact pickup time for a product and hotel/location. Specific date has priority. Day of week is used for recurring schedules."
+          title={
+            scheduleForm.id
+              ? t("pickupSchedules.scheduleForm.editTitle")
+              : t("pickupSchedules.scheduleForm.createTitle")
+          }
+           description={t("pickupSchedules.scheduleForm.description")}
           icon={Clock3}
           className="xl:col-span-3"
         >
           <div className="grid gap-4 lg:grid-cols-4">
             <Select
-              label="Product"
+              label={t("pickupSchedules.common.product")}
               value={scheduleForm.product_id}
               onChange={(value) =>
                 setScheduleForm((current) => ({
@@ -1405,16 +1429,16 @@ export default function TicketingPickupSchedulesPage() {
                 }))
               }
               options={[
-                { value: "", label: "Select product" },
+                { value: "", label: t("pickupSchedules.options.selectProduct") },
                 ...pickupProducts.map((product) => ({
                   value: String(product.id),
-                  label: `${product.name} (${productTypeLabel(product.product_type)})`,
+                  label: `${product.name} (${productTypeLabel(product.product_type, t)})`,
                 })),
               ]}
             />
 
             <Select
-              label="Hotel / pickup location"
+              label={t("pickupSchedules.common.location")}
               value={scheduleForm.pickup_location_id}
               onChange={(value) =>
                 setScheduleForm((current) => ({
@@ -1423,7 +1447,7 @@ export default function TicketingPickupSchedulesPage() {
                 }))
               }
               options={[
-                { value: "", label: "Select hotel/location" },
+                { value: "", label: t("pickupSchedules.options.selectLocation") },
                 ...locations.map((location) => ({
                   value: String(location.id),
                   label: location.name,
@@ -1432,7 +1456,7 @@ export default function TicketingPickupSchedulesPage() {
             />
 
             <Select
-              label="Day of week"
+              label={t("pickupSchedules.scheduleForm.dayLabel")}
               value={scheduleForm.day_of_week}
               onChange={(value) =>
                 setScheduleForm((current) => ({
@@ -1444,7 +1468,7 @@ export default function TicketingPickupSchedulesPage() {
             />
 
             <Input
-              label="Specific date override"
+              label={t("pickupSchedules.scheduleForm.specificDateLabel")}
               type="date"
               value={scheduleForm.specific_date}
               onChange={(value) =>
@@ -1456,7 +1480,7 @@ export default function TicketingPickupSchedulesPage() {
             />
 
             <Input
-              label="Pickup time"
+              label={t("pickupSchedules.common.pickupTime")}
               type="time"
               value={scheduleForm.pickup_time}
               onChange={(value) =>
@@ -1468,7 +1492,7 @@ export default function TicketingPickupSchedulesPage() {
             />
 
             <Input
-              label="Pickup point override"
+              label={t("pickupSchedules.scheduleForm.pointOverrideLabel")}
               value={scheduleForm.pickup_point}
               onChange={(value) =>
                 setScheduleForm((current) => ({
@@ -1476,11 +1500,11 @@ export default function TicketingPickupSchedulesPage() {
                   pickup_point: value,
                 }))
               }
-              placeholder="Main lobby / security gate"
+              placeholder={t("pickupSchedules.scheduleForm.pointOverridePlaceholder")}
             />
 
             <Toggle
-              label="Active"
+              label={t("pickupSchedules.common.active")}
               checked={scheduleForm.is_active}
               onChange={(value) =>
                 setScheduleForm((current) => ({ ...current, is_active: value }))
@@ -1501,14 +1525,14 @@ export default function TicketingPickupSchedulesPage() {
                 ) : (
                   <Plus className="h-4 w-4" />
                 )}
-                {scheduleForm.id ? "Update Schedule" : "Create Schedule"}
+                {scheduleForm.id ? t("pickupSchedules.actions.updateSchedule") : t("pickupSchedules.actions.createSchedule")}
               </button>
             </div>
           </div>
 
           <div className="mt-4">
             <Textarea
-              label="Schedule instructions"
+              label={t("pickupSchedules.scheduleForm.instructionsLabel")}
               value={scheduleForm.instructions}
               onChange={(value) =>
                 setScheduleForm((current) => ({
@@ -1516,7 +1540,7 @@ export default function TicketingPickupSchedulesPage() {
                   instructions: value,
                 }))
               }
-              placeholder="Driver will call when arriving. Please be at the pickup point 10 minutes before."
+              placeholder={t("pickupSchedules.scheduleForm.instructionsPlaceholder")}
             />
           </div>
 
@@ -1526,24 +1550,24 @@ export default function TicketingPickupSchedulesPage() {
               onClick={resetScheduleForm}
               className="mt-3 h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
             >
-              Cancel edit
+              {t("pickupSchedules.actions.cancel")} edit
             </button>
           )}
         </Panel>
       </section>
 
       <Panel
-        title="Test automatic pickup time"
-        description="Use this before testing on the public page. If this works, the public product detail can show the pickup time automatically."
+        title={t("pickupSchedules.resolver.title")}
+         description={t("pickupSchedules.resolver.description")}
         icon={CalendarDays}
       >
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr_220px_170px]">
           <Select
-            label="Product"
+            label={t("pickupSchedules.common.product")}
             value={testProductId}
             onChange={setTestProductId}
             options={[
-              { value: "", label: "Select product" },
+              { value: "", label: t("pickupSchedules.options.selectProduct") },
               ...pickupProducts.map((product) => ({
                 value: String(product.id),
                 label: product.name,
@@ -1552,11 +1576,11 @@ export default function TicketingPickupSchedulesPage() {
           />
 
           <Select
-            label="Hotel / pickup location"
+            label={t("pickupSchedules.common.location")}
             value={testLocationId}
             onChange={setTestLocationId}
             options={[
-              { value: "", label: "Select hotel/location" },
+              { value: "", label: t("pickupSchedules.options.selectLocation") },
               ...locations.map((location) => ({
                 value: String(location.id),
                 label: location.name,
@@ -1565,7 +1589,7 @@ export default function TicketingPickupSchedulesPage() {
           />
 
           <Input
-            label="Service date"
+            label={t("pickupSchedules.resolver.serviceDateLabel")}
             type="date"
             value={testServiceDate}
             onChange={setTestServiceDate}
@@ -1583,7 +1607,7 @@ export default function TicketingPickupSchedulesPage() {
               ) : (
                 <Search className="h-4 w-4" />
               )}
-              Test
+              {t("pickupSchedules.actions.test")}
             </button>
           </div>
         </div>
@@ -1600,16 +1624,16 @@ export default function TicketingPickupSchedulesPage() {
             {testResult.found ? (
               <>
                 <p className="text-sm font-black uppercase tracking-wide text-emerald-700">
-                  Pickup found
+                  {t("pickupSchedules.resolver.found")}
                 </p>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <ResultBox
-                    label="Time"
-                    value={formatTime(testResult.schedule?.pickup_time)}
+                    label={t("pickupSchedules.resolver.time")}
+                    value={formatTime(testResult.schedule?.pickup_time, language)}
                   />
                   <ResultBox
-                    label="Pickup point"
+                    label={t("pickupSchedules.resolver.pickupPoint")}
                     value={
                       testResult.schedule?.resolved_pickup_point ||
                       testResult.schedule?.pickup_point ||
@@ -1617,11 +1641,11 @@ export default function TicketingPickupSchedulesPage() {
                     }
                   />
                   <ResultBox
-                    label="Schedule"
+                    label={t("pickupSchedules.resolver.schedule")}
                     value={
                       testResult.schedule?.specific_date
-                        ? `Specific date: ${testResult.schedule.specific_date}`
-                        : dayLabel(testResult.schedule?.day_of_week)
+                        ? `${t("pickupSchedules.common.specificDate")}: ${testResult.schedule.specific_date}`
+                        : dayLabel(testResult.schedule?.day_of_week, dayOptions, t("pickupSchedules.days.everyDay"))
                     }
                   />
                 </div>
@@ -1635,11 +1659,11 @@ export default function TicketingPickupSchedulesPage() {
             ) : (
               <>
                 <p className="text-sm font-black uppercase tracking-wide text-amber-700">
-                  No pickup found
+                  {t("pickupSchedules.resolver.notFound")}
                 </p>
                 <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
                   {testResult.message ||
-                    "No pickup schedule found for this product, date and location."}
+                    t("pickupSchedules.resolver.notFoundMessage")}
                 </p>
               </>
             )}
@@ -1648,10 +1672,10 @@ export default function TicketingPickupSchedulesPage() {
       </Panel>
 
       <section className="grid gap-5 xl:grid-cols-3">
-        <Panel title="Pickup zones" description="Area groups." icon={MapPin}>
+        <Panel title={t("pickupSchedules.zonesList.title")} description={t("pickupSchedules.zonesList.description")} icon={MapPin}>
           <div className="space-y-3">
             {zones.length === 0 ? (
-              <EmptyState text="No pickup zones yet." />
+              <EmptyState text={t("pickupSchedules.empty.zones")} />
             ) : (
               zones.map((zone) => (
                 <div
@@ -1664,7 +1688,7 @@ export default function TicketingPickupSchedulesPage() {
                         {zone.name}
                       </p>
                       <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                        {zone.description || "No description"}
+                        {zone.description || t("pickupSchedules.common.noDescription")}
                       </p>
                     </div>
 
@@ -1681,14 +1705,14 @@ export default function TicketingPickupSchedulesPage() {
         </Panel>
 
         <Panel
-          title="Hotels / pickup locations"
-          description="Customer selectable locations."
+          title={t("pickupSchedules.locationsList.title")}
+          description={t("pickupSchedules.locationsList.description")}
           icon={Hotel}
           className="xl:col-span-2"
         >
           <div className="grid gap-3 md:grid-cols-2">
             {locations.length === 0 ? (
-              <EmptyState text="No pickup locations yet." />
+              <EmptyState text={t("pickupSchedules.empty.locations")} />
             ) : (
               locations.map((location) => (
                 <div
@@ -1701,13 +1725,13 @@ export default function TicketingPickupSchedulesPage() {
                         {location.name}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-500">
-                        {location.zone_name || "No zone"} ·{" "}
-                        {location.location_type.replace("_", " ")}
+                        {location.zone_name || t("pickupSchedules.options.noZone")} ·{" "}
+                        {t(`pickupSchedules.locationTypes.${location.location_type}`)}
                       </p>
                       <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                        Pickup point:{" "}
+                        {t("pickupSchedules.common.pickupPoint")}:{" "}
                         <span className="font-black text-slate-700">
-                          {location.default_pickup_point || "Not set"}
+                          {location.default_pickup_point || t("pickupSchedules.common.notSet")}
                         </span>
                       </p>
                     </div>
@@ -1726,8 +1750,8 @@ export default function TicketingPickupSchedulesPage() {
       </section>
 
       <Panel
-        title="Pickup schedules"
-        description="These are the rules that the public product detail page uses to calculate pickup time."
+        title={t("pickupSchedules.schedulesList.title")}
+         description={t("pickupSchedules.schedulesList.description")}
         icon={Clock3}
       >
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_220px]">
@@ -1736,7 +1760,7 @@ export default function TicketingPickupSchedulesPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search schedules..."
+              placeholder={t("pickupSchedules.filters.searchPlaceholder")}
               className="h-full flex-1 bg-transparent text-sm font-semibold outline-none"
             />
           </div>
@@ -1746,7 +1770,7 @@ export default function TicketingPickupSchedulesPage() {
             onChange={(event) => setProductFilter(event.target.value)}
             className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
           >
-            <option value="">All products</option>
+            <option value="">{t("pickupSchedules.filters.allProducts")}</option>
             {pickupProducts.map((product) => (
               <option key={product.id} value={String(product.id)}>
                 {product.name}
@@ -1759,7 +1783,7 @@ export default function TicketingPickupSchedulesPage() {
             onChange={(event) => setLocationFilter(event.target.value)}
             className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none"
           >
-            <option value="">All hotels</option>
+            <option value="">{t("pickupSchedules.filters.allHotels")}</option>
             {locations.map((location) => (
               <option key={location.id} value={String(location.id)}>
                 {location.name}
@@ -1770,19 +1794,19 @@ export default function TicketingPickupSchedulesPage() {
 
         <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
           {filteredSchedules.length === 0 ? (
-            <EmptyState text="No pickup schedules found." />
+            <EmptyState text={t("pickupSchedules.empty.schedules")} />
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    <Th>Product</Th>
-                    <Th>Hotel / location</Th>
-                    <Th>Rule</Th>
-                    <Th>Pickup time</Th>
-                    <Th>Pickup point</Th>
-                    <Th>Status</Th>
-                    <Th>Actions</Th>
+                    <Th>{t("pickupSchedules.table.product")}</Th>
+                    <Th>{t("pickupSchedules.table.location")}</Th>
+                    <Th>{t("pickupSchedules.table.rule")}</Th>
+                    <Th>{t("pickupSchedules.table.pickupTime")}</Th>
+                    <Th>{t("pickupSchedules.table.pickupPoint")}</Th>
+                    <Th>{t("pickupSchedules.table.status")}</Th>
+                    <Th>{t("pickupSchedules.table.actions")}</Th>
                   </tr>
                 </thead>
 
@@ -1791,27 +1815,27 @@ export default function TicketingPickupSchedulesPage() {
                     <tr key={schedule.id}>
                       <Td>
                         <span className="font-black text-slate-900">
-                          {schedule.product_name || `Product #${schedule.product}`}
+                          {schedule.product_name || `${t("pickupSchedules.common.product")} #${schedule.product}`}
                         </span>
                       </Td>
                       <Td>
                         {schedule.pickup_location_name ||
-                          `Location #${schedule.pickup_location}`}
+                          `${t("pickupSchedules.common.locationShort")} #${schedule.pickup_location}`}
                       </Td>
                       <Td>
                         {schedule.specific_date
-                          ? `Specific date: ${schedule.specific_date}`
-                          : dayLabel(schedule.day_of_week)}
+                          ? `${t("pickupSchedules.common.specificDate")}: ${schedule.specific_date}`
+                          : dayLabel(schedule.day_of_week, dayOptions, t("pickupSchedules.days.everyDay"))}
                       </Td>
                       <Td>
                         <span className="font-black text-amber-700">
-                          {formatTime(schedule.pickup_time)}
+                          {formatTime(schedule.pickup_time, language)}
                         </span>
                       </Td>
                       <Td>
                         {schedule.resolved_pickup_point ||
                           schedule.pickup_point ||
-                          "Default pickup point"}
+                          t("pickupSchedules.common.defaultPickupPoint")}
                       </Td>
                       <Td>
                         <span
@@ -1822,7 +1846,7 @@ export default function TicketingPickupSchedulesPage() {
                               : "bg-slate-100 text-slate-500",
                           ].join(" ")}
                         >
-                          {schedule.is_active ? "Active" : "Inactive"}
+                          {schedule.is_active ? t("pickupSchedules.status.active") : t("pickupSchedules.status.inactive")}
                         </span>
                       </Td>
                       <Td>
@@ -2011,13 +2035,15 @@ function RowActions({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const { t } = useTicketingAdminTranslation();
+
   return (
     <div className="flex shrink-0 items-center gap-2">
       <button
         type="button"
         onClick={onEdit}
         className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
-        title="Edit"
+        title={t("pickupSchedules.actions.edit")}
       >
         <Edit3 className="h-4 w-4" />
       </button>
@@ -2027,7 +2053,7 @@ function RowActions({
         onClick={onDelete}
         disabled={deleting}
         className="rounded-xl border border-red-200 bg-white p-2 text-red-600 transition hover:bg-red-50 disabled:opacity-60"
-        title="Delete"
+        title={t("pickupSchedules.actions.delete")}
       >
         {deleting ? (
           <Loader2 className="h-4 w-4 animate-spin" />

@@ -5,6 +5,7 @@ import { CheckCircle2, Loader2, LogIn, AlertCircle } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import api from "../../../api/axios";
+import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 
 type CheckoutStatus = {
   payment_status?: string;
@@ -28,6 +29,7 @@ function buildTicketingLoginUrl(checkout: CheckoutStatus | null) {
 }
 
 export default function TicketingSubscriptionSuccessPage() {
+  const { t } = useTicketingAdminTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -44,7 +46,7 @@ export default function TicketingSubscriptionSuccessPage() {
 
     async function verifySession() {
       if (!sessionId) {
-        setError("Missing checkout session ID.");
+        setError(t("subscriptionSuccess.errors.missingSession"));
         setLoading(false);
         return;
       }
@@ -73,7 +75,7 @@ export default function TicketingSubscriptionSuccessPage() {
           err?.response?.data?.detail ||
             err?.response?.data?.error ||
             err?.response?.data?.message ||
-            "We could not verify your subscription. Please try again."
+            t("subscriptionSuccess.errors.verify")
         );
       } finally {
         setLoading(false);
@@ -87,12 +89,12 @@ export default function TicketingSubscriptionSuccessPage() {
         window.clearTimeout(redirectTimer);
       }
     };
-  }, [sessionId, navigate]);
+  }, [sessionId, navigate, t]);
 
   const organisationName =
     checkout?.organisation_name ||
     checkout?.organisation_slug ||
-    "your organisation";
+    t("subscriptionSuccess.organisationFallback");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -111,14 +113,14 @@ export default function TicketingSubscriptionSuccessPage() {
           </p>
 
           <h1 className="mt-3 text-3xl font-black text-slate-900">
-            Subscription Success
+            {t("subscriptionSuccess.title")}
           </h1>
 
           {loading ? (
             <div className="mt-8 flex items-center gap-3 text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="font-medium">
-                Activating your Ticketing organisation...
+                {t("subscriptionSuccess.activating")}
               </span>
             </div>
           ) : error ? (
@@ -132,23 +134,23 @@ export default function TicketingSubscriptionSuccessPage() {
                 onClick={() => navigate("/ticketing/signup")}
                 className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800"
               >
-                Back to signup
+                {t("subscriptionSuccess.actions.backToSignup")}
               </button>
             </>
           ) : (
             <>
               <p className="mt-4 text-base text-slate-600">
-                Payment successful.
+                {t("subscriptionSuccess.paymentSuccessful")}
               </p>
 
               <p className="mt-2 text-base text-slate-600">
-                <strong>{organisationName}</strong> has been created
-                successfully.
+                <strong>{organisationName}</strong>{" "}
+                {t("subscriptionSuccess.organisationCreated")}
               </p>
 
               <div className="mt-6 w-full rounded-2xl bg-slate-100 p-4 text-left">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Ticketing login URL
+                  {t("subscriptionSuccess.loginUrlLabel")}
                 </p>
 
                 <p className="mt-1 break-all text-sm font-semibold text-slate-800">
@@ -159,7 +161,7 @@ export default function TicketingSubscriptionSuccessPage() {
               <div className="mt-8 flex items-center gap-3 text-slate-500">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span className="font-medium">
-                  Redirecting to Ticketing login...
+                  {t("subscriptionSuccess.redirecting")}
                 </span>
               </div>
 
@@ -169,7 +171,7 @@ export default function TicketingSubscriptionSuccessPage() {
                 className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:bg-slate-800"
               >
                 <LogIn className="h-4 w-4" />
-                Continue to Ticketing Login
+                {t("subscriptionSuccess.actions.continueToLogin")}
               </button>
             </>
           )}
