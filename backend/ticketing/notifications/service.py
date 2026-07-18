@@ -401,18 +401,20 @@ class BookingNotificationService:
 
     @classmethod
     def booking_created(cls, booking):
-        """
-        Called immediately after booking creation.
-
-        Customer confirmation is intentionally not sent here because public
-        bookings may still be unpaid. The supplier flow will later be connected
-        to its separately configured trigger.
-        """
         logs = []
 
-        log = cls.send_owner_notification(booking)
-        if log:
-            logs.append(log)
+        owner_log = cls.send_owner_notification(booking)
+        if owner_log:
+            logs.append(owner_log)
+
+        # Seller-created bookings send the ticket immediately.
+        if booking.seller_id:
+            logs.extend(
+                cls.send_customer_confirmation(
+                    booking,
+                    require_payment=False,
+                )
+            )
 
         return logs
 
