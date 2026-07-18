@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
@@ -144,7 +149,11 @@ const initialForm: FormState = {
 
 function normalizeList<T>(data: T[] | { results?: T[] } | unknown): T[] {
   if (Array.isArray(data)) return data;
-  if (data && typeof data === "object" && Array.isArray((data as any).results)) {
+  if (
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as any).results)
+  ) {
     return (data as any).results;
   }
   return [];
@@ -202,13 +211,43 @@ function getTotalGuests(form: FormState) {
   );
 }
 
-function calculateDepositRequired(product: ExperienceProduct | null, subtotal: number) {
+function calculateDepositRequired(
+  product: ExperienceProduct | null,
+  subtotal: number,
+) {
   if (!product) return 0;
   const depositAmount = numberValue(product.deposit_amount);
   const depositPercentage = numberValue(product.deposit_percentage);
   if (depositAmount > 0) return depositAmount;
   if (depositPercentage > 0) return (subtotal * depositPercentage) / 100;
   return 0;
+}
+
+function getSellerDiscountLimitPercent(
+  seller: Seller | null,
+  product: ExperienceProduct | null,
+) {
+  if (!seller || !product || !seller.can_apply_discounts) return 0;
+
+  const sellerLimit = Math.max(
+    0,
+    numberValue((seller as any).max_customer_discount_percent),
+  );
+  const productLimit = Math.max(
+    0,
+    numberValue((product as any).seller_allowed_discount_percent),
+  );
+
+  if (sellerLimit > 0 && productLimit > 0) {
+    return Math.min(sellerLimit, productLimit);
+  }
+
+  return sellerLimit || productLimit || 0;
+}
+
+function clampMoney(value: number, minimum: number, maximum: number) {
+  if (!Number.isFinite(value)) return minimum;
+  return Math.min(Math.max(value, minimum), maximum);
 }
 
 function getPythonWeekday(dateValue: string) {
@@ -218,44 +257,70 @@ function getPythonWeekday(dateValue: string) {
 }
 
 function getScheduleProductId(schedule: PickupScheduleRule) {
-  return String(schedule.product || schedule.product_id || (schedule as any).productId || "");
+  return String(
+    schedule.product ||
+      schedule.product_id ||
+      (schedule as any).productId ||
+      "",
+  );
 }
 
 function getPickupLocationIdFromSchedule(schedule: PickupScheduleRule) {
-  return String(schedule.pickup_location || schedule.pickup_location_id || (schedule as any).location || "");
+  return String(
+    schedule.pickup_location ||
+      schedule.pickup_location_id ||
+      (schedule as any).location ||
+      "",
+  );
 }
 
 function findSchedule(
   schedules: ProductPickupSchedule[],
   productId: string,
   pickupLocationId: string,
-  serviceDate: string
+  serviceDate: string,
 ) {
   if (!productId || !pickupLocationId || !serviceDate) return null;
   const weekday = getPythonWeekday(serviceDate);
 
   const matching = schedules.filter((schedule) => {
     if (schedule.is_active === false) return false;
-    if (getScheduleProductId(schedule as PickupScheduleRule) !== String(productId)) return false;
-    if (getPickupLocationIdFromSchedule(schedule as PickupScheduleRule) !== String(pickupLocationId)) return false;
+    if (
+      getScheduleProductId(schedule as PickupScheduleRule) !== String(productId)
+    )
+      return false;
+    if (
+      getPickupLocationIdFromSchedule(schedule as PickupScheduleRule) !==
+      String(pickupLocationId)
+    )
+      return false;
     return true;
   });
 
-  const exactDate = matching.find((schedule) => schedule.specific_date === serviceDate);
+  const exactDate = matching.find(
+    (schedule) => schedule.specific_date === serviceDate,
+  );
   if (exactDate) return exactDate;
 
   const daySchedule = matching.find(
     (schedule) =>
       schedule.specific_date == null &&
       schedule.day_of_week != null &&
-      Number(schedule.day_of_week) === weekday
+      Number(schedule.day_of_week) === weekday,
   );
   if (daySchedule) return daySchedule;
 
-  return matching.find((schedule) => schedule.specific_date == null && schedule.day_of_week == null) || null;
+  return (
+    matching.find(
+      (schedule) =>
+        schedule.specific_date == null && schedule.day_of_week == null,
+    ) || null
+  );
 }
 
-function getProductPickupSchedules(product: ExperienceProduct | null): PickupScheduleRule[] {
+function getProductPickupSchedules(
+  product: ExperienceProduct | null,
+): PickupScheduleRule[] {
   if (!product) return [];
   const schedules = Array.isArray((product as any).pickup_schedules)
     ? ((product as any).pickup_schedules as PickupScheduleRule[])
@@ -263,31 +328,42 @@ function getProductPickupSchedules(product: ExperienceProduct | null): PickupSch
   return schedules.filter((schedule) => schedule.is_active !== false);
 }
 
-function getProductSchedules(schedules: ProductPickupSchedule[], productId: string): PickupScheduleRule[] {
+function getProductSchedules(
+  schedules: ProductPickupSchedule[],
+  productId: string,
+): PickupScheduleRule[] {
   if (!productId) return [];
   return (schedules as PickupScheduleRule[]).filter(
-    (schedule) => schedule.is_active !== false && getScheduleProductId(schedule) === String(productId)
+    (schedule) =>
+      schedule.is_active !== false &&
+      getScheduleProductId(schedule) === String(productId),
   );
 }
 
 function getVisiblePickupLocationsForProduct(
   product: ExperienceProduct | null,
   pickupLocations: PickupLocation[],
-  fallbackSchedules: ProductPickupSchedule[]
+  fallbackSchedules: ProductPickupSchedule[],
 ) {
   const productSchedules = getProductPickupSchedules(product);
   const schedulesToUse = productSchedules.length
     ? productSchedules
     : getProductSchedules(fallbackSchedules, String(product?.id || ""));
 
-  const scheduledLocationIds = new Set(schedulesToUse.map(getPickupLocationIdFromSchedule).filter(Boolean));
+  const scheduledLocationIds = new Set(
+    schedulesToUse.map(getPickupLocationIdFromSchedule).filter(Boolean),
+  );
   if (!scheduledLocationIds.size) return pickupLocations;
-  return pickupLocations.filter((location) => scheduledLocationIds.has(String(location.id)));
+  return pickupLocations.filter((location) =>
+    scheduledLocationIds.has(String(location.id)),
+  );
 }
 
 function formatTime(value?: string | null) {
   if (!value) return "—";
-  const time = value.includes("T") ? value.split("T")[1]?.slice(0, 5) : value.slice(0, 5);
+  const time = value.includes("T")
+    ? value.split("T")[1]?.slice(0, 5)
+    : value.slice(0, 5);
   const [hoursRaw, minutesRaw] = time.split(":");
   const hours = Number(hoursRaw);
   if (Number.isNaN(hours)) return value;
@@ -304,14 +380,16 @@ function getPaymentMode(action: SellerPaymentAction): PaymentMode {
   if (action === "seller_full") return "seller_full_payment";
   if (action === "commission_only") return "seller_commission_only";
   if (action === "generate_ticket") return "seller_commission_only";
-  if (action === "requires_supervisor_approval") return "requires_supervisor_approval";
+  if (action === "requires_supervisor_approval")
+    return "requires_supervisor_approval";
   return "pending_payment";
 }
 
 function getPaymentMethod(action: SellerPaymentAction): PaymentMethod {
   if (action === "cash_full") return "seller_collected";
   if (["deposit_online", "full_online"].includes(action)) return "online";
-  if (["seller_deposit", "seller_full"].includes(action)) return "seller_collected";
+  if (["seller_deposit", "seller_full"].includes(action))
+    return "seller_collected";
   return "none";
 }
 
@@ -320,56 +398,162 @@ function getPaymentPayload(
   totalAmount: number,
   depositRequired: number,
   reference: string,
-  note: string
+  note: string,
 ): BookingPaymentPayload | null {
   if (action === "deposit_online") {
-    return { amount: moneyString(depositRequired || totalAmount), payment_type: "deposit", payer_type: "customer", method: "online", status: "confirmed", reference, note };
+    return {
+      amount: moneyString(depositRequired || totalAmount),
+      payment_type: "deposit",
+      payer_type: "customer",
+      method: "online",
+      status: "confirmed",
+      reference,
+      note,
+    };
   }
   if (action === "full_online") {
-    return { amount: moneyString(totalAmount), payment_type: "full", payer_type: "customer", method: "online", status: "confirmed", reference, note };
+    return {
+      amount: moneyString(totalAmount),
+      payment_type: "full",
+      payer_type: "customer",
+      method: "online",
+      status: "confirmed",
+      reference,
+      note,
+    };
   }
   if (action === "cash_full") {
-    return { amount: moneyString(totalAmount), payment_type: "full", payer_type: "customer", method: "cash", status: "confirmed", reference, note };
+    return {
+      amount: moneyString(totalAmount),
+      payment_type: "full",
+      payer_type: "customer",
+      method: "cash",
+      status: "confirmed",
+      reference,
+      note,
+    };
   }
   if (action === "seller_deposit") {
-    return { amount: moneyString(depositRequired || totalAmount), payment_type: "deposit", payer_type: "seller", method: "cash", status: "confirmed", reference, note };
+    return {
+      amount: moneyString(depositRequired || totalAmount),
+      payment_type: "deposit",
+      payer_type: "seller",
+      method: "cash",
+      status: "confirmed",
+      reference,
+      note,
+    };
   }
   if (action === "seller_full") {
-    return { amount: moneyString(totalAmount), payment_type: "full", payer_type: "seller", method: "cash", status: "confirmed", reference, note };
+    return {
+      amount: moneyString(totalAmount),
+      payment_type: "full",
+      payer_type: "seller",
+      method: "cash",
+      status: "confirmed",
+      reference,
+      note,
+    };
   }
   return null;
 }
 
 function getAllowedPaymentActions(
   seller: Seller | null,
-  t: (key: string) => string
+  t: (key: string) => string,
 ) {
-  if (!seller) return [] as Array<{ value: SellerPaymentAction; label: string; shortLabel: string; icon: ReactNode }>;
+  if (!seller)
+    return [] as Array<{
+      value: SellerPaymentAction;
+      label: string;
+      shortLabel: string;
+      icon: ReactNode;
+    }>;
 
-  const actions: Array<{ value: SellerPaymentAction; label: string; shortLabel: string; icon: ReactNode }> = [];
+  const actions: Array<{
+    value: SellerPaymentAction;
+    label: string;
+    shortLabel: string;
+    icon: ReactNode;
+  }> = [];
 
-  if (seller.can_take_deposits) actions.push({ value: "deposit_online", label: t("sellerNewBooking.paymentActions.deposit"), shortLabel: t("sellerNewBooking.paymentActions.depositShort"), icon: <CreditCard className="h-5 w-5" /> });
-  if (seller.can_take_full_payments) actions.push({ value: "full_online", label: t("sellerNewBooking.paymentActions.full"), shortLabel: t("sellerNewBooking.paymentActions.fullShort"), icon: <CreditCard className="h-5 w-5" /> });
-  if (seller.can_collect_cash_payment && seller.can_take_full_payments) actions.push({ value: "cash_full", label: t("sellerNewBooking.paymentActions.cash"), shortLabel: t("sellerNewBooking.paymentActions.cashShort"), icon: <Banknote className="h-5 w-5" /> });
-  if (seller.can_create_pending_payment_booking) actions.push({ value: "pending_payment", label: t("sellerNewBooking.paymentActions.later"), shortLabel: t("sellerNewBooking.paymentActions.laterShort"), icon: <ReceiptText className="h-5 w-5" /> });
-  if (seller.can_generate_ticket_without_customer_online_payment) actions.push({ value: "generate_ticket", label: t("sellerNewBooking.paymentActions.generateTicket"), shortLabel: t("sellerNewBooking.paymentActions.ticketShort"), icon: <Ticket className="h-5 w-5" /> });
-  if (seller.can_pay_deposit_as_seller) actions.push({ value: "seller_deposit", label: t("sellerNewBooking.paymentActions.sellerDeposit"), shortLabel: t("sellerNewBooking.paymentActions.sellerDepositShort"), icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_pay_full_amount_as_seller) actions.push({ value: "seller_full", label: t("sellerNewBooking.paymentActions.sellerFull"), shortLabel: t("sellerNewBooking.paymentActions.sellerFullShort"), icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_pay_commission_only) actions.push({ value: "commission_only", label: t("sellerNewBooking.paymentActions.commissionOnly"), shortLabel: t("sellerNewBooking.paymentActions.commissionShort"), icon: <ShieldCheck className="h-5 w-5" /> });
-  if (seller.can_request_supervisor_approval) actions.push({ value: "requires_supervisor_approval", label: t("sellerNewBooking.paymentActions.askApproval"), shortLabel: t("sellerNewBooking.paymentActions.approvalShort"), icon: <Send className="h-5 w-5" /> });
+  if (seller.can_take_deposits)
+    actions.push({
+      value: "deposit_online",
+      label: t("sellerNewBooking.paymentActions.deposit"),
+      shortLabel: t("sellerNewBooking.paymentActions.depositShort"),
+      icon: <CreditCard className="h-5 w-5" />,
+    });
+  if (seller.can_take_full_payments)
+    actions.push({
+      value: "full_online",
+      label: t("sellerNewBooking.paymentActions.full"),
+      shortLabel: t("sellerNewBooking.paymentActions.fullShort"),
+      icon: <CreditCard className="h-5 w-5" />,
+    });
+  if (seller.can_collect_cash_payment && seller.can_take_full_payments)
+    actions.push({
+      value: "cash_full",
+      label: t("sellerNewBooking.paymentActions.cash"),
+      shortLabel: t("sellerNewBooking.paymentActions.cashShort"),
+      icon: <Banknote className="h-5 w-5" />,
+    });
+  if (seller.can_create_pending_payment_booking)
+    actions.push({
+      value: "pending_payment",
+      label: t("sellerNewBooking.paymentActions.later"),
+      shortLabel: t("sellerNewBooking.paymentActions.laterShort"),
+      icon: <ReceiptText className="h-5 w-5" />,
+    });
+  if (seller.can_generate_ticket_without_customer_online_payment)
+    actions.push({
+      value: "generate_ticket",
+      label: t("sellerNewBooking.paymentActions.generateTicket"),
+      shortLabel: t("sellerNewBooking.paymentActions.ticketShort"),
+      icon: <Ticket className="h-5 w-5" />,
+    });
+  if (seller.can_pay_deposit_as_seller)
+    actions.push({
+      value: "seller_deposit",
+      label: t("sellerNewBooking.paymentActions.sellerDeposit"),
+      shortLabel: t("sellerNewBooking.paymentActions.sellerDepositShort"),
+      icon: <ShieldCheck className="h-5 w-5" />,
+    });
+  if (seller.can_pay_full_amount_as_seller)
+    actions.push({
+      value: "seller_full",
+      label: t("sellerNewBooking.paymentActions.sellerFull"),
+      shortLabel: t("sellerNewBooking.paymentActions.sellerFullShort"),
+      icon: <ShieldCheck className="h-5 w-5" />,
+    });
+  if (seller.can_pay_commission_only)
+    actions.push({
+      value: "commission_only",
+      label: t("sellerNewBooking.paymentActions.commissionOnly"),
+      shortLabel: t("sellerNewBooking.paymentActions.commissionShort"),
+      icon: <ShieldCheck className="h-5 w-5" />,
+    });
+  if (seller.can_request_supervisor_approval)
+    actions.push({
+      value: "requires_supervisor_approval",
+      label: t("sellerNewBooking.paymentActions.askApproval"),
+      shortLabel: t("sellerNewBooking.paymentActions.approvalShort"),
+      icon: <Send className="h-5 w-5" />,
+    });
 
   return actions;
 }
 
-
 function isCocoBongoProduct(product: ExperienceProduct | null) {
   if (!product) return false;
 
-  const provider = String((product as any).external_provider || "").toLowerCase();
+  const provider = String(
+    (product as any).external_provider || "",
+  ).toLowerCase();
   const slug = String(product.slug || "").toLowerCase();
   const name = String(product.name || "").toLowerCase();
   const externalProductId = String(
-    (product as any).external_product_id || ""
+    (product as any).external_product_id || "",
   ).toLowerCase();
 
   return (
@@ -382,7 +566,9 @@ function isCocoBongoProduct(product: ExperienceProduct | null) {
 }
 
 function cleanLiveText(value: unknown) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function asObject(value: unknown): Record<string, any> | null {
@@ -397,7 +583,7 @@ function getLiveOptionKey(option: LiveTicketOption) {
       option.external_product_id ||
       option.option_name ||
       option.name ||
-      ""
+      "",
   );
 }
 
@@ -419,23 +605,21 @@ function getRawLivePrice(product: Record<string, any>) {
         firstPrice.amountWithoutDiscount ??
         product.amount ??
         product.price ??
-        0
+        0,
     ),
     currency: String(
       firstPrice.currencyCode ||
         firstPrice.currency ||
         product.currencyCode ||
         product.currency ||
-        "USD"
+        "USD",
     ),
   };
 }
 
 function getRawAvailableQuantity(product: Record<string, any>) {
   const value =
-    product.itemsAvailable ??
-    product.stock ??
-    product.available_quantity;
+    product.itemsAvailable ?? product.stock ?? product.available_quantity;
 
   if (value === null || value === undefined || value === "") return null;
 
@@ -444,7 +628,7 @@ function getRawAvailableQuantity(product: Record<string, any>) {
 }
 
 function flattenRawWelletProducts(
-  option: LiveTicketOption
+  option: LiveTicketOption,
 ): LiveTicketOption[] {
   const raw = asObject(option.raw);
 
@@ -461,11 +645,9 @@ function flattenRawWelletProducts(
 
   const performanceId = cleanLiveText(performance.id);
   const startTime = cleanLiveText(
-    performance.timeStart || performance.time || performance.startTime
+    performance.timeStart || performance.time || performance.startTime,
   );
-  const endTime = cleanLiveText(
-    performance.timeEnd || performance.endTime
-  );
+  const endTime = cleanLiveText(performance.timeEnd || performance.endTime);
   const checkinTime = cleanLiveText(performance.timeCheckIn);
 
   return products
@@ -539,7 +721,12 @@ function normalizeLiveTicketOptions(options: LiveTicketOption[]) {
 }
 
 function getProductImage(product: ExperienceProduct) {
-  return product.image_url || product.image || product.gallery_images?.find((image) => image.is_cover)?.image_url || "";
+  return (
+    product.image_url ||
+    product.image ||
+    product.gallery_images?.find((image) => image.is_cover)?.image_url ||
+    ""
+  );
 }
 
 export default function TicketingSellerNewBookingPage() {
@@ -551,12 +738,18 @@ export default function TicketingSellerNewBookingPage() {
   const slug = params.organisationSlug || params.slug || "";
   const productIdFromUrl = searchParams.get("product") || "";
 
-  const [form, setForm] = useState<FormState>({ ...initialForm, productId: productIdFromUrl });
+  const [form, setForm] = useState<FormState>({
+    ...initialForm,
+    productId: productIdFromUrl,
+  });
   const [seller, setSeller] = useState<Seller | null>(null);
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
-  const [pickupSchedules, setPickupSchedules] = useState<ProductPickupSchedule[]>([]);
-  const [resolvedPickup, setResolvedPickup] = useState<PickupResolveResponse | null>(null);
+  const [pickupSchedules, setPickupSchedules] = useState<
+    ProductPickupSchedule[]
+  >([]);
+  const [resolvedPickup, setResolvedPickup] =
+    useState<PickupResolveResponse | null>(null);
   const [resolvingPickup, setResolvingPickup] = useState(false);
   const [createdBooking, setCreatedBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -580,25 +773,43 @@ export default function TicketingSellerNewBookingPage() {
       setLoading(true);
       setErrorMessage("");
 
-      const [sellerData, productsData, pickupLocationsResponse, pickupSchedulesResponse] = await Promise.all([
+      const [
+        sellerData,
+        productsData,
+        pickupLocationsResponse,
+        pickupSchedulesResponse,
+      ] = await Promise.all([
         ticketingApi.getSellerMe(slug),
         ticketingApi.getSellerProducts(slug, { is_active: true }),
         ticketingApi.getPickupLocations(slug, { is_active: true }),
         ticketingApi.getPickupSchedules(slug),
       ]);
 
-      const normalizedProductsData = normalizeList<ExperienceProduct>(productsData);
+      const normalizedProductsData =
+        normalizeList<ExperienceProduct>(productsData);
       let publicProductsData: ExperienceProduct[] = [];
 
       try {
-        publicProductsData = await ticketingApi.getPublicProducts(slug, { status: "active" });
+        publicProductsData = await ticketingApi.getPublicProducts(slug, {
+          status: "active",
+        });
       } catch (publicProductError) {
-        console.warn("Could not load public product data for pickup schedules:", publicProductError);
+        console.warn(
+          "Could not load public product data for pickup schedules:",
+          publicProductError,
+        );
       }
 
-      const publicProductById = new Map(publicProductsData.map((product) => [String(product.id), product]));
+      const publicProductById = new Map(
+        publicProductsData.map((product) => [String(product.id), product]),
+      );
       const availableProducts = normalizedProductsData
-        .filter((product) => product.is_active !== false && product.status !== "archived" && product.seller_enabled !== false)
+        .filter(
+          (product) =>
+            product.is_active !== false &&
+            product.status !== "archived" &&
+            product.seller_enabled !== false,
+        )
         .map((product) => {
           const publicProduct = publicProductById.get(String(product.id));
           return publicProduct
@@ -616,23 +827,37 @@ export default function TicketingSellerNewBookingPage() {
 
       setSeller(sellerData);
       setProducts(availableProducts);
-      setPickupLocations(normalizeList<PickupLocation>(pickupLocationsResponse).filter((location) => location.is_active !== false));
-      setPickupSchedules(normalizeList<ProductPickupSchedule>(pickupSchedulesResponse));
+      setPickupLocations(
+        normalizeList<PickupLocation>(pickupLocationsResponse).filter(
+          (location) => location.is_active !== false,
+        ),
+      );
+      setPickupSchedules(
+        normalizeList<ProductPickupSchedule>(pickupSchedulesResponse),
+      );
 
       const initialProductId =
-        productIdFromUrl && availableProducts.some((product) => String(product.id) === String(productIdFromUrl))
+        productIdFromUrl &&
+        availableProducts.some(
+          (product) => String(product.id) === String(productIdFromUrl),
+        )
           ? productIdFromUrl
           : String(availableProducts[0]?.id || "");
-      const initialProduct = availableProducts.find((product) => String(product.id) === String(initialProductId));
+      const initialProduct = availableProducts.find(
+        (product) => String(product.id) === String(initialProductId),
+      );
 
       setForm((current) => ({
         ...current,
         productId: initialProductId,
-        serviceTime: initialProduct?.start_time?.slice(0, 5) || current.serviceTime,
+        serviceTime:
+          initialProduct?.start_time?.slice(0, 5) || current.serviceTime,
       }));
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(getErrorMessage(error, t("sellerNewBooking.errors.loadForm")));
+      setErrorMessage(
+        getErrorMessage(error, t("sellerNewBooking.errors.loadForm")),
+      );
       setProducts([]);
     } finally {
       setLoading(false);
@@ -643,16 +868,22 @@ export default function TicketingSellerNewBookingPage() {
     loadPage();
   }, [slug, productIdFromUrl, t]);
 
-  const selectedProduct = useMemo(() => products.find((product) => String(product.id) === String(form.productId)) || null, [products, form.productId]);
+  const selectedProduct = useMemo(
+    () =>
+      products.find(
+        (product) => String(product.id) === String(form.productId),
+      ) || null,
+    [products, form.productId],
+  );
 
   const isLiveCocoBongoProduct = useMemo(
     () => isCocoBongoProduct(selectedProduct),
-    [selectedProduct]
+    [selectedProduct],
   );
 
   const liveAvailabilityOptions = useMemo(
     () => normalizeLiveTicketOptions(liveAvailability?.options || []),
-    [liveAvailability]
+    [liveAvailability],
   );
 
   const selectedLiveOption = useMemo(() => {
@@ -660,7 +891,7 @@ export default function TicketingSellerNewBookingPage() {
 
     return (
       liveAvailabilityOptions.find(
-        (option) => getLiveOptionKey(option) === selectedLiveOptionId
+        (option) => getLiveOptionKey(option) === selectedLiveOptionId,
       ) || null
     );
   }, [selectedLiveOptionId, liveAvailabilityOptions]);
@@ -689,7 +920,7 @@ export default function TicketingSellerNewBookingPage() {
         const response = await ticketingApi.getPublicProductAvailability(
           slug,
           selectedProduct.slug,
-          { date: form.serviceDate }
+          { date: form.serviceDate },
         );
 
         if (cancelled) return;
@@ -698,13 +929,11 @@ export default function TicketingSellerNewBookingPage() {
 
         const options = normalizeLiveTicketOptions(response.options || []);
         const firstAvailable = options.find(
-          (option) =>
-            option.available !== false &&
-            option.sold_out !== true
+          (option) => option.available !== false && option.sold_out !== true,
         );
 
         setSelectedLiveOptionId(
-          firstAvailable ? getLiveOptionKey(firstAvailable) : ""
+          firstAvailable ? getLiveOptionKey(firstAvailable) : "",
         );
       } catch (error: any) {
         if (cancelled) return;
@@ -713,10 +942,7 @@ export default function TicketingSellerNewBookingPage() {
         setLiveAvailability(null);
         setSelectedLiveOptionId("");
         setLiveAvailabilityError(
-          getErrorMessage(
-            error,
-            t("sellerNewBooking.errors.liveAvailability")
-          )
+          getErrorMessage(error, t("sellerNewBooking.errors.liveAvailability")),
         );
       } finally {
         if (!cancelled) {
@@ -740,27 +966,54 @@ export default function TicketingSellerNewBookingPage() {
   ]);
 
   const selectedPickupLocation = useMemo(
-    () => pickupLocations.find((location) => String(location.id) === String(form.pickupLocationId)) || null,
-    [pickupLocations, form.pickupLocationId]
+    () =>
+      pickupLocations.find(
+        (location) => String(location.id) === String(form.pickupLocationId),
+      ) || null,
+    [pickupLocations, form.pickupLocationId],
   );
 
   const selectedProductSchedules = useMemo(() => {
     const schedulesFromProduct = getProductPickupSchedules(selectedProduct);
-    return schedulesFromProduct.length ? schedulesFromProduct : getProductSchedules(pickupSchedules, form.productId);
+    return schedulesFromProduct.length
+      ? schedulesFromProduct
+      : getProductSchedules(pickupSchedules, form.productId);
   }, [selectedProduct, pickupSchedules, form.productId]);
 
-  const visiblePickupLocations = useMemo(() => getVisiblePickupLocationsForProduct(selectedProduct, pickupLocations, pickupSchedules), [selectedProduct, pickupLocations, pickupSchedules]);
-
-  const assignedPickupSchedule = useMemo(
-    () => findSchedule(pickupSchedules, form.productId, form.pickupLocationId, form.serviceDate),
-    [pickupSchedules, form.productId, form.pickupLocationId, form.serviceDate]
+  const visiblePickupLocations = useMemo(
+    () =>
+      getVisiblePickupLocationsForProduct(
+        selectedProduct,
+        pickupLocations,
+        pickupSchedules,
+      ),
+    [selectedProduct, pickupLocations, pickupSchedules],
   );
 
-  const requiresPickup = Boolean(selectedProduct?.supports_pickup) || Boolean(selectedProduct?.requires_pickup_location) || selectedProductSchedules.length > 0;
+  const assignedPickupSchedule = useMemo(
+    () =>
+      findSchedule(
+        pickupSchedules,
+        form.productId,
+        form.pickupLocationId,
+        form.serviceDate,
+      ),
+    [pickupSchedules, form.productId, form.pickupLocationId, form.serviceDate],
+  );
+
+  const requiresPickup =
+    Boolean(selectedProduct?.supports_pickup) ||
+    Boolean(selectedProduct?.requires_pickup_location) ||
+    selectedProductSchedules.length > 0;
 
   useEffect(() => {
     async function resolvePickup() {
-      if (!slug || !selectedProduct || !form.serviceDate || !form.pickupLocationId) {
+      if (
+        !slug ||
+        !selectedProduct ||
+        !form.serviceDate ||
+        !form.pickupLocationId
+      ) {
         setResolvedPickup(null);
         return;
       }
@@ -770,9 +1023,19 @@ export default function TicketingSellerNewBookingPage() {
         let response: PickupResolveResponse;
 
         try {
-          response = await ticketingApi.resolvePublicPickupSchedule(slug, selectedProduct.id, Number(form.pickupLocationId), form.serviceDate);
+          response = await ticketingApi.resolvePublicPickupSchedule(
+            slug,
+            selectedProduct.id,
+            Number(form.pickupLocationId),
+            form.serviceDate,
+          );
         } catch {
-          response = await ticketingApi.resolvePickupSchedule(slug, selectedProduct.id, Number(form.pickupLocationId), form.serviceDate);
+          response = await ticketingApi.resolvePickupSchedule(
+            slug,
+            selectedProduct.id,
+            Number(form.pickupLocationId),
+            form.serviceDate,
+          );
         }
 
         setResolvedPickup(response);
@@ -780,26 +1043,46 @@ export default function TicketingSellerNewBookingPage() {
         if (response.found && response.schedule) {
           setForm((current) => ({
             ...current,
-            customerHotel: selectedPickupLocation?.name || current.customerHotel,
-            serviceTime: current.serviceTime || selectedProduct.start_time?.slice(0, 5) || "",
+            customerHotel:
+              selectedPickupLocation?.name || current.customerHotel,
+            serviceTime:
+              current.serviceTime ||
+              selectedProduct.start_time?.slice(0, 5) ||
+              "",
           }));
         }
       } catch (error) {
         console.warn("Could not resolve pickup schedule:", error);
-        setResolvedPickup({ found: false, message: t("sellerNewBooking.pickup.unavailable") });
+        setResolvedPickup({
+          found: false,
+          message: t("sellerNewBooking.pickup.unavailable"),
+        });
       } finally {
         setResolvingPickup(false);
       }
     }
 
     resolvePickup();
-  }, [slug, selectedProduct?.id, form.serviceDate, form.pickupLocationId, selectedPickupLocation?.name, t]);
+  }, [
+    slug,
+    selectedProduct?.id,
+    form.serviceDate,
+    form.pickupLocationId,
+    selectedPickupLocation?.name,
+    t,
+  ]);
 
   useEffect(() => {
     if (!form.pickupLocationId) return;
-    const stillVisible = visiblePickupLocations.some((location) => String(location.id) === String(form.pickupLocationId));
+    const stillVisible = visiblePickupLocations.some(
+      (location) => String(location.id) === String(form.pickupLocationId),
+    );
     if (!stillVisible) {
-      setForm((current) => ({ ...current, pickupLocationId: "", customerHotel: "" }));
+      setForm((current) => ({
+        ...current,
+        pickupLocationId: "",
+        customerHotel: "",
+      }));
       setResolvedPickup(null);
     }
   }, [visiblePickupLocations, form.pickupLocationId]);
@@ -810,38 +1093,92 @@ export default function TicketingSellerNewBookingPage() {
     : numberValue(selectedProduct?.base_price);
   const subtotal =
     unitPrice *
-    (isLiveCocoBongoProduct
-      ? liveTicketQuantity
-      : getChargeableGuests(form));
-  const discountAmount = seller?.can_apply_discounts ? numberValue(form.discountAmount) : 0;
+    (isLiveCocoBongoProduct ? liveTicketQuantity : getChargeableGuests(form));
+  const maximumDiscountPercent = getSellerDiscountLimitPercent(
+    seller,
+    selectedProduct,
+  );
+  const maximumDiscountAmount =
+    subtotal > 0 ? (subtotal * maximumDiscountPercent) / 100 : 0;
+  const requestedDiscountAmount = seller?.can_apply_discounts
+    ? numberValue(form.discountAmount)
+    : 0;
+  const discountAmount = clampMoney(
+    requestedDiscountAmount,
+    0,
+    maximumDiscountAmount,
+  );
+  const customerDiscountPercent =
+    subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
+  const minimumSellingPrice = Math.max(subtotal - maximumDiscountAmount, 0);
   const taxAmount = 0;
   const totalAmount = Math.max(subtotal - discountAmount + taxAmount, 0);
   const depositRequired = calculateDepositRequired(selectedProduct, subtotal);
-  const paymentPayload = getPaymentPayload(form.paymentAction, totalAmount, depositRequired, form.paymentReference, form.paymentNote);
+  const paymentPayload = getPaymentPayload(
+    form.paymentAction,
+    totalAmount,
+    depositRequired,
+    form.paymentReference,
+    form.paymentNote,
+  );
   const paymentNow = paymentPayload ? numberValue(paymentPayload.amount) : 0;
   const balanceDue = Math.max(totalAmount - paymentNow, 0);
   const allowedPaymentActions = getAllowedPaymentActions(seller, t);
-  const selectedAction = allowedPaymentActions.find((action) => action.value === form.paymentAction);
+  const selectedAction = allowedPaymentActions.find(
+    (action) => action.value === form.paymentAction,
+  );
 
-  const pickupTime = resolvedPickup?.found && resolvedPickup.schedule ? resolvedPickup.schedule.pickup_time : assignedPickupSchedule?.pickup_time || null;
+  useEffect(() => {
+    if (!seller?.can_apply_discounts || maximumDiscountPercent <= 0) {
+      setForm((current) =>
+        numberValue(current.discountAmount) === 0
+          ? current
+          : { ...current, discountAmount: "0.00" },
+      );
+    }
+  }, [seller?.can_apply_discounts, maximumDiscountPercent]);
+
+  const pickupTime =
+    resolvedPickup?.found && resolvedPickup.schedule
+      ? resolvedPickup.schedule.pickup_time
+      : assignedPickupSchedule?.pickup_time || null;
   const pickupPoint =
     resolvedPickup?.found && resolvedPickup.schedule
-      ? resolvedPickup.schedule.resolved_pickup_point || resolvedPickup.schedule.pickup_point || selectedPickupLocation?.default_pickup_point || t("sellerNewBooking.pickup.lobby")
-      : assignedPickupSchedule?.resolved_pickup_point || assignedPickupSchedule?.pickup_point || selectedPickupLocation?.default_pickup_point || t("sellerNewBooking.pickup.lobby");
+      ? resolvedPickup.schedule.resolved_pickup_point ||
+        resolvedPickup.schedule.pickup_point ||
+        selectedPickupLocation?.default_pickup_point ||
+        t("sellerNewBooking.pickup.lobby")
+      : assignedPickupSchedule?.resolved_pickup_point ||
+        assignedPickupSchedule?.pickup_point ||
+        selectedPickupLocation?.default_pickup_point ||
+        t("sellerNewBooking.pickup.lobby");
 
   const filteredProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
     if (!query) return products;
-    return products.filter((product) => [product.name, product.product_type, product.location].join(" ").toLowerCase().includes(query));
+    return products.filter((product) =>
+      [product.name, product.product_type, product.location]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
   }, [products, productSearch]);
 
   const filteredPickupLocations = useMemo(() => {
     const query = hotelSearch.trim().toLowerCase();
     if (!query) return visiblePickupLocations;
-    return visiblePickupLocations.filter((location) => [location.name, location.zone_name, location.address].join(" ").toLowerCase().includes(query));
+    return visiblePickupLocations.filter((location) =>
+      [location.name, location.zone_name, location.address]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
   }, [visiblePickupLocations, hotelSearch]);
 
-  function updateForm<K extends keyof FormState>(field: K, value: FormState[K]) {
+  function updateForm<K extends keyof FormState>(
+    field: K,
+    value: FormState[K],
+  ) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -857,13 +1194,20 @@ export default function TicketingSellerNewBookingPage() {
       serviceTime: product?.start_time?.slice(0, 5) || "",
       pickupLocationId: "",
       customerHotel: "",
+      discountAmount: "0.00",
     }));
   }
 
   function selectPickupLocation(locationId: string) {
-    const location = visiblePickupLocations.find((item) => String(item.id) === locationId);
+    const location = visiblePickupLocations.find(
+      (item) => String(item.id) === locationId,
+    );
     setResolvedPickup(null);
-    setForm((current) => ({ ...current, pickupLocationId: locationId, customerHotel: location?.name || "" }));
+    setForm((current) => ({
+      ...current,
+      pickupLocationId: locationId,
+      customerHotel: location?.name || "",
+    }));
   }
 
   function selectPaymentAction(action: SellerPaymentAction) {
@@ -871,25 +1215,77 @@ export default function TicketingSellerNewBookingPage() {
       ...current,
       paymentAction: action,
       receiptSentBeforeFullPayment:
-        action === "generate_ticket" && seller?.can_send_receipt_before_full_payment
+        action === "generate_ticket" &&
+        seller?.can_send_receipt_before_full_payment
           ? current.receiptSentBeforeFullPayment
           : current.receiptSentBeforeFullPayment,
     }));
   }
 
-  function changeGuest(field: "adults" | "children" | "infants", delta: number) {
-    setForm((current) => ({ ...current, [field]: Math.max(field === "adults" ? 1 : 0, Number(current[field] || 0) + delta) }));
+  function changeGuest(
+    field: "adults" | "children" | "infants",
+    delta: number,
+  ) {
+    setForm((current) => ({
+      ...current,
+      [field]: Math.max(
+        field === "adults" ? 1 : 0,
+        Number(current[field] || 0) + delta,
+      ),
+    }));
+  }
+
+  function changeDiscountAmount(value: string) {
+    if (!seller?.can_apply_discounts || maximumDiscountPercent <= 0) return;
+
+    const normalized = value.replace(",", ".");
+
+    if (normalized === "") {
+      updateForm("discountAmount", "");
+      return;
+    }
+
+    if (!/^\d*(?:\.\d{0,2})?$/.test(normalized)) return;
+
+    updateForm("discountAmount", normalized);
+  }
+
+  function finishDiscountAmount() {
+    const nextValue = clampMoney(
+      numberValue(form.discountAmount),
+      0,
+      maximumDiscountAmount,
+    );
+    updateForm("discountAmount", moneyString(nextValue));
+  }
+
+  function applyDiscountPercent(percent: number) {
+    const safePercent = Math.min(Math.max(percent, 0), maximumDiscountPercent);
+    const amount = subtotal > 0 ? (subtotal * safePercent) / 100 : 0;
+    updateForm("discountAmount", moneyString(amount));
   }
 
   async function saveBooking() {
     if (!seller) return setErrorMessage(t("sellerNewBooking.errors.noSeller"));
-    if (!seller.can_create_bookings) return setErrorMessage(t("sellerNewBooking.errors.noPermission"));
-    if (!selectedProduct) return setErrorMessage(t("sellerNewBooking.errors.selectTour"));
-    if (!form.serviceDate) return setErrorMessage(t("sellerNewBooking.errors.serviceDate"));
-    if (!form.customerName.trim()) return setErrorMessage(t("sellerNewBooking.errors.customerName"));
-    if (form.customerEmail.trim() && !isValidEmail(form.customerEmail)) return setErrorMessage(t("sellerNewBooking.errors.invalidEmail"));
-    if (requiresPickup && !form.pickupLocationId) return setErrorMessage(t("sellerNewBooking.errors.pickupRequired"));
-    if (requiresPickup && form.pickupLocationId && !resolvedPickup?.found && !assignedPickupSchedule && selectedProduct.requires_pickup_location) {
+    if (!seller.can_create_bookings)
+      return setErrorMessage(t("sellerNewBooking.errors.noPermission"));
+    if (!selectedProduct)
+      return setErrorMessage(t("sellerNewBooking.errors.selectTour"));
+    if (!form.serviceDate)
+      return setErrorMessage(t("sellerNewBooking.errors.serviceDate"));
+    if (!form.customerName.trim())
+      return setErrorMessage(t("sellerNewBooking.errors.customerName"));
+    if (form.customerEmail.trim() && !isValidEmail(form.customerEmail))
+      return setErrorMessage(t("sellerNewBooking.errors.invalidEmail"));
+    if (requiresPickup && !form.pickupLocationId)
+      return setErrorMessage(t("sellerNewBooking.errors.pickupRequired"));
+    if (
+      requiresPickup &&
+      form.pickupLocationId &&
+      !resolvedPickup?.found &&
+      !assignedPickupSchedule &&
+      selectedProduct.requires_pickup_location
+    ) {
       return setErrorMessage(t("sellerNewBooking.errors.noPickupSchedule"));
     }
     if (isLiveCocoBongoProduct && loadingLiveAvailability) {
@@ -908,7 +1304,15 @@ export default function TicketingSellerNewBookingPage() {
     ) {
       return setErrorMessage(t("sellerNewBooking.errors.soldOut"));
     }
-    if (!selectedAction) return setErrorMessage(t("sellerNewBooking.errors.selectPayment"));
+    if (!selectedAction)
+      return setErrorMessage(t("sellerNewBooking.errors.selectPayment"));
+    if (requestedDiscountAmount > maximumDiscountAmount + 0.005) {
+      return setErrorMessage(
+        `Maximum discount allowed is ${maximumDiscountPercent.toFixed(
+          2,
+        )}% (${formatMoney(maximumDiscountAmount)}).`,
+      );
+    }
 
     try {
       setSaving(true);
@@ -964,8 +1368,7 @@ export default function TicketingSellerNewBookingPage() {
       if (selectedLiveOption) {
         itemPayload.selected_external_product_id =
           getLiveOptionKey(selectedLiveOption);
-        itemPayload.external_provider =
-          selectedLiveOption.provider || "wellet";
+        itemPayload.external_provider = selectedLiveOption.provider || "wellet";
         itemPayload.external_product_id =
           selectedLiveOption.external_product_id || "";
         itemPayload.external_variant_id =
@@ -974,20 +1377,23 @@ export default function TicketingSellerNewBookingPage() {
           selectedLiveOption.external_availability_id || "";
         itemPayload.external_option_name =
           getLiveOptionLabel(selectedLiveOption);
-        itemPayload.external_start_time =
-          selectedLiveOption.start_time || "";
-        itemPayload.external_end_time =
-          selectedLiveOption.end_time || "";
+        itemPayload.external_start_time = selectedLiveOption.start_time || "";
+        itemPayload.external_end_time = selectedLiveOption.end_time || "";
         itemPayload.external_checkin_time =
           selectedLiveOption.checkin_time || "";
         itemPayload.external_performance_id =
           selectedLiveOption.performance_id || "";
       }
 
-      const payload: BookingCreatePayload = {
+      const payload: BookingCreatePayload & {
+        customer_discount_percent: string;
+      } = {
         primary_product: selectedProduct.id,
         source: "seller_dashboard",
-        status: form.paymentAction === "requires_supervisor_approval" ? "pending_approval" : "pending_payment",
+        status:
+          form.paymentAction === "requires_supervisor_approval"
+            ? "pending_approval"
+            : "pending_payment",
         payment_status: paymentPayload ? "pending" : "unpaid",
         payment_mode: paymentMode,
         payment_method: paymentMethod,
@@ -998,21 +1404,28 @@ export default function TicketingSellerNewBookingPage() {
         customer_name: form.customerName.trim(),
         customer_whatsapp: form.customerWhatsapp.trim() || null,
         customer_email: form.customerEmail.trim() || null,
-        customer_hotel: form.customerHotel.trim() || selectedPickupLocation?.name || "",
+        customer_hotel:
+          form.customerHotel.trim() || selectedPickupLocation?.name || "",
         customer_notes: form.customerNotes.trim(),
         adults: Number(form.adults || 0),
         children: Number(form.children || 0),
         infants: Number(form.infants || 0),
         subtotal_amount: moneyString(subtotal),
+        customer_discount_percent: moneyString(customerDiscountPercent),
         discount_amount: moneyString(discountAmount),
         tax_amount: moneyString(taxAmount),
         total_amount: moneyString(totalAmount),
         deposit_required: moneyString(depositRequired),
         deposit_paid: "0.00",
         balance_due: moneyString(totalAmount),
-        requires_supervisor_approval: form.paymentAction === "requires_supervisor_approval",
-        receipt_sent_before_full_payment: seller.can_send_receipt_before_full_payment && form.receiptSentBeforeFullPayment,
-        pickup_location_id: form.pickupLocationId ? Number(form.pickupLocationId) : null,
+        requires_supervisor_approval:
+          form.paymentAction === "requires_supervisor_approval",
+        receipt_sent_before_full_payment:
+          seller.can_send_receipt_before_full_payment &&
+          form.receiptSentBeforeFullPayment,
+        pickup_location_id: form.pickupLocationId
+          ? Number(form.pickupLocationId)
+          : null,
         items_payload: [itemPayload],
         payments_payload: paymentPayload ? [paymentPayload] : [],
       };
@@ -1020,13 +1433,20 @@ export default function TicketingSellerNewBookingPage() {
       let booking = await ticketingApi.createSellerBooking(payload, slug);
 
       if (form.paymentAction === "generate_ticket") {
-        booking = await ticketingApi.markSellerTicketGenerated(booking.id, slug);
+        booking = await ticketingApi.markSellerTicketGenerated(
+          booking.id,
+          slug,
+        );
       }
       setCreatedBooking(booking);
-      setSuccessMessage(`${t("sellerNewBooking.success.created")}${booking.booking_code ? `: ${booking.booking_code}` : ""}.`);
+      setSuccessMessage(
+        `${t("sellerNewBooking.success.created")}${booking.booking_code ? `: ${booking.booking_code}` : ""}.`,
+      );
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(getErrorMessage(error, t("sellerNewBooking.errors.create")));
+      setErrorMessage(
+        getErrorMessage(error, t("sellerNewBooking.errors.create")),
+      );
     } finally {
       setSaving(false);
     }
@@ -1051,7 +1471,11 @@ export default function TicketingSellerNewBookingPage() {
 
   useEffect(() => {
     if (!allowedPaymentActions.length) return;
-    if (!allowedPaymentActions.some((action) => action.value === form.paymentAction)) {
+    if (
+      !allowedPaymentActions.some(
+        (action) => action.value === form.paymentAction,
+      )
+    ) {
       updateForm("paymentAction", allowedPaymentActions[0].value);
     }
   }, [allowedPaymentActions.length, form.paymentAction]);
@@ -1071,25 +1495,65 @@ export default function TicketingSellerNewBookingPage() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white">
             <CheckCircle2 className="h-9 w-9" />
           </div>
-          <p className="mt-4 text-sm font-black uppercase tracking-wide text-emerald-700">{t("sellerNewBooking.success.title")}</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-950">{createdBooking.booking_code || t("sellerNewBooking.success.newBooking")}</h1>
-          <p className="mt-2 text-sm font-bold text-emerald-700">{successMessage}</p>
+          <p className="mt-4 text-sm font-black uppercase tracking-wide text-emerald-700">
+            {t("sellerNewBooking.success.title")}
+          </p>
+          <h1 className="mt-2 text-3xl font-black text-slate-950">
+            {createdBooking.booking_code ||
+              t("sellerNewBooking.success.newBooking")}
+          </h1>
+          <p className="mt-2 text-sm font-bold text-emerald-700">
+            {successMessage}
+          </p>
         </section>
 
         <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
-            <SummaryLine label={t("sellerNewBooking.summary.customer")} value={createdBooking.customer_name || form.customerName} />
-            <SummaryLine label={t("sellerNewBooking.summary.tour")} value={selectedProduct?.name || createdBooking.primary_product_detail?.name || "—"} />
-            <SummaryLine label={t("sellerNewBooking.summary.hotel")} value={createdBooking.customer_hotel || selectedPickupLocation?.name || "—"} />
-            <SummaryLine label={t("sellerNewBooking.summary.todayPaid")} value={formatMoney(paymentNow)} strong />
-            <SummaryLine label={t("sellerNewBooking.summary.balance")} value={formatMoney(balanceDue)} strong />
+            <SummaryLine
+              label={t("sellerNewBooking.summary.customer")}
+              value={createdBooking.customer_name || form.customerName}
+            />
+            <SummaryLine
+              label={t("sellerNewBooking.summary.tour")}
+              value={
+                selectedProduct?.name ||
+                createdBooking.primary_product_detail?.name ||
+                "—"
+              }
+            />
+            <SummaryLine
+              label={t("sellerNewBooking.summary.hotel")}
+              value={
+                createdBooking.customer_hotel ||
+                selectedPickupLocation?.name ||
+                "—"
+              }
+            />
+            <SummaryLine
+              label={t("sellerNewBooking.summary.todayPaid")}
+              value={formatMoney(paymentNow)}
+              strong
+            />
+            <SummaryLine
+              label={t("sellerNewBooking.summary.balance")}
+              value={formatMoney(balanceDue)}
+              strong
+            />
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button type="button" onClick={resetForAnotherBooking} className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white">
+            <button
+              type="button"
+              onClick={resetForAnotherBooking}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
+            >
               Create another
             </button>
-            <button type="button" onClick={() => navigate(`/ticketing/${slug}/seller/bookings`)} className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700">
+            <button
+              type="button"
+              onClick={() => navigate(`/ticketing/${slug}/seller/bookings`)}
+              className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700"
+            >
               View bookings
             </button>
           </div>
@@ -1102,26 +1566,59 @@ export default function TicketingSellerNewBookingPage() {
     <div className="space-y-5 pb-24">
       <div className="flex flex-col justify-between gap-4 rounded-[2rem] bg-slate-950 p-6 text-white shadow-sm lg:flex-row lg:items-center">
         <div>
-          <p className="text-sm font-black uppercase tracking-wide text-amber-300">{t("sellerNewBooking.header.eyebrow")}</p>
-          <h1 className="mt-2 text-3xl font-black">{t("sellerNewBooking.header.title")}</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-300">{t("sellerNewBooking.header.description")}</p>
+          <p className="text-sm font-black uppercase tracking-wide text-amber-300">
+            {t("sellerNewBooking.header.eyebrow")}
+          </p>
+          <h1 className="mt-2 text-3xl font-black">
+            {t("sellerNewBooking.header.title")}
+          </h1>
+          <p className="mt-2 text-sm font-semibold text-slate-300">
+            {t("sellerNewBooking.header.description")}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white ring-1 ring-white/10">{seller?.full_name || t("sellerNewBooking.labels.seller")}</div>
-          <Link to={`/ticketing/${slug}/seller/products`} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100">
+          <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white ring-1 ring-white/10">
+            {seller?.full_name || t("sellerNewBooking.labels.seller")}
+          </div>
+          <Link
+            to={`/ticketing/${slug}/seller/products`}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-slate-950 transition hover:bg-slate-100"
+          >
             <ArrowLeft className="h-4 w-4" />
             Products
           </Link>
         </div>
       </div>
 
-      {errorMessage && <AlertBox tone="red" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{errorMessage}</AlertBox>}
-      {seller && !seller.can_create_bookings && <AlertBox tone="red" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{t("sellerNewBooking.errors.accountCannotCreate")}</AlertBox>}
+      {errorMessage && (
+        <AlertBox
+          tone="red"
+          icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}
+        >
+          {errorMessage}
+        </AlertBox>
+      )}
+      {seller && !seller.can_create_bookings && (
+        <AlertBox
+          tone="red"
+          icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}
+        >
+          {t("sellerNewBooking.errors.accountCannotCreate")}
+        </AlertBox>
+      )}
 
       <section className="grid gap-5 xl:grid-cols-[1fr_390px]">
         <div className="space-y-5">
-          <Panel eyebrow={t("sellerNewBooking.steps.step1")} title={t("sellerNewBooking.steps.chooseTour")} icon={<Ticket className="h-5 w-5" />}>
-            <SearchInput value={productSearch} onChange={setProductSearch} placeholder={t("sellerNewBooking.search.tour")} />
+          <Panel
+            eyebrow={t("sellerNewBooking.steps.step1")}
+            title={t("sellerNewBooking.steps.chooseTour")}
+            icon={<Ticket className="h-5 w-5" />}
+          >
+            <SearchInput
+              value={productSearch}
+              onChange={setProductSearch}
+              placeholder={t("sellerNewBooking.search.tour")}
+            />
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filteredProducts.map((product) => {
                 const selected = String(product.id) === String(form.productId);
@@ -1133,16 +1630,36 @@ export default function TicketingSellerNewBookingPage() {
                     onClick={() => selectProduct(String(product.id))}
                     className={[
                       "overflow-hidden rounded-[1.6rem] border bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
-                      selected ? "border-amber-400 ring-4 ring-amber-100" : "border-slate-200",
+                      selected
+                        ? "border-amber-400 ring-4 ring-amber-100"
+                        : "border-slate-200",
                     ].join(" ")}
                   >
                     <div className="relative h-36 bg-slate-100">
-                      {image ? <img src={image} alt={product.image_alt_text || product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Ticket className="h-10 w-10" /></div>}
-                      {selected && <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-3 py-1 text-xs font-black text-slate-950">{t("sellerNewBooking.labels.selected")}</span>}
+                      {image ? (
+                        <img
+                          src={image}
+                          alt={product.image_alt_text || product.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-slate-400">
+                          <Ticket className="h-10 w-10" />
+                        </div>
+                      )}
+                      {selected && (
+                        <span className="absolute right-3 top-3 rounded-full bg-amber-400 px-3 py-1 text-xs font-black text-slate-950">
+                          {t("sellerNewBooking.labels.selected")}
+                        </span>
+                      )}
                     </div>
                     <div className="p-4">
-                      <p className="line-clamp-2 min-h-10 text-sm font-black text-slate-950">{product.name}</p>
-                      <p className="mt-2 text-lg font-black text-slate-950">{formatMoney(product.base_price)}</p>
+                      <p className="line-clamp-2 min-h-10 text-sm font-black text-slate-950">
+                        {product.name}
+                      </p>
+                      <p className="mt-2 text-lg font-black text-slate-950">
+                        {formatMoney(product.base_price)}
+                      </p>
                     </div>
                   </button>
                 );
@@ -1150,8 +1667,18 @@ export default function TicketingSellerNewBookingPage() {
             </div>
           </Panel>
 
-          <Panel eyebrow={t("sellerNewBooking.steps.step2")} title={t("sellerNewBooking.steps.chooseDate")} icon={<CalendarDays className="h-5 w-5" />}>
-            <Input label={t("sellerNewBooking.fields.serviceDate")} type="date" value={form.serviceDate} onChange={(value) => updateForm("serviceDate", value)} required />
+          <Panel
+            eyebrow={t("sellerNewBooking.steps.step2")}
+            title={t("sellerNewBooking.steps.chooseDate")}
+            icon={<CalendarDays className="h-5 w-5" />}
+          >
+            <Input
+              label={t("sellerNewBooking.fields.serviceDate")}
+              type="date"
+              value={form.serviceDate}
+              onChange={(value) => updateForm("serviceDate", value)}
+              required
+            />
 
             {isLiveCocoBongoProduct && (
               <div className="mt-5 rounded-[1.6rem] border border-slate-200 bg-slate-50 p-4">
@@ -1208,9 +1735,7 @@ export default function TicketingSellerNewBookingPage() {
                             selected
                               ? "border-violet-500 bg-violet-50 ring-2 ring-violet-100"
                               : "border-slate-200 bg-white hover:border-violet-300",
-                            unavailable
-                              ? "cursor-not-allowed opacity-55"
-                              : "",
+                            unavailable ? "cursor-not-allowed opacity-55" : "",
                           ].join(" ")}
                         >
                           <div className="flex items-start justify-between gap-4">
@@ -1228,13 +1753,15 @@ export default function TicketingSellerNewBookingPage() {
                               <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-600">
                                 {option.start_time && (
                                   <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                                    {t("sellerNewBooking.live.show")} {formatTime(option.start_time)}
+                                    {t("sellerNewBooking.live.show")}{" "}
+                                    {formatTime(option.start_time)}
                                   </span>
                                 )}
                                 {option.available_quantity !== null &&
                                   option.available_quantity !== undefined && (
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                                      {option.available_quantity} {t("sellerNewBooking.live.available")}
+                                      {option.available_quantity}{" "}
+                                      {t("sellerNewBooking.live.available")}
                                     </span>
                                   )}
                                 {unavailable && (
@@ -1263,28 +1790,49 @@ export default function TicketingSellerNewBookingPage() {
             )}
           </Panel>
 
-          <Panel eyebrow={t("sellerNewBooking.steps.step3")} title={t("sellerNewBooking.steps.chooseHotel")} icon={<Hotel className="h-5 w-5" />}>
+          <Panel
+            eyebrow={t("sellerNewBooking.steps.step3")}
+            title={t("sellerNewBooking.steps.chooseHotel")}
+            icon={<Hotel className="h-5 w-5" />}
+          >
             {requiresPickup ? (
               <>
-                <SearchInput value={hotelSearch} onChange={setHotelSearch} placeholder={t("sellerNewBooking.search.hotel")} />
+                <SearchInput
+                  value={hotelSearch}
+                  onChange={setHotelSearch}
+                  placeholder={t("sellerNewBooking.search.hotel")}
+                />
                 <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
                   {filteredPickupLocations.map((location) => {
-                    const selected = String(location.id) === String(form.pickupLocationId);
+                    const selected =
+                      String(location.id) === String(form.pickupLocationId);
                     return (
                       <button
                         key={location.id}
                         type="button"
-                        onClick={() => selectPickupLocation(String(location.id))}
+                        onClick={() =>
+                          selectPickupLocation(String(location.id))
+                        }
                         className={[
                           "flex w-full items-center justify-between gap-3 rounded-2xl border p-4 text-left transition",
-                          selected ? "border-amber-400 bg-amber-50" : "border-slate-200 bg-white hover:bg-slate-50",
+                          selected
+                            ? "border-amber-400 bg-amber-50"
+                            : "border-slate-200 bg-white hover:bg-slate-50",
                         ].join(" ")}
                       >
                         <span>
-                          <span className="block text-sm font-black text-slate-950">{location.name}</span>
-                          <span className="mt-1 block text-xs font-bold text-slate-500">{location.zone_name || location.default_pickup_point || t("sellerNewBooking.pickup.location")}</span>
+                          <span className="block text-sm font-black text-slate-950">
+                            {location.name}
+                          </span>
+                          <span className="mt-1 block text-xs font-bold text-slate-500">
+                            {location.zone_name ||
+                              location.default_pickup_point ||
+                              t("sellerNewBooking.pickup.location")}
+                          </span>
                         </span>
-                        {selected && <CheckCircle2 className="h-5 w-5 text-amber-600" />}
+                        {selected && (
+                          <CheckCircle2 className="h-5 w-5 text-amber-600" />
+                        )}
                       </button>
                     );
                   })}
@@ -1292,57 +1840,186 @@ export default function TicketingSellerNewBookingPage() {
 
                 <div className="mt-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                   {resolvingPickup ? (
-                    <div className="flex items-center gap-3 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />{t("sellerNewBooking.pickup.finding")}</div>
-                  ) : selectedPickupLocation && (resolvedPickup?.found || assignedPickupSchedule) ? (
+                    <div className="flex items-center gap-3 text-sm font-bold text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t("sellerNewBooking.pickup.finding")}
+                    </div>
+                  ) : selectedPickupLocation &&
+                    (resolvedPickup?.found || assignedPickupSchedule) ? (
                     <div className="flex items-start gap-3">
                       <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-600" />
                       <div>
-                        <p className="text-sm font-black text-slate-950">{t("sellerNewBooking.pickup.assigned")}</p>
-                        <p className="mt-1 text-lg font-black text-slate-950">{formatTime(pickupTime)}</p>
-                        <p className="mt-1 text-sm font-bold text-slate-600">{selectedPickupLocation.name} · {pickupPoint}</p>
+                        <p className="text-sm font-black text-slate-950">
+                          {t("sellerNewBooking.pickup.assigned")}
+                        </p>
+                        <p className="mt-1 text-lg font-black text-slate-950">
+                          {formatTime(pickupTime)}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          {selectedPickupLocation.name} · {pickupPoint}
+                        </p>
                       </div>
                     </div>
                   ) : form.pickupLocationId && form.serviceDate ? (
-                    <div className="flex items-start gap-3 text-amber-700"><AlertCircle className="mt-1 h-5 w-5 shrink-0" /><p className="text-sm font-bold">{resolvedPickup?.message || t("sellerNewBooking.pickup.notFound")}</p></div>
+                    <div className="flex items-start gap-3 text-amber-700">
+                      <AlertCircle className="mt-1 h-5 w-5 shrink-0" />
+                      <p className="text-sm font-bold">
+                        {resolvedPickup?.message ||
+                          t("sellerNewBooking.pickup.notFound")}
+                      </p>
+                    </div>
                   ) : (
-                    <p className="text-sm font-bold text-slate-500">{t("sellerNewBooking.pickup.selectDateHotel")}</p>
+                    <p className="text-sm font-bold text-slate-500">
+                      {t("sellerNewBooking.pickup.selectDateHotel")}
+                    </p>
                   )}
                 </div>
               </>
             ) : (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">{t("sellerNewBooking.pickup.notRequired")}</div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">
+                {t("sellerNewBooking.pickup.notRequired")}
+              </div>
             )}
           </Panel>
 
-          <Panel eyebrow={t("sellerNewBooking.steps.step4")} title={t("sellerNewBooking.steps.customer")} icon={<UserRound className="h-5 w-5" />}>
+          <Panel
+            eyebrow={t("sellerNewBooking.steps.step4")}
+            title={t("sellerNewBooking.steps.customer")}
+            icon={<UserRound className="h-5 w-5" />}
+          >
             <div className="grid gap-4 md:grid-cols-2">
-              <Input label={t("sellerNewBooking.fields.customerName")} value={form.customerName} onChange={(value) => updateForm("customerName", value)} required />
-              <Input label={t("sellerNewBooking.fields.whatsapp")} value={form.customerWhatsapp} onChange={(value) => updateForm("customerWhatsapp", value)} placeholder="+1 809 000 0000" />
+              <Input
+                label={t("sellerNewBooking.fields.customerName")}
+                value={form.customerName}
+                onChange={(value) => updateForm("customerName", value)}
+                required
+              />
+              <Input
+                label={t("sellerNewBooking.fields.whatsapp")}
+                value={form.customerWhatsapp}
+                onChange={(value) => updateForm("customerWhatsapp", value)}
+                placeholder="+1 809 000 0000"
+              />
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <GuestCounter label={t("sellerNewBooking.guests.adults")} value={form.adults} onMinus={() => changeGuest("adults", -1)} onPlus={() => changeGuest("adults", 1)} />
-              <GuestCounter label={t("sellerNewBooking.guests.children")} value={form.children} onMinus={() => changeGuest("children", -1)} onPlus={() => changeGuest("children", 1)} />
-              <GuestCounter label={t("sellerNewBooking.guests.infants")} value={form.infants} onMinus={() => changeGuest("infants", -1)} onPlus={() => changeGuest("infants", 1)} />
+              <GuestCounter
+                label={t("sellerNewBooking.guests.adults")}
+                value={form.adults}
+                onMinus={() => changeGuest("adults", -1)}
+                onPlus={() => changeGuest("adults", 1)}
+              />
+              <GuestCounter
+                label={t("sellerNewBooking.guests.children")}
+                value={form.children}
+                onMinus={() => changeGuest("children", -1)}
+                onPlus={() => changeGuest("children", 1)}
+              />
+              <GuestCounter
+                label={t("sellerNewBooking.guests.infants")}
+                value={form.infants}
+                onMinus={() => changeGuest("infants", -1)}
+                onPlus={() => changeGuest("infants", 1)}
+              />
             </div>
 
-            <button type="button" onClick={() => setShowOptionalCustomer((current) => !current)} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
-              <ChevronDown className={["h-4 w-4 transition", showOptionalCustomer ? "rotate-180" : ""].join(" ")} />
+            {seller?.can_apply_discounts && maximumDiscountPercent > 0 && (
+              <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                <Input
+                  label={t("sellerNewBooking.fields.discount")}
+                  type="text"
+                  inputMode="decimal"
+                  value={form.discountAmount}
+                  onChange={changeDiscountAmount}
+                  onBlur={finishDiscountAmount}
+                  placeholder="0.00"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => applyDiscountPercent(maximumDiscountPercent)}
+                  className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300"
+                >
+                  Apply maximum discount ({maximumDiscountPercent.toFixed(2)}%)
+                </button>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <button
+                    type="button"
+                    onClick={() => applyDiscountPercent(0)}
+                    className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50"
+                  >
+                    Clear
+                  </button>
+                  {[5, 10, 15]
+                    .filter((percent) => percent <= maximumDiscountPercent)
+                    .map((percent) => (
+                      <button
+                        key={percent}
+                        type="button"
+                        onClick={() => applyDiscountPercent(percent)}
+                        className="h-10 rounded-xl border border-amber-300 bg-white px-3 text-xs font-black text-amber-700 hover:bg-amber-100"
+                      >
+                        Apply {percent}%
+                      </button>
+                    ))}
+                </div>
+
+                <p className="mt-3 text-xs font-semibold leading-5 text-slate-600">
+                  Maximum {maximumDiscountPercent.toFixed(2)}% ·{" "}
+                  {formatMoney(maximumDiscountAmount)}. Minimum customer price:{" "}
+                  {formatMoney(minimumSellingPrice)}.
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowOptionalCustomer((current) => !current)}
+              className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700"
+            >
+              <ChevronDown
+                className={[
+                  "h-4 w-4 transition",
+                  showOptionalCustomer ? "rotate-180" : "",
+                ].join(" ")}
+              />
               Add email / notes
             </button>
 
             {showOptionalCustomer && (
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <Input label={t("sellerNewBooking.fields.email")} type="email" value={form.customerEmail} onChange={(value) => updateForm("customerEmail", value)} placeholder="customer@email.com" />
-                {seller?.can_apply_discounts && <Input label={t("sellerNewBooking.fields.discount")} type="number" value={form.discountAmount} onChange={(value) => updateForm("discountAmount", value)} />}
-                <div className="md:col-span-2"><Textarea label={t("sellerNewBooking.fields.notes")} value={form.customerNotes} onChange={(value) => updateForm("customerNotes", value)} placeholder={t("sellerNewBooking.placeholders.notes")} /></div>
+                <Input
+                  label={t("sellerNewBooking.fields.email")}
+                  type="email"
+                  value={form.customerEmail}
+                  onChange={(value) => updateForm("customerEmail", value)}
+                  placeholder="customer@email.com"
+                />
+                <div className="md:col-span-2">
+                  <Textarea
+                    label={t("sellerNewBooking.fields.notes")}
+                    value={form.customerNotes}
+                    onChange={(value) => updateForm("customerNotes", value)}
+                    placeholder={t("sellerNewBooking.placeholders.notes")}
+                  />
+                </div>
               </div>
             )}
           </Panel>
 
-          <Panel eyebrow={t("sellerNewBooking.steps.step5")} title={t("sellerNewBooking.steps.payment")} icon={<CreditCard className="h-5 w-5" />}>
+          <Panel
+            eyebrow={t("sellerNewBooking.steps.step5")}
+            title={t("sellerNewBooking.steps.payment")}
+            icon={<CreditCard className="h-5 w-5" />}
+          >
             {allowedPaymentActions.length === 0 ? (
-              <AlertBox tone="amber" icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}>{t("sellerNewBooking.payment.noneEnabled")}</AlertBox>
+              <AlertBox
+                tone="amber"
+                icon={<AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}
+              >
+                {t("sellerNewBooking.payment.noneEnabled")}
+              </AlertBox>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {allowedPaymentActions.map((action) => (
@@ -1352,11 +2029,17 @@ export default function TicketingSellerNewBookingPage() {
                     onClick={() => selectPaymentAction(action.value)}
                     className={[
                       "flex items-center gap-3 rounded-[1.4rem] border p-4 text-left transition",
-                      form.paymentAction === action.value ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100" : "border-slate-200 bg-white hover:bg-slate-50",
+                      form.paymentAction === action.value
+                        ? "border-amber-400 bg-amber-50 ring-2 ring-amber-100"
+                        : "border-slate-200 bg-white hover:bg-slate-50",
                     ].join(" ")}
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">{action.icon}</span>
-                    <span className="text-sm font-black text-slate-950">{action.label}</span>
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+                      {action.icon}
+                    </span>
+                    <span className="text-sm font-black text-slate-950">
+                      {action.label}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1364,14 +2047,39 @@ export default function TicketingSellerNewBookingPage() {
 
             {paymentPayload && (
               <>
-                <button type="button" onClick={() => setShowPaymentDetails((current) => !current)} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
-                  <ChevronDown className={["h-4 w-4 transition", showPaymentDetails ? "rotate-180" : ""].join(" ")} />
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentDetails((current) => !current)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700"
+                >
+                  <ChevronDown
+                    className={[
+                      "h-4 w-4 transition",
+                      showPaymentDetails ? "rotate-180" : "",
+                    ].join(" ")}
+                  />
                   Add payment reference
                 </button>
                 {showPaymentDetails && (
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <Input label={t("sellerNewBooking.fields.paymentReference")} value={form.paymentReference} onChange={(value) => updateForm("paymentReference", value)} placeholder={t("sellerNewBooking.placeholders.paymentReference")} />
-                    <Input label={t("sellerNewBooking.fields.paymentNote")} value={form.paymentNote} onChange={(value) => updateForm("paymentNote", value)} placeholder={t("sellerNewBooking.placeholders.paymentNote")} />
+                    <Input
+                      label={t("sellerNewBooking.fields.paymentReference")}
+                      value={form.paymentReference}
+                      onChange={(value) =>
+                        updateForm("paymentReference", value)
+                      }
+                      placeholder={t(
+                        "sellerNewBooking.placeholders.paymentReference",
+                      )}
+                    />
+                    <Input
+                      label={t("sellerNewBooking.fields.paymentNote")}
+                      value={form.paymentNote}
+                      onChange={(value) => updateForm("paymentNote", value)}
+                      placeholder={t(
+                        "sellerNewBooking.placeholders.paymentNote",
+                      )}
+                    />
                   </div>
                 )}
               </>
@@ -1379,8 +2087,25 @@ export default function TicketingSellerNewBookingPage() {
 
             {seller?.can_send_receipt_before_full_payment && (
               <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <span><span className="block text-sm font-black text-slate-800">{t("sellerNewBooking.payment.sendReceiptBeforeFull")}</span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">{t("sellerNewBooking.payment.receiptHelper")}</span></span>
-                <input type="checkbox" checked={form.receiptSentBeforeFullPayment} onChange={(event) => updateForm("receiptSentBeforeFullPayment", event.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-amber-500" />
+                <span>
+                  <span className="block text-sm font-black text-slate-800">
+                    {t("sellerNewBooking.payment.sendReceiptBeforeFull")}
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+                    {t("sellerNewBooking.payment.receiptHelper")}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={form.receiptSentBeforeFullPayment}
+                  onChange={(event) =>
+                    updateForm(
+                      "receiptSentBeforeFullPayment",
+                      event.target.checked,
+                    )
+                  }
+                  className="mt-1 h-5 w-5 shrink-0 accent-amber-500"
+                />
               </label>
             )}
           </Panel>
@@ -1389,15 +2114,25 @@ export default function TicketingSellerNewBookingPage() {
         <aside className="space-y-5">
           <section className="sticky top-6 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white"><ReceiptText className="h-6 w-6" /></div>
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white">
+                <ReceiptText className="h-6 w-6" />
+              </div>
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">{t("sellerNewBooking.summary.title")}</p>
-                <h2 className="mt-1 text-xl font-black text-slate-950">{selectedProduct?.name || t("sellerNewBooking.summary.chooseTour")}</h2>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                  {t("sellerNewBooking.summary.title")}
+                </p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">
+                  {selectedProduct?.name ||
+                    t("sellerNewBooking.summary.chooseTour")}
+                </h2>
               </div>
             </div>
 
             <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4">
-              <SummaryLine label={t("sellerNewBooking.summary.date")} value={form.serviceDate || "—"} />
+              <SummaryLine
+                label={t("sellerNewBooking.summary.date")}
+                value={form.serviceDate || "—"}
+              />
               {isLiveCocoBongoProduct && (
                 <SummaryLine
                   label={t("sellerNewBooking.summary.ticketOption")}
@@ -1416,16 +2151,58 @@ export default function TicketingSellerNewBookingPage() {
                     : `${getTotalGuests(form)} ${t("sellerNewBooking.summary.totalGuests")} · ${getChargeableGuests(form)} ${t("sellerNewBooking.summary.charged")}`
                 }
               />
-              <SummaryLine label={t("sellerNewBooking.summary.hotel")} value={selectedPickupLocation?.name || "—"} />
-              <SummaryLine label={t("sellerNewBooking.summary.pickup")} value={pickupTime ? `${formatTime(pickupTime)} · ${pickupPoint}` : "—"} />
+              <SummaryLine
+                label={t("sellerNewBooking.summary.hotel")}
+                value={selectedPickupLocation?.name || "—"}
+              />
+              <SummaryLine
+                label={t("sellerNewBooking.summary.pickup")}
+                value={
+                  pickupTime
+                    ? `${formatTime(pickupTime)} · ${pickupPoint}`
+                    : "—"
+                }
+              />
             </div>
 
             <div className="mt-5 space-y-3">
-              <SummaryLine label={t("sellerNewBooking.summary.subtotal")} value={formatMoney(subtotal)} />
-              {seller?.can_apply_discounts && discountAmount > 0 && <SummaryLine label={t("sellerNewBooking.fields.discount")} value={`-${formatMoney(discountAmount)}`} />}
-              <BigMoney label={t("sellerNewBooking.summary.total")} value={formatMoney(totalAmount)} />
-              <BigMoney label={t("sellerNewBooking.summary.today")} value={paymentPayload ? formatMoney(paymentPayload.amount) : t("sellerNewBooking.summary.noPayment")} />
-              <BigMoney label={t("sellerNewBooking.summary.balance")} value={formatMoney(balanceDue)} muted />
+              <SummaryLine
+                label={t("sellerNewBooking.summary.subtotal")}
+                value={formatMoney(subtotal)}
+              />
+              {seller?.can_apply_discounts && maximumDiscountPercent > 0 && (
+                <SummaryLine
+                  label="Maximum discount"
+                  value={`${maximumDiscountPercent.toFixed(2)}% · ${formatMoney(
+                    maximumDiscountAmount,
+                  )}`}
+                />
+              )}
+              {seller?.can_apply_discounts && discountAmount > 0 && (
+                <SummaryLine
+                  label={t("sellerNewBooking.fields.discount")}
+                  value={`-${formatMoney(discountAmount)} (${customerDiscountPercent.toFixed(
+                    2,
+                  )}%)`}
+                />
+              )}
+              <BigMoney
+                label={t("sellerNewBooking.summary.total")}
+                value={formatMoney(totalAmount)}
+              />
+              <BigMoney
+                label={t("sellerNewBooking.summary.today")}
+                value={
+                  paymentPayload
+                    ? formatMoney(paymentPayload.amount)
+                    : t("sellerNewBooking.summary.noPayment")
+                }
+              />
+              <BigMoney
+                label={t("sellerNewBooking.summary.balance")}
+                value={formatMoney(balanceDue)}
+                muted
+              />
             </div>
 
             <button
@@ -1439,11 +2216,18 @@ export default function TicketingSellerNewBookingPage() {
               }
               className="mt-5 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 px-5 text-sm font-black text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
               Create booking
             </button>
 
-            <Link to={`/ticketing/${slug}/seller/bookings`} className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+            <Link
+              to={`/ticketing/${slug}/seller/bookings`}
+              className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
+            >
               Back to bookings
             </Link>
           </section>
@@ -1453,13 +2237,27 @@ export default function TicketingSellerNewBookingPage() {
   );
 }
 
-function Panel({ eyebrow, title, icon, children }: { eyebrow: string; title: string; icon: ReactNode; children: ReactNode }) {
+function Panel({
+  eyebrow,
+  title,
+  icon,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">{icon}</div>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+          {icon}
+        </div>
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-amber-600">{eyebrow}</p>
+          <p className="text-xs font-black uppercase tracking-wide text-amber-600">
+            {eyebrow}
+          </p>
           <h2 className="mt-1 text-xl font-black text-slate-950">{title}</h2>
         </div>
       </div>
@@ -1468,65 +2266,217 @@ function Panel({ eyebrow, title, icon, children }: { eyebrow: string; title: str
   );
 }
 
-function SearchInput({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
   return (
     <label className="relative block">
       <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-      <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-sm font-bold outline-none transition focus:border-amber-400 focus:bg-white" />
+      <input
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-sm font-bold outline-none transition focus:border-amber-400 focus:bg-white"
+      />
     </label>
   );
 }
 
-function Input({ label, value, onChange, placeholder, type = "text", required = false }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; required?: boolean }) {
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  required = false,
+  min,
+  max,
+  step,
+  onBlur,
+  inputMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  step?: string;
+  onBlur?: () => void;
+  inputMode?:
+    | "none"
+    | "text"
+    | "tel"
+    | "url"
+    | "email"
+    | "numeric"
+    | "decimal"
+    | "search";
+}) {
   return (
     <label className="block">
-      <span className="text-sm font-bold text-slate-700">{label}{required && <span className="text-red-500"> *</span>}</span>
-      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white" />
+      <span className="text-sm font-bold text-slate-700">
+        {label}
+        {required && <span className="text-red-500"> *</span>}
+      </span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        min={min}
+        max={max}
+        step={step}
+        inputMode={inputMode}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+        className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white"
+      />
     </label>
   );
 }
 
-function Textarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+function Textarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
   return (
     <label className="block">
       <span className="text-sm font-bold text-slate-700">{label}</span>
-      <textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white" />
+      <textarea
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white"
+      />
     </label>
   );
 }
 
-function GuestCounter({ label, value, onMinus, onPlus }: { label: string; value: number; onMinus: () => void; onPlus: () => void }) {
+function GuestCounter({
+  label,
+  value,
+  onMinus,
+  onPlus,
+}: {
+  label: string;
+  value: number;
+  onMinus: () => void;
+  onPlus: () => void;
+}) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-center gap-2 text-sm font-black text-slate-700"><Users className="h-4 w-4" />{label}</div>
+      <div className="flex items-center gap-2 text-sm font-black text-slate-700">
+        <Users className="h-4 w-4" />
+        {label}
+      </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <button type="button" onClick={onMinus} className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"><Minus className="h-4 w-4" /></button>
+        <button
+          type="button"
+          onClick={onMinus}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
         <span className="text-2xl font-black text-slate-950">{value}</span>
-        <button type="button" onClick={onPlus} className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-white"><Plus className="h-4 w-4" /></button>
+        <button
+          type="button"
+          onClick={onPlus}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-white"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
 }
 
-function SummaryLine({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function SummaryLine({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-3 first:pt-0 last:border-b-0 last:pb-0">
       <span className="text-sm font-bold text-slate-500">{label}</span>
-      <span className={["max-w-48 truncate text-right text-sm", strong ? "font-black text-slate-950" : "font-bold text-slate-700"].join(" ")}>{value}</span>
+      <span
+        className={[
+          "max-w-48 truncate text-right text-sm",
+          strong ? "font-black text-slate-950" : "font-bold text-slate-700",
+        ].join(" ")}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function BigMoney({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
+function BigMoney({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
-      <span className="text-sm font-black uppercase tracking-wide text-slate-500">{label}</span>
-      <span className={["text-xl font-black", muted ? "text-slate-600" : "text-slate-950"].join(" ")}>{value}</span>
+      <span className="text-sm font-black uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <span
+        className={[
+          "text-xl font-black",
+          muted ? "text-slate-600" : "text-slate-950",
+        ].join(" ")}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function AlertBox({ tone, icon, children }: { tone: "red" | "amber"; icon: ReactNode; children: ReactNode }) {
-  const classes = tone === "red" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800";
-  return <div className={["flex items-start gap-3 rounded-3xl border p-4 text-sm font-bold", classes].join(" ")}>{icon}{children}</div>;
+function AlertBox({
+  tone,
+  icon,
+  children,
+}: {
+  tone: "red" | "amber";
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  const classes =
+    tone === "red"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : "border-amber-200 bg-amber-50 text-amber-800";
+  return (
+    <div
+      className={[
+        "flex items-start gap-3 rounded-3xl border p-4 text-sm font-bold",
+        classes,
+      ].join(" ")}
+    >
+      {icon}
+      {children}
+    </div>
+  );
 }

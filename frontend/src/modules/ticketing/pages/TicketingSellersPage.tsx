@@ -134,6 +134,7 @@ type SellerFormState = {
   whatsapp: string;
   commission_rate: string;
   fixed_commission_amount: string;
+  max_customer_discount_percent: string;
   is_active: boolean;
   create_login: boolean;
   login_username: string;
@@ -303,6 +304,7 @@ const blankForm: SellerFormState = {
   whatsapp: "",
   commission_rate: "0.00",
   fixed_commission_amount: "0.00",
+  max_customer_discount_percent: "0.00",
   is_active: true,
   create_login: false,
   login_username: "",
@@ -612,6 +614,11 @@ function sellerToForm(seller: Seller): SellerFormState {
     whatsapp: seller.whatsapp || "",
     commission_rate: String(seller.commission_rate ?? "0.00"),
     fixed_commission_amount: String(seller.fixed_commission_amount ?? "0.00"),
+    max_customer_discount_percent: String(
+      seller.max_customer_discount_percent ??
+        seller.seller_allowed_discount_percent ??
+        "0.00"
+    ),
     is_active: Boolean(seller.is_active),
     create_login: false,
     login_username: "",
@@ -638,6 +645,13 @@ function formToFormData(form: SellerFormState, photoFile: File | null) {
   appendText(formData, "whatsapp", form.whatsapp, { omitEmpty: true });
   appendText(formData, "commission_rate", form.commission_rate || "0.00");
   appendText(formData, "fixed_commission_amount", form.fixed_commission_amount || "0.00");
+  appendText(
+    formData,
+    "max_customer_discount_percent",
+    form.can_apply_discounts
+      ? form.max_customer_discount_percent || "0.00"
+      : "0.00"
+  );
 
   appendBoolean(formData, "is_active", form.is_active);
   appendBoolean(formData, "create_login", form.create_login);
@@ -825,6 +839,10 @@ export default function TicketingSellersPage() {
         next.login_email = String(value);
       }
 
+      if (field === "can_apply_discounts" && value === false) {
+        next.max_customer_discount_percent = "0.00";
+      }
+
       return next;
     });
   }
@@ -837,6 +855,26 @@ export default function TicketingSellersPage() {
 
     if (form.email.trim() && !isValidEmail(form.email)) {
       setError(t("sellers.errors.invalidOptionalEmail"));
+      return;
+    }
+
+    const maximumDiscountPercent = Number(
+      form.max_customer_discount_percent || 0
+    );
+
+    if (
+      form.can_apply_discounts &&
+      (!Number.isFinite(maximumDiscountPercent) ||
+        maximumDiscountPercent < 0 ||
+        maximumDiscountPercent > 100)
+    ) {
+      setError(
+        t(
+          "sellers.errors.invalidMaximumDiscount",
+          undefined,
+          "Maximum customer discount must be between 0 and 100%."
+        )
+      );
       return;
     }
 
@@ -1444,6 +1482,40 @@ function SellerFormModal({
                     placeholder="0.00"
                     icon={<Wallet className="h-4 w-4" />}
                   />
+
+                  <div className="md:col-span-2">
+                    <Input
+                      label={t(
+                        "sellers.form.maximumCustomerDiscount",
+                        undefined,
+                        "Maximum customer discount (%)"
+                      )}
+                      type="number"
+                      value={form.max_customer_discount_percent}
+                      onChange={(value) =>
+                        onChange("max_customer_discount_percent", value)
+                      }
+                      placeholder="10.00"
+                      icon={<BadgeDollarSign className="h-4 w-4" />}
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      disabled={!form.can_apply_discounts}
+                    />
+                    <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                      {form.can_apply_discounts
+                        ? t(
+                            "sellers.form.maximumCustomerDiscountHelp",
+                            undefined,
+                            "The seller cannot discount a booking above this percentage. The product limit may reduce it further."
+                          )
+                        : t(
+                            "sellers.form.enableDiscountPermissionHelp",
+                            undefined,
+                            "Enable Apply discounts in Permissions to configure this limit."
+                          )}
+                    </p>
+                  </div>
                 </div>
                 <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
                   {t("sellers.form.marginHelp")}
@@ -1983,6 +2055,10 @@ function Input({
   type = "text",
   icon,
   required = false,
+  min,
+  max,
+  step,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -1991,6 +2067,10 @@ function Input({
   type?: string;
   icon?: ReactNode;
   required?: boolean;
+  min?: number;
+  max?: number;
+  step?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -1999,15 +2079,26 @@ function Input({
         {required && <span className="text-red-500"> *</span>}
       </span>
 
-      <div className="mt-2 flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 focus-within:border-amber-400 focus-within:bg-white">
+      <div
+        className={[
+          "mt-2 flex h-12 items-center gap-3 rounded-2xl border px-4",
+          disabled
+            ? "border-slate-200 bg-slate-100"
+            : "border-slate-200 bg-slate-50 focus-within:border-amber-400 focus-within:bg-white",
+        ].join(" ")}
+      >
         {icon && <div className="text-slate-400">{icon}</div>}
 
         <input
           type={type}
           value={value}
           placeholder={placeholder}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
-          className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
+          className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:text-slate-400"
         />
       </div>
     </label>

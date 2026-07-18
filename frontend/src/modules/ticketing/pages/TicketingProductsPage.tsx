@@ -58,6 +58,7 @@ type ProductFormState = {
   infant_cost_price: string;
   deposit_amount: string;
   deposit_percentage: string;
+  seller_allowed_discount_percent: string;
   capacity: string;
   duration_text: string;
   start_time: string;
@@ -208,6 +209,7 @@ const emptyForm: ProductFormState = {
   infant_cost_price: "0.00",
   deposit_amount: "0.00",
   deposit_percentage: "0.00",
+  seller_allowed_discount_percent: "0.00",
   capacity: "0",
   duration_text: "",
   start_time: "",
@@ -393,6 +395,9 @@ function getProductForm(product?: ExperienceProduct | null): ProductFormState {
     infant_cost_price: moneyToString((product as any).infant_cost_price),
     deposit_amount: moneyToString(product.deposit_amount),
     deposit_percentage: moneyToString(product.deposit_percentage),
+    seller_allowed_discount_percent: moneyToString(
+      (product as any).seller_allowed_discount_percent,
+    ),
     capacity: numberText(product.capacity),
     duration_text: text(product.duration_text),
     start_time: text(product.start_time),
@@ -488,6 +493,11 @@ function buildProductPayload(form: ProductFormState, imageFile: File | null) {
   appendNumberText(formData, "cost_price", form.adult_cost_price);
   appendNumberText(formData, "deposit_amount", form.deposit_amount);
   appendNumberText(formData, "deposit_percentage", form.deposit_percentage);
+  appendNumberText(
+    formData,
+    "seller_allowed_discount_percent",
+    form.seller_allowed_discount_percent,
+  );
   appendNumberText(formData, "capacity", form.capacity);
 
   appendText(formData, "duration_text", form.duration_text);
@@ -2495,6 +2505,19 @@ function ProductModal({
               />
 
               <Input
+                label="Maximum seller customer discount (%)"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.seller_allowed_discount_percent}
+                onChange={(value) =>
+                  onChange("seller_allowed_discount_percent", value)
+                }
+                placeholder="Example: 15"
+              />
+
+              <Input
                 label={t("products.modal.fields.capacity")}
                 type="number"
                 min="0"
@@ -2903,6 +2926,7 @@ function Input({
   onChange,
   type = "text",
   min,
+  max,
   step,
   placeholder,
 }: {
@@ -2911,6 +2935,7 @@ function Input({
   onChange: (value: string) => void;
   type?: string;
   min?: string;
+  max?: string;
   step?: string;
   placeholder?: string;
 }) {
@@ -2921,6 +2946,7 @@ function Input({
       <input
         type={type}
         min={min}
+        max={max}
         step={step}
         value={value}
         placeholder={placeholder}
