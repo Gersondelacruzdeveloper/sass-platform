@@ -2907,6 +2907,135 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             defaults={"receipt_data": receipt_data},
         )
 
+    def validate_and_apply_seller_discount(self, booking, subtotal):
+        """
+        Validate seller-entered customer discounts after booking items have been
+        priced. The authenticated seller and the selected product both limit the
+        maximum percentage that may be applied.
+
+        Public bookings are unchanged because they do not have a seller attached.
+        """
+
+        requested_discount_percent = Decimal(
+            str(booking.customer_discount_percent or "0.00")
+        )
+
+        if requested_discount_percent < Decimal("0.00"):
+            raise serializers.ValidationError(
+                {
+                    "customer_discount_percent": (
+                        "Customer discount cannot be negative."
+                    )
+                }
+            )
+
+        if requested_discount_percent > Decimal("100.00"):
+            raise serializers.ValidationError(
+                {
+                    "customer_discount_percent": (
+                        "Customer discount cannot exceed 100%."
+                    )
+                }
+            )
+
+        seller = booking.seller
+
+        # The discount allowance is only enforced for seller-created bookings.
+        # Public checkout and owner-created bookings without a seller remain unchanged.
+        if not seller:
+            return
+
+        if requested_discount_percent > Decimal("0.00") and not getattr(
+            seller,
+            "can_apply_discounts",
+            False,
+        ):
+            raise serializers.ValidationError(
+                {
+                    "customer_discount_percent": (
+                        "You do not have permission to apply customer discounts."
+                    )
+                }
+            )
+
+        seller_limit = Decimal(
+            str(getattr(seller, "max_customer_discount_percent", 0) or 0)
+        )
+
+        product_limits = [
+            Decimal(
+                str(
+                    getattr(
+                        item.product,
+                        "seller_allowed_discount_percent",
+                        0,
+                    )
+                    or 0
+                )
+            )
+            for item in booking.items.select_related("product").all()
+            if item.product_id
+        ]
+
+        if not product_limits and booking.primary_product:
+            product_limits.append(
+                Decimal(
+                    str(
+                        getattr(
+                            booking.primary_product,
+                            "seller_allowed_discount_percent",
+                            0,
+                        )
+                        or 0
+                    )
+                )
+            )
+
+        # A multi-item booking must respect the most restrictive product limit.
+        product_limit = (
+            min(product_limits)
+            if product_limits
+            else Decimal("0.00")
+        )
+        allowed_discount_percent = min(seller_limit, product_limit)
+
+        subtotal = Decimal(str(subtotal or "0.00")).quantize(Decimal("0.01"))
+        maximum_discount_amount = (
+            subtotal * allowed_discount_percent / Decimal("100.00")
+        ).quantize(Decimal("0.01"))
+        minimum_selling_price = (
+            subtotal - maximum_discount_amount
+        ).quantize(Decimal("0.01"))
+
+        if requested_discount_percent > allowed_discount_percent:
+            raise serializers.ValidationError(
+                {
+                    "customer_discount_percent": (
+                        f"Maximum discount allowed for this booking is "
+                        f"{allowed_discount_percent.normalize()}% "
+                        f"({maximum_discount_amount:.2f}). "
+                        f"Minimum selling price is {minimum_selling_price:.2f}."
+                    )
+                }
+            )
+
+        customer_discount_amount = (
+            subtotal * requested_discount_percent / Decimal("100.00")
+        ).quantize(Decimal("0.01"))
+
+        booking.customer_discount_percent = requested_discount_percent.quantize(
+            Decimal("0.01")
+        )
+        booking.customer_discount_amount = customer_discount_amount
+        booking.save(
+            update_fields=[
+                "customer_discount_percent",
+                "customer_discount_amount",
+                "updated_at",
+            ]
+        )
+
+    @transaction.atomic
     def create(self, validated_data):
         items_payload = validated_data.pop("items_payload", [])
         payments_payload = validated_data.pop("payments_payload", [])
@@ -2922,12 +3051,19 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         self.get_or_create_customer(organisation, booking)
 
+        subtotal = Decimal("0.00")
+
         if items_payload:
-            self.create_booking_items(
+            subtotal, _total_cost = self.create_booking_items(
                 booking=booking,
                 organisation=organisation,
                 items_payload=items_payload,
             )
+
+        self.validate_and_apply_seller_discount(
+            booking=booking,
+            subtotal=subtotal,
+        )
 
         booking = booking_finance.recalculate_booking_payment_totals(booking)
 
