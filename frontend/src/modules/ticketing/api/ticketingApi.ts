@@ -88,6 +88,15 @@ export type LiveTicketOption = {
   end_time?: string;
   raw?: unknown;
 };
+export interface SellerSignedOfferLinkResponse {
+  seller_slug: string;
+  product_id: number;
+  product_slug: string;
+  discount_percent: string;
+  maximum_discount_percent: string;
+  offer_token: string;
+  expires_in_seconds: number;
+}
 
 export type LiveProductAvailabilityResponse = {
   ok: boolean;
@@ -2158,6 +2167,26 @@ export const ticketingApi = {
     const response = await api.get(`/ticketing/public/${slug}/seo/`);
     return response.data;
   },
+
+  generateSellerOfferLink: async (
+  productId: number,
+  discountPercent: number,
+  slug?: string
+): Promise<SellerSignedOfferLinkResponse> => {
+  const response =
+    await api.post<SellerSignedOfferLinkResponse>(
+      `/ticketing/seller/products/${productId}/signed-offer-link/`,
+      {
+        discount_percent: discountPercent,
+      },
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+
+  return response.data;
+},
+
 };
 
 

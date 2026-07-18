@@ -459,6 +459,7 @@ export default function PublicCheckoutPage() {
   const pickupTime = normalizeTime(searchParams.get("pickup_time"));
   const pickupPoint = searchParams.get("pickup_point") || "";
   const sellerSlug = searchParams.get("seller") || "";
+  const offerToken = searchParams.get("offer_token") || "";
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
   const adultPriceOverride = searchParams.get("adult_price");
@@ -895,6 +896,7 @@ export default function PublicCheckoutPage() {
         payment_mode: paymentModeFor(paymentChoice),
         payment_method: paymentMethodFor(paymentChoice),
         customer_language: language,
+        offer_token: offerToken || undefined,
         service_date: serviceDate,
         service_time: pickupTime,
         customer_name: form.full_name.trim(),

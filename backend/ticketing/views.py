@@ -29,6 +29,7 @@ from rest_framework.views import APIView
 from django.utils.dateparse import parse_date
 from django.utils.text import slugify
 from django.core.mail import EmailMessage
+from django.core import signing
 from .notifications.utils import get_email_connection
 from .notifications.templates import test_email_subject, test_email_body
 import secrets
@@ -46,6 +47,59 @@ from .google_oauth import (
 )
 
 logger = logging.getLogger(__name__)
+
+SELLER_OFFER_SIGNING_SALT = "ticketing.seller-offer.v1"
+SELLER_OFFER_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+
+
+def _decimal_percent(value, field_name="discount_percent"):
+    try:
+        percent = Decimal(str(value or "0")).quantize(Decimal("0.01"))
+    except Exception as exc:
+        raise ValueError(f"{field_name} must be a valid percentage.") from exc
+
+    if percent < Decimal("0.00") or percent > Decimal("100.00"):
+        raise ValueError(f"{field_name} must be between 0 and 100.")
+
+    return percent
+
+
+def _seller_offer_allowed_discount(seller, product):
+    if not getattr(seller, "can_apply_discounts", False):
+        return Decimal("0.00")
+
+    seller_limit = _decimal_percent(
+        getattr(seller, "max_customer_discount_percent", 0),
+        "seller_limit",
+    )
+    product_limit = _decimal_percent(
+        getattr(product, "seller_allowed_discount_percent", 0),
+        "product_limit",
+    )
+    return min(seller_limit, product_limit)
+
+
+def _build_seller_offer_token(*, organisation, seller, product, discount_percent):
+    return signing.dumps(
+        {
+            "organisation_id": organisation.id,
+            "seller_id": seller.id,
+            "seller_slug": seller.seller_slug,
+            "product_id": product.id,
+            "product_slug": product.slug,
+            "discount_percent": str(discount_percent),
+        },
+        salt=SELLER_OFFER_SIGNING_SALT,
+        compress=True,
+    )
+
+
+def _load_seller_offer_token(token):
+    return signing.loads(
+        token,
+        salt=SELLER_OFFER_SIGNING_SALT,
+        max_age=SELLER_OFFER_MAX_AGE_SECONDS,
+    )
 
 from organisations.models import Organisation
 
@@ -4808,6 +4862,59 @@ class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
 
         return queryset.distinct()
 
+    @action(detail=True, methods=["post"], url_path="signed-offer-link")
+    def signed_offer_link(self, request, pk=None):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        product = self.get_object()
+
+        try:
+            discount_percent = _decimal_percent(
+                request.data.get("discount_percent", "0.00")
+            )
+        except ValueError as exc:
+            return Response(
+                {"discount_percent": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_discount = _seller_offer_allowed_discount(seller, product)
+
+        if discount_percent > allowed_discount:
+            return Response(
+                {
+                    "discount_percent": (
+                        f"Maximum discount allowed for this product is "
+                        f"{allowed_discount.normalize()}%."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        token = _build_seller_offer_token(
+            organisation=organisation,
+            seller=seller,
+            product=product,
+            discount_percent=discount_percent,
+        )
+
+        return Response(
+            {
+                "organisation_slug": organisation.slug,
+                "seller_slug": seller.seller_slug,
+                "product_id": product.id,
+                "product_slug": product.slug,
+                "discount_percent": str(discount_percent),
+                "maximum_discount_percent": str(allowed_discount),
+                "offer_token": token,
+                "expires_in_seconds": SELLER_OFFER_MAX_AGE_SECONDS,
+            }
+        )
+
 
 class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
     """
@@ -6049,6 +6156,117 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
             if seller:
                 mutable_data["seller"] = seller.id
                 mutable_data["source"] = "seller_public_link"
+
+                offer_token = (
+                    mutable_data.get("offer_token")
+                    or request.query_params.get("offer_token")
+                    or ""
+                )
+
+                # Never trust discount values sent directly by the browser.
+                # A seller-linked public booking receives a discount only when
+                # the backend-generated signed offer token is valid.
+                mutable_data["customer_discount_percent"] = "0.00"
+                mutable_data["customer_discount_amount"] = "0.00"
+                mutable_data["discount_amount"] = "0.00"
+
+                if offer_token:
+                    try:
+                        offer = _load_seller_offer_token(offer_token)
+                    except signing.SignatureExpired:
+                        return Response(
+                            {"offer_token": "This seller offer link has expired."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    except signing.BadSignature:
+                        return Response(
+                            {"offer_token": "This seller offer link is invalid or was modified."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    requested_product_id = (
+                        mutable_data.get("primary_product")
+                        or mutable_data.get("product_id")
+                    )
+
+                    if not requested_product_id:
+                        items_payload = mutable_data.get("items_payload") or []
+                        if isinstance(items_payload, list) and items_payload:
+                            requested_product_id = (
+                                items_payload[0].get("product_id")
+                                if isinstance(items_payload[0], dict)
+                                else None
+                            )
+
+                    expected_values = {
+                        "organisation_id": str(organisation.id),
+                        "seller_id": str(seller.id),
+                        "seller_slug": str(seller.seller_slug),
+                        "product_id": str(requested_product_id or ""),
+                    }
+                    actual_values = {
+                        "organisation_id": str(offer.get("organisation_id") or ""),
+                        "seller_id": str(offer.get("seller_id") or ""),
+                        "seller_slug": str(offer.get("seller_slug") or ""),
+                        "product_id": str(offer.get("product_id") or ""),
+                    }
+
+                    if actual_values != expected_values:
+                        return Response(
+                            {
+                                "offer_token": (
+                                    "This seller offer does not match the selected "
+                                    "seller, organisation, or product."
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    product = ExperienceProduct.objects.filter(
+                        id=requested_product_id,
+                        organisation=organisation,
+                        seller_enabled=True,
+                        public_enabled=True,
+                        is_active=True,
+                        status="active",
+                    ).first()
+
+                    if not product:
+                        return Response(
+                            {"offer_token": "The product for this seller offer is unavailable."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    try:
+                        signed_discount = _decimal_percent(
+                            offer.get("discount_percent", "0.00")
+                        )
+                    except ValueError:
+                        return Response(
+                            {"offer_token": "The signed discount is invalid."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    allowed_discount = _seller_offer_allowed_discount(
+                        seller,
+                        product,
+                    )
+
+                    if signed_discount > allowed_discount:
+                        return Response(
+                            {
+                                "offer_token": (
+                                    "This seller offer is no longer allowed. "
+                                    "The seller or product discount limit changed."
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    mutable_data["customer_discount_percent"] = str(
+                        signed_discount
+                    )
+                    mutable_data["offer_token"] = offer_token
 
         serializer = self.get_serializer(
             data=mutable_data,

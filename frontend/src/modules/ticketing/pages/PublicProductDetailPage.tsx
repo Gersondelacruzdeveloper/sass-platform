@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ElementType, ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CalendarDays,
@@ -1169,6 +1169,7 @@ function hasSelectedPaymentOption(
 function buildCheckoutUrl({
   publicPath,
   sellerSlug,
+  offerToken,
   product,
   date,
   qty,
@@ -1185,6 +1186,7 @@ function buildCheckoutUrl({
 }: {
   publicPath: (path: string) => string;
   sellerSlug?: string;
+  offerToken?: string;
   product: ExperienceProduct;
   date: string;
   qty: BookingQty;
@@ -1203,6 +1205,10 @@ function buildCheckoutUrl({
 
   if (sellerSlug) {
     params.set("seller", sellerSlug);
+  }
+
+  if (offerToken) {
+    params.set("offer_token", offerToken);
   }
 
   params.set("product", product.slug);
@@ -1505,7 +1511,14 @@ export default function PublicProductDetailPage() {
   };
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { language } = useTicketingTranslation();
+
+  const offerToken = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+
+    return String(params.get("offer_token") || "").trim();
+  }, [location.search]);
 
   const productLanguage = (
     ["en", "es", "fr", "pt", "de"].includes(language)
@@ -2167,6 +2180,7 @@ export default function PublicProductDetailPage() {
     const baseUrl = buildCheckoutUrl({
       publicPath,
       sellerSlug: sellerCode,
+      offerToken,
       product,
       date,
       qty,
@@ -2191,6 +2205,7 @@ export default function PublicProductDetailPage() {
     product,
     canCheckout,
     sellerCode,
+    offerToken,
     date,
     qty,
     selectedPickupLocation,
