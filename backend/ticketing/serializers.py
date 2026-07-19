@@ -2639,6 +2639,45 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
                 selected_option = validation.get("selected_option") or {}
 
+                print("\n" + "=" * 80)
+                print("WELLET BOOKING DEBUG")
+                print("=" * 80)
+
+                print("BOOKING")
+                print("booking_code:", booking.booking_code)
+                print(
+                    "customer_discount_percent:",
+                    booking.customer_discount_percent,
+                )
+
+                print("\nFRONTEND")
+                print("frontend_unit_price:", item_data.get("unit_price"))
+                print(
+                    "selected_external_product_id:",
+                    selected_external_product_id,
+                )
+
+                print("\nVALIDATION")
+                print(
+                    "selected_option_price:",
+                    selected_option.get("price"),
+                )
+                print(
+                    "selected_option_currency:",
+                    selected_option.get("currency"),
+                )
+                print(
+                    "selected_option_name:",
+                    selected_option.get("option_name"),
+                )
+
+                print("\nRAW OPTION")
+                print(selected_option.get("raw") or {})
+
+                print("\nFULL SELECTED OPTION")
+                print(selected_option)
+                print("=" * 80 + "\n")
+
                 external_snapshot = create_wellet_snapshot_from_option(
                     organisation=organisation,
                     product=product,
@@ -2662,6 +2701,20 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     str(selected_option.get("price") or "0.00")
                 )
 
+                print("PRICE DECISION")
+                print(
+                    "validated_retail_price:",
+                    validated_retail_price,
+                )
+                print(
+                    "frontend_unit_price:",
+                    item_data.get("unit_price"),
+                )
+                print(
+                    "unit_price_before_assignment:",
+                    unit_price,
+                )
+
                 if validated_retail_price <= Decimal("0.00"):
                     raise serializers.ValidationError(
                         {
@@ -2673,6 +2726,12 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     )
 
                 unit_price = validated_retail_price
+
+                print(
+                    "unit_price_after_assignment:",
+                    unit_price,
+                )
+                print("=" * 80)
 
                 if unit_cost is None:
                     unit_cost = product.cost_price
@@ -2734,6 +2793,20 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
                 item_total = (adults * adult_price) + (children * child_price) + (infants * infant_price)
                 item_cost_total = (adults * adult_cost) + (children * child_cost) + (infants * infant_cost)
+
+            print("\nBOOKING ITEM TO SAVE")
+            print(
+                {
+                    "product": product_name,
+                    "unit_price": str(unit_price),
+                    "quantity": quantity,
+                    "item_total": str(item_total),
+                    "customer_discount_percent": str(
+                        booking.customer_discount_percent
+                    ),
+                }
+            )
+            print("=" * 80 + "\n")
 
             booking_item = BookingItem.objects.create(
                 booking=booking,
