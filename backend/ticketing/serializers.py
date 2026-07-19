@@ -2655,8 +2655,24 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
                 product_name = external_option_name or selected_option.get("name") or product.name
 
-                if unit_price is None:
-                    unit_price = Decimal(str(selected_option.get("price") or "0.00"))
+                # Always use the backend-validated Wellet retail price.
+                # Never trust the frontend unit_price because it may already include
+                # the seller-funded customer discount.
+                validated_retail_price = Decimal(
+                    str(selected_option.get("price") or "0.00")
+                )
+
+                if validated_retail_price <= Decimal("0.00"):
+                    raise serializers.ValidationError(
+                        {
+                            "items_payload": (
+                                "The selected Coco Bongo option does not have "
+                                "a valid retail price."
+                            )
+                        }
+                    )
+
+                unit_price = validated_retail_price
 
                 if unit_cost is None:
                     unit_cost = product.cost_price
