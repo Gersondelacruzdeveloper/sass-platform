@@ -1574,10 +1574,11 @@ export default function PublicProductDetailPage() {
 
       const [brandingResponse, resolveResponse, productsResponse] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
-        ticketingApi.getPublicProductResolve(
+      ticketingApi.getPublicProductResolve(
           organisationSlug,
           resolvePath,
-          productLanguage
+          productLanguage,
+          offerToken
         ),
         ticketingApi.getPublicProducts(organisationSlug, {
           public_enabled: true,
@@ -1705,6 +1706,7 @@ export default function PublicProductDetailPage() {
     isCustomDomain,
     sellerCode,
     productLanguage,
+    offerToken,
   ]);
 
   useEffect(() => {
@@ -1720,12 +1722,14 @@ export default function PublicProductDetailPage() {
         setLoadingLiveAvailability(true);
         setLiveAvailabilityError("");
 
-        const response = await (ticketingApi as any).getPublicProductAvailability(
+        const response = await ticketingApi.getPublicProductAvailability(
           organisationSlug,
           product.slug,
-          { date }
+          {
+            date,
+            offer_token: offerToken,
+          }
         );
-
         setLiveAvailability(response);
 
         const normalizedOptions = normalizeLiveTicketOptions(
@@ -1755,7 +1759,7 @@ export default function PublicProductDetailPage() {
     }
 
     loadLiveAvailability();
-  }, [organisationSlug, product?.id, product?.slug, date]);
+  }, [organisationSlug, product?.id, product?.slug, date,  offerToken,]);
 
   const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;

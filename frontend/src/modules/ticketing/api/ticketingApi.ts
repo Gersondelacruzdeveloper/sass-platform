@@ -2012,23 +2012,25 @@ export const ticketingApi = {
     return response.data;
   },
 
-  getPublicProductResolve: async (
-    slug: string,
-    path: string,
-    language?: SupportedProductLanguage
-  ): Promise<PublicProductResolveResponse> => {
-    const response = await api.get<PublicProductResolveResponse>(
-      `/ticketing/public/${slug}/product-resolve/`,
-      {
-        params: cleanParams({
-          path,
-          language,
-        }),
-      }
-    );
+getPublicProductResolve: async (
+  slug: string,
+  path: string,
+  language?: SupportedProductLanguage,
+  offerToken?: string
+): Promise<PublicProductResolveResponse> => {
+  const response = await api.get<PublicProductResolveResponse>(
+    `/ticketing/public/${slug}/product-resolve/`,
+    {
+      params: cleanParams({
+        path,
+        language,
+        offer_token: offerToken,
+      }),
+    }
+  );
 
-    return response.data;
-  },
+  return response.data;
+},
 
   getPublicProductByPath: async (
     slug: string,

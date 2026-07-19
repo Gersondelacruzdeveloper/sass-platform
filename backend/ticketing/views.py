@@ -5772,6 +5772,23 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
 class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
 
+    PRICE_FIELDS = (
+        "base_price",
+        "adult_price",
+        "child_price",
+        "infant_price",
+    )
+
+    NESTED_PRICE_FIELDS = (
+        "price",
+        "base_price",
+        "adult_price",
+        "child_price",
+        "infant_price",
+        "one_way_price",
+        "round_trip_price",
+    )
+
     def clean_requested_path(self, raw_path):
         raw_path = str(raw_path or "").strip()
 
@@ -5785,6 +5802,240 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             return parsed.path or "/"
 
         return raw_path
+
+    def _money_decimal(self, value):
+        try:
+            return Decimal(str(value or "0")).quantize(
+                Decimal("0.01")
+            )
+        except Exception:
+            return Decimal("0.00")
+
+    def _discount_price(self, value, discount_percent):
+        original_price = self._money_decimal(value)
+
+        discount_amount = (
+            original_price * discount_percent / Decimal("100")
+        ).quantize(Decimal("0.01"))
+
+        final_price = (
+            original_price - discount_amount
+        ).quantize(Decimal("0.01"))
+
+        return {
+            "original_price": original_price,
+            "discount_amount": discount_amount,
+            "final_price": max(final_price, Decimal("0.00")),
+        }
+
+    def _apply_discount_to_nested_items(
+        self,
+        items,
+        discount_percent,
+    ):
+        if not isinstance(items, list):
+            return items
+
+        discounted_items = []
+
+        for raw_item in items:
+            if not isinstance(raw_item, dict):
+                discounted_items.append(raw_item)
+                continue
+
+            item = deepcopy(raw_item)
+
+            for field_name in self.NESTED_PRICE_FIELDS:
+                if field_name not in item:
+                    continue
+
+                raw_value = item.get(field_name)
+
+                if raw_value in (None, ""):
+                    continue
+
+                price = self._discount_price(
+                    raw_value,
+                    discount_percent,
+                )
+
+                item[f"original_{field_name}"] = str(
+                    price["original_price"]
+                )
+                item[f"{field_name}_discount_amount"] = str(
+                    price["discount_amount"]
+                )
+                item[field_name] = str(price["final_price"])
+
+            discounted_items.append(item)
+
+        return discounted_items
+
+    def _validate_offer(
+        self,
+        *,
+        token,
+        organisation,
+        product,
+    ):
+        if not token:
+            return None
+
+        try:
+            payload = _load_seller_offer_token(token)
+        except signing.SignatureExpired:
+            raise ValueError("This seller offer has expired.")
+        except signing.BadSignature:
+            raise ValueError("This seller offer is invalid.")
+        except Exception:
+            raise ValueError("This seller offer could not be validated.")
+
+        if str(payload.get("organisation_id")) != str(organisation.id):
+            raise ValueError(
+                "This seller offer does not belong to this organisation."
+            )
+
+        if str(payload.get("product_id")) != str(product.id):
+            raise ValueError(
+                "This seller offer does not belong to this product."
+            )
+
+        token_product_slug = str(
+            payload.get("product_slug") or ""
+        ).strip()
+
+        if token_product_slug and token_product_slug != product.slug:
+            raise ValueError(
+                "This seller offer does not belong to this product."
+            )
+
+        seller = (
+            Seller.objects
+            .filter(
+                id=payload.get("seller_id"),
+                organisation=organisation,
+                is_active=True,
+            )
+            .first()
+        )
+
+        if not seller:
+            raise ValueError(
+                "The seller attached to this offer is not available."
+            )
+
+        token_seller_slug = str(
+            payload.get("seller_slug") or ""
+        ).strip()
+
+        if (
+            token_seller_slug
+            and token_seller_slug != seller.seller_slug
+        ):
+            raise ValueError("This seller offer is invalid.")
+
+        try:
+            requested_discount = _decimal_percent(
+                payload.get("discount_percent"),
+                "discount_percent",
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+        maximum_discount = _seller_offer_allowed_discount(
+            seller,
+            product,
+        )
+
+        if requested_discount <= Decimal("0.00"):
+            raise ValueError(
+                "This seller offer does not contain a discount."
+            )
+
+        if requested_discount > maximum_discount:
+            raise ValueError(
+                "This seller offer exceeds the currently allowed discount."
+            )
+
+        return {
+            "seller": seller,
+            "discount_percent": requested_discount,
+            "maximum_discount_percent": maximum_discount,
+        }
+
+    def _apply_offer_to_product_data(
+        self,
+        *,
+        product_data,
+        offer,
+    ):
+        data = deepcopy(product_data)
+
+        if not offer:
+            data["has_seller_offer"] = False
+            data["seller_offer"] = None
+            return data
+
+        seller = offer["seller"]
+        discount_percent = offer["discount_percent"]
+
+        price_preview = {}
+
+        for field_name in self.PRICE_FIELDS:
+            if field_name not in data:
+                continue
+
+            raw_value = data.get(field_name)
+
+            if raw_value in (None, ""):
+                continue
+
+            price = self._discount_price(
+                raw_value,
+                discount_percent,
+            )
+
+            data[f"original_{field_name}"] = str(
+                price["original_price"]
+            )
+            data[f"{field_name}_discount_amount"] = str(
+                price["discount_amount"]
+            )
+            data[field_name] = str(price["final_price"])
+
+            price_preview[field_name] = {
+                "original_price": str(price["original_price"]),
+                "discount_amount": str(price["discount_amount"]),
+                "final_price": str(price["final_price"]),
+            }
+
+        for nested_field in (
+            "packages",
+            "availability",
+            "transfer_routes",
+            "event_ticket_types",
+        ):
+            if nested_field in data:
+                data[nested_field] = (
+                    self._apply_discount_to_nested_items(
+                        data.get(nested_field),
+                        discount_percent,
+                    )
+                )
+
+        data["has_seller_offer"] = True
+        data["seller_offer"] = {
+            "valid": True,
+            "seller_id": seller.id,
+            "seller_slug": seller.seller_slug,
+            "discount_percent": str(discount_percent),
+            "maximum_discount_percent": str(
+                offer["maximum_discount_percent"]
+            ),
+            "price_preview": price_preview,
+        }
+
+        return data
 
     def get(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
@@ -5827,6 +6078,25 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             )
 
         product = result.product
+        offer_token = str(
+            request.query_params.get("offer_token") or ""
+        ).strip()
+
+        try:
+            offer = self._validate_offer(
+                token=offer_token,
+                organisation=organisation,
+                product=product,
+            )
+        except ValueError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "offer_valid": False,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         canonical_url = build_product_url(product, site_settings)
         canonical_path = product.current_public_path
 
@@ -5838,10 +6108,16 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             },
         )
 
+        product_data = self._apply_offer_to_product_data(
+            product_data=serializer.data,
+            offer=offer,
+        )
+
         response = Response(
             {
                 "found": True,
-                "product": serializer.data,
+                "product": product_data,
+                "offer_valid": bool(offer),
                 "canonical_url": canonical_url,
                 "canonical_path": canonical_path,
                 "current_public_path": canonical_path,
@@ -5852,11 +6128,124 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
                 "resolved_by": result.resolved_by,
             }
         )
+
         response["Link"] = f'<{canonical_url}>; rel="canonical"'
         return response
+from decimal import Decimal, InvalidOperation
+
+from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from copy import deepcopy
+from decimal import Decimal, InvalidOperation
+
+from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 
 class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+
+    @staticmethod
+    def _money(value) -> Decimal:
+        try:
+            return Decimal(str(value or "0")).quantize(Decimal("0.01"))
+        except (InvalidOperation, TypeError, ValueError):
+            return Decimal("0.00")
+
+    def _apply_discount(self, value, discount_percent: Decimal):
+        original_price = self._money(value)
+        discount_amount = (
+            original_price * discount_percent / Decimal("100.00")
+        ).quantize(Decimal("0.01"))
+        final_price = (
+            original_price - discount_amount
+        ).quantize(Decimal("0.01"))
+
+        return original_price, discount_amount, final_price
+
+    def _discount_wellet_raw_products(
+        self,
+        raw_value,
+        discount_percent: Decimal,
+    ):
+        """
+        Coco Bongo/Wellet prices may be nested inside:
+        option["raw"]["products"][n]["prices"][n]["amount"].
+
+        The public frontend flattens those nested products, so their price
+        values must also be discounted by the backend.
+        """
+        if not isinstance(raw_value, dict):
+            return raw_value
+
+        raw = deepcopy(raw_value)
+
+        products = raw.get("products")
+
+        if not isinstance(products, list):
+            single_product = raw.get("product")
+            products = [single_product] if isinstance(single_product, dict) else []
+
+        for product_item in products:
+            if not isinstance(product_item, dict):
+                continue
+
+            prices = product_item.get("prices")
+
+            if isinstance(prices, list):
+                for price_item in prices:
+                    if not isinstance(price_item, dict):
+                        continue
+
+                    source_amount = (
+                        price_item.get("amount")
+                        if price_item.get("amount") is not None
+                        else price_item.get("amountWithoutDiscount")
+                    )
+
+                    original, discount, final = self._apply_discount(
+                        source_amount,
+                        discount_percent,
+                    )
+
+                    price_item["original_amount"] = str(original)
+                    price_item["discount_amount"] = str(discount)
+                    price_item["discount_percent"] = str(discount_percent)
+                    price_item["amount"] = str(final)
+                    price_item["has_seller_offer"] = True
+
+            else:
+                source_amount = (
+                    product_item.get("price")
+                    if product_item.get("price") is not None
+                    else product_item.get("amount")
+                )
+
+                if source_amount is not None:
+                    original, discount, final = self._apply_discount(
+                        source_amount,
+                        discount_percent,
+                    )
+
+                    product_item["original_price"] = str(original)
+                    product_item["discount_amount"] = str(discount)
+                    product_item["discount_percent"] = str(discount_percent)
+                    product_item["price"] = str(final)
+                    product_item["amount"] = str(final)
+                    product_item["has_seller_offer"] = True
+
+        if isinstance(raw.get("product"), dict) and products:
+            raw["product"] = products[0]
+        elif isinstance(raw.get("products"), list):
+            raw["products"] = products
+
+        return raw
 
     def get(self, request, organisation_slug=None, product_slug=None):
         organisation = self.get_public_organisation()
@@ -5884,7 +6273,10 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
             status="active",
         )
 
-        service_date_value = request.query_params.get("date") or request.query_params.get("service_date")
+        service_date_value = (
+            request.query_params.get("date")
+            or request.query_params.get("service_date")
+        )
         service_date = None
 
         if service_date_value:
@@ -5905,6 +6297,115 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
 
         if not result.get("ok"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        offer_token = str(
+            request.query_params.get("offer_token") or ""
+        ).strip()
+
+        result["offer_valid"] = False
+
+        if not offer_token:
+            return Response(result)
+
+        try:
+            offer = _load_seller_offer_token(offer_token)
+        except Exception:
+            return Response(result)
+
+        if not isinstance(offer, dict):
+            return Response(result)
+
+        try:
+            offer_organisation_id = int(offer.get("organisation_id"))
+            offer_product_id = int(offer.get("product_id"))
+            offer_seller_id = int(offer.get("seller_id"))
+        except (TypeError, ValueError):
+            return Response(result)
+
+        if (
+            offer_organisation_id != organisation.id
+            or offer_product_id != product.id
+        ):
+            return Response(result)
+
+        seller = Seller.objects.filter(
+            id=offer_seller_id,
+            organisation=organisation,
+            is_active=True,
+        ).first()
+
+        if not seller:
+            return Response(result)
+
+        discount_percent = self._money(offer.get("discount_percent"))
+        token_maximum = self._money(
+            offer.get("maximum_discount_percent")
+            or offer.get("discount_percent")
+        )
+        product_maximum = self._money(
+            getattr(product, "seller_allowed_discount_percent", 0)
+        )
+        allowed_maximum = min(token_maximum, product_maximum)
+
+        if (
+            discount_percent <= Decimal("0.00")
+            or discount_percent > allowed_maximum
+            or discount_percent > Decimal("100.00")
+        ):
+            return Response(result)
+
+        discounted_options = []
+
+        for option in result.get("options") or []:
+            if not isinstance(option, dict):
+                discounted_options.append(option)
+                continue
+
+            updated_option = deepcopy(option)
+
+            original_price, discount_amount, final_price = self._apply_discount(
+                updated_option.get("price"),
+                discount_percent,
+            )
+
+            # Normal/local availability options use the top-level price.
+            if original_price > Decimal("0.00"):
+                updated_option.update(
+                    {
+                        "original_price": str(original_price),
+                        "discount_amount": str(discount_amount),
+                        "price": str(final_price),
+                        "discount_percent": str(discount_percent),
+                        "has_seller_offer": True,
+                    }
+                )
+
+            # Coco Bongo/Wellet uses nested product prices consumed by the
+            # frontend's flattenRawWelletProducts() function.
+            if isinstance(updated_option.get("raw"), dict):
+                updated_option["raw"] = self._discount_wellet_raw_products(
+                    updated_option["raw"],
+                    discount_percent,
+                )
+                updated_option["discount_percent"] = str(discount_percent)
+                updated_option["has_seller_offer"] = True
+
+            discounted_options.append(updated_option)
+
+        result["options"] = discounted_options
+        result["offer_valid"] = True
+        result["seller_offer"] = {
+            "valid": True,
+            "seller_id": seller.id,
+            # Seller has no `slug` model field. Use the signed token value.
+            "seller_slug": str(
+                offer.get("seller_slug")
+                or offer.get("seller_code")
+                or ""
+            ),
+            "discount_percent": str(discount_percent),
+            "maximum_discount_percent": str(allowed_maximum),
+        }
 
         return Response(result)
 
