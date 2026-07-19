@@ -6148,8 +6148,25 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 
+from copy import deepcopy
+from decimal import Decimal, InvalidOperation
+
+from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+
 class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+
+    COCO_BONGO_PACKAGE_NAMES = {
+        "front_row": "ENTRADA FRONT ROW VIP + OPEN BAR PREMIUM + SNACK.",
+        "gold_member": "ENTRADA GOLD MEMBER VIP + OPEN BAR PREMIUM + SNACK.",
+        "premium": "ENTRADA PREMIUM + OPEN BAR PREMIUM + SNACK.",
+        "general": "ENTRADA GENERAL + OPEN BAR REGULAR + SNACK.",
+    }
 
     @staticmethod
     def _money(value) -> Decimal:
@@ -6157,6 +6174,44 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
             return Decimal(str(value or "0")).quantize(Decimal("0.01"))
         except (InvalidOperation, TypeError, ValueError):
             return Decimal("0.00")
+
+    @classmethod
+    def _get_coco_bongo_package_name(cls, value):
+        """
+        Convert Wellet's package names into consistent customer-facing names.
+
+        Unknown package names are left unchanged.
+        """
+        original_name = str(value or "").strip()
+
+        if not original_name:
+            return original_name
+
+        normalized = (
+            original_name.lower()
+            .replace("-", " ")
+            .replace("_", " ")
+            .replace("&", " and ")
+        )
+        normalized = " ".join(normalized.split())
+
+        if "front row" in normalized or "frontrow" in normalized:
+            return cls.COCO_BONGO_PACKAGE_NAMES["front_row"]
+
+        if (
+            "gold member" in normalized
+            or "goldmember" in normalized
+            or ("gold" in normalized and "vip" in normalized)
+        ):
+            return cls.COCO_BONGO_PACKAGE_NAMES["gold_member"]
+
+        if "premium" in normalized:
+            return cls.COCO_BONGO_PACKAGE_NAMES["premium"]
+
+        if "general" in normalized or "regular" in normalized:
+            return cls.COCO_BONGO_PACKAGE_NAMES["general"]
+
+        return original_name
 
     def _apply_discount(self, value, discount_percent: Decimal):
         original_price = self._money(value)
@@ -6169,6 +6224,47 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
 
         return original_price, discount_amount, final_price
 
+    def _normalize_wellet_raw_products(self, raw_value):
+        """
+        Normalize the nested Coco Bongo/Wellet package names even when there
+        is no seller discount.
+        """
+        if not isinstance(raw_value, dict):
+            return raw_value
+
+        raw = deepcopy(raw_value)
+
+        products = raw.get("products")
+
+        if not isinstance(products, list):
+            single_product = raw.get("product")
+            products = [single_product] if isinstance(single_product, dict) else []
+
+        for product_item in products:
+            if not isinstance(product_item, dict):
+                continue
+
+            current_name = (
+                product_item.get("name")
+                or product_item.get("description")
+                or ""
+            )
+            display_name = self._get_coco_bongo_package_name(current_name)
+
+            if display_name:
+                product_item["original_name"] = str(
+                    product_item.get("name") or current_name
+                )
+                product_item["name"] = display_name
+                product_item["display_name"] = display_name
+
+        if isinstance(raw.get("product"), dict) and products:
+            raw["product"] = products[0]
+        elif isinstance(raw.get("products"), list):
+            raw["products"] = products
+
+        return raw
+
     def _discount_wellet_raw_products(
         self,
         raw_value,
@@ -6178,13 +6274,13 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
         Coco Bongo/Wellet prices may be nested inside:
         option["raw"]["products"][n]["prices"][n]["amount"].
 
-        The public frontend flattens those nested products, so their price
-        values must also be discounted by the backend.
+        The frontend flattens those nested products, so both their names and
+        prices are normalized by the backend.
         """
-        if not isinstance(raw_value, dict):
-            return raw_value
+        raw = self._normalize_wellet_raw_products(raw_value)
 
-        raw = deepcopy(raw_value)
+        if not isinstance(raw, dict):
+            return raw
 
         products = raw.get("products")
 
@@ -6298,6 +6394,38 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
         if not result.get("ok"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
+        # Normalize Coco Bongo/Wellet package names for every visitor,
+        # including visitors without a seller offer.
+        normalized_options = []
+
+        for option in result.get("options") or []:
+            if not isinstance(option, dict):
+                normalized_options.append(option)
+                continue
+
+            updated_option = deepcopy(option)
+
+            option_name = (
+                updated_option.get("option_name")
+                or updated_option.get("name")
+                or ""
+            )
+            display_name = self._get_coco_bongo_package_name(option_name)
+
+            if display_name:
+                updated_option["original_option_name"] = option_name
+                updated_option["option_name"] = display_name
+                updated_option["name"] = display_name
+
+            if isinstance(updated_option.get("raw"), dict):
+                updated_option["raw"] = self._normalize_wellet_raw_products(
+                    updated_option["raw"]
+                )
+
+            normalized_options.append(updated_option)
+
+        result["options"] = normalized_options
+
         offer_token = str(
             request.query_params.get("offer_token") or ""
         ).strip()
@@ -6368,7 +6496,6 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
                 discount_percent,
             )
 
-            # Normal/local availability options use the top-level price.
             if original_price > Decimal("0.00"):
                 updated_option.update(
                     {
@@ -6380,8 +6507,6 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
                     }
                 )
 
-            # Coco Bongo/Wellet uses nested product prices consumed by the
-            # frontend's flattenRawWelletProducts() function.
             if isinstance(updated_option.get("raw"), dict):
                 updated_option["raw"] = self._discount_wellet_raw_products(
                     updated_option["raw"],
@@ -6397,7 +6522,6 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
         result["seller_offer"] = {
             "valid": True,
             "seller_id": seller.id,
-            # Seller has no `slug` model field. Use the signed token value.
             "seller_slug": str(
                 offer.get("seller_slug")
                 or offer.get("seller_code")
