@@ -57,24 +57,53 @@ SELLER_RECEIVERS = {
 
 def get_booking_original_price(booking):
     """
-    Original owner price before customer discount.
+    Return the retail price before the customer discount.
 
-    Prefer item totals because they represent the real cart.
-    Fall back to booking.subtotal_amount.
+    The booking-level original/subtotal values must be preferred because an
+    item's total may already contain the seller's customer discount.
     """
+
+    booking_original_price = money(
+        getattr(booking, "original_price", ZERO)
+    )
+
+    if booking_original_price > ZERO:
+        return round_money(booking_original_price)
+
+    booking_subtotal = money(
+        getattr(booking, "subtotal_amount", ZERO)
+    )
+
+    if booking_subtotal > ZERO:
+        return round_money(booking_subtotal)
 
     item_total = ZERO
 
     try:
         for item in booking.items.all():
-            item_total += money(item.total)
+            quantity = money(
+                getattr(item, "quantity", 1) or 1
+            )
+
+            original_unit_price = money(
+                getattr(item, "original_unit_price", ZERO)
+                or getattr(item, "unit_price", ZERO)
+                or ZERO
+            )
+
+            if original_unit_price > ZERO:
+                item_total += original_unit_price * quantity
+            else:
+                item_total += money(
+                    getattr(item, "original_total", ZERO)
+                    or getattr(item, "subtotal", ZERO)
+                    or getattr(item, "total", ZERO)
+                    or ZERO
+                )
     except Exception:
         item_total = ZERO
 
-    if item_total > ZERO:
-        return round_money(item_total)
-
-    return money(getattr(booking, "subtotal_amount", ZERO))
+    return round_money(item_total)
 
 
 def get_booking_seller_margin_percent(booking):
