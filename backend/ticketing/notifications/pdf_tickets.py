@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "optional-agreement-qr-v4-2026-07-15"
+PDF_TICKET_GENERATOR_VERSION = "cocobongo-original-option-title-v5-2026-07-20"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -188,19 +188,104 @@ def _get_ticket_information(booking: Any) -> str:
     return ""
 
 
+def _extract_ticket_option_title(instructions: Any) -> str:
+    """
+    Extract the customer-facing option title saved in BookingItem.instructions.
+
+    Expected format:
+        Ticket option: ENTRADA FRONT ROW VIP + OPEN BAR PREMIUM + SNACK.
+    """
+    text = _safe_text(instructions, "")
+    if not text:
+        return ""
+
+    for line in text.splitlines():
+        clean_line = line.strip()
+        if clean_line.lower().startswith("ticket option:"):
+            return clean_line.split(":", 1)[1].strip()
+
+    return ""
+
+
+def _get_original_external_price(item: Any) -> Decimal:
+    """
+    Resolve the provider's original option price from the saved snapshot.
+
+    Wellet/Coco Bongo stores it under:
+        external_raw_data["price"]["amountWithoutDiscount"]
+    """
+    raw_data = getattr(item, "external_raw_data", None)
+    if not isinstance(raw_data, dict):
+        raw_data = {}
+
+    price_data = raw_data.get("price")
+    if not isinstance(price_data, dict):
+        price_data = {}
+
+    for value in (
+        price_data.get("amountWithoutDiscount"),
+        price_data.get("amount"),
+        getattr(item, "unit_price", None),
+    ):
+        amount = _money_decimal(value)
+        if amount > 0:
+            return amount
+
+    return Decimal("0.00")
+
+
+def _format_option_title_price(value: Any) -> str:
+    amount = _money_decimal(value)
+
+    if amount == amount.to_integral_value():
+        return f"${amount:,.0f}"
+
+    return f"${amount:,.2f}"
+
+
 def _get_product_name(booking: Any) -> str:
     first_item = _get_first_booking_item(booking)
 
     if first_item:
         option_name = (
-            _first_attr(first_item, ["external_option_name"], "")
+            _extract_ticket_option_title(
+                getattr(first_item, "instructions", "")
+            )
+            or _first_attr(first_item, ["external_option_name"], "")
             or _first_attr(first_item, ["product_name"], "")
         )
+
         if option_name:
+            external_provider = _safe_text(
+                getattr(first_item, "external_provider", "")
+            ).lower()
+            raw_data = getattr(first_item, "external_raw_data", None)
+            has_external_snapshot = isinstance(raw_data, dict) and bool(raw_data)
+
+            if external_provider or has_external_snapshot:
+                original_price = _get_original_external_price(first_item)
+                if original_price > 0:
+                    return (
+                        f"{_format_option_title_price(original_price)} "
+                        f"{option_name}"
+                    )
+
             return option_name
 
     container_name = _get_container_product_name(booking)
     return container_name or "Tour / Product"
+
+
+def _to_title_case(value: str) -> str:
+    """
+    Convert names to a clean title/camel case while preserving apostrophes
+    and hyphens.
+    """
+    value = _safe_text(value, "")
+    if not value:
+        return ""
+
+    return " ".join(part.capitalize() for part in value.split())
 
 
 def _get_customer_name(booking: Any) -> str:
@@ -216,11 +301,11 @@ def _get_customer_name(booking: Any) -> str:
     if customer:
         full_name = _first_attr(customer, ["full_name", "name"], "")
         if full_name:
-            return full_name
+            return _to_title_case(full_name)
 
     first_name = _safe_text(getattr(booking, "customer_first_name", ""))
     last_name = _safe_text(getattr(booking, "customer_last_name", ""))
-    return _safe_text(f"{first_name} {last_name}", "Customer")
+    return _to_title_case(f"{first_name} {last_name}") or "Customer"
 
 
 def _get_customer_contact(booking: Any) -> str:
