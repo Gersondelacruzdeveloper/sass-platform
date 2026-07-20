@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "cocobongo-original-option-title-v5-2026-07-20"
+PDF_TICKET_GENERATOR_VERSION = "adaptive-title-v7-2026-07-20"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -295,7 +295,7 @@ def _get_customer_name(booking: Any) -> str:
         "",
     )
     if full_name:
-        return full_name
+        return _to_title_case(full_name)
 
     customer = getattr(booking, "customer", None)
     if customer:
@@ -1134,6 +1134,24 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     )
 
     y = header_y - 13 * mm
+
+    # Long external option names must stay inside the title column and never
+    # overlap the dedicated QR-code column. Short titles remain prominent,
+    # while longer titles automatically use a smaller font and tighter leading.
+    title_length = len(_safe_text(ticket_name, ""))
+    if title_length > 85:
+        title_font_size = 11
+        title_line_height = 4.7 * mm
+    elif title_length > 60:
+        title_font_size = 12
+        title_line_height = 5.1 * mm
+    elif title_length > 38:
+        title_font_size = 14
+        title_line_height = 5.8 * mm
+    else:
+        title_font_size = 18
+        title_line_height = 6.8 * mm
+
     y = _draw_text_block(
         pdf,
         ticket_name,
@@ -1141,9 +1159,9 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         y,
         title_w,
         font="Helvetica-Bold",
-        size=20,
+        size=title_font_size,
         color=text_color,
-        line_height=7.5 * mm,
+        line_height=title_line_height,
         max_lines=3,
     )
 
