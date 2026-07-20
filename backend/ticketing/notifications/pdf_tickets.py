@@ -1141,7 +1141,7 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         y,
         title_w,
         font="Helvetica-Bold",
-        size=20,
+        size=16,
         color=text_color,
         line_height=7.5 * mm,
         max_lines=3,
