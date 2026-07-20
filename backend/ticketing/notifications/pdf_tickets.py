@@ -1141,10 +1141,10 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         y,
         title_w,
         font="Helvetica-Bold",
-        size=16,
+        size=15,
         color=text_color,
-        line_height=7.5 * mm,
-        max_lines=3,
+        line_height=6 * mm,
+        max_lines=4,
     )
 
     if container_product_name and container_product_name != ticket_name:
