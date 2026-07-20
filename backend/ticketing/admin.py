@@ -1,5 +1,5 @@
 from django.contrib import admin
-
+from django.utils.html import format_html
 from .models import (
     TicketingEmailSettings,
     TicketingPaymentProviderSettings,
@@ -27,6 +27,7 @@ from .models import (
     TransferPriceBand,
     EventTicketType,
     ProductReview,
+    TicketAdmission,
 )
 
 
@@ -1167,3 +1168,264 @@ class TicketingEmailSettingsAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(TicketAdmission)
+class TicketAdmissionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "booking_code",
+        "product_name",
+        "business_entity",
+        "quantity_admitted",
+        "effective_quantity_display",
+        "status",
+        "admitted_at",
+        "admitted_by",
+        "location_name",
+    )
+
+    list_filter = (
+        "status",
+        "organisation",
+        "business_entity",
+        "admitted_at",
+        "reversed_at",
+    )
+
+    search_fields = (
+        "booking__booking_code",
+        "booking__customer_name",
+        "booking__customer_email",
+        "booking_item__product_name",
+        "admission_token__token",
+        "scanner_device_id",
+        "location_name",
+        "notes",
+        "reversal_reason",
+    )
+
+    autocomplete_fields = (
+        "organisation",
+        "business_entity",
+        "booking",
+        "booking_item",
+        "admission_token",
+        "scan_attempt",
+        "admitted_by",
+        "reversed_by",
+    )
+
+    readonly_fields = (
+        "effective_quantity_display",
+        "created_booking_code",
+        "created_product_name",
+        "admitted_at",
+        "reversed_at",
+    )
+
+    date_hierarchy = "admitted_at"
+
+    ordering = (
+        "-admitted_at",
+    )
+
+    list_select_related = (
+        "organisation",
+        "business_entity",
+        "booking",
+        "booking_item",
+        "admission_token",
+        "scan_attempt",
+        "admitted_by",
+        "reversed_by",
+    )
+
+    list_per_page = 50
+
+    fieldsets = (
+        (
+            "Admission",
+            {
+                "fields": (
+                    "organisation",
+                    "business_entity",
+                    "booking",
+                    "created_booking_code",
+                    "booking_item",
+                    "created_product_name",
+                    "admission_token",
+                    "scan_attempt",
+                    "quantity_admitted",
+                    "effective_quantity_display",
+                    "status",
+                    "admitted_at",
+                    "admitted_by",
+                ),
+            },
+        ),
+        (
+            "Scanner information",
+            {
+                "fields": (
+                    "scanner_device_id",
+                    "location_name",
+                ),
+            },
+        ),
+        (
+            "Additional information",
+            {
+                "fields": (
+                    "notes",
+                    "metadata",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "Reversal",
+            {
+                "fields": (
+                    "reversed_at",
+                    "reversed_by",
+                    "reversal_reason",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    actions = (
+        "mark_as_admitted",
+        "mark_as_boarded",
+        "mark_as_picked_up",
+        "mark_as_completed",
+        "reverse_selected_admissions",
+        "mark_as_void",
+    )
+
+    @admin.display(
+        description="Booking",
+        ordering="booking__booking_code",
+    )
+    def booking_code(self, obj):
+        return obj.booking.booking_code if obj.booking_id else "-"
+
+    @admin.display(
+        description="Product / Item",
+        ordering="booking_item__product_name",
+    )
+    def product_name(self, obj):
+        if not obj.booking_item_id:
+            return "-"
+
+        return (
+            getattr(obj.booking_item, "product_name", None)
+            or str(obj.booking_item)
+        )
+
+    @admin.display(description="Booking code")
+    def created_booking_code(self, obj):
+        return self.booking_code(obj)
+
+    @admin.display(description="Product / Item")
+    def created_product_name(self, obj):
+        return self.product_name(obj)
+
+    @admin.display(
+        description="Effective quantity",
+        ordering="quantity_admitted",
+    )
+    def effective_quantity_display(self, obj):
+        if obj.status in {"reversed", "void"}:
+            return format_html(
+                '<span style="color: #ba2121; font-weight: 600;">0</span>'
+            )
+
+        return obj.effective_quantity
+
+    @admin.action(description="Mark selected admissions as admitted")
+    def mark_as_admitted(self, request, queryset):
+        updated = queryset.exclude(
+            status__in={"reversed", "void"}
+        ).update(status="admitted")
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) marked as admitted.",
+        )
+
+    @admin.action(description="Mark selected admissions as boarded")
+    def mark_as_boarded(self, request, queryset):
+        updated = queryset.exclude(
+            status__in={"reversed", "void"}
+        ).update(status="boarded")
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) marked as boarded.",
+        )
+
+    @admin.action(description="Mark selected admissions as picked up")
+    def mark_as_picked_up(self, request, queryset):
+        updated = queryset.exclude(
+            status__in={"reversed", "void"}
+        ).update(status="picked_up")
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) marked as picked up.",
+        )
+
+    @admin.action(description="Mark selected admissions as completed")
+    def mark_as_completed(self, request, queryset):
+        updated = queryset.exclude(
+            status__in={"reversed", "void"}
+        ).update(status="completed")
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) marked as completed.",
+        )
+
+    @admin.action(description="Reverse selected admissions")
+    def reverse_selected_admissions(self, request, queryset):
+        updated = 0
+
+        for admission in queryset.exclude(
+            status__in={"reversed", "void"}
+        ):
+            admission.reverse(
+                user=request.user,
+                reason="Reversed from Django admin.",
+            )
+            updated += 1
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) reversed.",
+        )
+
+    @admin.action(description="Mark selected admissions as void")
+    def mark_as_void(self, request, queryset):
+        updated = queryset.exclude(status="void").update(
+            status="void",
+        )
+
+        self.message_user(
+            request,
+            f"{updated} admission(s) marked as void.",
+        )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "organisation",
+            "business_entity",
+            "booking",
+            "booking_item",
+            "admission_token",
+            "scan_attempt",
+            "admitted_by",
+            "reversed_by",
+        )
