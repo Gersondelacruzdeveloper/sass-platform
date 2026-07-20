@@ -2460,6 +2460,140 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "external_order_created_at",
         ]
 
+    def _debug_booking_financial_state(
+        self,
+        label,
+        booking,
+        *,
+        calculated_subtotal=None,
+        extra=None,
+        refresh=False,
+    ):
+        """
+        Temporary end-to-end pricing diagnostics.
+
+        This prints the booking totals, item totals, payment totals, and any
+        stage-specific values so we can identify exactly where an incorrect
+        amount first appears.
+        """
+        if refresh and getattr(booking, "pk", None):
+            booking.refresh_from_db()
+
+        items = []
+        if getattr(booking, "pk", None):
+            items = [
+                {
+                    "id": item.id,
+                    "product_name": item.product_name,
+                    "quantity": item.quantity,
+                    "unit_price": str(item.unit_price),
+                    "total": str(item.total),
+                    "external_product_id": item.external_product_id,
+                    "external_option_name": item.external_option_name,
+                }
+                for item in booking.items.all()
+            ]
+
+        payments = []
+        if getattr(booking, "pk", None):
+            payments = [
+                {
+                    "id": payment.id,
+                    "amount": str(payment.amount),
+                    "payment_type": payment.payment_type,
+                    "method": payment.method,
+                    "status": payment.status,
+                    "provider": payment.provider,
+                    "provider_order_id": payment.provider_order_id,
+                }
+                for payment in booking.payments.all()
+            ]
+
+        print("\n" + "#" * 100)
+        print("BOOKING PRICING TRACE:", label)
+        print("#" * 100)
+        print(
+            {
+                "booking_id": getattr(booking, "id", None),
+                "booking_code": getattr(booking, "booking_code", None),
+                "source": getattr(booking, "source", None),
+                "status": getattr(booking, "status", None),
+                "payment_status": getattr(booking, "payment_status", None),
+                "payment_mode": getattr(booking, "payment_mode", None),
+                "payment_method": getattr(booking, "payment_method", None),
+                "seller_id": getattr(booking, "seller_id", None),
+                "calculated_subtotal_argument": (
+                    str(calculated_subtotal)
+                    if calculated_subtotal is not None
+                    else None
+                ),
+                "original_price": str(
+                    getattr(booking, "original_price", None)
+                ),
+                "subtotal_amount": str(
+                    getattr(booking, "subtotal_amount", None)
+                ),
+                "customer_discount_percent": str(
+                    getattr(booking, "customer_discount_percent", None)
+                ),
+                "customer_discount_amount": str(
+                    getattr(booking, "customer_discount_amount", None)
+                ),
+                "discount_amount": str(
+                    getattr(booking, "discount_amount", None)
+                ),
+                "tax_amount": str(
+                    getattr(booking, "tax_amount", None)
+                ),
+                "total_amount": str(
+                    getattr(booking, "total_amount", None)
+                ),
+                "deposit_required": str(
+                    getattr(booking, "deposit_required", None)
+                ),
+                "deposit_paid": str(
+                    getattr(booking, "deposit_paid", None)
+                ),
+                "balance_due": str(
+                    getattr(booking, "balance_due", None)
+                ),
+                "seller_margin_percent": str(
+                    getattr(booking, "seller_margin_percent", None)
+                ),
+                "seller_commission_amount": str(
+                    getattr(booking, "seller_commission_amount", None)
+                ),
+                "owner_net_amount": str(
+                    getattr(booking, "owner_net_amount", None)
+                ),
+                "owner_received_amount": str(
+                    getattr(booking, "owner_received_amount", None)
+                ),
+                "seller_collected_amount": str(
+                    getattr(booking, "seller_collected_amount", None)
+                ),
+                "seller_due_to_company": str(
+                    getattr(booking, "seller_due_to_company", None)
+                ),
+                "external_provider": getattr(
+                    booking, "external_provider", None
+                ),
+                "external_status": getattr(
+                    booking, "external_status", None
+                ),
+                "external_order_id": getattr(
+                    booking, "external_order_id", None
+                ),
+            }
+        )
+        print("ITEMS:", items)
+        print("PAYMENTS:", payments)
+
+        if extra is not None:
+            print("EXTRA:", extra)
+
+        print("#" * 100 + "\n")
+
     def validate(self, attrs):
         customer = attrs.get("customer")
         seller = attrs.get("seller")
@@ -2991,9 +3125,31 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 "instructions": booking.pickup_info.instructions,
             }
 
-        Receipt.objects.get_or_create(
+        self._debug_booking_financial_state(
+            "BEFORE RECEIPT SNAPSHOT SAVE",
+            booking,
+            extra={"receipt_data": receipt_data},
+            refresh=True,
+        )
+
+        receipt, created = Receipt.objects.get_or_create(
             booking=booking,
             defaults={"receipt_data": receipt_data},
+        )
+
+        print(
+            "RECEIPT SNAPSHOT RESULT:",
+            {
+                "booking_code": booking.booking_code,
+                "receipt_id": receipt.id,
+                "created": created,
+                "saved_total_amount": (
+                    receipt.receipt_data or {}
+                ).get("total_amount"),
+                "saved_subtotal_amount": (
+                    receipt.receipt_data or {}
+                ).get("subtotal_amount"),
+            },
         )
 
     def validate_and_apply_seller_discount(self, booking, subtotal):
@@ -3096,6 +3252,32 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             subtotal - maximum_discount_amount
         ).quantize(Decimal("0.01"))
 
+        self._debug_booking_financial_state(
+            "SELLER DISCOUNT VALIDATION - BEFORE APPLY",
+            booking,
+            calculated_subtotal=subtotal,
+            extra={
+                "requested_discount_percent": str(
+                    requested_discount_percent
+                ),
+                "seller_limit": str(seller_limit),
+                "product_limits": [
+                    str(value) for value in product_limits
+                ],
+                "product_limit": str(product_limit),
+                "allowed_discount_percent": str(
+                    allowed_discount_percent
+                ),
+                "maximum_discount_amount": str(
+                    maximum_discount_amount
+                ),
+                "minimum_selling_price": str(
+                    minimum_selling_price
+                ),
+            },
+            refresh=True,
+        )
+
         if requested_discount_percent > allowed_discount_percent:
             raise serializers.ValidationError(
                 {
@@ -3124,39 +3306,148 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             ]
         )
 
+        self._debug_booking_financial_state(
+            "SELLER DISCOUNT SAVED",
+            booking,
+            calculated_subtotal=subtotal,
+            extra={
+                "requested_discount_percent": str(
+                    requested_discount_percent
+                ),
+                "customer_discount_amount_calculated": str(
+                    customer_discount_amount
+                ),
+            },
+            refresh=True,
+        )
+
     @transaction.atomic
     def create(self, validated_data):
         items_payload = validated_data.pop("items_payload", [])
         payments_payload = validated_data.pop("payments_payload", [])
         pickup_location_id = validated_data.pop("pickup_location_id", None)
 
-        organisation = validated_data.get("organisation") or self.context.get("organisation")
+        organisation = (
+            validated_data.get("organisation")
+            or self.context.get("organisation")
+        )
 
         request = self.context.get("request")
-        if request and request.user and request.user.is_authenticated:
+        if (
+            request
+            and request.user
+            and request.user.is_authenticated
+        ):
             validated_data["created_by"] = request.user
+
+        print("\n" + "!" * 100)
+        print("BOOKING CREATE REQUEST - VALIDATED DATA")
+        print(
+            {
+                key: str(value)
+                for key, value in validated_data.items()
+                if key not in {"external_raw_response"}
+            }
+        )
+        print(
+            "ITEMS PAYLOAD:",
+            [
+                {
+                    key: str(value)
+                    for key, value in item.items()
+                }
+                for item in items_payload
+            ],
+        )
+        print(
+            "PAYMENTS PAYLOAD:",
+            [
+                {
+                    key: str(value)
+                    for key, value in payment.items()
+                }
+                for payment in payments_payload
+            ],
+        )
+        print("!" * 100 + "\n")
 
         booking = Booking.objects.create(**validated_data)
 
+        self._debug_booking_financial_state(
+            "IMMEDIATELY AFTER BOOKING OBJECT CREATE",
+            booking,
+            refresh=True,
+        )
+
         self.get_or_create_customer(organisation, booking)
 
+        self._debug_booking_financial_state(
+            "AFTER CUSTOMER RESOLUTION",
+            booking,
+            refresh=True,
+        )
+
         subtotal = Decimal("0.00")
+        total_cost = Decimal("0.00")
 
         if items_payload:
-            subtotal, _total_cost = self.create_booking_items(
+            subtotal, total_cost = self.create_booking_items(
                 booking=booking,
                 organisation=organisation,
                 items_payload=items_payload,
             )
+
+        self._debug_booking_financial_state(
+            "AFTER BOOKING ITEMS CREATED",
+            booking,
+            calculated_subtotal=subtotal,
+            extra={
+                "create_booking_items_subtotal": str(subtotal),
+                "create_booking_items_total_cost": str(total_cost),
+                "database_item_total_sum": str(
+                    sum(
+                        (
+                            item.total
+                            for item in booking.items.all()
+                        ),
+                        Decimal("0.00"),
+                    )
+                ),
+            },
+            refresh=True,
+        )
 
         self.validate_and_apply_seller_discount(
             booking=booking,
             subtotal=subtotal,
         )
 
-        booking = booking_finance.recalculate_booking_payment_totals(booking)
+        self._debug_booking_financial_state(
+            "BEFORE FIRST FINANCE RECALCULATION",
+            booking,
+            calculated_subtotal=subtotal,
+            refresh=True,
+        )
+
+        booking = booking_finance.recalculate_booking_payment_totals(
+            booking
+        )
+
+        self._debug_booking_financial_state(
+            "AFTER FIRST FINANCE RECALCULATION",
+            booking,
+            calculated_subtotal=subtotal,
+            refresh=True,
+        )
 
         if payments_payload:
+            self._debug_booking_financial_state(
+                "BEFORE PAYMENT RECORDING",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+
             self.create_booking_payments(
                 booking=booking,
                 organisation=organisation,
@@ -3164,7 +3455,24 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             )
 
             booking.refresh_from_db()
-            booking = booking_finance.recalculate_booking_payment_totals(booking)
+
+            self._debug_booking_financial_state(
+                "AFTER PAYMENT RECORDING - BEFORE SECOND RECALCULATION",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+
+            booking = booking_finance.recalculate_booking_payment_totals(
+                booking
+            )
+
+            self._debug_booking_financial_state(
+                "AFTER SECOND FINANCE RECALCULATION",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
 
         if pickup_location_id:
             self.create_pickup_info(
@@ -3173,15 +3481,85 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 pickup_location_id=pickup_location_id,
             )
 
+            self._debug_booking_financial_state(
+                "AFTER PICKUP INFO CREATE",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+
         if booking.external_provider == "wellet":
-            create_external_booking_order_if_possible(booking)
+            self._debug_booking_financial_state(
+                "BEFORE EXTERNAL WELLET ORDER",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+
+            external_order_result = (
+                create_external_booking_order_if_possible(booking)
+            )
+
+            booking.refresh_from_db()
+
+            self._debug_booking_financial_state(
+                "AFTER EXTERNAL WELLET ORDER",
+                booking,
+                calculated_subtotal=subtotal,
+                extra={
+                    "external_order_result": str(
+                        external_order_result
+                    )
+                },
+                refresh=True,
+            )
+
+        self._debug_booking_financial_state(
+            "BEFORE CREATE RECEIPT SNAPSHOT",
+            booking,
+            calculated_subtotal=subtotal,
+            refresh=True,
+        )
 
         self.create_receipt_snapshot(booking)
 
+        self._debug_booking_financial_state(
+            "AFTER CREATE RECEIPT SNAPSHOT",
+            booking,
+            calculated_subtotal=subtotal,
+            refresh=True,
+        )
+
         try:
+            self._debug_booking_financial_state(
+                "BEFORE BOOKING NOTIFICATION",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+
             BookingNotificationService.send(booking)
-        except Exception:
-            pass
+
+            self._debug_booking_financial_state(
+                "AFTER BOOKING NOTIFICATION",
+                booking,
+                calculated_subtotal=subtotal,
+                refresh=True,
+            )
+        except Exception as notification_error:
+            print(
+                "BOOKING NOTIFICATION ERROR:",
+                repr(notification_error),
+            )
+
+        booking.refresh_from_db()
+
+        self._debug_booking_financial_state(
+            "FINAL BOOKING STATE RETURNED BY SERIALIZER",
+            booking,
+            calculated_subtotal=subtotal,
+            refresh=True,
+        )
 
         return booking
 
@@ -3190,11 +3568,38 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
         validated_data.pop("payments_payload", None)
         validated_data.pop("pickup_location_id", None)
 
+        self._debug_booking_financial_state(
+            "BOOKING UPDATE - BEFORE FIELD CHANGES",
+            instance,
+            extra={
+                "validated_update_data": {
+                    key: str(value)
+                    for key, value in validated_data.items()
+                }
+            },
+            refresh=True,
+        )
+
         for field, value in validated_data.items():
             setattr(instance, field, value)
 
         instance.save()
-        instance = booking_finance.recalculate_booking_payment_totals(instance)
+
+        self._debug_booking_financial_state(
+            "BOOKING UPDATE - BEFORE FINANCE RECALCULATION",
+            instance,
+            refresh=True,
+        )
+
+        instance = booking_finance.recalculate_booking_payment_totals(
+            instance
+        )
+
+        self._debug_booking_financial_state(
+            "BOOKING UPDATE - AFTER FINANCE RECALCULATION",
+            instance,
+            refresh=True,
+        )
 
         return instance
 
