@@ -11,11 +11,12 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "adaptive-title-v7-2026-07-20"
+PDF_TICKET_GENERATOR_VERSION = "width-safe-title-v8-2026-07-20"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -578,6 +579,56 @@ def _split_text(text: str, max_chars: int) -> list[str]:
     return lines or ["-"]
 
 
+
+def _split_text_to_width(
+    text: str,
+    width: float,
+    font: str,
+    size: float,
+) -> list[str]:
+    """
+    Wrap text using the actual rendered ReportLab width.
+
+    Character-count wrapping is only an estimate and can allow wide capital
+    letters to enter the QR column. This function guarantees every returned
+    line fits inside the supplied width.
+    """
+    words = _safe_text(text, "-").split()
+    lines: list[str] = []
+    current = ""
+
+    for word in words:
+        candidate = f"{current} {word}".strip()
+
+        if stringWidth(candidate, font, size) <= width:
+            current = candidate
+            continue
+
+        if current:
+            lines.append(current)
+            current = ""
+
+        # Handle an unusually long unbroken word safely.
+        if stringWidth(word, font, size) > width:
+            fragment = ""
+            for character in word:
+                candidate_fragment = f"{fragment}{character}"
+                if stringWidth(candidate_fragment, font, size) <= width:
+                    fragment = candidate_fragment
+                else:
+                    if fragment:
+                        lines.append(fragment)
+                    fragment = character
+            current = fragment
+        else:
+            current = word
+
+    if current:
+        lines.append(current)
+
+    return lines or ["-"]
+
+
 def _draw_wrapped_text(
     pdf: canvas.Canvas,
     text: str,
@@ -906,12 +957,25 @@ def _draw_text_block(
     max_lines: int = 3,
 ) -> float:
     """Draw wrapped text and return the next safe y coordinate."""
-    approx_chars = max(18, int(width / max(size * 0.48, 1)))
-    lines = _split_text(text, approx_chars)
+    lines = _split_text_to_width(
+        text,
+        width,
+        font,
+        size,
+    )
 
     if len(lines) > max_lines:
         lines = lines[:max_lines]
-        lines[-1] = lines[-1].rstrip(". ") + "..."
+        ellipsis = "..."
+        last_line = lines[-1].rstrip(". ")
+
+        while (
+            last_line
+            and stringWidth(f"{last_line}{ellipsis}", font, size) > width
+        ):
+            last_line = last_line[:-1].rstrip()
+
+        lines[-1] = f"{last_line}{ellipsis}" if last_line else ellipsis
 
     pdf.setFillColor(_hex(color))
     pdf.setFont(font, size)
@@ -1102,7 +1166,7 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     qr_size = 34 * mm
     qr_x = content_right - qr_size
     qr_y = header_y - qr_size - 10 * mm
-    title_w = content_w - qr_size - 10 * mm
+    title_w = qr_x - content_x - 8 * mm
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
