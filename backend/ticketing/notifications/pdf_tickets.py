@@ -276,6 +276,18 @@ def _get_product_name(booking: Any) -> str:
     return container_name or "Tour / Product"
 
 
+def _to_title_case(value: str) -> str:
+    """
+    Convert names to a clean title/camel case while preserving apostrophes
+    and hyphens.
+    """
+    value = _safe_text(value, "")
+    if not value:
+        return ""
+
+    return " ".join(part.capitalize() for part in value.split())
+
+
 def _get_customer_name(booking: Any) -> str:
     full_name = _first_attr(
         booking,
@@ -289,11 +301,11 @@ def _get_customer_name(booking: Any) -> str:
     if customer:
         full_name = _first_attr(customer, ["full_name", "name"], "")
         if full_name:
-            return full_name
+            return _to_title_case(full_name)
 
     first_name = _safe_text(getattr(booking, "customer_first_name", ""))
     last_name = _safe_text(getattr(booking, "customer_last_name", ""))
-    return _safe_text(f"{first_name} {last_name}", "Customer")
+    return _to_title_case(f"{first_name} {last_name}") or "Customer"
 
 
 def _get_customer_contact(booking: Any) -> str:
