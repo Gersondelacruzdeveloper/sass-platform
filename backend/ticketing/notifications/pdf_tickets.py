@@ -11,12 +11,11 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "width-safe-title-v8-2026-07-20"
+PDF_TICKET_GENERATOR_VERSION = "cocobongo-original-option-title-v5-2026-07-20"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -277,18 +276,6 @@ def _get_product_name(booking: Any) -> str:
     return container_name or "Tour / Product"
 
 
-def _to_title_case(value: str) -> str:
-    """
-    Convert names to a clean title/camel case while preserving apostrophes
-    and hyphens.
-    """
-    value = _safe_text(value, "")
-    if not value:
-        return ""
-
-    return " ".join(part.capitalize() for part in value.split())
-
-
 def _get_customer_name(booking: Any) -> str:
     full_name = _first_attr(
         booking,
@@ -296,17 +283,17 @@ def _get_customer_name(booking: Any) -> str:
         "",
     )
     if full_name:
-        return _to_title_case(full_name)
+        return full_name
 
     customer = getattr(booking, "customer", None)
     if customer:
         full_name = _first_attr(customer, ["full_name", "name"], "")
         if full_name:
-            return _to_title_case(full_name)
+            return full_name
 
     first_name = _safe_text(getattr(booking, "customer_first_name", ""))
     last_name = _safe_text(getattr(booking, "customer_last_name", ""))
-    return _to_title_case(f"{first_name} {last_name}") or "Customer"
+    return _safe_text(f"{first_name} {last_name}", "Customer")
 
 
 def _get_customer_contact(booking: Any) -> str:
@@ -575,56 +562,6 @@ def _split_text(text: str, max_chars: int) -> list[str]:
 
     if line:
         lines.append(line)
-
-    return lines or ["-"]
-
-
-
-def _split_text_to_width(
-    text: str,
-    width: float,
-    font: str,
-    size: float,
-) -> list[str]:
-    """
-    Wrap text using the actual rendered ReportLab width.
-
-    Character-count wrapping is only an estimate and can allow wide capital
-    letters to enter the QR column. This function guarantees every returned
-    line fits inside the supplied width.
-    """
-    words = _safe_text(text, "-").split()
-    lines: list[str] = []
-    current = ""
-
-    for word in words:
-        candidate = f"{current} {word}".strip()
-
-        if stringWidth(candidate, font, size) <= width:
-            current = candidate
-            continue
-
-        if current:
-            lines.append(current)
-            current = ""
-
-        # Handle an unusually long unbroken word safely.
-        if stringWidth(word, font, size) > width:
-            fragment = ""
-            for character in word:
-                candidate_fragment = f"{fragment}{character}"
-                if stringWidth(candidate_fragment, font, size) <= width:
-                    fragment = candidate_fragment
-                else:
-                    if fragment:
-                        lines.append(fragment)
-                    fragment = character
-            current = fragment
-        else:
-            current = word
-
-    if current:
-        lines.append(current)
 
     return lines or ["-"]
 
@@ -957,25 +894,12 @@ def _draw_text_block(
     max_lines: int = 3,
 ) -> float:
     """Draw wrapped text and return the next safe y coordinate."""
-    lines = _split_text_to_width(
-        text,
-        width,
-        font,
-        size,
-    )
+    approx_chars = max(18, int(width / max(size * 0.48, 1)))
+    lines = _split_text(text, approx_chars)
 
     if len(lines) > max_lines:
         lines = lines[:max_lines]
-        ellipsis = "..."
-        last_line = lines[-1].rstrip(". ")
-
-        while (
-            last_line
-            and stringWidth(f"{last_line}{ellipsis}", font, size) > width
-        ):
-            last_line = last_line[:-1].rstrip()
-
-        lines[-1] = f"{last_line}{ellipsis}" if last_line else ellipsis
+        lines[-1] = lines[-1].rstrip(". ") + "..."
 
     pdf.setFillColor(_hex(color))
     pdf.setFont(font, size)
@@ -1166,7 +1090,7 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     qr_size = 34 * mm
     qr_x = content_right - qr_size
     qr_y = header_y - qr_size - 10 * mm
-    title_w = qr_x - content_x - 8 * mm
+    title_w = content_w - qr_size - 10 * mm
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
@@ -1198,24 +1122,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     )
 
     y = header_y - 13 * mm
-
-    # Long external option names must stay inside the title column and never
-    # overlap the dedicated QR-code column. Short titles remain prominent,
-    # while longer titles automatically use a smaller font and tighter leading.
-    title_length = len(_safe_text(ticket_name, ""))
-    if title_length > 85:
-        title_font_size = 11
-        title_line_height = 4.7 * mm
-    elif title_length > 60:
-        title_font_size = 12
-        title_line_height = 5.1 * mm
-    elif title_length > 38:
-        title_font_size = 14
-        title_line_height = 5.8 * mm
-    else:
-        title_font_size = 18
-        title_line_height = 6.8 * mm
-
     y = _draw_text_block(
         pdf,
         ticket_name,
@@ -1223,9 +1129,9 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         y,
         title_w,
         font="Helvetica-Bold",
-        size=title_font_size,
+        size=20,
         color=text_color,
-        line_height=title_line_height,
+        line_height=7.5 * mm,
         max_lines=3,
     )
 
