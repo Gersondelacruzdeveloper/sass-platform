@@ -54,36 +54,19 @@ SELLER_RECEIVERS = {
     PAYMENT_RECEIVER_SELLER,
 }
 
-
 def get_booking_original_price(booking):
     """
-    Return the retail price before the customer discount.
+    Return the retail/original booking price.
 
-    The booking-level original/subtotal values must be preferred because an
-    item's total may already contain the seller's customer discount.
+    Booking items are the source of truth because unit_price is always
+    stored at the retail price.
     """
-
-    booking_original_price = money(
-        getattr(booking, "original_price", ZERO)
-    )
-
-    if booking_original_price > ZERO:
-        return round_money(booking_original_price)
-
-    booking_subtotal = money(
-        getattr(booking, "subtotal_amount", ZERO)
-    )
-
-    if booking_subtotal > ZERO:
-        return round_money(booking_subtotal)
 
     item_total = ZERO
 
     try:
         for item in booking.items.all():
-            quantity = money(
-                getattr(item, "quantity", 1) or 1
-            )
+            quantity = money(getattr(item, "quantity", 1) or 1)
 
             original_unit_price = money(
                 getattr(item, "original_unit_price", ZERO)
@@ -103,51 +86,25 @@ def get_booking_original_price(booking):
     except Exception:
         item_total = ZERO
 
-    return round_money(item_total)
+    if item_total > ZERO:
+        return round_money(item_total)
 
+    booking_original_price = money(
+        getattr(booking, "original_price", ZERO)
+    )
 
-def get_booking_seller_margin_percent(booking):
-    """
-    Resolve seller margin from booking/product/seller.
+    if booking_original_price > ZERO:
+        return round_money(booking_original_price)
 
-    Priority:
-    1. booking.seller_margin_percent
-    2. primary_product.seller_margin_percent
-    3. primary_product.seller_allowed_discount_percent
-    4. seller.default_margin_percent
-    5. seller.commission_rate
-    """
+    booking_subtotal = money(
+        getattr(booking, "subtotal_amount", ZERO)
+    )
 
-    booking_margin = money(getattr(booking, "seller_margin_percent", ZERO))
-
-    if booking_margin > ZERO:
-        return booking_margin
-
-    product = getattr(booking, "primary_product", None)
-
-    if product:
-        product_margin = money(
-            getattr(product, "seller_margin_percent", ZERO)
-            or getattr(product, "seller_allowed_discount_percent", ZERO)
-            or ZERO
-        )
-
-        if product_margin > ZERO:
-            return product_margin
-
-    seller = getattr(booking, "seller", None)
-
-    if seller:
-        seller_margin = money(
-            getattr(seller, "default_margin_percent", ZERO)
-            or getattr(seller, "commission_rate", ZERO)
-            or ZERO
-        )
-
-        if seller_margin > ZERO:
-            return seller_margin
+    if booking_subtotal > ZERO:
+        return round_money(booking_subtotal)
 
     return ZERO
+
 
 
 def get_booking_customer_discount_percent(booking):
