@@ -249,3 +249,8 @@ SELLER_AI_CONVERSATION_TTL_SECONDS = 60 * 60 * 4
 SELLER_AI_CONVERSATION_KEY_PREFIX = (
     "ticketing:ai:seller:conversation"
 )
+
+TICKETING_INTERNAL_API_URL = env.str(
+    "TICKETING_INTERNAL_API_URL",
+    default="",
+)
