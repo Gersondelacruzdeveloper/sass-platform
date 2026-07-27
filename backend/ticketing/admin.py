@@ -1169,7 +1169,6 @@ class TicketingEmailSettingsAdmin(admin.ModelAdmin):
         ),
     )
 
-
 @admin.register(TicketAdmission)
 class TicketAdmissionAdmin(admin.ModelAdmin):
     list_display = (
@@ -1205,15 +1204,21 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
         "reversal_reason",
     )
 
+    # These related models already have compatible registered admins.
     autocomplete_fields = (
         "organisation",
-        "business_entity",
         "booking",
         "booking_item",
-        "admission_token",
-        "scan_attempt",
         "admitted_by",
         "reversed_by",
+    )
+
+    # These do not require their related models to have registered
+    # ModelAdmin classes with search_fields.
+    raw_id_fields = (
+        "business_entity",
+        "admission_token",
+        "scan_attempt",
     )
 
     readonly_fields = (
@@ -1349,7 +1354,9 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
     def mark_as_admitted(self, request, queryset):
         updated = queryset.exclude(
             status__in={"reversed", "void"}
-        ).update(status="admitted")
+        ).update(
+            status="admitted",
+        )
 
         self.message_user(
             request,
@@ -1360,7 +1367,9 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
     def mark_as_boarded(self, request, queryset):
         updated = queryset.exclude(
             status__in={"reversed", "void"}
-        ).update(status="boarded")
+        ).update(
+            status="boarded",
+        )
 
         self.message_user(
             request,
@@ -1371,7 +1380,9 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
     def mark_as_picked_up(self, request, queryset):
         updated = queryset.exclude(
             status__in={"reversed", "void"}
-        ).update(status="picked_up")
+        ).update(
+            status="picked_up",
+        )
 
         self.message_user(
             request,
@@ -1382,7 +1393,9 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
     def mark_as_completed(self, request, queryset):
         updated = queryset.exclude(
             status__in={"reversed", "void"}
-        ).update(status="completed")
+        ).update(
+            status="completed",
+        )
 
         self.message_user(
             request,
@@ -1393,9 +1406,11 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
     def reverse_selected_admissions(self, request, queryset):
         updated = 0
 
-        for admission in queryset.exclude(
+        admissions = queryset.exclude(
             status__in={"reversed", "void"}
-        ):
+        )
+
+        for admission in admissions:
             admission.reverse(
                 user=request.user,
                 reason="Reversed from Django admin.",
@@ -1409,7 +1424,9 @@ class TicketAdmissionAdmin(admin.ModelAdmin):
 
     @admin.action(description="Mark selected admissions as void")
     def mark_as_void(self, request, queryset):
-        updated = queryset.exclude(status="void").update(
+        updated = queryset.exclude(
+            status="void",
+        ).update(
             status="void",
         )
 

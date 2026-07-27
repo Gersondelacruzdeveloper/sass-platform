@@ -5,6 +5,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   BookOpen,
+  Bot,
   LogOut,
   Package,
   Receipt,
@@ -104,6 +105,12 @@ export default function TicketingSellerSidebar({
         "can_sell_custom_tours",
         "can_sell_cocobongo",
       ],
+    },
+    {
+      label: "AI Booking Assistant",
+      path: buildPath(safeSlug, "/ai-booking"),
+      icon: Bot,
+      permissions: ["can_create_bookings"],
     },
     {
       label: t("sellerSidebar.navigation.newBooking"),

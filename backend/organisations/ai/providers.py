@@ -58,6 +58,11 @@ class BaseAIProvider(ABC):
                 f"{self.provider_name} API key is not configured."
             )
 
+        if self.api_key.startswith("fernet:"):
+            raise AIProviderConfigurationError(
+                f"{self.provider_name} API key was not decrypted before "
+                "the provider was created."
+            )
         if not self.default_model:
             raise AIProviderConfigurationError(
                 f"{self.provider_name} default model is not configured."

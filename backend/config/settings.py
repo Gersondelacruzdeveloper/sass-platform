@@ -204,3 +204,48 @@ FRONTEND_APP_URL=env.str("FRONTEND_APP_URL", default="https://app.puntacanadisco
 ORGANISATION_AI_ENCRYPTION_KEY = env.str(
     "ORGANISATION_AI_ENCRYPTION_KEY"
 )
+
+# Redis and Celery
+if DEPLOYED:
+    DEFAULT_REDIS_HOST = "redis"
+else:
+    DEFAULT_REDIS_HOST = "127.0.0.1"
+
+REDIS_URL = env.str(
+    "REDIS_URL",
+    default=f"redis://{DEFAULT_REDIS_HOST}:6379/0",
+)
+
+CELERY_BROKER_URL = env.str(
+    "CELERY_BROKER_URL",
+    default=f"redis://{DEFAULT_REDIS_HOST}:6379/0",
+)
+
+CELERY_RESULT_BACKEND = env.str(
+    "CELERY_RESULT_BACKEND",
+    default=f"redis://{DEFAULT_REDIS_HOST}:6379/1",
+)
+
+DJANGO_CACHE_URL = env.str(
+    "DJANGO_CACHE_URL",
+    default=f"redis://{DEFAULT_REDIS_HOST}:6379/2",
+)
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": DJANGO_CACHE_URL,
+    }
+}
+
+SELLER_AI_CONVERSATION_CACHE_ALIAS = "default"
+SELLER_AI_CONVERSATION_TTL_SECONDS = 60 * 60 * 4
+SELLER_AI_CONVERSATION_KEY_PREFIX = (
+    "ticketing:ai:seller:conversation"
+)
+
+SELLER_AI_CONVERSATION_CACHE_ALIAS = "default"
+SELLER_AI_CONVERSATION_TTL_SECONDS = 60 * 60 * 4
+SELLER_AI_CONVERSATION_KEY_PREFIX = (
+    "ticketing:ai:seller:conversation"
+)

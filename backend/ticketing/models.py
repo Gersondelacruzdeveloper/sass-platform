@@ -78,6 +78,7 @@ class TicketingSettings(models.Model):
     class Meta:
         verbose_name = "Ticketing Settings"
         verbose_name_plural = "Ticketing Settings"
+        
 class TicketingPublicSiteSettings(models.Model):
     HERO_MEDIA_TYPE_CHOICES = (
         ("image", "Image"),

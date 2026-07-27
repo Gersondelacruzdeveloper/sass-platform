@@ -17,7 +17,6 @@ import { useAppSelector } from "../../../store/hooks";
 import TicketingDashboardLayout from "../layouts/TicketingDashboardLayout";
 import TicketingSellerLayout from "../layouts/TicketingSellerLayout";
 import TicketingPartnerLayout from "../layouts/TicketingPartnerLayout";
-
 import {
   Loader2,
   ShieldCheck,
@@ -51,6 +50,7 @@ import TicketingSEOPage from "../pages/TicketingSEOPage";
 import TicketingSellerDashboardPage from "../pages/seller/TicketingSellerDashboardPage";
 import TicketingSellerProductsPage from "../pages/seller/TicketingSellerProductsPage";
 import TicketingSellerNewBookingPage from "../pages/seller/TicketingSellerNewBookingPage";
+import TicketingSellerAIBookingPage from "../pages/seller/TicketingSellerAIBookingPage";
 import TicketingSellerBookingsPage from "../pages/seller/TicketingSellerBookingsPage";
 import TicketingSellerCustomersPage from "../pages/seller/TicketingSellerCustomersPage";
 import TicketingSellerCommissionsPage from "../pages/seller/TicketingSellerCommissionsPage";
@@ -603,7 +603,12 @@ export const ticketingRoutes = (
           path="products"
           element={<TicketingSellerProductsPage />}
         />
-        <Route
+        
+                <Route
+          path="ai-booking"
+          element={<TicketingSellerAIBookingPage />}
+        />
+<Route
           path="new-booking"
           element={<TicketingSellerNewBookingPage />}
         />

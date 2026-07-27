@@ -1,18 +1,22 @@
 .
 ├── .gitignore
+├── Pipfile
 ├── backend
 │   ├── .DS_Store
 │   ├── .env
 │   ├── .gitignore
+│   ├── Dockerfile
+│   ├── Pipfile
+│   ├── Pipfile.lock
 │   ├── accounts
 │   │   ├── __init__.py
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── migrations
-│   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
 │   │   │   ├── 0002_customuser_organisation.py
-│   │   │   └── 0003_customuser_preferred_language.py
+│   │   │   ├── 0003_customuser_preferred_language.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -23,8 +27,8 @@
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── migrations
-│   │   │   ├── __init__.py
-│   │   │   └── 0001_initial.py
+│   │   │   ├── 0001_initial.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -54,7 +58,6 @@
 │   │   ├── dev_seed.py
 │   │   ├── management
 │   │   ├── migrations
-│   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
 │   │   │   ├── 0002_alter_category_options_alter_expense_options_and_more.py
 │   │   │   ├── 0003_product_brand_product_is_alcohol_product_size_ml_and_more.py
@@ -62,7 +65,8 @@
 │   │   │   ├── 0005_discoemployee_daily_pay_discosettings.py
 │   │   │   ├── 0006_alter_expense_options_expense_expense_date.py
 │   │   │   ├── 0007_discoemployee_end_date_discoemployee_start_date.py
-│   │   │   └── 0008_discoemployee_can_access_dashboard_and_more.py
+│   │   │   ├── 0008_discoemployee_can_access_dashboard_and_more.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── services
@@ -71,7 +75,6 @@
 │   │   ├── tests.py
 │   │   ├── urls.py
 │   │   └── views.py
-│   ├── Dockerfile
 │   ├── manage.py
 │   ├── organisations
 │   │   ├── __init__.py
@@ -85,7 +88,6 @@
 │   │   │   └── translation_service.py
 │   │   ├── apps.py
 │   │   ├── migrations
-│   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
 │   │   │   ├── 0002_organisation_business_type_alter_membership_role.py
 │   │   │   ├── 0003_organisationbranding_organisationdomain.py
@@ -94,7 +96,8 @@
 │   │   │   ├── 0006_organisationbranding_app_description_and_more.py
 │   │   │   ├── 0007_alter_organisation_business_type.py
 │   │   │   ├── 0008_organisationaisettings.py
-│   │   │   └── 0009_organisationaisettings_provider_api_key_last_updated.py
+│   │   │   ├── 0009_organisationaisettings_provider_api_key_last_updated.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -102,17 +105,15 @@
 │   │   ├── utils
 │   │   │   └── branding_icons.py
 │   │   └── views.py
-│   ├── Pipfile
-│   ├── Pipfile.lock
 │   ├── requirements.txt
 │   ├── subscriptions
 │   │   ├── __init__.py
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── migrations
-│   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
-│   │   │   └── 0002_subscriptionplan_max_employees.py
+│   │   │   ├── 0002_subscriptionplan_max_employees.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
@@ -141,7 +142,6 @@
 │   │   │   └── utils.py
 │   │   ├── google_oauth.py
 │   │   ├── migrations
-│   │   │   ├── __init__.py
 │   │   │   ├── 0001_initial.py
 │   │   │   ├── 0002_ticketingpublicsitesettings_ai_assistant_subtitle_and_more.py
 │   │   │   ├── 0003_booking_external_booking_id_and_more.py
@@ -159,7 +159,8 @@
 │   │   │   ├── 0015_ticketingwhatsappsettings.py
 │   │   │   ├── 0016_experienceproduct_return_information_and_more.py
 │   │   │   ├── 0017_remove_experienceproduct_return_information_and_more.py
-│   │   │   └── 0018_experienceproduct_default_language_and_more.py
+│   │   │   ├── 0018_experienceproduct_default_language_and_more.py
+│   │   │   └── __init__.py
 │   │   ├── models.py
 │   │   ├── notifications
 │   │   │   ├── __init__.py
@@ -189,6 +190,7 @@
 │   │   │   ├── resolver.py
 │   │   │   └── sitemap.py
 │   │   ├── serializers.py
+│   │   ├── services
 │   │   ├── services.py
 │   │   ├── tasks.py
 │   │   ├── templates
@@ -211,14 +213,14 @@
 │       │       ├── __init__.py
 │       │       └── seed_training_demo.py
 │       ├── migrations
-│       │   ├── __init__.py
 │       │   ├── 0001_initial.py
 │       │   ├── 0002_alter_facilitator_assigned_employees_and_more.py
 │       │   ├── 0003_standard_employee_career_goal_employee_hire_date_and_more.py
 │       │   ├── 0004_employeeevaluation_evaluationquestion_and_more.py
 │       │   ├── 0005_employee_organisation_and_more.py
 │       │   ├── 0006_employee_user_facilitator_assigned_outlets_and_more.py
-│       │   └── 0007_trainingresource_standardrecoveryplan_and_more.py
+│       │   ├── 0007_trainingresource_standardrecoveryplan_and_more.py
+│       │   └── __init__.py
 │       ├── models.py
 │       ├── permissions.py
 │       ├── resources
@@ -234,10 +236,12 @@
 │   ├── .env
 │   ├── .env.production
 │   ├── .gitignore
+│   ├── README.md
 │   ├── eslint.config.js
 │   ├── index.html
 │   ├── package.json
 │   ├── postcss.config.cjs
+│   ├── project_structure.txt
 │   ├── public
 │   │   ├── disco
 │   │   │   └── videos
@@ -257,8 +261,9 @@
 │   │   ├── manifest-default.webmanifest
 │   │   ├── manifest-hard-rock.webmanifest
 │   │   └── manifest-melia.webmanifest
-│   ├── README.md
 │   ├── src
+│   │   ├── App.css
+│   │   ├── App.tsx
 │   │   ├── api
 │   │   │   ├── auditLogsApi.ts
 │   │   │   ├── authApi.ts
@@ -267,8 +272,6 @@
 │   │   │   ├── discoApi.ts
 │   │   │   ├── organisationsApi.ts
 │   │   │   └── subscriptionsApi.ts
-│   │   ├── App.css
-│   │   ├── App.tsx
 │   │   ├── assets
 │   │   │   ├── hero.png
 │   │   │   ├── react.svg
@@ -352,8 +355,8 @@
 │   │   │   │   │   ├── DiscoSignupPage.tsx
 │   │   │   │   │   ├── DiscoStockMovementsPage.tsx
 │   │   │   │   │   ├── DiscoSubscriptionCancelPage.tsx
-│   │   │   │   │   ├── DiscoSubscriptionsPage.tsx
 │   │   │   │   │   ├── DiscoSubscriptionSuccessPage.tsx
+│   │   │   │   │   ├── DiscoSubscriptionsPage.tsx
 │   │   │   │   │   └── DiscoTablesPage.tsx
 │   │   │   │   ├── routes
 │   │   │   │   │   └── discoRoutes.tsx
@@ -369,42 +372,87 @@
 │   │   │   │       └── formatCurrency.ts
 │   │   │   ├── ticketing
 │   │   │   │   ├── admin-i18n
-│   │   │   │   │   └── translations
+│   │   │   │   │   ├── ticketingAdminTranslations.ts
+│   │   │   │   │   ├── translations
+│   │   │   │   │   │   ├── TicketingAdmissionsPage.ts
+│   │   │   │   │   │   ├── TicketingBookingsPage.ts
+│   │   │   │   │   │   ├── TicketingBusinessAgreementsPage.ts
+│   │   │   │   │   │   ├── TicketingBusinessEntitiesPage.ts
+│   │   │   │   │   │   ├── TicketingBusinessEntityDetailPage.ts
+│   │   │   │   │   │   ├── TicketingLedgerPage.ts
+│   │   │   │   │   │   ├── TicketingOperationsDashboardPage.ts
+│   │   │   │   │   │   ├── TicketingProductsPageTranslations.ts
+│   │   │   │   │   │   ├── TicketingReportsPage.ts
+│   │   │   │   │   │   ├── TicketingScanAttemptsPage.ts
+│   │   │   │   │   │   ├── TicketingScannerPage.ts
+│   │   │   │   │   │   ├── TicketingSellersPage.ts
+│   │   │   │   │   │   ├── TicketingSettingsPage.ts
+│   │   │   │   │   │   ├── TicketingSettlementDetailPage.ts
+│   │   │   │   │   │   ├── TicketingSettlementsPage.ts
+│   │   │   │   │   │   ├── navigation.ts
+│   │   │   │   │   │   ├── ticketingAvailabilityPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingBillingLockedPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingBrandingPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingCommissionsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingDashboardPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingDomainPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingEventsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingExcursionsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingIntegrationsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingLandingPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingLoginPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingNewBookingPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingPickupSchedulesPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSEOPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerBookingsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerCommissionsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerCustomersPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerDashboardPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerLayoutTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerNewBookingPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerProductsPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerProfilePageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSellerSidebarTranslations.ts
+│   │   │   │   │   │   ├── ticketingSignupPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSubscriptionCancelPageTranslations.ts
+│   │   │   │   │   │   ├── ticketingSubscriptionSuccessPageTranslations.ts
+│   │   │   │   │   │   └── ticketingTransfersPageTranslations.ts
+│   │   │   │   │   └── useTicketingAdminTranslation.ts
 │   │   │   │   ├── api
 │   │   │   │   │   └── ticketingApi.ts
 │   │   │   │   ├── components
+│   │   │   │   │   ├── TicketingPageShell.tsx
+│   │   │   │   │   ├── TicketingSellerSidebar.tsx
+│   │   │   │   │   ├── TicketingSidebar.tsx
+│   │   │   │   │   ├── TicketingTopbar.tsx
 │   │   │   │   │   ├── language
 │   │   │   │   │   ├── seller
 │   │   │   │   │   │   ├── SellerBookingCard.tsx
 │   │   │   │   │   │   ├── SellerProductCard.tsx
 │   │   │   │   │   │   └── SellerStatCard.tsx
-│   │   │   │   │   ├── settings
-│   │   │   │   │   │   ├── BookingRulesSettings.tsx
-│   │   │   │   │   │   ├── BrandingSettings.tsx
-│   │   │   │   │   │   ├── common
-│   │   │   │   │   │   │   └── settings-common-components
-│   │   │   │   │   │   │       ├── ColorInput.tsx
-│   │   │   │   │   │   │       ├── FormInput.tsx
-│   │   │   │   │   │   │       ├── FormSelect.tsx
-│   │   │   │   │   │   │       ├── FormTextarea.tsx
-│   │   │   │   │   │   │       ├── index.ts
-│   │   │   │   │   │   │       ├── SectionCard.tsx
-│   │   │   │   │   │   │       ├── StatusBadge.tsx
-│   │   │   │   │   │   │       └── ToggleCard.tsx
-│   │   │   │   │   │   ├── EmailSettingsPanel.tsx
-│   │   │   │   │   │   ├── FinancialSettings.tsx
-│   │   │   │   │   │   ├── HomePageSettings.tsx
-│   │   │   │   │   │   ├── NotificationSettings.tsx
-│   │   │   │   │   │   ├── PaymentProvidersSettings.tsx
-│   │   │   │   │   │   ├── PublicSiteThemeSettings.tsx
-│   │   │   │   │   │   ├── PublicWebsiteSettings.tsx
-│   │   │   │   │   │   ├── SeoSettings.tsx
-│   │   │   │   │   │   ├── TicketingEmailSettingsPanel.tsx
-│   │   │   │   │   │   └── TicketingWhatsAppSettingsPanel.tsx
-│   │   │   │   │   ├── TicketingPageShell.tsx
-│   │   │   │   │   ├── TicketingSellerSidebar.tsx
-│   │   │   │   │   ├── TicketingSidebar.tsx
-│   │   │   │   │   └── TicketingTopbar.tsx
+│   │   │   │   │   └── settings
+│   │   │   │   │       ├── BookingRulesSettings.tsx
+│   │   │   │   │       ├── BrandingSettings.tsx
+│   │   │   │   │       ├── EmailSettingsPanel.tsx
+│   │   │   │   │       ├── FinancialSettings.tsx
+│   │   │   │   │       ├── HomePageSettings.tsx
+│   │   │   │   │       ├── NotificationSettings.tsx
+│   │   │   │   │       ├── PaymentProvidersSettings.tsx
+│   │   │   │   │       ├── PublicSiteThemeSettings.tsx
+│   │   │   │   │       ├── PublicWebsiteSettings.tsx
+│   │   │   │   │       ├── SeoSettings.tsx
+│   │   │   │   │       ├── TicketingEmailSettingsPanel.tsx
+│   │   │   │   │       ├── TicketingWhatsAppSettingsPanel.tsx
+│   │   │   │   │       └── common
+│   │   │   │   │           └── settings-common-components
+│   │   │   │   │               ├── ColorInput.tsx
+│   │   │   │   │               ├── FormInput.tsx
+│   │   │   │   │               ├── FormSelect.tsx
+│   │   │   │   │               ├── FormTextarea.tsx
+│   │   │   │   │               ├── SectionCard.tsx
+│   │   │   │   │               ├── StatusBadge.tsx
+│   │   │   │   │               ├── ToggleCard.tsx
+│   │   │   │   │               └── index.ts
 │   │   │   │   ├── hooks
 │   │   │   │   │   └── usePublicTicketingOrganisation.ts
 │   │   │   │   ├── i18n
@@ -425,30 +473,11 @@
 │   │   │   │   │   ├── TicketingPartnerLayout.tsx
 │   │   │   │   │   └── TicketingSellerLayout.tsx
 │   │   │   │   ├── pages
-│   │   │   │   │   ├── operations
-│   │   │   │   │   │   ├── TicketingAdmissionsPage.tsx
-│   │   │   │   │   │   ├── TicketingBusinessAgreementsPage.tsx
-│   │   │   │   │   │   ├── TicketingBusinessEntitiesPage.tsx
-│   │   │   │   │   │   ├── TicketingBusinessEntityDetailPage.tsx
-│   │   │   │   │   │   ├── TicketingLedgerPage.tsx
-│   │   │   │   │   │   ├── TicketingOperationsDashboardPage.tsx
-│   │   │   │   │   │   ├── TicketingScanAttemptsPage.tsx
-│   │   │   │   │   │   ├── TicketingScannerPage.tsx
-│   │   │   │   │   │   ├── TicketingSettlementDetailPage.tsx
-│   │   │   │   │   │   └── TicketingSettlementsPage.tsx
 │   │   │   │   │   ├── PublicCheckoutPage.tsx
 │   │   │   │   │   ├── PublicConfirmationPage.tsx
 │   │   │   │   │   ├── PublicExperienceHomePage.tsx
 │   │   │   │   │   ├── PublicProductDetailPage.tsx
 │   │   │   │   │   ├── PublicProductsListingPage.tsx
-│   │   │   │   │   ├── seller
-│   │   │   │   │   │   ├── TicketingSellerBookingsPage.tsx
-│   │   │   │   │   │   ├── TicketingSellerCommissionsPage.tsx
-│   │   │   │   │   │   ├── TicketingSellerCustomersPage.tsx
-│   │   │   │   │   │   ├── TicketingSellerDashboardPage.tsx
-│   │   │   │   │   │   ├── TicketingSellerNewBookingPage.tsx
-│   │   │   │   │   │   ├── TicketingSellerProductsPage.tsx
-│   │   │   │   │   │   └── TicketingSellerProfilePage.tsx
 │   │   │   │   │   ├── TicketingAvailabilityPage.tsx
 │   │   │   │   │   ├── TicketingBillingLockedPage.tsx
 │   │   │   │   │   ├── TicketingBookingsPage.tsx
@@ -465,14 +494,33 @@
 │   │   │   │   │   ├── TicketingPickupSchedulesPage.tsx
 │   │   │   │   │   ├── TicketingProductsPage.tsx
 │   │   │   │   │   ├── TicketingReportsPage.tsx
+│   │   │   │   │   ├── TicketingSEOPage.tsx
 │   │   │   │   │   ├── TicketingSellerDashboardPage.tsx
 │   │   │   │   │   ├── TicketingSellersPage.tsx
-│   │   │   │   │   ├── TicketingSEOPage.tsx
 │   │   │   │   │   ├── TicketingSettingsPage.tsx
 │   │   │   │   │   ├── TicketingSignupPage.tsx
 │   │   │   │   │   ├── TicketingSubscriptionCancelPage.tsx
 │   │   │   │   │   ├── TicketingSubscriptionSuccessPage.tsx
-│   │   │   │   │   └── TicketingTransfersPage.tsx
+│   │   │   │   │   ├── TicketingTransfersPage.tsx
+│   │   │   │   │   ├── operations
+│   │   │   │   │   │   ├── TicketingAdmissionsPage.tsx
+│   │   │   │   │   │   ├── TicketingBusinessAgreementsPage.tsx
+│   │   │   │   │   │   ├── TicketingBusinessEntitiesPage.tsx
+│   │   │   │   │   │   ├── TicketingBusinessEntityDetailPage.tsx
+│   │   │   │   │   │   ├── TicketingLedgerPage.tsx
+│   │   │   │   │   │   ├── TicketingOperationsDashboardPage.tsx
+│   │   │   │   │   │   ├── TicketingScanAttemptsPage.tsx
+│   │   │   │   │   │   ├── TicketingScannerPage.tsx
+│   │   │   │   │   │   ├── TicketingSettlementDetailPage.tsx
+│   │   │   │   │   │   └── TicketingSettlementsPage.tsx
+│   │   │   │   │   └── seller
+│   │   │   │   │       ├── TicketingSellerBookingsPage.tsx
+│   │   │   │   │       ├── TicketingSellerCommissionsPage.tsx
+│   │   │   │   │       ├── TicketingSellerCustomersPage.tsx
+│   │   │   │   │       ├── TicketingSellerDashboardPage.tsx
+│   │   │   │   │       ├── TicketingSellerNewBookingPage.tsx
+│   │   │   │   │       ├── TicketingSellerProductsPage.tsx
+│   │   │   │   │       └── TicketingSellerProfilePage.tsx
 │   │   │   │   ├── routes
 │   │   │   │   │   └── ticketingRoutes.tsx
 │   │   │   │   ├── types
@@ -499,17 +547,11 @@
 │   │   │       │   ├── EditFacilitatorPage.tsx
 │   │   │       │   ├── EmployeeDetailPage.tsx
 │   │   │       │   ├── EmployeesPage.tsx
-│   │   │       │   ├── EvaluationsPage.tsx
 │   │   │       │   ├── EvaluationTemplatesPage.tsx
-│   │   │       │   ├── facilitator
-│   │   │       │   │   ├── FacilitatorDashboardPage.tsx
-│   │   │       │   │   ├── FacilitatorEmployeesPage.tsx
-│   │   │       │   │   ├── FacilitatorEvaluationsPage.tsx
-│   │   │       │   │   └── FacilitatorTrainingsPage.tsx
-│   │   │       │   ├── FacilitatorsPage.tsx
+│   │   │       │   ├── EvaluationsPage.tsx
 │   │   │       │   ├── FacilitatorTrainingQueuePage.tsx
+│   │   │       │   ├── FacilitatorsPage.tsx
 │   │   │       │   ├── OutletsPage.tsx
-│   │   │       │   ├── permissions.ts
 │   │   │       │   ├── RecoveryPlansPage.tsx
 │   │   │       │   ├── ReportsPage.tsx
 │   │   │       │   ├── RoadmapPage.tsx
@@ -517,7 +559,13 @@
 │   │   │       │   ├── TrainingDashboardPage.tsx
 │   │   │       │   ├── TrainingLoginPage.tsx
 │   │   │       │   ├── TrainingResourcesPage.tsx
-│   │   │       │   └── TrainingSessionsPage.tsx
+│   │   │       │   ├── TrainingSessionsPage.tsx
+│   │   │       │   ├── facilitator
+│   │   │       │   │   ├── FacilitatorDashboardPage.tsx
+│   │   │       │   │   ├── FacilitatorEmployeesPage.tsx
+│   │   │       │   │   ├── FacilitatorEvaluationsPage.tsx
+│   │   │       │   │   └── FacilitatorTrainingsPage.tsx
+│   │   │       │   └── permissions.ts
 │   │   │       ├── routes
 │   │   │       │   └── trainingRoutes.tsx
 │   │   │       ├── types
@@ -526,15 +574,15 @@
 │   │   ├── pages
 │   │   │   ├── AuditLogsPage.tsx
 │   │   │   ├── DashboardPage.tsx
-│   │   │   ├── disco
-│   │   │   │   └── DiscoDashboardPage.tsx
 │   │   │   ├── LoginPage.tsx
 │   │   │   ├── OrganisationsPage.tsx
 │   │   │   ├── RegisterPage.tsx
-│   │   │   ├── subscription
-│   │   │   │   ├── SubscriptionCancelPage.tsx
-│   │   │   │   └── SubscriptionSuccessPage.tsx
-│   │   │   └── SubscriptionsPage.tsx
+│   │   │   ├── SubscriptionsPage.tsx
+│   │   │   ├── disco
+│   │   │   │   └── DiscoDashboardPage.tsx
+│   │   │   └── subscription
+│   │   │       ├── SubscriptionCancelPage.tsx
+│   │   │       └── SubscriptionSuccessPage.tsx
 │   │   ├── routes
 │   │   │   └── AppRoutes.tsx
 │   │   ├── store
@@ -551,14 +599,12 @@
 │   │       ├── getDashboardRedirect.ts
 │   │       └── pwaTenant.ts
 │   ├── tailwind.config.cjs
-│   ├── tools
-│   │   └── i18n
+│   ├── ticketing_admin_structure.txt
 │   ├── tsconfig.app.json
 │   ├── tsconfig.json
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── yarn.lock
-├── Pipfile
 └── project_structure.txt
 
-108 directories, 454 files
+107 directories, 501 files

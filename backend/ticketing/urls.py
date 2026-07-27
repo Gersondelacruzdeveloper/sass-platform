@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-
+from .views_ai import SellerAIChatView
 from .views import (
     TicketingSettingsViewSet,
     TicketingPublicSiteSettingsViewSet,
@@ -281,6 +281,12 @@ urlpatterns = [
         PublicProductAvailabilityAPIView.as_view(),
         name="ticketing-public-product-availability",
     ),
+    path(
+    "seller/ai/chat/",
+    SellerAIChatView.as_view(),
+    name="ticketing-seller-ai-chat",
+),
+
 
     path("", include(router.urls)),
 ]
