@@ -234,19 +234,26 @@ class SellerBookingAgent:
             return response
 
         except SellerApiError as exc:
-            print("\n================ SELLER BOOKING API ERROR ================")
-            print(f"Conversation ID : {resolved_conversation_id}")
-            print(f"Organisation    : {self.api_client.organisation_slug}")
-            print(f"Status Code     : {exc.status_code}")
-            print(f"Method          : {exc.method}")
-            print(f"Endpoint        : {exc.endpoint}")
-            print(f"Message         : {exc.message}")
-            print(f"Response Body   : {exc.response_data!r}")
-            print("==========================================================\n")
-
             logger.exception(
-                "Seller booking API request failed."
+                "Seller booking API request failed: %s",
+                exc,
+                extra={
+                    "conversation_id": resolved_conversation_id,
+                    "organisation_slug": self.api_client.organisation_slug,
+                    "status_code": exc.status_code,
+                    "method": exc.method,
+                    "endpoint": exc.endpoint,
+                },
             )
+
+            print("=" * 80)
+            print("SELLER API ERROR")
+            print("STATUS :", exc.status_code)
+            print("METHOD :", exc.method)
+            print("ENDPOINT :", exc.endpoint)
+            print("ERROR :", exc)
+            print("BODY :", getattr(exc, "response_text", None))
+            print("=" * 80)
 
             error_message = self._seller_safe_api_error(exc)
 
