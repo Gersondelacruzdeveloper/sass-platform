@@ -1,13 +1,7 @@
 // src/modules/ticketing/pages/seller/TicketingSellerAIBookingPage.tsx
 
-import {
-  FormEvent,
-  KeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
