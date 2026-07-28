@@ -155,7 +155,6 @@ class SellerMessage:
     transcript_confidence: float | None = None
     is_final_transcript: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
-    voice_context: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "SellerMessage":
@@ -186,9 +185,6 @@ class SellerMessage:
                 data.get("is_final_transcript", True)
             ),
             metadata=normalise_mapping(data.get("metadata")),
-            voice_context=normalise_mapping(
-                data.get("voice_context")
-            ),
         )
 
     @property
@@ -520,6 +516,7 @@ class BookingConversationState:
 
     error_message: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    voice_context: dict[str, Any] = field(default_factory=dict)
 
     def set_intent(
         self,
@@ -753,6 +750,9 @@ class BookingConversationState:
             ),
             error_message=str(data.get("error_message") or ""),
             metadata=normalise_mapping(data.get("metadata")),
+            voice_context=normalise_mapping(
+                data.get("voice_context")
+            ),
         )
 
         product_data = normalise_mapping(data.get("product"))
