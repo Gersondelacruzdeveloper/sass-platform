@@ -251,6 +251,11 @@ class OpenAISellerMessageInterpreter:
             state=state,
         )
 
+        print("\n================ GPT RAW OUTPUT ================")
+        print(output_text)
+        print("================ END GPT RAW OUTPUT ================\n")
+
+        parsed = self._parse_json(output_text)
         parsed = self._parse_json(output_text)
 
         interpretation = normalise_interpretation(parsed)
