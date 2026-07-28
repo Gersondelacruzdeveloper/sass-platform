@@ -170,8 +170,43 @@ class SellerAITranscriptionView(APIView):
             organisation=organisation,
         )
 
+        ai_settings = chat_view._resolve_ai_settings(
+            organisation=organisation,
+        )
+
+        if ai_settings is None:
+            return Response(
+                {
+                    "detail": (
+                        "AI settings are not configured for this "
+                        "organisation."
+                    ),
+                    "code": "ai_settings_not_configured",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
-            result = SellerAudioTranscriber().transcribe(
+            transcription_config = self._resolve_transcription_config(
+                ai_settings=ai_settings,
+            )
+        except SellerAudioTranscriptionError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": "transcription_provider_not_configured",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            transcriber = SellerAudioTranscriber(
+                api_key=transcription_config["api_key"],
+                model=transcription_config["model"],
+                base_url=transcription_config.get("base_url"),
+            )
+
+            result = transcriber.transcribe(
                 content=audio.read(),
                 filename=audio.name or "seller-voice.webm",
                 content_type=(
@@ -241,6 +276,144 @@ class SellerAITranscriptionView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    @classmethod
+    def _resolve_transcription_config(
+        cls,
+        *,
+        ai_settings: Any,
+    ) -> dict[str, str]:
+        """
+        Resolve OpenAI transcription credentials from OrganisationAISettings.
+
+        This supports both direct fields and helper methods commonly used when
+        API keys are encrypted at rest. Adjust the candidate field names to
+        match the exact OrganisationAISettings model if necessary.
+        """
+
+        provider = cls._read_setting(
+            ai_settings,
+            method_names=(
+                "get_provider",
+                "get_default_provider",
+            ),
+            attribute_names=(
+                "provider",
+                "default_provider",
+                "ai_provider",
+            ),
+        ).lower()
+
+        if provider and provider not in {
+            "openai",
+            "azure_openai",
+            "azure-openai",
+        }:
+            raise SellerAudioTranscriptionError(
+                "Voice transcription currently requires an OpenAI "
+                "provider configured for this organisation."
+            )
+
+        api_key = cls._read_setting(
+            ai_settings,
+            method_names=(
+                "get_decrypted_api_key",
+                "get_api_key",
+                "decrypt_api_key",
+                "get_openai_api_key",
+            ),
+            attribute_names=(
+                "openai_api_key",
+                "api_key",
+                "provider_api_key",
+                "encrypted_api_key",
+            ),
+        )
+
+        if not api_key:
+            raise SellerAudioTranscriptionError(
+                "The organisation's OpenAI API key is not configured."
+            )
+
+        model = cls._read_setting(
+            ai_settings,
+            method_names=(
+                "get_transcription_model",
+                "get_audio_transcription_model",
+            ),
+            attribute_names=(
+                "transcription_model",
+                "audio_transcription_model",
+                "speech_to_text_model",
+            ),
+        ) or "gpt-4o-transcribe"
+
+        base_url = cls._read_setting(
+            ai_settings,
+            method_names=(
+                "get_base_url",
+                "get_provider_base_url",
+            ),
+            attribute_names=(
+                "base_url",
+                "provider_base_url",
+                "openai_base_url",
+            ),
+        )
+
+        return {
+            "api_key": api_key,
+            "model": model,
+            "base_url": base_url,
+        }
+
+    @staticmethod
+    def _read_setting(
+        settings_object: Any,
+        *,
+        method_names: tuple[str, ...],
+        attribute_names: tuple[str, ...],
+    ) -> str:
+        for method_name in method_names:
+            method = getattr(
+                settings_object,
+                method_name,
+                None,
+            )
+
+            if not callable(method):
+                continue
+
+            try:
+                value = method()
+            except TypeError:
+                continue
+            except Exception:
+                logger.debug(
+                    "Could not read AI setting through %s.",
+                    method_name,
+                    exc_info=True,
+                )
+                continue
+
+            cleaned = str(value or "").strip()
+
+            if cleaned:
+                return cleaned
+
+        for attribute_name in attribute_names:
+            value = getattr(
+                settings_object,
+                attribute_name,
+                None,
+            )
+
+            cleaned = str(value or "").strip()
+
+            if cleaned:
+                return cleaned
+
+        return ""
 
     @staticmethod
     def _build_vocabulary_hint(

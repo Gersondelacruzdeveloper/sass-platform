@@ -4,7 +4,6 @@ import io
 import logging
 from dataclasses import dataclass
 
-from django.conf import settings
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -23,19 +22,36 @@ class SellerTranscriptionResult:
 
 
 class SellerAudioTranscriber:
-    def __init__(self) -> None:
-        api_key = getattr(settings, "OPENAI_API_KEY", "")
-        if not api_key:
+    """
+    Transcribes seller audio using credentials supplied by the organisation.
+
+    The API key must be resolved from OrganisationAISettings before this class
+    is created. It intentionally does not read a global OPENAI_API_KEY.
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "gpt-4o-transcribe",
+        base_url: str | None = None,
+    ) -> None:
+        clean_api_key = str(api_key or "").strip()
+
+        if not clean_api_key:
             raise SellerAudioTranscriptionError(
-                "OPENAI_API_KEY is not configured."
+                "The organisation's OpenAI API key is not configured."
             )
 
-        self.client = OpenAI(api_key=api_key)
-        self.model = getattr(
-            settings,
-            "SELLER_AI_TRANSCRIPTION_MODEL",
-            "gpt-4o-transcribe",
-        )
+        client_kwargs: dict[str, object] = {
+            "api_key": clean_api_key,
+        }
+
+        if base_url:
+            client_kwargs["base_url"] = str(base_url).strip()
+
+        self.client = OpenAI(**client_kwargs)
+        self.model = str(model or "gpt-4o-transcribe").strip()
 
     def transcribe(
         self,
@@ -59,8 +75,12 @@ class SellerAudioTranscriber:
             "prices, product names, ticket options, phone numbers and payment "
             "details exactly. Do not translate. "
         )
+
         if vocabulary_hint:
-            prompt += f"Relevant booking vocabulary: {vocabulary_hint[:1500]}"
+            prompt += (
+                "Relevant booking vocabulary: "
+                f"{str(vocabulary_hint)[:1500]}"
+            )
 
         try:
             response = self.client.audio.transcriptions.create(
@@ -70,18 +90,30 @@ class SellerAudioTranscriber:
                 response_format="json",
             )
         except Exception as exc:
-            logger.exception("OpenAI seller transcription failed.")
+            logger.exception(
+                "Organisation OpenAI seller transcription failed.",
+                extra={
+                    "model": self.model,
+                    "filename": filename,
+                    "content_type": content_type,
+                },
+            )
             raise SellerAudioTranscriptionError(
                 "The voice transcription service is temporarily unavailable."
             ) from exc
 
-        transcript = str(getattr(response, "text", "") or "").strip()
+        transcript = str(
+            getattr(response, "text", "") or ""
+        ).strip()
+
         if not transcript:
             raise SellerAudioTranscriptionError(
                 "No speech could be detected in the recording."
             )
 
-        language = str(getattr(response, "language", "") or "").strip()
+        language = str(
+            getattr(response, "language", "") or ""
+        ).strip()
 
         return SellerTranscriptionResult(
             transcript=transcript,
