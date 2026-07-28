@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Mapping
 
 from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Model
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,8 +21,262 @@ from .ai.seller.factory import (
     SellerBookingAgentFactory,
 )
 
+from .ai.seller.audio_transcriber import (
+    SellerAudioTranscriber,
+    SellerAudioTranscriptionError,
+)
+
 
 logger = logging.getLogger(__name__)
+
+
+class SellerAITranscriptionView(APIView):
+    """
+    Authenticated seller voice-transcription endpoint.
+
+    POST /api/ticketing/seller/ai/transcribe/
+
+    Multipart form fields:
+
+    - audio: recorded audio file
+    - organisation_slug: current organisation
+    - duration_ms: optional recording duration
+
+    This endpoint only transcribes audio. The frontend sends the returned
+    transcript to SellerAIChatView so the existing booking workflow remains
+    the source of truth.
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    MAX_AUDIO_BYTES = 15 * 1024 * 1024
+    ALLOWED_EXTENSIONS = {
+        ".flac",
+        ".m4a",
+        ".mp3",
+        ".mp4",
+        ".mpeg",
+        ".mpga",
+        ".ogg",
+        ".wav",
+        ".webm",
+    }
+
+    def post(
+        self,
+        request: Request,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Response:
+        audio = request.FILES.get("audio")
+
+        if audio is None:
+            return Response(
+                {
+                    "detail": "An audio file is required.",
+                    "code": "audio_required",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if audio.size <= 0:
+            return Response(
+                {
+                    "detail": "The audio file is empty.",
+                    "code": "audio_empty",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if audio.size > self.MAX_AUDIO_BYTES:
+            return Response(
+                {
+                    "detail": "The audio recording is too large.",
+                    "code": "audio_too_large",
+                    "maximum_bytes": self.MAX_AUDIO_BYTES,
+                },
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        extension = Path(audio.name or "").suffix.lower()
+
+        if extension not in self.ALLOWED_EXTENSIONS:
+            return Response(
+                {
+                    "detail": "Unsupported audio format.",
+                    "code": "unsupported_audio_format",
+                    "supported_extensions": sorted(
+                        self.ALLOWED_EXTENSIONS
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            duration_ms = max(
+                0,
+                int(request.data.get("duration_ms") or 0),
+            )
+        except (TypeError, ValueError):
+            duration_ms = 0
+
+        organisation_slug = SellerAIChatView()._resolve_organisation_slug(
+            request=request,
+            payload=request.data,
+            kwargs=kwargs,
+        )
+
+        if not organisation_slug:
+            return Response(
+                {
+                    "detail": "The organisation slug is required.",
+                    "code": "organisation_slug_required",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        chat_view = SellerAIChatView()
+
+        organisation = chat_view._resolve_organisation(
+            request=request,
+            organisation_slug=organisation_slug,
+        )
+
+        if organisation is None:
+            return Response(
+                {
+                    "detail": "The organisation was not found.",
+                    "code": "organisation_not_found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not chat_view._user_can_access_organisation(
+            request=request,
+            organisation=organisation,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You do not have access to this organisation."
+                    ),
+                    "code": "organisation_access_denied",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        vocabulary_hint = self._build_vocabulary_hint(
+            organisation=organisation,
+        )
+
+        try:
+            result = SellerAudioTranscriber().transcribe(
+                content=audio.read(),
+                filename=audio.name or "seller-voice.webm",
+                content_type=(
+                    audio.content_type
+                    or "application/octet-stream"
+                ),
+                duration_ms=duration_ms,
+                vocabulary_hint=vocabulary_hint,
+            )
+        except SellerAudioTranscriptionError as exc:
+            logger.info(
+                "Seller voice transcription failed.",
+                extra={
+                    "organisation_slug": organisation_slug,
+                    "user_id": getattr(
+                        request.user,
+                        "id",
+                        None,
+                    ),
+                    "filename": audio.name,
+                    "content_type": audio.content_type,
+                    "audio_size": audio.size,
+                    "error": str(exc),
+                },
+            )
+
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": "seller_audio_transcription_failed",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected seller voice transcription failure.",
+                extra={
+                    "organisation_slug": organisation_slug,
+                    "user_id": getattr(
+                        request.user,
+                        "id",
+                        None,
+                    ),
+                    "filename": audio.name,
+                    "content_type": audio.content_type,
+                    "audio_size": audio.size,
+                },
+            )
+
+            return Response(
+                {
+                    "detail": (
+                        "The voice recording could not be transcribed."
+                    ),
+                    "code": "seller_audio_transcription_error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "transcript": result.transcript,
+                "language": result.language,
+                "duration_ms": result.duration_ms,
+                "confidence": result.confidence,
+                "organisation_slug": organisation_slug,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @staticmethod
+    def _build_vocabulary_hint(
+        *,
+        organisation: Any,
+    ) -> str:
+        """
+        Start with reliable booking vocabulary.
+
+        Product, option, hotel, and pickup names can be added dynamically
+        later through the existing Ticketing APIs. Do not trust client-sent
+        vocabulary as authoritative data.
+        """
+
+        organisation_name = str(
+            getattr(organisation, "name", "") or ""
+        ).strip()
+
+        values = [
+            organisation_name,
+            "Coco Bongo",
+            "Gold Member",
+            "Premium Open Bar",
+            "Front Row",
+            "Punta Cana",
+            "Bávaro",
+            "Uvero Alto",
+            "Cap Cana",
+            "Hard Rock Hotel",
+        ]
+
+        return ", ".join(
+            value
+            for value in values
+            if value
+        )
 
 
 class SellerAIChatView(APIView):

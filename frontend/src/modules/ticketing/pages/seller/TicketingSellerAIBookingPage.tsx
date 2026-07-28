@@ -96,6 +96,19 @@ type AIChatResponse = {
 type SendMessageOptions = {
   choice?: AIChoice;
   confirmed?: boolean;
+  source?: "text" | "voice";
+  transcription?: {
+    language?: string;
+    duration_ms?: number;
+    confidence?: number | null;
+  };
+};
+
+type TranscriptionResponse = {
+  transcript: string;
+  language?: string;
+  duration_ms?: number;
+  confidence?: number | null;
 };
 
 const SESSION_KEY_PREFIX = "ticketing_seller_ai_conversation_";
@@ -224,9 +237,16 @@ export default function TicketingSellerAIBookingPage() {
   const [bookingCreated, setBookingCreated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef<number>(0);
 
   const storageKey = useMemo(
     () => `${SESSION_KEY_PREFIX}${organisationSlug || "default"}`,
@@ -248,6 +268,14 @@ export default function TicketingSellerAIBookingPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, choices, loading]);
+
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   const guestSummary = useMemo(() => {
     const guests = bookingPreview.guests;
@@ -305,6 +333,19 @@ export default function TicketingSellerAIBookingPage() {
       if (conversationId) payload.conversation_id = conversationId;
       if (options.confirmed) payload.confirmed = true;
 
+      if (options.source) {
+        payload.source = options.source;
+      }
+
+      if (options.transcription) {
+        payload.voice_context = {
+          transcript: cleanText,
+          language: options.transcription.language || "",
+          duration_ms: options.transcription.duration_ms || 0,
+          confidence: options.transcription.confidence ?? null,
+        };
+      }
+
       if (options.choice) {
         const selectedValue =
           options.choice.value ?? options.choice.id ?? options.choice.label;
@@ -346,6 +387,201 @@ export default function TicketingSellerAIBookingPage() {
     }
   }
 
+  function stopMediaStream() {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+  }
+
+  function preferredAudioMimeType(): string {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+      "audio/ogg;codecs=opus",
+    ];
+
+    return (
+      candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ||
+      ""
+    );
+  }
+
+  function extensionForMimeType(mimeType: string): string {
+    if (mimeType.includes("mp4")) return "m4a";
+    if (mimeType.includes("ogg")) return "ogg";
+    if (mimeType.includes("wav")) return "wav";
+    return "webm";
+  }
+
+  async function transcribeAudio(
+    audioBlob: Blob,
+    durationMs: number,
+  ): Promise<void> {
+    setIsTranscribing(true);
+    setVoiceError("");
+    setError("");
+
+    try {
+      const mimeType = audioBlob.type || "audio/webm";
+      const extension = extensionForMimeType(mimeType);
+      const formData = new FormData();
+
+      formData.append(
+        "audio",
+        new File([audioBlob], `seller-voice-${Date.now()}.${extension}`, {
+          type: mimeType,
+        }),
+      );
+      formData.append("organisation_slug", organisationSlug);
+      formData.append("duration_ms", String(durationMs));
+
+      const response = await api.post<TranscriptionResponse>(
+        "/ticketing/seller/ai/transcribe/",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          timeout: 60_000,
+        },
+      );
+
+      const transcript = response.data?.transcript?.trim();
+
+      if (!transcript) {
+        throw new Error("No speech was detected in the recording.");
+      }
+
+      setText(transcript);
+
+      await sendMessage(transcript, {
+        source: "voice",
+        transcription: {
+          language: response.data.language,
+          duration_ms: response.data.duration_ms || durationMs,
+          confidence: response.data.confidence,
+        },
+      });
+    } catch (requestError: any) {
+      const responseData = requestError?.response?.data;
+      const message =
+        responseData?.detail ||
+        responseData?.error ||
+        requestError?.message ||
+        "The voice recording could not be transcribed.";
+
+      setVoiceError(String(message));
+    } finally {
+      setIsTranscribing(false);
+      stopMediaStream();
+    }
+  }
+
+  async function startRecording() {
+    if (
+      loading ||
+      isTranscribing ||
+      bookingCreated ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setVoiceError(
+          "Microphone recording is unavailable. Open the site through HTTPS in Chrome, Edge, or Safari.",
+        );
+      }
+      return;
+    }
+
+    setVoiceError("");
+    setText("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+      recordingStartedAtRef.current = Date.now();
+
+      const mimeType = preferredAudioMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setVoiceError("The browser could not record the microphone.");
+        setIsRecording(false);
+        stopMediaStream();
+      };
+
+      recorder.onstop = () => {
+        const durationMs = Math.max(
+          0,
+          Date.now() - recordingStartedAtRef.current,
+        );
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm",
+        });
+
+        setIsRecording(false);
+        audioChunksRef.current = [];
+
+        if (audioBlob.size < 500) {
+          setVoiceError("The recording was empty. Please try again.");
+          stopMediaStream();
+          return;
+        }
+
+        void transcribeAudio(audioBlob, durationMs);
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsRecording(true);
+    } catch (recordingError: any) {
+      const message =
+        recordingError?.name === "NotAllowedError"
+          ? "Microphone access was denied. Allow microphone access and try again."
+          : "The microphone could not be started.";
+
+      setVoiceError(message);
+      stopMediaStream();
+    }
+  }
+
+  function stopRecording() {
+    const recorder = mediaRecorderRef.current;
+
+    if (!recorder || recorder.state === "inactive") {
+      setIsRecording(false);
+      stopMediaStream();
+      return;
+    }
+
+    recorder.stop();
+  }
+
+  function handleVoiceToggle() {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      void startRecording();
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await sendMessage(text);
@@ -383,7 +619,16 @@ export default function TicketingSellerAIBookingPage() {
     setRequiresConfirmation(false);
     setBookingCreated(false);
     setError("");
+    setVoiceError("");
     setText("");
+
+    if (mediaRecorderRef.current?.state !== "inactive") {
+      mediaRecorderRef.current?.stop();
+    }
+    stopMediaStream();
+    setIsRecording(false);
+    setIsTranscribing(false);
+
     window.localStorage.removeItem(storageKey);
     window.setTimeout(() => inputRef.current?.focus(), 100);
   }
@@ -602,7 +847,7 @@ export default function TicketingSellerAIBookingPage() {
                     onChange={(event) => setText(event.target.value)}
                     onKeyDown={handleInputKeyDown}
                     rows={3}
-                    disabled={loading}
+                    disabled={loading || isRecording || isTranscribing}
                     placeholder="Example: Two Premium Open Bar tickets for Coco Bongo tomorrow for two adults..."
                     className="min-h-[84px] w-full resize-none bg-transparent px-3 py-2 text-sm font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
                   />
@@ -610,16 +855,29 @@ export default function TicketingSellerAIBookingPage() {
                   <div className="flex items-center justify-between gap-3 px-1 pb-1">
                     <button
                       type="button"
-                      disabled
-                      title="Voice input will be added next"
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-400"
+                      onClick={handleVoiceToggle}
+                      disabled={loading || isTranscribing || bookingCreated}
+                      title={isRecording ? "Stop recording" : "Record voice"}
+                      className={`inline-flex h-10 items-center justify-center rounded-xl border px-3 text-xs font-black transition ${
+                        isRecording
+                          ? "animate-pulse border-rose-300 bg-rose-50 text-rose-700"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:text-sky-700"
+                      } disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
                     >
-                      <Mic className="mr-2 h-4 w-4" />
-                      Voice soon
+                      {isTranscribing ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Mic className="mr-2 h-4 w-4" />
+                      )}
+                      {isTranscribing
+                        ? "Transcribing..."
+                        : isRecording
+                          ? "Stop"
+                          : "Speak"}
                     </button>
                     <button
                       type="submit"
-                      disabled={!text.trim() || loading}
+                      disabled={!text.trim() || loading || isRecording || isTranscribing}
                       className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {loading ? (
@@ -632,8 +890,21 @@ export default function TicketingSellerAIBookingPage() {
                   </div>
                 </div>
                 <p className="mt-2 px-1 text-xs font-semibold text-slate-400">
-                  Press Enter to send. Use Shift + Enter for a new line.
+                  {isRecording
+                    ? "Recording… speak naturally in Spanish or English, then press Stop."
+                    : isTranscribing
+                      ? "Transcribing the recording securely…"
+                      : "Press Enter to send, or press Speak to record in Spanish or English."}
                 </p>
+
+                {voiceError && (
+                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+                    <p className="text-xs font-bold leading-5 text-rose-800">
+                      {voiceError}
+                    </p>
+                  </div>
+                )}
               </form>
             )}
           </div>
