@@ -255,8 +255,41 @@ class OpenAISellerMessageInterpreter:
         print(output_text)
         print("================ END GPT RAW OUTPUT ================\n")
 
-        parsed = self._parse_json(output_text)
-        parsed = self._parse_json(output_text)
+        try:
+            parsed = self._parse_json(output_text)
+        except SellerInterpreterError as exc:
+            logger.warning(
+                "Retrying malformed OpenAI seller interpretation.",
+                extra={
+                    "conversation_id": state.conversation_id,
+                    "seller_id": state.seller_id,
+                    "organisation_slug": state.organisation_slug,
+                    "model": self.model,
+                    "output_length": len(output_text),
+                    "response_diagnostics": self._response_diagnostics(
+                        response
+                    ),
+                },
+            )
+
+            response, output_text = self._retry_invalid_json(
+                messages=messages,
+                state=state,
+                invalid_output=output_text,
+                original_error=exc,
+            )
+
+            print(
+                "\n================ GPT RETRY RAW OUTPUT "
+                "================"
+            )
+            print(output_text)
+            print(
+                "================ END GPT RETRY RAW OUTPUT "
+                "================\n"
+            )
+
+            parsed = self._parse_json(output_text)
 
         interpretation = normalise_interpretation(parsed)
 
@@ -388,24 +421,45 @@ to equivalent wording, abbreviations, misspellings and supported languages.
         messages: list[dict[str, str]],
         state: BookingConversationState,
     ) -> tuple[Any, str]:
-        """Return output text and retry once on token-budget exhaustion."""
+        """
+        Return complete output text.
+
+        A Responses API result may contain partial text while its status is
+        still ``incomplete``. Partial JSON must never be sent to json.loads().
+        Retry once with a larger output-token budget when token exhaustion is
+        reported.
+        """
 
         output_text = self._extract_output_text(response)
-        if output_text:
-            return response, output_text
-
         diagnostics = self._response_diagnostics(response)
         refusal = self._extract_refusal_text(response)
+
         if refusal:
             raise SellerInterpreterError(
                 "The AI interpreter refused the request.",
-                response_data={**diagnostics, "refusal": refusal[:1000]},
+                response_data={
+                    **diagnostics,
+                    "refusal": refusal[:1000],
+                },
             )
 
+        response_status = str(
+            getattr(response, "status", "") or ""
+        ).strip().lower()
         incomplete_reason = self._incomplete_reason(response)
+
+        if response_status != "incomplete" and output_text:
+            return response, output_text
+
         should_retry = (
             self.retry_empty_response
-            and incomplete_reason == "max_output_tokens"
+            and (
+                incomplete_reason == "max_output_tokens"
+                or (
+                    response_status == "incomplete"
+                    and bool(output_text)
+                )
+            )
         )
 
         if should_retry:
@@ -413,6 +467,7 @@ to equivalent wording, abbreviations, misspellings and supported languages.
                 max(self.max_output_tokens * 2, 4000),
                 self.MAX_RETRY_OUTPUT_TOKENS,
             )
+
             logger.info(
                 "Retrying incomplete OpenAI seller interpretation.",
                 extra={
@@ -423,29 +478,43 @@ to equivalent wording, abbreviations, misspellings and supported languages.
                     "initial_max_output_tokens": self.max_output_tokens,
                     "retry_max_output_tokens": retry_tokens,
                     "incomplete_reason": incomplete_reason,
+                    "partial_output_length": len(output_text),
                 },
             )
+
             response = self._create_response(
                 messages=messages,
                 max_output_tokens=retry_tokens,
             )
             output_text = self._extract_output_text(response)
-            if output_text:
-                return response, output_text
-
             diagnostics = self._response_diagnostics(response)
             refusal = self._extract_refusal_text(response)
+
             if refusal:
-                diagnostics["refusal"] = refusal[:1000]
+                raise SellerInterpreterError(
+                    "The AI interpreter refused the request.",
+                    response_data={
+                        **diagnostics,
+                        "refusal": refusal[:1000],
+                    },
+                )
+
+            retry_status = str(
+                getattr(response, "status", "") or ""
+            ).strip().lower()
+
+            if retry_status != "incomplete" and output_text:
+                return response, output_text
 
         logger.warning(
-            "OpenAI seller interpreter returned no output text.",
+            "OpenAI seller interpreter returned no complete output text.",
             extra={
                 "conversation_id": state.conversation_id,
                 "seller_id": state.seller_id,
                 "organisation_slug": state.organisation_slug,
                 "model": self.model,
                 "response_diagnostics": diagnostics,
+                "partial_output_length": len(output_text),
             },
         )
 
@@ -458,6 +527,76 @@ to equivalent wording, abbreviations, misspellings and supported languages.
         raise SellerInterpreterError(
             "The AI interpreter returned an empty response.",
             response_data=diagnostics,
+        )
+
+    def _retry_invalid_json(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        state: BookingConversationState,
+        invalid_output: str,
+        original_error: SellerInterpreterError,
+    ) -> tuple[Any, str]:
+        """
+        Retry one malformed structured response.
+
+        The retry starts a fresh Responses API request and instructs the model
+        to return one complete schema-compliant JSON object. The malformed
+        output is included only as diagnostic context and is length-limited.
+        """
+
+        retry_tokens = min(
+            max(self.max_output_tokens * 2, 4000),
+            self.MAX_RETRY_OUTPUT_TOKENS,
+        )
+
+        repair_instruction = """
+Your previous structured response was truncated or malformed.
+
+Return the interpretation again as exactly one complete JSON object matching
+the supplied JSON schema.
+
+Requirements:
+- Start with { and finish with }.
+- Use valid double-quoted JSON property names and string values.
+- Include every field required by the schema.
+- Do not include Markdown, code fences, comments, or explanatory text.
+- Preserve the meaning of the latest seller message and current booking state.
+- Do not invent product, option, pickup, availability, or other trusted IDs.
+""".strip()
+
+        retry_messages = [
+            *messages,
+            {
+                "role": "system",
+                "content": repair_instruction,
+            },
+            {
+                "role": "system",
+                "content": (
+                    "Malformed previous output, for repair context only:\n"
+                    f"{str(invalid_output or '')[:1500]}"
+                ),
+            },
+        ]
+
+        try:
+            response = self._create_response(
+                messages=retry_messages,
+                max_output_tokens=retry_tokens,
+            )
+        except (
+            RateLimitError,
+            APITimeoutError,
+            APIConnectionError,
+            APIStatusError,
+        ) as exc:
+            raise original_error from exc
+
+        return self._ensure_output_text(
+            response=response,
+            messages=retry_messages,
+            state=state,
         )
 
     def _supports_reasoning_effort(self) -> bool:
