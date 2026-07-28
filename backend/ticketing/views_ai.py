@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
 from typing import Any, Mapping
@@ -15,6 +16,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from organisations.ai.service import (
+    OrganisationAIService,
+    OrganisationAIServiceError,
+)
 
 from .ai.seller.factory import (
     SellerAgentConfigurationError,
@@ -188,6 +194,7 @@ class SellerAITranscriptionView(APIView):
 
         try:
             transcription_config = self._resolve_transcription_config(
+                organisation=organisation,
                 ai_settings=ai_settings,
             )
         except SellerAudioTranscriptionError as exc:
@@ -281,28 +288,20 @@ class SellerAITranscriptionView(APIView):
     def _resolve_transcription_config(
         cls,
         *,
+        organisation: Any,
         ai_settings: Any,
     ) -> dict[str, str]:
         """
-        Resolve OpenAI transcription credentials from OrganisationAISettings.
+        Resolve organisation-specific transcription credentials.
 
-        This supports both direct fields and helper methods commonly used when
-        API keys are encrypted at rest. Adjust the candidate field names to
-        match the exact OrganisationAISettings model if necessary.
+        OrganisationAISettings stores provider_api_key encrypted. The
+        OrganisationAIService is the single source of truth for decrypting
+        and validating that credential.
         """
 
-        provider = cls._read_setting(
-            ai_settings,
-            method_names=(
-                "get_provider",
-                "get_default_provider",
-            ),
-            attribute_names=(
-                "provider",
-                "default_provider",
-                "ai_provider",
-            ),
-        ).lower()
+        provider = str(
+            getattr(ai_settings, "provider", "") or ""
+        ).strip().lower()
 
         if provider and provider not in {
             "openai",
@@ -314,106 +313,95 @@ class SellerAITranscriptionView(APIView):
                 "provider configured for this organisation."
             )
 
-        api_key = cls._read_setting(
-            ai_settings,
-            method_names=(
-                "get_decrypted_api_key",
-                "get_api_key",
-                "decrypt_api_key",
-                "get_openai_api_key",
-            ),
-            attribute_names=(
-                "openai_api_key",
-                "api_key",
-                "provider_api_key",
-                "encrypted_api_key",
-            ),
-        )
+        try:
+            ai_service = OrganisationAIService(organisation)
+            decrypt_method = ai_service.get_decrypted_api_key
+            parameters = inspect.signature(
+                decrypt_method
+            ).parameters
 
-        if not api_key:
+            if "settings" in parameters:
+                api_key = decrypt_method(
+                    settings=ai_settings,
+                )
+            elif "ai_settings" in parameters:
+                api_key = decrypt_method(
+                    ai_settings=ai_settings,
+                )
+            else:
+                api_key = decrypt_method()
+        except OrganisationAIServiceError as exc:
+            raise SellerAudioTranscriptionError(
+                "The organisation's AI provider API key could not "
+                "be decrypted."
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            logger.exception(
+                "Could not resolve the organisation AI credential.",
+                extra={
+                    "organisation_id": getattr(
+                        organisation,
+                        "id",
+                        None,
+                    ),
+                    "organisation_slug": getattr(
+                        organisation,
+                        "slug",
+                        "",
+                    ),
+                },
+            )
+            raise SellerAudioTranscriptionError(
+                "The organisation's AI provider configuration is "
+                "invalid."
+            ) from exc
+
+        clean_api_key = str(api_key or "").strip()
+
+        if not clean_api_key:
             raise SellerAudioTranscriptionError(
                 "The organisation's OpenAI API key is not configured."
             )
 
-        model = cls._read_setting(
-            ai_settings,
-            method_names=(
-                "get_transcription_model",
-                "get_audio_transcription_model",
-            ),
-            attribute_names=(
-                "transcription_model",
-                "audio_transcription_model",
-                "speech_to_text_model",
-            ),
-        ) or "gpt-4o-transcribe"
+        if clean_api_key.startswith("fernet:"):
+            raise SellerAudioTranscriptionError(
+                "The organisation's AI provider API key was not "
+                "decrypted."
+            )
 
-        base_url = cls._read_setting(
-            ai_settings,
-            method_names=(
-                "get_base_url",
-                "get_provider_base_url",
-            ),
-            attribute_names=(
-                "base_url",
+        model = str(
+            getattr(
+                ai_settings,
+                "transcription_model",
+                "",
+            )
+            or getattr(
+                ai_settings,
+                "audio_transcription_model",
+                "",
+            )
+            or "gpt-4o-transcribe"
+        ).strip()
+
+        base_url = str(
+            getattr(
+                ai_settings,
                 "provider_base_url",
-                "openai_base_url",
-            ),
-        )
+                "",
+            )
+            or getattr(
+                ai_settings,
+                "base_url",
+                "",
+            )
+            or ""
+        ).strip()
 
         return {
-            "api_key": api_key,
+            "api_key": clean_api_key,
             "model": model,
             "base_url": base_url,
         }
-
-    @staticmethod
-    def _read_setting(
-        settings_object: Any,
-        *,
-        method_names: tuple[str, ...],
-        attribute_names: tuple[str, ...],
-    ) -> str:
-        for method_name in method_names:
-            method = getattr(
-                settings_object,
-                method_name,
-                None,
-            )
-
-            if not callable(method):
-                continue
-
-            try:
-                value = method()
-            except TypeError:
-                continue
-            except Exception:
-                logger.debug(
-                    "Could not read AI setting through %s.",
-                    method_name,
-                    exc_info=True,
-                )
-                continue
-
-            cleaned = str(value or "").strip()
-
-            if cleaned:
-                return cleaned
-
-        for attribute_name in attribute_names:
-            value = getattr(
-                settings_object,
-                attribute_name,
-                None,
-            )
-
-            cleaned = str(value or "").strip()
-
-            if cleaned:
-                return cleaned
-
-        return ""
 
     @staticmethod
     def _build_vocabulary_hint(
