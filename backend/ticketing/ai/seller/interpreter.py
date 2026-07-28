@@ -69,7 +69,9 @@ class OpenAISellerMessageInterpreter:
     """
 
     DEFAULT_MODEL = "gpt-5-mini"
-    DEFAULT_TIMEOUT_SECONDS = 30.0
+    DEFAULT_TIMEOUT_SECONDS = 45.0
+    DEFAULT_REASONING_EFFORT = "low"
+    MAX_RETRY_OUTPUT_TOKENS = 8000
 
     def __init__(
         self,
@@ -77,7 +79,9 @@ class OpenAISellerMessageInterpreter:
         api_key: str,
         model: str | None = None,
         timeout: float | int | None = None,
-        max_output_tokens: int = 1800,
+        max_output_tokens: int = 3000,
+        reasoning_effort: str | None = None,
+        retry_empty_response: bool = True,
         client: OpenAI | None = None,
     ) -> None:
         clean_api_key = str(api_key or "").strip()
@@ -97,9 +101,28 @@ class OpenAISellerMessageInterpreter:
         )
 
         self.max_output_tokens = max(
-            500,
+            1000,
             int(max_output_tokens),
         )
+
+        clean_reasoning_effort = str(
+            reasoning_effort
+            if reasoning_effort is not None
+            else self.DEFAULT_REASONING_EFFORT
+        ).strip().lower()
+
+        if clean_reasoning_effort not in {
+            "minimal",
+            "low",
+            "medium",
+            "high",
+        }:
+            raise ValueError(
+                "reasoning_effort must be minimal, low, medium, or high."
+            )
+
+        self.reasoning_effort = clean_reasoning_effort
+        self.retry_empty_response = bool(retry_empty_response)
 
         self.client = client or OpenAI(
             api_key=clean_api_key,
@@ -136,20 +159,9 @@ class OpenAISellerMessageInterpreter:
         messages = self._add_semantic_extraction_rules(messages)
 
         try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=messages,
+            response = self._create_response(
+                messages=messages,
                 max_output_tokens=self.max_output_tokens,
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": SELLER_BOOKING_JSON_SCHEMA["name"],
-                        "strict": SELLER_BOOKING_JSON_SCHEMA["strict"],
-                        "schema": self._normalise_strict_json_schema(
-                            SELLER_BOOKING_JSON_SCHEMA["schema"]
-                        ),
-                    }
-                },
             )
 
         except RateLimitError as exc:
@@ -233,12 +245,11 @@ class OpenAISellerMessageInterpreter:
                 "The seller message could not be interpreted.",
             ) from exc
 
-        output_text = self._extract_output_text(response)
-
-        if not output_text:
-            raise SellerInterpreterError(
-                "The AI interpreter returned an empty response."
-            )
+        response, output_text = self._ensure_output_text(
+            response=response,
+            messages=messages,
+            state=state,
+        )
 
         parsed = self._parse_json(output_text)
 
@@ -276,6 +287,17 @@ seating area, access level, inclusion, variant or option in the same phrase.
 
 Rules:
 
+- The latest seller message has priority over an older draft value.
+- Treat correction language such as "change", "instead", "not that one",
+  "it has to be", "wrong", "premium", "regular", "VIP", "no me gusta",
+  "cámbialo", "tiene que ser" and equivalent multilingual wording as a
+  request to modify the current booking draft.
+- When the seller corrects a product option, return the corrected wording in
+  option_phrase even when the prior state already contains another option.
+- Never silently preserve an old option after the seller explicitly replaces
+  it.
+- When a correction does not identify an exact trusted live option ID, keep
+  the corrected phrase but do not invent or reuse an incompatible external ID.
 - Put only the base experience/product wording in product_phrase.
 - Put wording that describes the desired tier, package, seating area, access
   level, inclusion, variant or option in option_phrase.
@@ -320,6 +342,190 @@ to equivalent wording, abbreviations, misspellings and supported languages.
         )
 
         return updated_messages
+
+    # ------------------------------------------------------------------
+    # OpenAI response creation and recovery
+    # ------------------------------------------------------------------
+
+    def _create_response(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        max_output_tokens: int,
+    ) -> Any:
+        """Create one structured Responses API request."""
+
+        request: dict[str, Any] = {
+            "model": self.model,
+            "input": messages,
+            "max_output_tokens": max_output_tokens,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": SELLER_BOOKING_JSON_SCHEMA["name"],
+                    "strict": SELLER_BOOKING_JSON_SCHEMA["strict"],
+                    "schema": self._normalise_strict_json_schema(
+                        SELLER_BOOKING_JSON_SCHEMA["schema"]
+                    ),
+                }
+            },
+        }
+
+        if self._supports_reasoning_effort():
+            request["reasoning"] = {"effort": self.reasoning_effort}
+
+        return self.client.responses.create(**request)
+
+    def _ensure_output_text(
+        self,
+        *,
+        response: Any,
+        messages: list[dict[str, str]],
+        state: BookingConversationState,
+    ) -> tuple[Any, str]:
+        """Return output text and retry once on token-budget exhaustion."""
+
+        output_text = self._extract_output_text(response)
+        if output_text:
+            return response, output_text
+
+        diagnostics = self._response_diagnostics(response)
+        refusal = self._extract_refusal_text(response)
+        if refusal:
+            raise SellerInterpreterError(
+                "The AI interpreter refused the request.",
+                response_data={**diagnostics, "refusal": refusal[:1000]},
+            )
+
+        incomplete_reason = self._incomplete_reason(response)
+        should_retry = (
+            self.retry_empty_response
+            and incomplete_reason == "max_output_tokens"
+        )
+
+        if should_retry:
+            retry_tokens = min(
+                max(self.max_output_tokens * 2, 4000),
+                self.MAX_RETRY_OUTPUT_TOKENS,
+            )
+            logger.info(
+                "Retrying incomplete OpenAI seller interpretation.",
+                extra={
+                    "conversation_id": state.conversation_id,
+                    "seller_id": state.seller_id,
+                    "organisation_slug": state.organisation_slug,
+                    "model": self.model,
+                    "initial_max_output_tokens": self.max_output_tokens,
+                    "retry_max_output_tokens": retry_tokens,
+                    "incomplete_reason": incomplete_reason,
+                },
+            )
+            response = self._create_response(
+                messages=messages,
+                max_output_tokens=retry_tokens,
+            )
+            output_text = self._extract_output_text(response)
+            if output_text:
+                return response, output_text
+
+            diagnostics = self._response_diagnostics(response)
+            refusal = self._extract_refusal_text(response)
+            if refusal:
+                diagnostics["refusal"] = refusal[:1000]
+
+        logger.warning(
+            "OpenAI seller interpreter returned no output text.",
+            extra={
+                "conversation_id": state.conversation_id,
+                "seller_id": state.seller_id,
+                "organisation_slug": state.organisation_slug,
+                "model": self.model,
+                "response_diagnostics": diagnostics,
+            },
+        )
+
+        if diagnostics.get("status") == "incomplete":
+            raise SellerInterpreterError(
+                "The AI interpreter response was incomplete.",
+                response_data=diagnostics,
+            )
+
+        raise SellerInterpreterError(
+            "The AI interpreter returned an empty response.",
+            response_data=diagnostics,
+        )
+
+    def _supports_reasoning_effort(self) -> bool:
+        return self.model.strip().lower().startswith("gpt-5")
+
+    @staticmethod
+    def _incomplete_reason(response: Any) -> str:
+        details = getattr(response, "incomplete_details", None)
+        if details is None:
+            return ""
+        if isinstance(details, Mapping):
+            return str(details.get("reason") or "").strip()
+        return str(getattr(details, "reason", "") or "").strip()
+
+    @classmethod
+    def _response_diagnostics(cls, response: Any) -> dict[str, Any]:
+        usage = getattr(response, "usage", None)
+        if hasattr(usage, "model_dump"):
+            usage_data = usage.model_dump()
+        elif isinstance(usage, Mapping):
+            usage_data = dict(usage)
+        else:
+            usage_data = None
+
+        error = getattr(response, "error", None)
+        if hasattr(error, "model_dump"):
+            error_data = error.model_dump()
+        elif isinstance(error, Mapping):
+            error_data = dict(error)
+        elif error:
+            error_data = str(error)
+        else:
+            error_data = None
+
+        return {
+            "response_id": str(getattr(response, "id", "") or ""),
+            "model": str(getattr(response, "model", "") or ""),
+            "status": str(getattr(response, "status", "") or ""),
+            "incomplete_reason": cls._incomplete_reason(response),
+            "error": error_data,
+            "usage": usage_data,
+            "output_item_types": cls._output_item_types(response),
+        }
+
+    @staticmethod
+    def _output_item_types(response: Any) -> list[str]:
+        output = getattr(response, "output", None)
+        if not isinstance(output, list):
+            return []
+        return [str(getattr(item, "type", "") or "") for item in output]
+
+    @staticmethod
+    def _extract_refusal_text(response: Any) -> str:
+        output = getattr(response, "output", None)
+        if not isinstance(output, list):
+            return ""
+
+        refusals: list[str] = []
+        for item in output:
+            content = getattr(item, "content", None)
+            if not isinstance(content, list):
+                continue
+            for content_item in content:
+                if str(getattr(content_item, "type", "") or "") != "refusal":
+                    continue
+                value = (
+                    getattr(content_item, "refusal", None)
+                    or getattr(content_item, "text", None)
+                    or ""
+                )
+                if isinstance(value, str) and value.strip():
+                    refusals.append(value.strip())
+        return "\n".join(refusals).strip()
 
     # ------------------------------------------------------------------
     # Structured-output schema
@@ -402,23 +608,30 @@ to equivalent wording, abbreviations, misspellings and supported languages.
         text_parts: list[str] = []
 
         for item in output:
-            content = getattr(item, "content", None)
+            content = (
+                item.get("content")
+                if isinstance(item, Mapping)
+                else getattr(item, "content", None)
+            )
 
             if not isinstance(content, list):
                 continue
 
             for content_item in content:
-                content_type = str(
-                    getattr(content_item, "type", "") or ""
-                )
+                if isinstance(content_item, Mapping):
+                    content_type = str(content_item.get("type") or "")
+                    value = content_item.get("text", "")
+                else:
+                    content_type = str(
+                        getattr(content_item, "type", "") or ""
+                    )
+                    value = getattr(content_item, "text", "")
 
                 if content_type not in {
                     "output_text",
                     "text",
                 }:
                     continue
-
-                value = getattr(content_item, "text", "")
 
                 if isinstance(value, str) and value.strip():
                     text_parts.append(value.strip())
