@@ -45,8 +45,19 @@ ConversationAction = Literal[
     "new_booking",
     "small_talk",
     "clarification",
+    "select_choice",
     "unknown",
 ]
+
+MessageSource = Literal[
+    "text",
+    "voice",
+    "whatsapp",
+    "facebook",
+    "api",
+    "unknown",
+]
+
 
 QuestionTopic = Literal[
     "",
@@ -106,8 +117,10 @@ class ConversationTurn:
     role: Literal["user", "assistant"]
     text: str
     intent: str = ""
+    source: MessageSource = "text"
+    message_id: str = ""
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -129,21 +142,58 @@ class BookingProgress:
 class SellerMessage:
     """
     A message received from the authenticated seller.
+
+    ``source`` and voice metadata allow the same booking workflow to process
+    typed chat, interactive voice, WhatsApp, Facebook, or API-originated text
+    without coupling the workflow to a specific transport.
     """
 
     text: str
     language: str | None = None
     message_id: str | None = None
+    source: MessageSource = "text"
+    transcript_confidence: float | None = None
+    is_final_transcript: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    voice_context: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "SellerMessage":
+        source = str(data.get("source") or "text").strip().lower()
+        valid_sources = {
+            "text",
+            "voice",
+            "whatsapp",
+            "facebook",
+            "api",
+            "unknown",
+        }
+        if source not in valid_sources:
+            source = "unknown"
+
+        transcript_confidence = parse_optional_float(
+            data.get("transcript_confidence")
+            or data.get("speech_confidence")
+        )
+
         return cls(
             text=str(data.get("text") or data.get("message") or "").strip(),
             language=clean_optional_string(data.get("language")),
             message_id=clean_optional_string(data.get("message_id")),
+            source=source,  # type: ignore[arg-type]
+            transcript_confidence=transcript_confidence,
+            is_final_transcript=bool(
+                data.get("is_final_transcript", True)
+            ),
             metadata=normalise_mapping(data.get("metadata")),
+            voice_context=normalise_mapping(
+                data.get("voice_context")
+            ),
         )
+
+    @property
+    def is_voice(self) -> bool:
+        return self.source == "voice"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -498,7 +548,9 @@ class BookingConversationState:
         role: Literal["user", "assistant"],
         text: str,
         intent: str = "",
-        max_turns: int = 12,
+        source: MessageSource = "text",
+        message_id: str = "",
+        max_turns: int = 16,
     ) -> None:
         clean_text = str(text or "").strip()
         if not clean_text:
@@ -509,6 +561,8 @@ class BookingConversationState:
                 role=role,
                 text=clean_text,
                 intent=str(intent or "").strip(),
+                source=source,
+                message_id=str(message_id or "").strip(),
             )
         )
 
@@ -549,9 +603,15 @@ class BookingConversationState:
         self.seller_confirmed = False
         self.progress = BookingProgress()
 
-    def clear_live_option(self) -> None:
+    def clear_live_option(
+        self,
+        *,
+        preserve_phrase: bool = False,
+    ) -> None:
         self.live_option = None
-        self.option_phrase = ""
+        if not preserve_phrase:
+            self.option_phrase = ""
+        self.pending_selection = None
         self.booking_preview = {}
         self.awaiting_confirmation = False
         self.seller_confirmed = False
@@ -564,6 +624,26 @@ class BookingConversationState:
         self.awaiting_confirmation = False
         self.seller_confirmed = False
         self.progress = BookingProgress()
+
+    def record_voice_context(
+        self,
+        *,
+        transcript_confidence: float | None = None,
+        is_final_transcript: bool = True,
+        language: str = "",
+    ) -> None:
+        """
+        Store non-authoritative voice-session metadata.
+
+        This metadata may guide clarification behaviour but must never become
+        authoritative booking data.
+        """
+
+        self.voice_context = {
+            "transcript_confidence": transcript_confidence,
+            "is_final_transcript": bool(is_final_transcript),
+            "language": str(language or "").strip(),
+        }
 
     def mark_changed(self) -> None:
         self.booking_preview = {}
@@ -613,6 +693,7 @@ class BookingConversationState:
             "last_assistant_message": self.last_assistant_message,
             "error_message": self.error_message,
             "metadata": self.metadata,
+            "voice_context": self.voice_context,
         }
 
     @classmethod
@@ -732,6 +813,7 @@ def normalise_conversation_intent(value: Any) -> dict[str, Any]:
         "new_booking",
         "small_talk",
         "clarification",
+        "select_choice",
         "unknown",
     }
     if action not in valid_actions:
@@ -778,14 +860,14 @@ def normalise_booking_progress(value: Any) -> dict[str, Any]:
 def normalise_conversation_history(
     value: Any,
     *,
-    max_turns: int = 12,
+    max_turns: int = 16,
 ) -> list[ConversationTurn]:
     if not isinstance(value, list):
         return []
 
     turns: list[ConversationTurn] = []
 
-    for item in value[-max(2, int(max_turns or 12)):]:
+    for item in value[-max(2, int(max_turns or 16)):]:
         if not isinstance(item, dict):
             continue
 
@@ -795,11 +877,24 @@ def normalise_conversation_history(
         if role not in {"user", "assistant"} or not text:
             continue
 
+        source = str(item.get("source") or "text").strip().lower()
+        if source not in {
+            "text",
+            "voice",
+            "whatsapp",
+            "facebook",
+            "api",
+            "unknown",
+        }:
+            source = "unknown"
+
         turns.append(
             ConversationTurn(
                 role=role,  # type: ignore[arg-type]
                 text=text,
                 intent=str(item.get("intent") or "").strip(),
+                source=source,  # type: ignore[arg-type]
+                message_id=str(item.get("message_id") or "").strip(),
             )
         )
 
@@ -859,6 +954,18 @@ def parse_optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def parse_optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return max(0.0, min(1.0, parsed))
 
 
 def money_string(value: Any) -> str:

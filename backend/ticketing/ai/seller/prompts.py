@@ -90,16 +90,42 @@ CONVERSATIONAL BEHAVIOUR
 
 Treat the seller as an experienced human, not as someone filling out a form.
 
+The seller may speak or type naturally. Messages may contain:
+- false starts
+- repeated words
+- filler words
+- speech-to-text mistakes
+- missing punctuation
+- informal Dominican Spanish
+- mixed languages
+- abbreviations
+- incomplete but still understandable phrases
+
+Focus on meaning, not grammar.
+
 - If the seller provides several pieces of information in one message, extract all of them.
 - Never ask again for information that already exists in the conversation state.
 - If only one field is missing, ask only for that field.
 - If the seller asks a question about the current draft, answer the question instead of trying to continue data collection.
 - If the seller changes one field (discount, hotel, date, option, guests, payment), update only that field.
 - Preserve every other field already collected.
+- The latest explicit correction always overrides an older draft value.
+- Never preserve an old option, hotel, date, guest count, customer detail,
+  payment action or discount after the seller clearly replaces it.
+- Correction phrases may be direct or indirect, including:
+  "change it", "instead", "not that one", "make it premium",
+  "it has to be", "that is wrong", "use this hotel",
+  "cámbialo", "mejor", "no ese", "ponlo premium",
+  "tiene que ser", "está mal", "usa este hotel",
+  and equivalent wording in supported languages.
 - Do not reset the booking because the seller asked a question.
 - Do not change the ticket option unless the seller explicitly requests a different option.
 - If the seller requests a discount, extract it only. Do not decide whether it is allowed.
-- If the seller says "15 de descuento" and the message is ambiguous between an amount and a percentage, leave the discount empty so the workflow can ask a clarification.
+- If the seller says "15 de descuento" and the surrounding language clearly
+  means a percentage, return discount_percent as "15".
+- If the seller clearly states a currency amount, return discount_amount.
+- Only leave both discount fields empty when the distinction is genuinely
+  ambiguous.
 
 INTERPRETATION RULES
 
@@ -173,7 +199,11 @@ Selection:
 
 Changes:
 - If the seller changes a previously supplied field, return the new value.
-- Use intent "change" when the seller explicitly asks to edit the preview.
+- Use intent "modify_booking" when the seller explicitly asks to edit the
+  current draft or preview.
+- Put every explicitly changed field in the top-level output fields.
+- Also repeat those explicit changes inside the "changes" object.
+- Do not copy unchanged state values into "changes".
 - The workflow will invalidate dependent selections where necessary.
 
 Cancellation:
@@ -184,6 +214,24 @@ Cancellation:
 Reset:
 - Use intent "reset" or "new_booking" when the seller wants to discard the
   current draft and begin again.
+
+VOICE AND SPEECH-TO-TEXT
+
+The latest message may come from interactive voice.
+
+- Ignore harmless filler words and repeated words.
+- Repair obvious speech-recognition mistakes only when the intended meaning
+  is clear from context and trusted choices.
+- Preserve names, email addresses, telephone numbers and hotel names carefully.
+- Understand spoken punctuation such as "arroba", "dot", "punto", "guion",
+  "at", and equivalent terms when reconstructing contact details.
+- Do not invent missing characters in an email address or phone number.
+- If speech recognition creates a dangerous ambiguity in a name, date,
+  quantity, payment action or selected option, use intent "clarification".
+- Short voice replies such as "premium", "tomorrow", "two adults", "yes",
+  "same hotel", "no, regular", and "pending" should be interpreted using the
+  current state and pending choices.
+- A question must remain a question even when the booking is almost complete.
 
 LANGUAGE
 
@@ -270,6 +318,108 @@ SELLER_BOOKING_JSON_SCHEMA: dict[str, Any] = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "question_topic": {
+                "type": "string",
+                "enum": [
+                    "",
+                    "product",
+                    "option",
+                    "date",
+                    "time",
+                    "guests",
+                    "customer",
+                    "contact",
+                    "hotel",
+                    "pickup",
+                    "payment",
+                    "discount",
+                    "price",
+                    "subtotal",
+                    "total",
+                    "balance",
+                    "deposit",
+                    "booking",
+                    "availability"
+                ],
+            },
+            "changes": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "product_phrase": {"type": "string"},
+                    "product_id": {"type": ["integer", "null"]},
+                    "service_date": {"type": "string"},
+                    "service_time": {"type": "string"},
+                    "option_phrase": {"type": "string"},
+                    "external_product_id": {"type": "string"},
+                    "external_variant_id": {"type": "string"},
+                    "external_availability_id": {"type": "string"},
+                    "selected_external_product_id": {"type": "string"},
+                    "pickup_phrase": {"type": "string"},
+                    "pickup_location_id": {"type": ["integer", "null"]},
+                    "guests": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "adults": {"type": ["integer", "null"]},
+                            "children": {"type": ["integer", "null"]},
+                            "infants": {"type": ["integer", "null"]}
+                        },
+                        "required": ["adults", "children", "infants"]
+                    },
+                    "customer": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "name": {"type": "string"},
+                            "whatsapp": {"type": "string"},
+                            "email": {"type": "string"},
+                            "hotel": {"type": "string"},
+                            "notes": {"type": "string"}
+                        },
+                        "required": ["name", "whatsapp", "email", "hotel", "notes"]
+                    },
+                    "payment_action": {
+                        "type": "string",
+                        "enum": [
+                            "",
+                            "pending_payment",
+                            "deposit_online",
+                            "full_online",
+                            "cash_full",
+                            "seller_deposit",
+                            "seller_full",
+                            "commission_only",
+                            "generate_ticket",
+                            "requires_supervisor_approval"
+                        ]
+                    },
+                    "payment_reference": {"type": "string"},
+                    "payment_note": {"type": "string"},
+                    "discount_amount": {"type": "string"},
+                    "discount_percent": {"type": "string"}
+                },
+                "required": [
+                    "product_phrase",
+                    "product_id",
+                    "service_date",
+                    "service_time",
+                    "option_phrase",
+                    "external_product_id",
+                    "external_variant_id",
+                    "external_availability_id",
+                    "selected_external_product_id",
+                    "pickup_phrase",
+                    "pickup_location_id",
+                    "guests",
+                    "customer",
+                    "payment_action",
+                    "payment_reference",
+                    "payment_note",
+                    "discount_amount",
+                    "discount_percent"
+                ]
+            },
             "intent": {
                 "type": "string",
                 "enum": [
@@ -427,6 +577,8 @@ SELLER_BOOKING_JSON_SCHEMA: dict[str, Any] = {
         },
         "required": [
             "intent",
+            "question_topic",
+            "changes",
             "language",
             "product_phrase",
             "product_id",
@@ -515,11 +667,14 @@ def build_interpreter_context(
     return {
         "task": (
             "Interpret the latest seller message using the current booking "
-            "state and trusted choices. Understand informal, misspelled and "
-            "multilingual language. Resolve every clearly understood natural-"
-            "language date into service_date using YYYY-MM-DD and the supplied "
-            "local date and timezone. Never return unresolved relative-date "
-            "words in service_date. Return JSON only."
+            "state and trusted choices. Understand natural typed or spoken "
+            "language, informal Dominican Spanish, multilingual wording, "
+            "misspellings, filler words and speech-to-text errors. The latest "
+            "explicit correction overrides the old draft. Put changed fields "
+            "both at the top level and inside changes. Resolve every clearly "
+            "understood natural-language date into service_date using "
+            "YYYY-MM-DD and the supplied local date and timezone. Never return "
+            "unresolved relative-date words in service_date. Return JSON only."
         ),
         "runtime": build_runtime_context(),
         "latest_message": {
@@ -640,6 +795,19 @@ def build_safe_state_context(
             else None
         ),
         "awaiting_confirmation": state.awaiting_confirmation,
+        "current_intent": (
+            state.current_intent.to_dict()
+            if hasattr(state.current_intent, "to_dict")
+            else {}
+        ),
+        "recent_conversation": [
+            {
+                "role": getattr(turn, "role", ""),
+                "text": getattr(turn, "text", ""),
+                "intent": getattr(turn, "intent", ""),
+            }
+            for turn in list(state.conversation_history)[-8:]
+        ],
     }
 
 
@@ -786,6 +954,11 @@ def build_safe_memory_context(
         "common_misspellings",
         "corrections",
         "communication_style",
+        "voice_aliases",
+        "speech_recognition_corrections",
+        "preferred_confirmation_style",
+        "frequent_products",
+        "frequent_pickups",
     )
 
     return {
@@ -805,7 +978,36 @@ def empty_interpretation() -> dict[str, Any]:
     return {
         "intent": "unknown",
         "question_topic": "",
-        "changes": {},
+        "changes": {
+            "product_phrase": "",
+            "product_id": None,
+            "service_date": "",
+            "service_time": "",
+            "option_phrase": "",
+            "external_product_id": "",
+            "external_variant_id": "",
+            "external_availability_id": "",
+            "selected_external_product_id": "",
+            "pickup_phrase": "",
+            "pickup_location_id": None,
+            "guests": {
+                "adults": None,
+                "children": None,
+                "infants": None,
+            },
+            "customer": {
+                "name": "",
+                "whatsapp": "",
+                "email": "",
+                "hotel": "",
+                "notes": "",
+            },
+            "payment_action": "",
+            "payment_reference": "",
+            "payment_note": "",
+            "discount_amount": "",
+            "discount_percent": "",
+        },
         "language": "",
         "product_phrase": "",
         "product_id": None,
@@ -861,9 +1063,20 @@ def normalise_interpretation(
         if key not in value:
             continue
 
-        if key in {"guests", "customer"}:
+        if key in {"guests", "customer", "changes"}:
             if isinstance(value[key], Mapping):
-                result[key].update(value[key])
+                if key == "changes":
+                    for change_key, change_value in value[key].items():
+                        if change_key in {"guests", "customer"}:
+                            if (
+                                isinstance(change_value, Mapping)
+                                and isinstance(result[key].get(change_key), dict)
+                            ):
+                                result[key][change_key].update(change_value)
+                        elif change_key in result[key]:
+                            result[key][change_key] = change_value
+                else:
+                    result[key].update(value[key])
             continue
 
         result[key] = value[key]
@@ -874,6 +1087,14 @@ def normalise_interpretation(
 
     result["language"] = str(
         result.get("language") or ""
+    ).strip().lower()
+
+    result["question_topic"] = str(
+        result.get("question_topic") or ""
+    ).strip().lower()
+
+    result["communication_style"] = str(
+        result.get("communication_style") or ""
     ).strip().lower()
 
     result["product_phrase"] = str(

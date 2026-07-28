@@ -62,6 +62,18 @@ class SellerBookingWorkflow:
         """
 
         intent = self._text(interpretation.get("intent")).lower() or "unknown"
+
+        raw_changes = (
+            interpretation.get("changes")
+            if isinstance(interpretation.get("changes"), Mapping)
+            else {}
+        )
+        effective_interpretation = dict(interpretation)
+        for field_name, field_value in raw_changes.items():
+            if field_value not in (None, "", [], {}):
+                effective_interpretation[field_name] = field_value
+        interpretation = effective_interpretation
+
         question_topic = self._text(
             interpretation.get("question_topic")
         ).lower()
@@ -343,13 +355,22 @@ class SellerBookingWorkflow:
                 "selected_external_product_id",
             )
         )
-        if option_phrase and option_phrase != state.option_phrase:
-            if state.live_option and explicit_change:
+        if option_phrase and (
+            self._normalise_phrase(option_phrase)
+            != self._normalise_phrase(state.option_phrase)
+        ):
+            if state.live_option:
                 state.clear_live_option()
+            state.pending_selection = None
             state.option_phrase = option_phrase
+            state.booking_preview = {}
+            state.awaiting_confirmation = False
             changed = True
         elif has_external_selection and state.live_option and explicit_change:
             state.clear_live_option()
+            state.pending_selection = None
+            state.booking_preview = {}
+            state.awaiting_confirmation = False
             changed = True
 
         pickup_phrase = self._text(
@@ -640,8 +661,25 @@ class SellerBookingWorkflow:
                 )
                 return None
 
+        if state.option_phrase:
+            matched_option = self._match_live_option_phrase(
+                phrase=state.option_phrase,
+                options=options,
+            )
+            if matched_option is not None:
+                state.live_option = TrustedLiveOptionSelection.from_api_option(
+                    matched_option
+                )
+                state.pending_selection = None
+                state.booking_preview = {}
+                state.awaiting_confirmation = False
+                state.mark_changed()
+                return None
+
         if len(options) == 1:
-            state.live_option = TrustedLiveOptionSelection.from_api_option(options[0])
+            state.live_option = TrustedLiveOptionSelection.from_api_option(
+                options[0]
+            )
             return None
 
         choices = self._live_option_choices(options)
@@ -1575,6 +1613,11 @@ class SellerBookingWorkflow:
                 "0.00",
             ),
             "balance_due": payload.get("balance_due", "0.00"),
+            "currency": (
+                state.live_option.currency
+                if state.live_option
+                else "USD"
+            ),
         }
 
         if state.live_option:
@@ -1600,41 +1643,158 @@ class SellerBookingWorkflow:
         return preview
 
     def _confirmation_message(self, state: BookingConversationState) -> str:
-        parts = [
-            state.product.name if state.product else "selected product",
-            f"on {state.service_date}",
-            f"{state.guests.adults} adult(s)",
-            f"for {state.customer.name}",
-        ]
-        if state.guests.children:
-            parts.append(f"{state.guests.children} child(ren)")
-        if state.live_option:
-            parts.append(f"option: {state.live_option.option_name}")
-        if state.pickup:
-            pickup = state.pickup.name
-            if state.pickup.resolved_pickup_time:
-                pickup += f" at {state.pickup.resolved_pickup_time}"
-            parts.append(f"pickup: {pickup}")
-        if state.payment.action:
-            parts.append(
-                f"payment: {self._payment_label(state.payment.action)}"
-            )
-        if state.booking_preview:
-            discount = self._text(
-                state.booking_preview.get("discount_amount")
-            )
-            total = self._text(
-                state.booking_preview.get("total_amount")
-            )
+        language = self._language_code(state.preferred_language)
+        product_name = state.product.name if state.product else "selected product"
+        option_name = state.live_option.option_name if state.live_option else ""
+        pickup_name = state.pickup.name if state.pickup else ""
+        pickup_time = state.pickup.resolved_pickup_time if state.pickup else ""
+        preview = state.booking_preview or {}
+        total = self._text(preview.get("total_amount"))
+        discount = self._text(preview.get("discount_amount"))
+        currency = self._text(preview.get("currency")) or "USD"
+
+        if language == "es":
+            lines = [
+                "Perfecto. Esto es lo que tengo:",
+                f"• Experiencia: {product_name}",
+            ]
+            if option_name:
+                lines.append(f"• Opción: {option_name}")
+            lines.extend([
+                f"• Fecha: {state.service_date}",
+                f"• Adultos: {state.guests.adults}",
+                f"• Cliente: {state.customer.name}",
+            ])
+            if state.guests.children:
+                lines.insert(-1, f"• Niños: {state.guests.children}")
+            if pickup_name:
+                pickup = pickup_name + (f" a las {pickup_time}" if pickup_time else "")
+                lines.append(f"• Recogida: {pickup}")
+            if state.payment.action:
+                lines.append(
+                    "• Pago: " + self._payment_label_localised(
+                        state.payment.action, language
+                    )
+                )
             if discount and discount != "0.00":
-                parts.append(f"discount: {discount}")
+                lines.append(f"• Descuento: {currency} {discount}")
             if total:
-                parts.append(f"total: {total}")
-        return (
-            "Please confirm this booking: "
-            + "; ".join(parts)
-            + ". Should I create it?"
-        )
+                lines.append(f"• Total: {currency} {total}")
+            lines.append("¿Confirmas que cree la reserva?")
+            return "\n".join(lines)
+
+        lines = [
+            "Perfect. Here is the booking I have:",
+            f"• Experience: {product_name}",
+        ]
+        if option_name:
+            lines.append(f"• Option: {option_name}")
+        lines.extend([
+            f"• Date: {state.service_date}",
+            f"• Adults: {state.guests.adults}",
+            f"• Customer: {state.customer.name}",
+        ])
+        if state.guests.children:
+            lines.insert(-1, f"• Children: {state.guests.children}")
+        if pickup_name:
+            pickup = pickup_name + (f" at {pickup_time}" if pickup_time else "")
+            lines.append(f"• Pickup: {pickup}")
+        if state.payment.action:
+            lines.append(
+                "• Payment: " + self._payment_label_localised(
+                    state.payment.action, language
+                )
+            )
+        if discount and discount != "0.00":
+            lines.append(f"• Discount: {currency} {discount}")
+        if total:
+            lines.append(f"• Total: {currency} {total}")
+        lines.append("Should I create the booking?")
+        return "\n".join(lines)
+
+    def _match_live_option_phrase(
+        self,
+        *,
+        phrase: str,
+        options: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        normalised_phrase = self._normalise_phrase(phrase)
+        if not normalised_phrase:
+            return None
+
+        alias_groups = {
+            "premium": {"premium", "premiun", "vip", "entrada premium", "premium open bar"},
+            "regular": {"regular", "general", "entrada general", "standard", "estandar", "open bar regular"},
+            "front row": {"front row", "primera fila", "first row", "fila frontal"},
+        }
+        expanded_terms = {normalised_phrase}
+        for canonical, terms in alias_groups.items():
+            normalised_terms = {self._normalise_phrase(term) for term in terms}
+            if normalised_phrase == canonical or any(
+                term in normalised_phrase or normalised_phrase in term
+                for term in normalised_terms
+            ):
+                expanded_terms.add(canonical)
+                expanded_terms.update(normalised_terms)
+
+        ranked = []
+        for option in options:
+            candidates = [
+                self._text(option.get("option_name")),
+                self._text(option.get("name")),
+                self._text(option.get("description")),
+                " ".join(str(x) for x in option.get("features", []) if x)
+                if isinstance(option.get("features"), list) else "",
+            ]
+            score = max(
+                (self._similarity(term, candidate)
+                 for term in expanded_terms
+                 for candidate in candidates
+                 if candidate),
+                default=0.0,
+            )
+            if score > 0:
+                ranked.append((score, option))
+        ranked.sort(key=lambda pair: pair[0], reverse=True)
+        if not ranked:
+            return None
+        best_score, best_option = ranked[0]
+        second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+        if best_score >= 0.90 or (
+            best_score >= 0.72 and best_score - second_score >= 0.08
+        ):
+            return best_option
+        return None
+
+    @classmethod
+    def _language_code(cls, value: Any) -> str:
+        language = cls._normalise_phrase(value)
+        if language in {"es", "spa", "spanish", "espanol", "castellano"}:
+            return "es"
+        if language in {"fr", "fra", "french", "francais"}:
+            return "fr"
+        if language in {"pt", "por", "portuguese", "portugues"}:
+            return "pt"
+        if language in {"de", "deu", "german", "deutsch"}:
+            return "de"
+        return "en"
+
+    @staticmethod
+    def _payment_label_localised(action: str, language: str) -> str:
+        if language == "es":
+            labels = {
+                "pending_payment": "pago pendiente",
+                "deposit_online": "depósito en línea",
+                "full_online": "pago completo en línea",
+                "cash_full": "pago completo en efectivo",
+                "seller_deposit": "depósito recibido por el vendedor",
+                "seller_full": "pago completo recibido por el vendedor",
+                "commission_only": "solo comisión",
+                "generate_ticket": "generar ticket",
+                "requires_supervisor_approval": "requiere aprobación",
+            }
+            return labels.get(action, action.replace("_", " "))
+        return SellerBookingWorkflow._payment_label(action)
 
     def _product_choices(self, products: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
@@ -2021,7 +2181,8 @@ class SellerBookingWorkflow:
         field: str,
     ) -> str:
         value = str(preview.get(field) or "").strip()
-        return value or "The amount is not available yet."
+        currency = str(preview.get("currency") or "USD").strip()
+        return f"{currency} {value}" if value else "The amount is not available yet."
 
     @staticmethod
     def _discount_answer(

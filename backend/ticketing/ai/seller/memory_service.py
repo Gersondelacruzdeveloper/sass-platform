@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from collections import Counter
 from copy import deepcopy
 from typing import Any, Mapping
@@ -43,6 +45,10 @@ class SellerMemoryService:
     MAX_ABBREVIATIONS = 100
     MAX_CORRECTIONS = 100
     MAX_STYLE_VALUES = 20
+    MAX_VOICE_ALIASES = 100
+    MAX_SPEECH_CORRECTIONS = 100
+    MAX_FREQUENT_ITEMS = 25
+    MAX_CONFIRMATION_STYLES = 10
 
     ALLOWED_MEMORY_KEYS = {
         "preferred_language",
@@ -54,6 +60,14 @@ class SellerMemoryService:
         "communication_style",
         "language_counts",
         "style_counts",
+        "voice_aliases",
+        "speech_recognition_corrections",
+        "preferred_confirmation_style",
+        "confirmation_style_counts",
+        "frequent_products",
+        "frequent_pickups",
+        "product_counts",
+        "pickup_counts",
     }
 
     SENSITIVE_INTERPRETATION_KEYS = {
@@ -75,6 +89,20 @@ class SellerMemoryService:
         "unit_price",
         "total",
         "subtotal",
+        "currency",
+        "external_product_id",
+        "external_variant_id",
+        "external_availability_id",
+        "selected_external_product_id",
+        "pickup_location_id",
+        "product_id",
+        "seller_id",
+        "organisation_slug",
+        "conversation_id",
+        "message_id",
+        "transcript",
+        "raw_transcript",
+        "audio_url",
     }
 
     def __init__(
@@ -160,6 +188,21 @@ class SellerMemoryService:
             "communication_style": str(
                 memory.get("communication_style") or ""
             ),
+            "voice_aliases": deepcopy(
+                memory.get("voice_aliases") or {}
+            ),
+            "speech_recognition_corrections": deepcopy(
+                memory.get("speech_recognition_corrections") or {}
+            ),
+            "preferred_confirmation_style": str(
+                memory.get("preferred_confirmation_style") or ""
+            ),
+            "frequent_products": deepcopy(
+                memory.get("frequent_products") or []
+            ),
+            "frequent_pickups": deepcopy(
+                memory.get("frequent_pickups") or []
+            ),
         }
 
     def observe_message(
@@ -170,6 +213,7 @@ class SellerMemoryService:
         message: str,
         language: str | None,
         interpretation: Mapping[str, Any] | None,
+        message_source: str | None = None,
     ) -> dict[str, Any]:
         """
         Learn only safe language preferences from a processed seller message.
@@ -225,6 +269,26 @@ class SellerMemoryService:
         self._record_communication_style(
             memory,
             safe_interpretation.get("communication_style"),
+        )
+
+        self._record_confirmation_style(
+            memory,
+            safe_interpretation.get("preferred_confirmation_style"),
+        )
+
+        self._record_voice_learning(
+            memory,
+            source=message_source,
+            voice_aliases=safe_interpretation.get("voice_aliases"),
+            speech_corrections=safe_interpretation.get(
+                "speech_recognition_corrections"
+            ),
+        )
+
+        self._record_frequent_items(
+            memory,
+            product_name=safe_interpretation.get("matched_product_name"),
+            pickup_name=safe_interpretation.get("matched_pickup_name"),
         )
 
         self._save(
@@ -343,6 +407,85 @@ class SellerMemoryService:
         )
         language_counts[clean_language] += 1
         memory["language_counts"] = dict(language_counts)
+
+        self._save(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+            memory=memory,
+        )
+
+        return self.get_interpretation_memory(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+        )
+
+    def remember_voice_alias(
+        self,
+        *,
+        seller_id: int,
+        organisation_slug: str,
+        spoken_phrase: str,
+        canonical_phrase: str,
+    ) -> dict[str, Any]:
+        """
+        Explicitly remember a harmless seller-specific voice alias.
+
+        Example:
+            "coco mongo" -> "Coco Bongo Punta Cana"
+        """
+
+        return self._remember_simple_mapping(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+            group="voice_aliases",
+            source_value=spoken_phrase,
+            target_value=canonical_phrase,
+            maximum=self.MAX_VOICE_ALIASES,
+        )
+
+    def remember_speech_correction(
+        self,
+        *,
+        seller_id: int,
+        organisation_slug: str,
+        recognised_phrase: str,
+        corrected_phrase: str,
+    ) -> dict[str, Any]:
+        return self._remember_simple_mapping(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+            group="speech_recognition_corrections",
+            source_value=recognised_phrase,
+            target_value=corrected_phrase,
+            maximum=self.MAX_SPEECH_CORRECTIONS,
+        )
+
+    def set_preferred_confirmation_style(
+        self,
+        *,
+        seller_id: int,
+        organisation_slug: str,
+        style: str,
+    ) -> dict[str, Any]:
+        clean_style = self._normalise_confirmation_style(style)
+
+        if not clean_style:
+            raise ValueError(
+                "A valid confirmation style is required."
+            )
+
+        memory = self._load(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+        )
+
+        memory["preferred_confirmation_style"] = clean_style
+
+        counts = self._counter(
+            memory.get("confirmation_style_counts")
+        )
+        counts[clean_style] += 1
+        memory["confirmation_style_counts"] = dict(counts)
 
         self._save(
             seller_id=seller_id,
@@ -542,9 +685,143 @@ class SellerMemoryService:
         if most_common:
             memory["communication_style"] = most_common[0][0]
 
+    def _record_confirmation_style(
+        self,
+        memory: dict[str, Any],
+        style_value: Any,
+    ) -> None:
+        style = self._normalise_confirmation_style(style_value)
+
+        if not style:
+            return
+
+        counts = self._counter(
+            memory.get("confirmation_style_counts")
+        )
+        counts[style] += 1
+
+        if len(counts) > self.MAX_CONFIRMATION_STYLES:
+            counts = Counter(
+                dict(
+                    counts.most_common(
+                        self.MAX_CONFIRMATION_STYLES
+                    )
+                )
+            )
+
+        memory["confirmation_style_counts"] = dict(counts)
+        memory["preferred_confirmation_style"] = (
+            counts.most_common(1)[0][0]
+        )
+
+    def _record_voice_learning(
+        self,
+        memory: dict[str, Any],
+        *,
+        source: Any,
+        voice_aliases: Any,
+        speech_corrections: Any,
+    ) -> None:
+        source_name = str(source or "").strip().lower()
+
+        if source_name and source_name != "voice":
+            return
+
+        self._merge_safe_mapping(
+            memory=memory,
+            key="voice_aliases",
+            values=voice_aliases,
+            maximum=self.MAX_VOICE_ALIASES,
+        )
+        self._merge_safe_mapping(
+            memory=memory,
+            key="speech_recognition_corrections",
+            values=speech_corrections,
+            maximum=self.MAX_SPEECH_CORRECTIONS,
+        )
+
+    def _record_frequent_items(
+        self,
+        memory: dict[str, Any],
+        *,
+        product_name: Any,
+        pickup_name: Any,
+    ) -> None:
+        clean_product = self._clean_memory_value(product_name)
+        clean_pickup = self._clean_memory_value(pickup_name)
+
+        if clean_product:
+            product_counts = self._counter(
+                memory.get("product_counts")
+            )
+            product_counts[clean_product] += 1
+            memory["product_counts"] = dict(product_counts)
+            memory["frequent_products"] = [
+                name
+                for name, _count
+                in product_counts.most_common(
+                    self.MAX_FREQUENT_ITEMS
+                )
+            ]
+
+        if clean_pickup:
+            pickup_counts = self._counter(
+                memory.get("pickup_counts")
+            )
+            pickup_counts[clean_pickup] += 1
+            memory["pickup_counts"] = dict(pickup_counts)
+            memory["frequent_pickups"] = [
+                name
+                for name, _count
+                in pickup_counts.most_common(
+                    self.MAX_FREQUENT_ITEMS
+                )
+            ]
+
     # ------------------------------------------------------------------
     # Alias helpers
     # ------------------------------------------------------------------
+
+    def _remember_simple_mapping(
+        self,
+        *,
+        seller_id: int,
+        organisation_slug: str,
+        group: str,
+        source_value: str,
+        target_value: str,
+        maximum: int,
+    ) -> dict[str, Any]:
+        source = self._normalise_phrase(source_value)
+        target = self._clean_memory_value(target_value)
+
+        if not source or not target:
+            raise ValueError(
+                "Both source and target values are required."
+            )
+
+        memory = self._load(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+        )
+
+        values = self._mapping(memory.get(group))
+        values[source] = target
+        memory[group] = self._limit_mapping(
+            values,
+            maximum,
+        )
+
+        self._save(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+            memory=memory,
+        )
+
+        return self.get_interpretation_memory(
+            seller_id=seller_id,
+            organisation_slug=organisation_slug,
+        )
 
     def _remember_alias(
         self,
@@ -683,6 +960,9 @@ class SellerMemoryService:
             "abbreviations",
             "corrections",
             "communication_style",
+            "preferred_confirmation_style",
+            "voice_aliases",
+            "speech_recognition_corrections",
         }
 
         for key, value in interpretation.items():
@@ -695,6 +975,8 @@ class SellerMemoryService:
             if key in {
                 "abbreviations",
                 "corrections",
+                "voice_aliases",
+                "speech_recognition_corrections",
             }:
                 if isinstance(value, Mapping):
                     safe[key] = {
@@ -728,6 +1010,8 @@ class SellerMemoryService:
                 "abbreviations",
                 "common_misspellings",
                 "corrections",
+                "voice_aliases",
+                "speech_recognition_corrections",
             }:
                 result[key] = self._limit_mapping(
                     {
@@ -744,6 +1028,9 @@ class SellerMemoryService:
             elif key in {
                 "language_counts",
                 "style_counts",
+                "confirmation_style_counts",
+                "product_counts",
+                "pickup_counts",
             }:
                 result[key] = {
                     str(item_key): max(0, int(item_value))
@@ -753,8 +1040,25 @@ class SellerMemoryService:
                     and self._is_integer(item_value)
                 }
 
+            elif key in {
+                "frequent_products",
+                "frequent_pickups",
+            }:
+                result[key] = [
+                    self._clean_memory_value(item)
+                    for item in (
+                        value if isinstance(value, list) else []
+                    )
+                    if self._clean_memory_value(item)
+                ][:self.MAX_FREQUENT_ITEMS]
+
             elif key == "preferred_language":
                 result[key] = self._normalise_language(value)
+
+            elif key == "preferred_confirmation_style":
+                result[key] = self._normalise_confirmation_style(
+                    value
+                )
 
             else:
                 result[key] = self._clean_memory_value(value)
@@ -773,11 +1077,44 @@ class SellerMemoryService:
             "communication_style": "",
             "language_counts": {},
             "style_counts": {},
+            "voice_aliases": {},
+            "speech_recognition_corrections": {},
+            "preferred_confirmation_style": "",
+            "confirmation_style_counts": {},
+            "frequent_products": [],
+            "frequent_pickups": [],
+            "product_counts": {},
+            "pickup_counts": {},
         }
 
     # ------------------------------------------------------------------
     # Generic helpers
     # ------------------------------------------------------------------
+
+    def _merge_safe_mapping(
+        self,
+        *,
+        memory: dict[str, Any],
+        key: str,
+        values: Any,
+        maximum: int,
+    ) -> None:
+        if not isinstance(values, Mapping):
+            return
+
+        current = self._mapping(memory.get(key))
+
+        for source, target in values.items():
+            clean_source = self._normalise_phrase(source)
+            clean_target = self._clean_memory_value(target)
+
+            if clean_source and clean_target:
+                current[clean_source] = clean_target
+
+        memory[key] = self._limit_mapping(
+            current,
+            maximum,
+        )
 
     @staticmethod
     def _mapping(value: Any) -> dict[str, Any]:
@@ -813,7 +1150,17 @@ class SellerMemoryService:
 
     @staticmethod
     def _normalise_phrase(value: Any) -> str:
-        text = str(value or "").strip().lower()
+        text = unicodedata.normalize(
+            "NFKD",
+            str(value or ""),
+        )
+        text = "".join(
+            character
+            for character in text
+            if not unicodedata.combining(character)
+        )
+        text = text.casefold()
+        text = re.sub(r"[^a-z0-9@.+_-]+", " ", text)
         return " ".join(text.split())
 
     @staticmethod
@@ -853,6 +1200,22 @@ class SellerMemoryService:
             return ""
 
         return language
+
+    @staticmethod
+    def _normalise_confirmation_style(value: Any) -> str:
+        style = str(value or "").strip().lower()
+        aliases = {
+            "short": "concise",
+            "brief": "concise",
+            "concise": "concise",
+            "friendly": "friendly",
+            "natural": "friendly",
+            "detailed": "detailed",
+            "full": "detailed",
+            "voice": "voice_short",
+            "voice_short": "voice_short",
+        }
+        return aliases.get(style, "")
 
     @staticmethod
     def _normalise_ttl(value: Any) -> int:
