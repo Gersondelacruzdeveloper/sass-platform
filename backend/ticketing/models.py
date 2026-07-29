@@ -2526,6 +2526,34 @@ class BookingItem(models.Model):
         related_name="items",
     )
 
+    business_entity = models.ForeignKey(
+        "TicketingBusinessEntity",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="booking_items",
+        help_text="Company or supplier responsible for this booking item.",
+    )
+
+    agreement = models.ForeignKey(
+        "ProductBusinessAgreement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="booking_items",
+        help_text="Agreement selected when this booking item was created.",
+    )
+
+    supplier_name_snapshot = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    supplier_whatsapp_snapshot = models.CharField(
+        max_length=40,
+        blank=True,
+    )
+
     product = models.ForeignKey(
         ExperienceProduct,
         on_delete=models.SET_NULL,
@@ -3023,6 +3051,10 @@ class TicketingBusinessEntity(models.Model):
     external_provider = models.CharField(max_length=50, blank=True)
     external_entity_id = models.CharField(max_length=150, blank=True)
     extra_settings = models.JSONField(default=dict, blank=True)
+    whatsapp_notifications_enabled = models.BooleanField(
+        default=True,
+        help_text="Allow automatic booking notifications to this company.",
+    )
 
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -3193,6 +3225,18 @@ class ProductBusinessAgreement(models.Model):
         null=True,
         blank=True,
         related_name="ticketing_agreements_created",
+    )
+    send_supplier_booking_notification = models.BooleanField(
+        default=True,
+    )
+
+    supplier_whatsapp_override = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text=(
+            "Optional WhatsApp recipient used for this agreement. "
+            "When blank, the business entity contact WhatsApp is used."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

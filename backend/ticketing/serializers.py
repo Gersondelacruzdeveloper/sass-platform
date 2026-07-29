@@ -1997,7 +1997,10 @@ class BookingPickupInfoSerializer(serializers.ModelSerializer):
 
 
 class BookingItemSerializer(serializers.ModelSerializer):
-    product_name_display = serializers.CharField(source="product.name", read_only=True)
+    product_name_display = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
     package_name = serializers.CharField(source="package.name", read_only=True)
     event_ticket_type_name = serializers.CharField(
         source="event_ticket_type.name",
@@ -2008,6 +2011,72 @@ class BookingItemSerializer(serializers.ModelSerializer):
         decimal_places=2,
         read_only=True,
     )
+
+    # Supplier/company routing information saved on the booking item.
+    business_entity_name = serializers.SerializerMethodField()
+    agreement_name = serializers.SerializerMethodField()
+    resolved_supplier_whatsapp = serializers.SerializerMethodField()
+    supplier_notification_enabled = serializers.SerializerMethodField()
+
+    def get_business_entity_name(self, obj):
+        return (
+            getattr(obj, "supplier_name_snapshot", "")
+            or (
+                obj.business_entity.name
+                if getattr(obj, "business_entity", None)
+                else ""
+            )
+        )
+
+    def get_agreement_name(self, obj):
+        agreement = getattr(obj, "agreement", None)
+        if not agreement:
+            return ""
+
+        return agreement.name or str(agreement)
+
+    def get_resolved_supplier_whatsapp(self, obj):
+        snapshot = getattr(obj, "supplier_whatsapp_snapshot", "") or ""
+        if snapshot:
+            return snapshot
+
+        agreement = getattr(obj, "agreement", None)
+        if agreement and agreement.supplier_whatsapp_override:
+            return agreement.supplier_whatsapp_override
+
+        business_entity = getattr(obj, "business_entity", None)
+        if business_entity:
+            return business_entity.contact_whatsapp or ""
+
+        return ""
+
+    def get_supplier_notification_enabled(self, obj):
+        agreement = getattr(obj, "agreement", None)
+        if (
+            agreement
+            and not getattr(
+                agreement,
+                "send_supplier_booking_notification",
+                True,
+            )
+        ):
+            return False
+
+        business_entity = getattr(obj, "business_entity", None)
+        if business_entity:
+            if not getattr(business_entity, "is_active", True):
+                return False
+
+            # Backwards compatible: this field is optional until it is added
+            # to TicketingBusinessEntity.
+            if not getattr(
+                business_entity,
+                "whatsapp_notifications_enabled",
+                True,
+            ):
+                return False
+
+        return bool(self.get_resolved_supplier_whatsapp(obj))
 
     class Meta:
         model = BookingItem
@@ -2037,8 +2106,18 @@ class BookingItemSerializer(serializers.ModelSerializer):
             "total",
             "profit",
             "instructions",
+
+            # Supplier/company assignment and immutable snapshots.
+            "business_entity",
+            "business_entity_name",
+            "agreement",
+            "agreement_name",
+            "supplier_name_snapshot",
+            "supplier_whatsapp_snapshot",
+            "resolved_supplier_whatsapp",
+            "supplier_notification_enabled",
+
             "created_at",
-            
         ]
         read_only_fields = [
             "id",
@@ -2048,6 +2127,14 @@ class BookingItemSerializer(serializers.ModelSerializer):
             "event_ticket_type_name",
             "total",
             "profit",
+            "business_entity",
+            "business_entity_name",
+            "agreement",
+            "agreement_name",
+            "supplier_name_snapshot",
+            "supplier_whatsapp_snapshot",
+            "resolved_supplier_whatsapp",
+            "supplier_notification_enabled",
             "created_at",
         ]
 
@@ -2057,10 +2144,29 @@ class BookingItemWriteSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(required=False, allow_null=True)
     event_ticket_type_id = serializers.IntegerField(required=False, allow_null=True)
     external_snapshot_id = serializers.IntegerField(required=False, allow_null=True)
-    selected_external_product_id = serializers.CharField(required=False, allow_blank=True)
+
+    # The frontend may select either the supplier/company or a specific
+    # agreement. The backend always validates the selection against the
+    # organisation, product, active dates, and company status.
+    business_entity_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+    agreement_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+
+    selected_external_product_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )
     external_product_id = serializers.CharField(required=False, allow_blank=True)
     external_variant_id = serializers.CharField(required=False, allow_blank=True)
-    external_availability_id = serializers.CharField(required=False, allow_blank=True)
+    external_availability_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )
 
     product_name = serializers.CharField(required=False, allow_blank=True)
     service_date = serializers.DateField(required=False, allow_null=True)
@@ -2490,8 +2596,35 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     "total": str(item.total),
                     "external_product_id": item.external_product_id,
                     "external_option_name": item.external_option_name,
+                    "business_entity_id": getattr(
+                        item,
+                        "business_entity_id",
+                        None,
+                    ),
+                    "business_entity_name": (
+                        getattr(item, "supplier_name_snapshot", "")
+                        or (
+                            item.business_entity.name
+                            if getattr(item, "business_entity", None)
+                            else ""
+                        )
+                    ),
+                    "agreement_id": getattr(item, "agreement_id", None),
+                    "agreement_name": (
+                        item.agreement.name
+                        if getattr(item, "agreement", None)
+                        else ""
+                    ),
+                    "supplier_whatsapp_snapshot": getattr(
+                        item,
+                        "supplier_whatsapp_snapshot",
+                        "",
+                    ),
                 }
-                for item in booking.items.all()
+                for item in booking.items.select_related(
+                    "business_entity",
+                    "agreement",
+                ).all()
             ]
 
         payments = []
@@ -2694,6 +2827,148 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         return product, package, event_ticket_type, external_snapshot
 
+    def resolve_booking_item_agreement(
+        self,
+        *,
+        organisation,
+        product,
+        service_date,
+        item_data,
+    ):
+        """Resolve and validate the company responsible for a booking item.
+
+        Resolution order:
+        1. A specific agreement_id supplied by the client.
+        2. A business_entity_id supplied by the client.
+        3. Automatic selection when exactly one active company can fulfil the
+           product on the service date.
+        4. No supplier when the product has no active agreement.
+
+        The method never silently chooses between multiple companies.
+        """
+
+        agreement_id = item_data.get("agreement_id")
+        business_entity_id = item_data.get("business_entity_id")
+
+        if not service_date:
+            if agreement_id or business_entity_id:
+                raise serializers.ValidationError(
+                    {
+                        "items_payload": (
+                            "A service date is required to validate the "
+                            "selected company agreement."
+                        )
+                    }
+                )
+
+            return None, None
+
+        agreements = (
+            ProductBusinessAgreement.objects
+            .select_related("business_entity")
+            .filter(
+                organisation=organisation,
+                product=product,
+                is_active=True,
+                effective_from__lte=service_date,
+            )
+            .filter(
+                Q(effective_until__isnull=True)
+                | Q(effective_until__gte=service_date)
+            )
+        )
+
+        if agreement_id:
+            agreement = agreements.filter(id=agreement_id).first()
+
+            if not agreement:
+                raise serializers.ValidationError(
+                    {
+                        "items_payload": (
+                            "The selected agreement is not active for this "
+                            "product, organisation, and service date."
+                        )
+                    }
+                )
+
+            if (
+                business_entity_id
+                and agreement.business_entity_id != business_entity_id
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "items_payload": (
+                            "The selected agreement does not belong to the "
+                            "selected company."
+                        )
+                    }
+                )
+
+            if not agreement.business_entity.is_active:
+                raise serializers.ValidationError(
+                    {
+                        "items_payload": (
+                            "The company connected to the selected agreement "
+                            "is inactive."
+                        )
+                    }
+                )
+
+            return agreement.business_entity, agreement
+
+        if business_entity_id:
+            agreement = (
+                agreements
+                .filter(
+                    business_entity_id=business_entity_id,
+                    business_entity__is_active=True,
+                )
+                .order_by("-effective_from", "-version")
+                .first()
+            )
+
+            if not agreement:
+                raise serializers.ValidationError(
+                    {
+                        "items_payload": (
+                            "The selected company does not have an active "
+                            "agreement for this product and service date."
+                        )
+                    }
+                )
+
+            return agreement.business_entity, agreement
+
+        business_entity_ids = list(
+            agreements
+            .filter(business_entity__is_active=True)
+            .values_list("business_entity_id", flat=True)
+            .distinct()
+        )
+
+        if not business_entity_ids:
+            # Organisation-owned or external products may have no local supplier.
+            return None, None
+
+        if len(business_entity_ids) > 1:
+            raise serializers.ValidationError(
+                {
+                    "items_payload": (
+                        f'More than one company can fulfil "{product.name}". '
+                        "Please select the company for this booking item."
+                    )
+                }
+            )
+
+        agreement = (
+            agreements
+            .filter(business_entity_id=business_entity_ids[0])
+            .order_by("-effective_from", "-version")
+            .first()
+        )
+
+        return agreement.business_entity, agreement
+
     def create_booking_items(self, booking, organisation, items_payload):
         subtotal = Decimal("0.00")
         total_cost = Decimal("0.00")
@@ -2702,6 +2977,33 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             product, package, event_ticket_type, external_snapshot = (
                 self.resolve_booking_item_objects(organisation, item_data)
             )
+
+            item_service_date = (
+                item_data.get("service_date")
+                or booking.service_date
+            )
+
+            business_entity, agreement = self.resolve_booking_item_agreement(
+                organisation=organisation,
+                product=product,
+                service_date=item_service_date,
+                item_data=item_data,
+            )
+
+            supplier_name_snapshot = ""
+            supplier_whatsapp_snapshot = ""
+
+            if business_entity:
+                supplier_name_snapshot = business_entity.name or ""
+                supplier_whatsapp_snapshot = (
+                    (
+                        agreement.supplier_whatsapp_override
+                        if agreement
+                        else ""
+                    )
+                    or business_entity.contact_whatsapp
+                    or ""
+                ).strip()
 
             quantity = item_data.get("quantity", 1)
 
@@ -2745,7 +3047,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 validation = validate_external_product_before_booking(
                     organisation=organisation,
                     product=product,
-                    service_date=item_data.get("service_date") or booking.service_date,
+                    service_date=item_service_date,
                     selected_external_product_id=selected_external_product_id,
                     quantity=quantity,
                 )
@@ -2815,7 +3117,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 external_snapshot = create_wellet_snapshot_from_option(
                     organisation=organisation,
                     product=product,
-                    service_date=item_data.get("service_date") or booking.service_date,
+                    service_date=item_service_date,
                     option=selected_option,
                 )
 
@@ -2948,6 +3250,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 package=package,
                 event_ticket_type=event_ticket_type,
                 external_snapshot=external_snapshot,
+
+                # Supplier/company selected for fulfilment.
+                business_entity=business_entity,
+                agreement=agreement,
+                supplier_name_snapshot=supplier_name_snapshot,
+                supplier_whatsapp_snapshot=supplier_whatsapp_snapshot,
+
                 external_provider=external_provider,
                 external_product_id=external_product_id,
                 external_variant_id=external_variant_id,
@@ -2956,7 +3265,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 external_raw_data=external_raw_data,
                 product_name=product_name,
                 product_type=product.product_type,
-                service_date=item_data.get("service_date") or booking.service_date,
+                service_date=item_service_date,
                 service_time=item_data.get("service_time") or booking.service_time,
                 quantity=quantity,
                 unit_price=unit_price,
@@ -2964,6 +3273,16 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 total=item_total,
                 instructions=item_data.get("instructions", ""),
             )
+
+            # BookingItem.save() currently recalculates total as unit_price × quantity.
+            # Restore the serializer's explicit passenger-category total without
+            # changing model behavior used by other booking flows. QuerySet.update()
+            # intentionally bypasses BookingItem.save().
+            if booking_item.total != item_total:
+                BookingItem.objects.filter(pk=booking_item.pk).update(
+                    total=item_total
+                )
+                booking_item.total = item_total
 
             subtotal += booking_item.total
             total_cost += item_cost_total
@@ -3109,8 +3428,25 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     "service_date": str(item.service_date) if item.service_date else None,
                     "service_time": str(item.service_time) if item.service_time else None,
                     "instructions": item.instructions,
+                    "business_entity_id": getattr(
+                        item,
+                        "business_entity_id",
+                        None,
+                    ),
+                    "supplier_name": (
+                        getattr(item, "supplier_name_snapshot", "")
+                        or (
+                            item.business_entity.name
+                            if getattr(item, "business_entity", None)
+                            else ""
+                        )
+                    ),
+                    "agreement_id": getattr(item, "agreement_id", None),
                 }
-                for item in booking.items.all()
+                for item in booking.items.select_related(
+                    "business_entity",
+                    "agreement",
+                ).all()
             ],
         }
 
@@ -3151,6 +3487,43 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 ).get("subtotal_amount"),
             },
         )
+
+    def _send_booking_notification_after_commit(self, booking_id):
+        """Send notifications only after the booking transaction commits."""
+
+        try:
+            booking = (
+                Booking.objects
+                .select_related(
+                    "organisation",
+                    "customer",
+                    "seller",
+                )
+                .prefetch_related(
+                    "items__business_entity",
+                    "items__agreement",
+                )
+                .get(pk=booking_id)
+            )
+
+            self._debug_booking_financial_state(
+                "BEFORE BOOKING NOTIFICATION - AFTER COMMIT",
+                booking,
+                refresh=True,
+            )
+
+            BookingNotificationService.send(booking)
+
+            self._debug_booking_financial_state(
+                "AFTER BOOKING NOTIFICATION - AFTER COMMIT",
+                booking,
+                refresh=True,
+            )
+        except Exception as notification_error:
+            print(
+                "BOOKING NOTIFICATION ERROR AFTER COMMIT:",
+                repr(notification_error),
+            )
 
     def validate_and_apply_seller_discount(self, booking, subtotal):
         """
@@ -3530,27 +3903,13 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             refresh=True,
         )
 
-        try:
-            self._debug_booking_financial_state(
-                "BEFORE BOOKING NOTIFICATION",
-                booking,
-                calculated_subtotal=subtotal,
-                refresh=True,
+        # The booking, item supplier assignment, financial state, and receipt
+        # must be committed before WhatsApp/email services read them.
+        transaction.on_commit(
+            lambda booking_id=booking.pk: (
+                self._send_booking_notification_after_commit(booking_id)
             )
-
-            BookingNotificationService.send(booking)
-
-            self._debug_booking_financial_state(
-                "AFTER BOOKING NOTIFICATION",
-                booking,
-                calculated_subtotal=subtotal,
-                refresh=True,
-            )
-        except Exception as notification_error:
-            print(
-                "BOOKING NOTIFICATION ERROR:",
-                repr(notification_error),
-            )
+        )
 
         booking.refresh_from_db()
 
@@ -4211,6 +4570,8 @@ class ProductBusinessAgreementSerializer(
             "effective_until",
             "terms",
             "extra_rules",
+            "send_supplier_booking_notification",
+            "supplier_whatsapp_override",
             "is_active",
             "created_by",
             "created_by_email",
