@@ -1260,10 +1260,11 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         )
 
         whatsapp_business_account_id = self._get_credential(
-            request,
-            settings_obj,
-            "whatsapp_business_account_id",
-            "waba_id",
+        request,
+        settings_obj,
+        "business_account_id",
+        "whatsapp_business_account_id",
+        "waba_id",
         )
 
         access_token = self._get_credential(
@@ -1283,7 +1284,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
 
         if not whatsapp_business_account_id:
             missing_fields.append(
-                "whatsapp_business_account_id"
+                "business_account_id"
             )
 
         if not access_token:
