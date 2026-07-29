@@ -38,6 +38,9 @@ from .notifications.service import BookingNotificationService
 from . import booking_finance_service as booking_finance
 from rest_framework.exceptions import PermissionDenied
 from django.conf import settings as django_settings
+from decimal import Decimal, InvalidOperation
+from django.shortcuts import get_object_or_404
+
 
 from .google_oauth import (
     build_google_authorization_url,
@@ -1085,7 +1088,6 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
         )
 
 
-
 class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
     serializer_class = TicketingWhatsAppSettingsSerializer
     permission_classes = [CanManageTicketingIntegrations]
@@ -1118,7 +1120,10 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
 
         masking_characters = {"*", "•", "●", " "}
 
-        if all(character in masking_characters for character in value):
+        if all(
+            character in masking_characters
+            for character in value
+        ):
             return ""
 
         return value
@@ -1130,13 +1135,10 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         *possible_field_names,
     ):
         """
-        Read a credential from the POST body first.
+        Read a credential from the request body first.
 
-        If the frontend did not send it, read it from the saved
-        TicketingWhatsAppSettings record.
-
-        Multiple possible names are supported so this works with
-        slightly different model or serializer field names.
+        If the frontend did not send it, use the value saved in
+        TicketingWhatsAppSettings.
         """
         for field_name in possible_field_names:
             request_value = self._clean_credential(
@@ -1159,8 +1161,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
     @staticmethod
     def _extract_meta_error(response):
         """
-        Safely extract an error returned by Meta without exposing
-        the access token or other credentials.
+        Extract a safe Meta error without exposing credentials.
         """
         try:
             response_data = response.json()
@@ -1197,6 +1198,54 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             "type": meta_error.get("type"),
             "trace_id": meta_error.get("fbtrace_id"),
         }
+
+    @staticmethod
+    def _record_test_failure(settings_obj, message):
+        """
+        Save a failed connection test in the database.
+        """
+        settings_obj.connection_status = "error"
+        settings_obj.last_test_at = timezone.now()
+        settings_obj.last_error_message = str(message)[:1000]
+
+        settings_obj.save(
+            update_fields=[
+                "connection_status",
+                "last_test_at",
+                "last_error_message",
+                "updated_at",
+            ]
+        )
+
+    @staticmethod
+    def _record_test_success(settings_obj, phone_data):
+        """
+        Save a successful Meta connection test in the database.
+        """
+        now = timezone.now()
+
+        settings_obj.connection_status = "connected"
+        settings_obj.connected_at = now
+        settings_obj.last_test_at = now
+        settings_obj.last_error_message = ""
+        settings_obj.display_phone_number = (
+            phone_data.get("display_phone_number") or ""
+        )
+        settings_obj.verified_business_name = (
+            phone_data.get("verified_name") or ""
+        )
+
+        settings_obj.save(
+            update_fields=[
+                "connection_status",
+                "connected_at",
+                "last_test_at",
+                "last_error_message",
+                "display_phone_number",
+                "verified_business_name",
+                "updated_at",
+            ]
+        )
 
     @action(
         detail=False,
@@ -1261,11 +1310,11 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         )
 
         whatsapp_business_account_id = self._get_credential(
-        request,
-        settings_obj,
-        "business_account_id",
-        "whatsapp_business_account_id",
-        "waba_id",
+            request,
+            settings_obj,
+            "business_account_id",
+            "whatsapp_business_account_id",
+            "waba_id",
         )
 
         access_token = self._get_credential(
@@ -1284,24 +1333,27 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             missing_fields.append("phone_number_id")
 
         if not whatsapp_business_account_id:
-            missing_fields.append(
-                "business_account_id"
-            )
+            missing_fields.append("business_account_id")
 
         if not access_token:
-            missing_fields.append(
-                "system_user_access_token"
-            )
+            missing_fields.append("access_token")
 
         if missing_fields:
+            error_message = (
+                "Required WhatsApp credentials are missing."
+            )
+
+            self._record_test_failure(
+                settings_obj,
+                error_message,
+            )
+
             return Response(
                 {
                     "success": False,
                     "connected": False,
                     "connection_status": "error",
-                    "message": (
-                        "Required WhatsApp credentials are missing."
-                    ),
+                    "message": error_message,
                     "missing_fields": missing_fields,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1349,6 +1401,11 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                     phone_response
                 )
 
+                self._record_test_failure(
+                    settings_obj,
+                    meta_error["message"],
+                )
+
                 return Response(
                     {
                         "success": False,
@@ -1365,20 +1422,26 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             try:
                 phone_data = phone_response.json()
             except ValueError:
+                error_message = (
+                    "Meta returned an invalid phone-number response."
+                )
+
+                self._record_test_failure(
+                    settings_obj,
+                    error_message,
+                )
+
                 return Response(
                     {
                         "success": False,
                         "connected": False,
                         "connection_status": "error",
-                        "message": (
-                            "Meta returned an invalid phone-number "
-                            "response."
-                        ),
+                        "message": error_message,
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
-            # Confirm that this Phone Number ID belongs to the
+            # Confirm that the Phone Number ID belongs to the
             # supplied WhatsApp Business Account.
             waba_response = requests.get(
                 (
@@ -1404,6 +1467,11 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                     waba_response
                 )
 
+                self._record_test_failure(
+                    settings_obj,
+                    meta_error["message"],
+                )
+
                 return Response(
                     {
                         "success": False,
@@ -1420,15 +1488,22 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             try:
                 waba_data = waba_response.json()
             except ValueError:
+                error_message = (
+                    "Meta returned an invalid WhatsApp Business "
+                    "Account response."
+                )
+
+                self._record_test_failure(
+                    settings_obj,
+                    error_message,
+                )
+
                 return Response(
                     {
                         "success": False,
                         "connected": False,
                         "connection_status": "error",
-                        "message": (
-                            "Meta returned an invalid WhatsApp "
-                            "Business Account response."
-                        ),
+                        "message": error_message,
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
@@ -1442,23 +1517,31 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 (
                     phone
                     for phone in waba_phone_numbers
-                    if str(phone.get("id")) == str(phone_number_id)
+                    if str(phone.get("id"))
+                    == str(phone_number_id)
                 ),
                 None,
             )
 
             if matching_phone is None:
+                error_message = (
+                    "The Phone Number ID does not belong to the "
+                    "supplied WhatsApp Business Account."
+                )
+
+                self._record_test_failure(
+                    settings_obj,
+                    error_message,
+                )
+
                 return Response(
                     {
                         "success": False,
                         "connected": False,
                         "connection_status": "error",
-                        "message": (
-                            "The Phone Number ID does not belong to "
-                            "the supplied WhatsApp Business Account."
-                        ),
+                        "message": error_message,
                         "phone_number_id": phone_number_id,
-                        "whatsapp_business_account_id": (
+                        "business_account_id": (
                             whatsapp_business_account_id
                         ),
                     },
@@ -1466,15 +1549,21 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 )
 
         except requests.Timeout:
+            error_message = (
+                "Meta did not respond before the request timed out."
+            )
+
+            self._record_test_failure(
+                settings_obj,
+                error_message,
+            )
+
             return Response(
                 {
                     "success": False,
                     "connected": False,
                     "connection_status": "error",
-                    "message": (
-                        "Meta did not respond before the request "
-                        "timed out."
-                    ),
+                    "message": error_message,
                 },
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
@@ -1485,17 +1574,30 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 organisation.pk,
             )
 
+            error_message = (
+                "The server could not connect to Meta."
+            )
+
+            self._record_test_failure(
+                settings_obj,
+                error_message,
+            )
+
             return Response(
                 {
                     "success": False,
                     "connected": False,
                     "connection_status": "error",
-                    "message": (
-                        "The server could not connect to Meta."
-                    ),
+                    "message": error_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+        # Save the successful connection status.
+        self._record_test_success(
+            settings_obj,
+            phone_data,
+        )
 
         return Response(
             {
@@ -1503,7 +1605,9 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 "connected": True,
                 "connection_status": "connected",
                 "message": "WhatsApp connection successful.",
-                "business_name": phone_data.get("verified_name"),
+                "business_name": phone_data.get(
+                    "verified_name"
+                ),
                 "sender_number": phone_data.get(
                     "display_phone_number"
                 ),
@@ -1511,7 +1615,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                     "id",
                     phone_number_id,
                 ),
-                "whatsapp_business_account_id": (
+                "business_account_id": (
                     whatsapp_business_account_id
                 ),
                 "quality_rating": phone_data.get(
@@ -6539,32 +6643,7 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
 
         response["Link"] = f'<{canonical_url}>; rel="canonical"'
         return response
-from decimal import Decimal, InvalidOperation
-
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from copy import deepcopy
-from decimal import Decimal, InvalidOperation
-
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-
-from copy import deepcopy
-from decimal import Decimal, InvalidOperation
-
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
+    
 
 class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
