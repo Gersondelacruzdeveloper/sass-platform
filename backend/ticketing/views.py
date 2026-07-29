@@ -1088,6 +1088,7 @@ class TicketingPublicSiteSettingsViewSet(TicketingPrivateViewSet):
         )
 
 
+
 class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
     serializer_class = TicketingWhatsAppSettingsSerializer
     permission_classes = [CanManageTicketingIntegrations]
@@ -1137,8 +1138,8 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         """
         Read a credential from the request body first.
 
-        If the frontend did not send it, use the value saved in
-        TicketingWhatsAppSettings.
+        If it is not present in the request, use the saved value
+        from TicketingWhatsAppSettings.
         """
         for field_name in possible_field_names:
             request_value = self._clean_credential(
@@ -1192,7 +1193,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         return {
             "message": meta_error.get(
                 "message",
-                "Meta rejected the WhatsApp credentials.",
+                "Meta rejected the WhatsApp request.",
             ),
             "code": meta_error.get("code"),
             "type": meta_error.get("type"),
@@ -1202,7 +1203,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
     @staticmethod
     def _record_test_failure(settings_obj, message):
         """
-        Save a failed connection test in the database.
+        Save a failed Meta connection test.
         """
         settings_obj.connection_status = "error"
         settings_obj.last_test_at = timezone.now()
@@ -1220,7 +1221,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
     @staticmethod
     def _record_test_success(settings_obj, phone_data):
         """
-        Save a successful Meta connection test in the database.
+        Save a successful Meta connection test.
         """
         now = timezone.now()
 
@@ -1246,6 +1247,37 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 "updated_at",
             ]
         )
+
+    @staticmethod
+    def _normalise_recipient(value):
+        """
+        Convert a phone number to digits only.
+
+        Example:
+        +44 7541 147634 -> 447541147634
+        """
+        value = str(value or "").strip()
+
+        return "".join(
+            character
+            for character in value
+            if character.isdigit()
+        )
+
+    @staticmethod
+    def _graph_api_version():
+        version = str(
+            getattr(
+                django_settings,
+                "META_GRAPH_API_VERSION",
+                "v25.0",
+            )
+        ).strip()
+
+        if not version.startswith("v"):
+            version = f"v{version}"
+
+        return version
 
     @action(
         detail=False,
@@ -1309,7 +1341,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             "whatsapp_phone_number_id",
         )
 
-        whatsapp_business_account_id = self._get_credential(
+        business_account_id = self._get_credential(
             request,
             settings_obj,
             "business_account_id",
@@ -1332,7 +1364,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         if not phone_number_id:
             missing_fields.append("phone_number_id")
 
-        if not whatsapp_business_account_id:
+        if not business_account_id:
             missing_fields.append("business_account_id")
 
         if not access_token:
@@ -1359,19 +1391,9 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        graph_api_version = str(
-            getattr(
-                django_settings,
-                "META_GRAPH_API_VERSION",
-                "v25.0",
-            )
-        ).strip()
-
-        if not graph_api_version.startswith("v"):
-            graph_api_version = f"v{graph_api_version}"
-
         graph_api_base_url = (
-            f"https://graph.facebook.com/{graph_api_version}"
+            "https://graph.facebook.com/"
+            f"{self._graph_api_version()}"
         )
 
         headers = {
@@ -1380,7 +1402,6 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
         }
 
         try:
-            # Test the Phone Number ID.
             phone_response = requests.get(
                 f"{graph_api_base_url}/{phone_number_id}",
                 headers=headers,
@@ -1441,12 +1462,10 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
-            # Confirm that the Phone Number ID belongs to the
-            # supplied WhatsApp Business Account.
             waba_response = requests.get(
                 (
                     f"{graph_api_base_url}/"
-                    f"{whatsapp_business_account_id}/phone_numbers"
+                    f"{business_account_id}/phone_numbers"
                 ),
                 headers=headers,
                 params={
@@ -1541,9 +1560,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                         "connection_status": "error",
                         "message": error_message,
                         "phone_number_id": phone_number_id,
-                        "business_account_id": (
-                            whatsapp_business_account_id
-                        ),
+                        "business_account_id": business_account_id,
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -1593,7 +1610,6 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        # Save the successful connection status.
         self._record_test_success(
             settings_obj,
             phone_data,
@@ -1615,9 +1631,7 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
                     "id",
                     phone_number_id,
                 ),
-                "business_account_id": (
-                    whatsapp_business_account_id
-                ),
+                "business_account_id": business_account_id,
                 "quality_rating": phone_data.get(
                     "quality_rating"
                 ),
@@ -1625,7 +1639,285 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             },
             status=status.HTTP_200_OK,
         )
-    
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="send-test",
+        url_name="send-test",
+    )
+    def send_test_message(self, request):
+        """
+        Send a WhatsApp template test message.
+
+        Endpoint:
+        POST /api/ticketing/whatsapp-settings/send-test/
+        """
+        organisation = self.require_organisation()
+
+        settings_obj, _ = (
+            TicketingWhatsAppSettings.objects.get_or_create(
+                organisation=organisation
+            )
+        )
+
+        phone_number_id = self._get_credential(
+            request,
+            settings_obj,
+            "phone_number_id",
+            "whatsapp_phone_number_id",
+        )
+
+        access_token = self._get_credential(
+            request,
+            settings_obj,
+            "system_user_access_token",
+            "permanent_system_user_access_token",
+            "permanent_access_token",
+            "whatsapp_access_token",
+            "access_token",
+        )
+
+        recipient = self._normalise_recipient(
+            request.data.get("recipient")
+            or request.data.get("recipient_phone_number")
+            or request.data.get("phone_number")
+            or request.data.get("test_phone_number")
+            or request.data.get("test_whatsapp_number")
+            or request.data.get("to")
+        )
+
+        missing_fields = []
+
+        if not phone_number_id:
+            missing_fields.append("phone_number_id")
+
+        if not access_token:
+            missing_fields.append("access_token")
+
+        if not recipient:
+            missing_fields.append("recipient")
+
+        if missing_fields:
+            error_message = (
+                "Required WhatsApp test-message fields are missing."
+            )
+
+            settings_obj.last_test_at = timezone.now()
+            settings_obj.last_error_message = error_message
+
+            settings_obj.save(
+                update_fields=[
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": error_message,
+                    "missing_fields": missing_fields,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not 8 <= len(recipient) <= 15:
+            error_message = (
+                "Enter the recipient number using the full "
+                "international country code."
+            )
+
+            settings_obj.last_test_at = timezone.now()
+            settings_obj.last_error_message = error_message
+
+            settings_obj.save(
+                update_fields=[
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": error_message,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        template_name = str(
+            request.data.get("template_name")
+            or request.data.get("template")
+            or "hello_world"
+        ).strip()
+
+        language_code = str(
+            request.data.get("language_code")
+            or request.data.get("language")
+            or "en_US"
+        ).strip()
+
+        graph_api_url = (
+            "https://graph.facebook.com/"
+            f"{self._graph_api_version()}/"
+            f"{phone_number_id}/messages"
+        )
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": recipient,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {
+                    "code": language_code,
+                },
+            },
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        try:
+            meta_response = requests.post(
+                graph_api_url,
+                headers=headers,
+                json=payload,
+                timeout=(5, 20),
+            )
+
+        except requests.Timeout:
+            error_message = (
+                "Meta did not respond before the request timed out."
+            )
+
+            settings_obj.last_test_at = timezone.now()
+            settings_obj.last_error_message = error_message
+
+            settings_obj.save(
+                update_fields=[
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": error_message,
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        except requests.RequestException:
+            logger.exception(
+                "Could not send WhatsApp test message for "
+                "organisation %s",
+                organisation.pk,
+            )
+
+            error_message = (
+                "The server could not connect to Meta."
+            )
+
+            settings_obj.last_test_at = timezone.now()
+            settings_obj.last_error_message = error_message
+
+            settings_obj.save(
+                update_fields=[
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": error_message,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not meta_response.ok:
+            meta_error = self._extract_meta_error(
+                meta_response
+            )
+
+            settings_obj.last_test_recipient = recipient
+            settings_obj.last_test_at = timezone.now()
+            settings_obj.last_error_message = str(
+                meta_error["message"]
+            )[:1000]
+
+            settings_obj.save(
+                update_fields=[
+                    "last_test_recipient",
+                    "last_test_at",
+                    "last_error_message",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": meta_error["message"],
+                    "meta_error_code": meta_error["code"],
+                    "meta_error_type": meta_error["type"],
+                    "meta_trace_id": meta_error["trace_id"],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            response_data = meta_response.json()
+        except ValueError:
+            response_data = {}
+
+        messages = response_data.get("messages") or []
+
+        message_id = None
+
+        if messages and isinstance(messages[0], dict):
+            message_id = messages[0].get("id")
+
+        now = timezone.now()
+
+        settings_obj.last_test_recipient = recipient
+        settings_obj.last_test_at = now
+        settings_obj.last_error_message = ""
+
+        settings_obj.save(
+            update_fields=[
+                "last_test_recipient",
+                "last_test_at",
+                "last_error_message",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "WhatsApp test message sent.",
+                "recipient": recipient,
+                "message_id": message_id,
+                "template_name": template_name,
+                "language_code": language_code,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ExperienceCategoryViewSet(
     TicketingProductManagementPermissionMixin,
     TicketingPrivateViewSet,
