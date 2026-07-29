@@ -78,7 +78,7 @@ from .views import (
     PartnerPortalBootstrapAPIView,
     PartnerPortalLoginAPIView,
 )
-
+from ticketing.whatsapp_webhook_views import whatsapp_webhook
 
 router = DefaultRouter()
 
@@ -139,6 +139,11 @@ router.register("public/pickup-locations", PublicPickupLocationViewSet, basename
 
 
 urlpatterns = [
+    path(
+    "whatsapp/webhook/",
+    whatsapp_webhook,
+        name="ticketing-whatsapp-webhook",
+    ),
 
     # Partner Portal
     path(
