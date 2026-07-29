@@ -21,7 +21,7 @@ from django.shortcuts import (
     redirect,
 )
 from django.utils import timezone
-
+from rest_framework import status
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -1091,15 +1091,125 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
 
     def get_queryset(self):
         organisation = self.get_organisation()
+
         if not organisation:
             return TicketingWhatsAppSettings.objects.none()
-        return TicketingWhatsAppSettings.objects.filter(organisation=organisation)
 
-    @action(detail=False, methods=["get", "patch"], url_path="mine")
+        return TicketingWhatsAppSettings.objects.filter(
+            organisation=organisation
+        )
+
+    @staticmethod
+    def _clean_credential(value):
+        """
+        Return a usable credential value.
+
+        Empty values and frontend masking values such as ********
+        are ignored.
+        """
+        if value is None:
+            return ""
+
+        value = str(value).strip()
+
+        if not value:
+            return ""
+
+        masking_characters = {"*", "•", "●", " "}
+
+        if all(character in masking_characters for character in value):
+            return ""
+
+        return value
+
+    def _get_credential(
+        self,
+        request,
+        settings_obj,
+        *possible_field_names,
+    ):
+        """
+        Read a credential from the POST body first.
+
+        If the frontend did not send it, read it from the saved
+        TicketingWhatsAppSettings record.
+
+        Multiple possible names are supported so this works with
+        slightly different model or serializer field names.
+        """
+        for field_name in possible_field_names:
+            request_value = self._clean_credential(
+                request.data.get(field_name)
+            )
+
+            if request_value:
+                return request_value
+
+        for field_name in possible_field_names:
+            saved_value = self._clean_credential(
+                getattr(settings_obj, field_name, None)
+            )
+
+            if saved_value:
+                return saved_value
+
+        return ""
+
+    @staticmethod
+    def _extract_meta_error(response):
+        """
+        Safely extract an error returned by Meta without exposing
+        the access token or other credentials.
+        """
+        try:
+            response_data = response.json()
+        except ValueError:
+            return {
+                "message": (
+                    response.text[:500]
+                    or "Meta returned an invalid response."
+                ),
+                "code": None,
+                "type": None,
+                "trace_id": None,
+            }
+
+        if not isinstance(response_data, dict):
+            return {
+                "message": "Meta returned an unexpected response.",
+                "code": None,
+                "type": None,
+                "trace_id": None,
+            }
+
+        meta_error = response_data.get("error", {})
+
+        if not isinstance(meta_error, dict):
+            meta_error = {}
+
+        return {
+            "message": meta_error.get(
+                "message",
+                "Meta rejected the WhatsApp credentials.",
+            ),
+            "code": meta_error.get("code"),
+            "type": meta_error.get("type"),
+            "trace_id": meta_error.get("fbtrace_id"),
+        }
+
+    @action(
+        detail=False,
+        methods=["get", "patch"],
+        url_path="mine",
+        url_name="mine",
+    )
     def mine(self, request):
         organisation = self.require_organisation()
-        settings_obj, _ = TicketingWhatsAppSettings.objects.get_or_create(
-            organisation=organisation
+
+        settings_obj, _ = (
+            TicketingWhatsAppSettings.objects.get_or_create(
+                organisation=organisation
+            )
         )
 
         if request.method == "PATCH":
@@ -1110,10 +1220,306 @@ class TicketingWhatsAppSettingsViewSet(TicketingPrivateViewSet):
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
-            return Response(serializer.data)
 
-        return Response(self.get_serializer(settings_obj).data)
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
 
+        return Response(
+            self.get_serializer(settings_obj).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="test",
+        url_name="test",
+    )
+    def test_connection(self, request):
+        """
+        Test the saved or submitted WhatsApp Cloud API credentials.
+
+        Endpoint:
+        POST /api/ticketing/whatsapp-settings/test/
+        """
+        organisation = self.require_organisation()
+
+        settings_obj, _ = (
+            TicketingWhatsAppSettings.objects.get_or_create(
+                organisation=organisation
+            )
+        )
+
+        phone_number_id = self._get_credential(
+            request,
+            settings_obj,
+            "phone_number_id",
+            "whatsapp_phone_number_id",
+        )
+
+        whatsapp_business_account_id = self._get_credential(
+            request,
+            settings_obj,
+            "whatsapp_business_account_id",
+            "waba_id",
+        )
+
+        access_token = self._get_credential(
+            request,
+            settings_obj,
+            "system_user_access_token",
+            "permanent_system_user_access_token",
+            "permanent_access_token",
+            "whatsapp_access_token",
+            "access_token",
+        )
+
+        missing_fields = []
+
+        if not phone_number_id:
+            missing_fields.append("phone_number_id")
+
+        if not whatsapp_business_account_id:
+            missing_fields.append(
+                "whatsapp_business_account_id"
+            )
+
+        if not access_token:
+            missing_fields.append(
+                "system_user_access_token"
+            )
+
+        if missing_fields:
+            return Response(
+                {
+                    "success": False,
+                    "connected": False,
+                    "connection_status": "error",
+                    "message": (
+                        "Required WhatsApp credentials are missing."
+                    ),
+                    "missing_fields": missing_fields,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        graph_api_version = str(
+            getattr(
+                django_settings,
+                "META_GRAPH_API_VERSION",
+                "v25.0",
+            )
+        ).strip()
+
+        if not graph_api_version.startswith("v"):
+            graph_api_version = f"v{graph_api_version}"
+
+        graph_api_base_url = (
+            f"https://graph.facebook.com/{graph_api_version}"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+
+        try:
+            # Test the Phone Number ID.
+            phone_response = requests.get(
+                f"{graph_api_base_url}/{phone_number_id}",
+                headers=headers,
+                params={
+                    "fields": (
+                        "id,"
+                        "display_phone_number,"
+                        "verified_name,"
+                        "quality_rating,"
+                        "status"
+                    )
+                },
+                timeout=(5, 20),
+            )
+
+            if not phone_response.ok:
+                meta_error = self._extract_meta_error(
+                    phone_response
+                )
+
+                return Response(
+                    {
+                        "success": False,
+                        "connected": False,
+                        "connection_status": "error",
+                        "message": meta_error["message"],
+                        "meta_error_code": meta_error["code"],
+                        "meta_error_type": meta_error["type"],
+                        "meta_trace_id": meta_error["trace_id"],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                phone_data = phone_response.json()
+            except ValueError:
+                return Response(
+                    {
+                        "success": False,
+                        "connected": False,
+                        "connection_status": "error",
+                        "message": (
+                            "Meta returned an invalid phone-number "
+                            "response."
+                        ),
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            # Confirm that this Phone Number ID belongs to the
+            # supplied WhatsApp Business Account.
+            waba_response = requests.get(
+                (
+                    f"{graph_api_base_url}/"
+                    f"{whatsapp_business_account_id}/phone_numbers"
+                ),
+                headers=headers,
+                params={
+                    "fields": (
+                        "id,"
+                        "display_phone_number,"
+                        "verified_name,"
+                        "quality_rating,"
+                        "status"
+                    ),
+                    "limit": 100,
+                },
+                timeout=(5, 20),
+            )
+
+            if not waba_response.ok:
+                meta_error = self._extract_meta_error(
+                    waba_response
+                )
+
+                return Response(
+                    {
+                        "success": False,
+                        "connected": False,
+                        "connection_status": "error",
+                        "message": meta_error["message"],
+                        "meta_error_code": meta_error["code"],
+                        "meta_error_type": meta_error["type"],
+                        "meta_trace_id": meta_error["trace_id"],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                waba_data = waba_response.json()
+            except ValueError:
+                return Response(
+                    {
+                        "success": False,
+                        "connected": False,
+                        "connection_status": "error",
+                        "message": (
+                            "Meta returned an invalid WhatsApp "
+                            "Business Account response."
+                        ),
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            waba_phone_numbers = waba_data.get("data", [])
+
+            if not isinstance(waba_phone_numbers, list):
+                waba_phone_numbers = []
+
+            matching_phone = next(
+                (
+                    phone
+                    for phone in waba_phone_numbers
+                    if str(phone.get("id")) == str(phone_number_id)
+                ),
+                None,
+            )
+
+            if matching_phone is None:
+                return Response(
+                    {
+                        "success": False,
+                        "connected": False,
+                        "connection_status": "error",
+                        "message": (
+                            "The Phone Number ID does not belong to "
+                            "the supplied WhatsApp Business Account."
+                        ),
+                        "phone_number_id": phone_number_id,
+                        "whatsapp_business_account_id": (
+                            whatsapp_business_account_id
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        except requests.Timeout:
+            return Response(
+                {
+                    "success": False,
+                    "connected": False,
+                    "connection_status": "error",
+                    "message": (
+                        "Meta did not respond before the request "
+                        "timed out."
+                    ),
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        except requests.RequestException:
+            logger.exception(
+                "WhatsApp connection test failed for organisation %s",
+                organisation.pk,
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "connected": False,
+                    "connection_status": "error",
+                    "message": (
+                        "The server could not connect to Meta."
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "connected": True,
+                "connection_status": "connected",
+                "message": "WhatsApp connection successful.",
+                "business_name": phone_data.get("verified_name"),
+                "sender_number": phone_data.get(
+                    "display_phone_number"
+                ),
+                "phone_number_id": phone_data.get(
+                    "id",
+                    phone_number_id,
+                ),
+                "whatsapp_business_account_id": (
+                    whatsapp_business_account_id
+                ),
+                "quality_rating": phone_data.get(
+                    "quality_rating"
+                ),
+                "phone_status": phone_data.get("status"),
+            },
+            status=status.HTTP_200_OK,
+        )
+    
 class ExperienceCategoryViewSet(
     TicketingProductManagementPermissionMixin,
     TicketingPrivateViewSet,
