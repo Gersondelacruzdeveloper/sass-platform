@@ -37,6 +37,7 @@ from django.shortcuts import redirect
 from .notifications.service import BookingNotificationService
 from . import booking_finance_service as booking_finance
 from rest_framework.exceptions import PermissionDenied
+from django.conf import settings as django_settings
 
 from .google_oauth import (
     build_google_authorization_url,
