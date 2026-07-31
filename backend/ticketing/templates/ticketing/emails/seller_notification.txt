@@ -1,0 +1,10 @@
+A booking ticket has been issued.
+
+Booking: {{ booking.booking_code }}
+Customer: {{ booking.customer_name }}
+Service date: {{ booking.service_date }}
+Service time: {{ booking.service_time }}
+Guests: {{ booking.total_guests }}
+Hotel/Pickup: {{ booking.customer_hotel }}
+
+The booking PDF is attached.

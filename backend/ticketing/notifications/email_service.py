@@ -57,16 +57,42 @@ class BookingEmailService:
             attachments=attachments,
             audience="customer",
         )
+    @classmethod
+    def send_seller_notification(
+        cls,
+        booking,
+        *,
+        recipient,
+    ):
+        if not recipient:
+            return None
+
+        subject = f"Booking confirmation {booking.booking_code}"
+        context = build_booking_context(booking)
+        attachments = [build_ticket_attachment(booking)]
+
+        return cls._send_template_email(
+            booking=booking,
+            recipient=recipient,
+            subject=subject,
+            text_template="ticketing/emails/seller_notification.txt",
+            html_template="ticketing/emails/seller_notification.html",
+            context=context,
+            attachments=attachments,
+            audience="seller",
+        )
 
     @classmethod
     def send_owner_notification(cls, booking):
         recipient = get_owner_email(booking)
+        
 
         if not recipient:
             return None
 
         subject = f"New booking {booking.booking_code}"
         context = build_booking_context(booking)
+        attachments = [build_ticket_attachment(booking)]
 
         return cls._send_template_email(
             booking=booking,
@@ -75,6 +101,7 @@ class BookingEmailService:
             text_template="ticketing/emails/owner_notification.txt",
             html_template="ticketing/emails/owner_notification.html",
             context=context,
+            attachments=attachments,
             audience="owner",
         )
 
