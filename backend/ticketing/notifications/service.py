@@ -13,6 +13,7 @@ from ticketing.models import (
 )
 
 from .email_service import BookingEmailService
+from .pdf_tickets import build_ticket_attachment
 from .whatsapp_service import (
     BookingWhatsAppService,
     WhatsAppAPIError,
@@ -38,8 +39,10 @@ class BookingNotificationService:
     - Assigned seller: email with the same booking PDF whenever the booking has
       a seller. This covers seller-dashboard bookings and bookings made through
       a seller public link/token.
-    - Supplier/business entity: WhatsApp reservation containing only the items
-      assigned to that supplier.
+    - Supplier/business entity: email with the booking PDF when a supplier
+      contact email is configured, plus WhatsApp when the supplier WhatsApp
+      recipient and channel switches are enabled. Each supplier receives only
+      the booking items assigned to that supplier in the message body.
 
     Events
     ------
@@ -346,6 +349,117 @@ class BookingNotificationService:
     # ------------------------------------------------------------------
 
     @classmethod
+    def _resolve_supplier_email_item(cls, item):
+        """
+        Resolve the supplier email for one BookingItem.
+
+        Email recipient priority:
+        1. BookingItem.supplier_email_snapshot, when added in the future.
+        2. ProductBusinessAgreement.supplier_email_override, when added.
+        3. TicketingBusinessEntity.contact_email.
+
+        Email delivery is independent from the WhatsApp number and WhatsApp
+        toggle. A supplier can therefore receive email even when WhatsApp is
+        blank or disabled.
+        """
+        agreement = getattr(item, "agreement", None)
+        business_entity = getattr(item, "business_entity", None)
+
+        if business_entity is None:
+            return None
+
+        if not bool(getattr(business_entity, "is_active", True)):
+            return None
+
+        if agreement is not None and not bool(
+            getattr(agreement, "is_active", True)
+        ):
+            return None
+
+        # These optional toggles are supported automatically if they are added
+        # to the models later. With the current models they default to enabled.
+        if not bool(
+            getattr(business_entity, "email_notifications_enabled", True)
+        ):
+            return None
+
+        if agreement is not None and not bool(
+            getattr(agreement, "send_supplier_email_notification", True)
+        ):
+            return None
+
+        recipient = str(
+            getattr(item, "supplier_email_snapshot", "")
+            or getattr(agreement, "supplier_email_override", "")
+            or getattr(business_entity, "contact_email", "")
+            or ""
+        ).strip()
+
+        if not recipient:
+            return None
+
+        supplier_name = str(
+            getattr(item, "supplier_name_snapshot", "")
+            or getattr(business_entity, "name", "")
+            or "Supplier"
+        ).strip()
+
+        entity_id = getattr(item, "business_entity_id", None)
+        agreement_id = getattr(item, "agreement_id", None)
+        recipient_key = recipient.lower()
+
+        if entity_id:
+            supplier_key = f"entity:{entity_id}:email:{recipient_key}"
+        elif agreement_id:
+            supplier_key = f"agreement:{agreement_id}:email:{recipient_key}"
+        else:
+            supplier_key = f"email:{recipient_key}"
+
+        return {
+            "recipient": recipient,
+            "supplier_name": supplier_name,
+            "supplier_key": supplier_key,
+            "business_entity_id": entity_id,
+            "agreement_id": agreement_id,
+            "item": item,
+        }
+
+    @classmethod
+    def _group_supplier_email_items(cls, booking):
+        """Group booking items by supplier email recipient."""
+        groups: dict[str, dict[str, Any]] = {}
+
+        items = booking.items.select_related(
+            "product",
+            "business_entity",
+            "agreement",
+        ).all()
+
+        for item in items:
+            resolved = cls._resolve_supplier_email_item(item)
+
+            if not resolved:
+                continue
+
+            key = resolved["supplier_key"]
+
+            if key not in groups:
+                groups[key] = {
+                    "recipient": resolved["recipient"],
+                    "supplier_name": resolved["supplier_name"],
+                    "supplier_key": key,
+                    "business_entity_id": resolved[
+                        "business_entity_id"
+                    ],
+                    "agreement_id": resolved["agreement_id"],
+                    "items": [],
+                }
+
+            groups[key]["items"].append(item)
+
+        return list(groups.values())
+
+    @classmethod
     def _resolve_supplier_item(cls, item):
         """
         Resolve one BookingItem's supplier.
@@ -546,6 +660,88 @@ class BookingNotificationService:
             booking,
             recipient=recipient,
         )
+
+    @classmethod
+    def send_supplier_email_notifications(
+        cls,
+        booking,
+        *,
+        force=False,
+        event="ticket_delivery",
+    ):
+        """
+        Email the booking PDF to every supplier with a configured contact email.
+
+        Supplier email delivery does not depend on WhatsApp being connected or
+        on whatsapp_notifications_enabled. The booked items are grouped by
+        supplier so the email body lists only that supplier's items.
+        """
+        _, email_settings, _ = cls.get_settings(booking)
+
+        if not cls.can_send_email(email_settings):
+            return []
+
+        supplier_groups = cls._group_supplier_email_items(booking)
+
+        if not supplier_groups:
+            logger.info(
+                "No supplier email recipients found for booking %s.",
+                booking.booking_code,
+            )
+            return []
+
+        # Generate the same booking PDF once and reuse it for all suppliers.
+        attachment = build_ticket_attachment(booking)
+        logs = []
+
+        for supplier_group in supplier_groups:
+            recipient = supplier_group["recipient"]
+            supplier_name = supplier_group["supplier_name"]
+            supplier_key = supplier_group["supplier_key"]
+            items = supplier_group["items"]
+
+            if not force and cls._already_sent(
+                booking=booking,
+                channel="email",
+                audience="supplier",
+                recipient=recipient,
+                supplier_key=supplier_key,
+            ):
+                continue
+
+            log = BookingEmailService.send_supplier_booking(
+                booking=booking,
+                recipient=recipient,
+                supplier_name=supplier_name,
+                booking_items=items,
+                attachments=[attachment],
+            )
+
+            if not log:
+                continue
+
+            provider_response = dict(log.provider_response or {})
+            provider_response.update(
+                {
+                    "audience": "supplier",
+                    "event": event,
+                    "supplier_key": supplier_key,
+                    "supplier_name": supplier_name,
+                    "business_entity_id": supplier_group[
+                        "business_entity_id"
+                    ],
+                    "agreement_id": supplier_group["agreement_id"],
+                    "item_ids": [
+                        getattr(item, "id", None) for item in items
+                    ],
+                    "attachment": attachment.get("filename", ""),
+                }
+            )
+            log.provider_response = provider_response
+            log.save(update_fields=["provider_response"])
+            logs.append(log)
+
+        return logs
 
     @classmethod
     def send_customer_email_confirmation(
@@ -993,7 +1189,19 @@ class BookingNotificationService:
         if seller_log:
             logs.append(seller_log)
 
-        supplier_logs = cls._safe_dispatch(
+        supplier_email_logs = cls._safe_dispatch(
+            booking=booking,
+            label="Supplier email",
+            callback=lambda: cls.send_supplier_email_notifications(
+                booking,
+                force=force,
+                event=event,
+            ),
+            default=[],
+        )
+        logs.extend(supplier_email_logs)
+
+        supplier_whatsapp_logs = cls._safe_dispatch(
             booking=booking,
             label="Supplier WhatsApp",
             callback=lambda: cls.send_supplier_whatsapp_notifications(
@@ -1003,7 +1211,7 @@ class BookingNotificationService:
             ),
             default=[],
         )
-        logs.extend(supplier_logs)
+        logs.extend(supplier_whatsapp_logs)
 
         return logs
 
@@ -1040,7 +1248,8 @@ class BookingNotificationService:
 
         Customer and owner receive the PDF. An assigned seller receives the PDF,
         including when the customer booked through that seller's token/link.
-        Relevant suppliers receive WhatsApp reservations.
+        Relevant suppliers receive email with PDF and, when configured,
+        WhatsApp reservations.
         """
         return cls.send_ticket_notifications(
             booking,
