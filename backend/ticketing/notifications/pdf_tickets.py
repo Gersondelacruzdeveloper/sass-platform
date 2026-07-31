@@ -1101,8 +1101,8 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     content_w = content_right - content_x
     qr_size = 34 * mm
     qr_x = content_right - qr_size
-    qr_y = header_y - qr_size - 10 * mm
-    title_w = content_w - qr_size - 10 * mm
+    qr_y = header_y - qr_size - 20 * mm
+    title_w = content_w - qr_size - 14 * mm
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
