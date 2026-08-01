@@ -29,6 +29,7 @@ import {
   Users,
 } from "lucide-react";
 
+import api from "../../../../api/axios";
 import ticketingApi from "../../api/ticketingApi";
 import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import type {
@@ -127,6 +128,22 @@ type LiveAvailabilityResponse = {
   error?: string;
 };
 
+type SellerPricingQuote = {
+  product_id: number;
+  external_option_id?: string;
+  quantity: number;
+  unit_price?: string;
+  original_price: string;
+  allowance_type: "fixed_amount" | "percentage" | string;
+  seller_allowance_amount: string;
+  maximum_discount_amount: string;
+  maximum_discount_percent: string;
+  minimum_selling_price: string;
+  seller_commission_amount: string;
+  owner_net_amount: string;
+  currency?: string;
+};
+
 const initialForm: FormState = {
   productId: "",
   serviceDate: "",
@@ -221,28 +238,6 @@ function calculateDepositRequired(
   if (depositAmount > 0) return depositAmount;
   if (depositPercentage > 0) return (subtotal * depositPercentage) / 100;
   return 0;
-}
-
-function getSellerDiscountLimitPercent(
-  seller: Seller | null,
-  product: ExperienceProduct | null,
-) {
-  if (!seller || !product || !seller.can_apply_discounts) return 0;
-
-  const sellerLimit = Math.max(
-    0,
-    numberValue((seller as any).max_customer_discount_percent),
-  );
-  const productLimit = Math.max(
-    0,
-    numberValue((product as any).seller_allowed_discount_percent),
-  );
-
-  if (sellerLimit > 0 && productLimit > 0) {
-    return Math.min(sellerLimit, productLimit);
-  }
-
-  return sellerLimit || productLimit || 0;
 }
 
 function clampMoney(value: number, minimum: number, maximum: number) {
@@ -765,6 +760,10 @@ export default function TicketingSellerNewBookingPage() {
   const [loadingLiveAvailability, setLoadingLiveAvailability] = useState(false);
   const [liveAvailabilityError, setLiveAvailabilityError] = useState("");
   const [selectedLiveOptionId, setSelectedLiveOptionId] = useState("");
+  const [pricingQuote, setPricingQuote] =
+    useState<SellerPricingQuote | null>(null);
+  const [loadingPricingQuote, setLoadingPricingQuote] = useState(false);
+  const [pricingQuoteError, setPricingQuoteError] = useState("");
 
   async function loadPage() {
     if (!slug) return;
@@ -1088,18 +1087,124 @@ export default function TicketingSellerNewBookingPage() {
   }, [visiblePickupLocations, form.pickupLocationId]);
 
   const liveTicketQuantity = Math.max(1, getTotalGuests(form));
+  const chargeableQuantity = isLiveCocoBongoProduct
+    ? liveTicketQuantity
+    : getChargeableGuests(form);
   const unitPrice = isLiveCocoBongoProduct
     ? getLiveOptionPrice(selectedLiveOption)
     : numberValue(selectedProduct?.base_price);
-  const subtotal =
-    unitPrice *
-    (isLiveCocoBongoProduct ? liveTicketQuantity : getChargeableGuests(form));
-  const maximumDiscountPercent = getSellerDiscountLimitPercent(
-    seller,
-    selectedProduct,
-  );
+  const subtotal = unitPrice * chargeableQuantity;
+
+  const selectedExternalOptionId = selectedLiveOption
+    ? getLiveOptionKey(selectedLiveOption)
+    : "";
+  const selectedExternalProductId =
+    selectedLiveOption?.external_product_id || "";
+  const selectedExternalVariantId =
+    selectedLiveOption?.external_variant_id || "";
+  const selectedExternalAvailabilityId =
+    selectedLiveOption?.external_availability_id || "";
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function loadPricingQuote() {
+      if (
+        !slug ||
+        !seller ||
+        !selectedProduct ||
+        !seller.can_apply_discounts ||
+        unitPrice <= 0 ||
+        chargeableQuantity <= 0 ||
+        (isLiveCocoBongoProduct && !selectedLiveOption)
+      ) {
+        setPricingQuote(null);
+        setPricingQuoteError("");
+        setLoadingPricingQuote(false);
+        return;
+      }
+
+      try {
+        setLoadingPricingQuote(true);
+        setPricingQuote(null);
+        setPricingQuoteError("");
+
+        const response = await api.get<SellerPricingQuote>(
+          `/ticketing/seller/products/${selectedProduct.id}/pricing-quote/`,
+          {
+            signal: controller.signal,
+            params: {
+              slug,
+              organisation_slug: slug,
+              quantity: chargeableQuantity,
+              unit_price: moneyString(unitPrice),
+              service_date: form.serviceDate || undefined,
+              external_option_id: selectedExternalOptionId || undefined,
+              external_product_id: selectedExternalProductId || undefined,
+              external_variant_id: selectedExternalVariantId || undefined,
+              external_availability_id:
+                selectedExternalAvailabilityId || undefined,
+            },
+          },
+        );
+
+        if (!cancelled) {
+          setPricingQuote(response.data);
+        }
+      } catch (error: any) {
+        if (cancelled || error?.code === "ERR_CANCELED") return;
+
+        console.error("Could not load seller pricing quote:", error);
+        setPricingQuote(null);
+        setPricingQuoteError(
+          getErrorMessage(
+            error,
+            "Could not load the exact seller allowance. Discounts are disabled until pricing is available.",
+          ),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingPricingQuote(false);
+        }
+      }
+    }
+
+    loadPricingQuote();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    slug,
+    seller?.id,
+    seller?.can_apply_discounts,
+    selectedProduct?.id,
+    isLiveCocoBongoProduct,
+    selectedExternalOptionId,
+    selectedExternalProductId,
+    selectedExternalVariantId,
+    selectedExternalAvailabilityId,
+    unitPrice,
+    chargeableQuantity,
+    form.serviceDate,
+  ]);
+
+  const maximumDiscountPercent =
+    seller?.can_apply_discounts && pricingQuote
+      ? Math.max(
+          0,
+          numberValue(pricingQuote.maximum_discount_percent),
+        )
+      : 0;
   const maximumDiscountAmount =
-    subtotal > 0 ? (subtotal * maximumDiscountPercent) / 100 : 0;
+    seller?.can_apply_discounts && pricingQuote
+      ? Math.max(
+          0,
+          numberValue(pricingQuote.maximum_discount_amount),
+        )
+      : 0;
   const requestedDiscountAmount = seller?.can_apply_discounts
     ? numberValue(form.discountAmount)
     : 0;
@@ -1110,7 +1215,12 @@ export default function TicketingSellerNewBookingPage() {
   );
   const customerDiscountPercent =
     subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
-  const minimumSellingPrice = Math.max(subtotal - maximumDiscountAmount, 0);
+  const minimumSellingPrice = pricingQuote
+    ? Math.max(
+        0,
+        numberValue(pricingQuote.minimum_selling_price),
+      )
+    : subtotal;
   const taxAmount = 0;
   const totalAmount = Math.max(subtotal - discountAmount + taxAmount, 0);
   const depositRequired = calculateDepositRequired(selectedProduct, subtotal);
@@ -1129,14 +1239,21 @@ export default function TicketingSellerNewBookingPage() {
   );
 
   useEffect(() => {
-    if (!seller?.can_apply_discounts || maximumDiscountPercent <= 0) {
+    if (
+      !seller?.can_apply_discounts ||
+      (!loadingPricingQuote && maximumDiscountPercent <= 0)
+    ) {
       setForm((current) =>
         numberValue(current.discountAmount) === 0
           ? current
           : { ...current, discountAmount: "0.00" },
       );
     }
-  }, [seller?.can_apply_discounts, maximumDiscountPercent]);
+  }, [
+    seller?.can_apply_discounts,
+    loadingPricingQuote,
+    maximumDiscountPercent,
+  ]);
 
   const pickupTime =
     resolvedPickup?.found && resolvedPickup.schedule
@@ -1188,6 +1305,9 @@ export default function TicketingSellerNewBookingPage() {
     setLiveAvailability(null);
     setSelectedLiveOptionId("");
     setLiveAvailabilityError("");
+    setPricingQuote(null);
+    setPricingQuoteError("");
+    setLoadingPricingQuote(false);
     setForm((current) => ({
       ...current,
       productId,
@@ -1303,6 +1423,25 @@ export default function TicketingSellerNewBookingPage() {
         selectedLiveOption.sold_out === true)
     ) {
       return setErrorMessage(t("sellerNewBooking.errors.soldOut"));
+    }
+    if (
+      seller.can_apply_discounts &&
+      requestedDiscountAmount > 0 &&
+      loadingPricingQuote
+    ) {
+      return setErrorMessage(
+        "Please wait while the exact seller allowance is calculated.",
+      );
+    }
+    if (
+      seller.can_apply_discounts &&
+      requestedDiscountAmount > 0 &&
+      (!pricingQuote || pricingQuoteError)
+    ) {
+      return setErrorMessage(
+        pricingQuoteError ||
+          "The exact seller allowance is unavailable. Remove the discount and try again.",
+      );
     }
     if (!selectedAction)
       return setErrorMessage(t("sellerNewBooking.errors.selectPayment"));
@@ -1923,6 +2062,31 @@ export default function TicketingSellerNewBookingPage() {
               />
             </div>
 
+            {seller?.can_apply_discounts &&
+              selectedProduct &&
+              loadingPricingQuote && (
+                <div className="mt-5 flex items-center gap-3 rounded-[1.5rem] border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
+                  <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                  Calculating the exact seller allowance for this product
+                  and option...
+                </div>
+              )}
+
+            {seller?.can_apply_discounts &&
+              selectedProduct &&
+              !loadingPricingQuote &&
+              pricingQuoteError && (
+                <AlertBox
+                  tone="amber"
+                  icon={
+                    <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                  }
+                >
+                  {pricingQuoteError} Customer discounts are disabled for
+                  this selection.
+                </AlertBox>
+              )}
+
             {seller?.can_apply_discounts && maximumDiscountPercent > 0 && (
               <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
                 <Input
@@ -1969,6 +2133,13 @@ export default function TicketingSellerNewBookingPage() {
                   Maximum {maximumDiscountPercent.toFixed(2)}% ·{" "}
                   {formatMoney(maximumDiscountAmount)}. Minimum customer price:{" "}
                   {formatMoney(minimumSellingPrice)}.
+                  {pricingQuote?.allowance_type
+                    ? ` Allowance: ${
+                        pricingQuote.allowance_type === "fixed_amount"
+                          ? "fixed amount"
+                          : "percentage"
+                      }.`
+                    : ""}
                 </p>
               </div>
             )}

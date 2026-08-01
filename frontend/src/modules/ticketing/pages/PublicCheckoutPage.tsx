@@ -78,6 +78,51 @@ type CheckoutForm = {
   dropoff_maps_link: string;
 };
 
+type PublicSellerOffer = {
+  valid: boolean;
+  seller_id: number;
+  seller_slug: string;
+  seller_name?: string;
+  legacy_offer?: boolean;
+  offer_version?: number;
+  rule_id?: number | null;
+  rule_match_type?: string;
+  allowance_type?: string;
+  quantity: number | string;
+  quantity_locked?: boolean;
+  unit_price?: number | string | null;
+  original_unit_price?: number | string | null;
+  original_price?: number | string | null;
+  discount_percent?: number | string | null;
+  customer_discount_amount?: number | string | null;
+  discount_per_unit?: number | string | null;
+  customer_unit_price?: number | string | null;
+  customer_final_price?: number | string | null;
+  maximum_discount_amount?: number | string | null;
+  maximum_discount_percent?: number | string | null;
+  currency?: string;
+  package_id?: number | null;
+  event_ticket_type_id?: number | null;
+  external_option_id?: string;
+  external_option_ids?: string[];
+  external_option_name?: string;
+  service_date?: string;
+  option_locked?: boolean;
+  package_locked?: boolean;
+  event_ticket_type_locked?: boolean;
+  service_date_locked?: boolean;
+};
+
+type PublicProductResolveResponse = {
+  found?: boolean;
+  offer_valid?: boolean;
+  seller_offer?: PublicSellerOffer | null;
+  product?: (ExperienceProduct & {
+    has_seller_offer?: boolean;
+    seller_offer?: PublicSellerOffer | null;
+  }) | null;
+};
+
 function getApiBaseUrl() {
   const baseUrl =
     import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
@@ -186,6 +231,65 @@ function parseNumber(value: string | null | undefined, fallback = 0) {
   const number = Number(String(value).replace(/,/g, "").trim());
 
   return Number.isFinite(number) ? number : fallback;
+}
+
+function parseOptionalNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  const number = Number(String(value).replace(/,/g, "").trim());
+
+  return Number.isFinite(number) ? number : null;
+}
+
+function uniqueStrings(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function getSellerOfferFromResolve(
+  response: PublicProductResolveResponse | null | undefined
+) {
+  if (!response || response.offer_valid === false) return null;
+
+  const candidate =
+    response.seller_offer ||
+    response.product?.seller_offer ||
+    null;
+
+  return candidate?.valid === true ? candidate : null;
+}
+
+function getSellerOfferExternalIds(offer: PublicSellerOffer | null) {
+  if (!offer) return [];
+
+  return uniqueStrings([
+    offer.external_option_id,
+    offer.external_option_ids || [],
+  ]);
+}
+
+function externalSelectionMatchesOffer(
+  offer: PublicSellerOffer | null,
+  selectedIds: string[]
+) {
+  if (!offer) return true;
+
+  const offerIds = getSellerOfferExternalIds(offer);
+  const optionLocked =
+    offer.option_locked === true || offerIds.length > 0;
+
+  if (!optionLocked) return true;
+  if (!selectedIds.length) return false;
+
+  return offerIds.some((id) => selectedIds.includes(id));
 }
 
 function parseStringList(value: string | null | undefined) {
@@ -442,6 +546,8 @@ export default function PublicCheckoutPage() {
   const [paymentOptions, setPaymentOptions] = useState<PublicPaymentOptions | null>(null);
   const [selectedGateway, setSelectedGateway] = useState<OnlineGateway>("stripe");
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
+  const [sellerOffer, setSellerOffer] =
+    useState<PublicSellerOffer | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -458,8 +564,11 @@ export default function PublicCheckoutPage() {
   const hotelFromQuery = searchParams.get("hotel") || "";
   const pickupTime = normalizeTime(searchParams.get("pickup_time"));
   const pickupPoint = searchParams.get("pickup_point") || "";
-  const sellerSlug = searchParams.get("seller") || "";
+  const sellerSlugFromQuery = searchParams.get("seller") || "";
   const offerToken = searchParams.get("offer_token") || "";
+  const packageIdFromQuery = searchParams.get("package_id") || "";
+  const eventTicketTypeIdFromQuery =
+    searchParams.get("event_ticket_type_id") || "";
   const unitPriceOverride = searchParams.get("unit_price");
   const depositOverride = searchParams.get("deposit_amount");
   const adultPriceOverride = searchParams.get("adult_price");
@@ -557,8 +666,13 @@ export default function PublicCheckoutPage() {
     try {
       setLoading(true);
       setError("");
+      setSellerOffer(null);
 
-      const [brandingResponse, productsResponse, paymentOptionsResponse] = await Promise.all([
+      const [
+        brandingResponse,
+        productsResponse,
+        paymentOptionsResponse,
+      ] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
         ticketingApi.getPublicProducts(organisationSlug, {
           public_enabled: true,
@@ -567,6 +681,50 @@ export default function PublicCheckoutPage() {
         ticketingApi.getPublicPaymentOptions(organisationSlug),
       ]);
 
+      const productList = Array.isArray(productsResponse)
+        ? productsResponse
+        : [];
+
+      const selectedProduct =
+        productList.find((item) => String(item.id) === productId) ||
+        productList.find((item) => item.slug === productSlug) ||
+        null;
+
+      let validatedOffer: PublicSellerOffer | null = null;
+
+      if (offerToken) {
+        if (!selectedProduct) {
+          throw new Error(
+            "The product attached to this seller offer is not available."
+          );
+        }
+
+        const resolveResponse =
+          (await ticketingApi.getPublicProductResolve(
+            organisationSlug,
+            `/product/${selectedProduct.slug}`,
+            language,
+            offerToken
+          )) as PublicProductResolveResponse;
+
+        validatedOffer = getSellerOfferFromResolve(resolveResponse);
+
+        if (!validatedOffer) {
+          throw new Error(
+            "This seller offer could not be validated."
+          );
+        }
+
+        if (
+          String(resolveResponse.product?.id || "") !==
+          String(selectedProduct.id)
+        ) {
+          throw new Error(
+            "This seller offer does not belong to the selected product."
+          );
+        }
+      }
+
       setBranding(brandingResponse);
       setPaymentOptions(paymentOptionsResponse);
       setSelectedGateway(
@@ -574,12 +732,15 @@ export default function PublicCheckoutPage() {
           ? "paypal"
           : "stripe"
       );
-      setProducts(Array.isArray(productsResponse) ? productsResponse : []);
+      setProducts(productList);
+      setSellerOffer(validatedOffer);
     } catch (err: any) {
       console.error("Could not load checkout:", err);
+      setSellerOffer(null);
       setError(
         err?.response?.data?.detail ||
           err?.response?.data?.message ||
+          err?.message ||
           t("checkout.error.load", "We could not load checkout.")
       );
     } finally {
@@ -589,7 +750,13 @@ export default function PublicCheckoutPage() {
 
   useEffect(() => {
     loadPage();
-  }, [organisationSlug]);
+  }, [
+    organisationSlug,
+    productId,
+    productSlug,
+    offerToken,
+    language,
+  ]);
 
   const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;
@@ -614,6 +781,160 @@ export default function PublicCheckoutPage() {
       null
     );
   }, [products, productId, productSlug]);
+
+  const sellerOfferActive = Boolean(
+    offerToken && sellerOffer?.valid === true
+  );
+  const effectiveSellerSlug =
+    sellerOffer?.seller_slug || sellerSlugFromQuery;
+  const sellerOfferQuantity = Math.max(
+    1,
+    Math.trunc(
+      parseOptionalNumber(sellerOffer?.quantity) || guests
+    )
+  );
+  const sellerOfferOriginalTotal = parseOptionalNumber(
+    sellerOffer?.original_price
+  );
+  const sellerOfferCustomerTotal = parseOptionalNumber(
+    sellerOffer?.customer_final_price
+  );
+  const sellerOfferDiscountTotal = Math.max(
+    0,
+    parseOptionalNumber(
+      sellerOffer?.customer_discount_amount
+    ) || 0
+  );
+  const sellerOfferCustomerUnitPrice =
+    parseOptionalNumber(sellerOffer?.customer_unit_price) ??
+    (sellerOfferCustomerTotal !== null
+      ? sellerOfferCustomerTotal / sellerOfferQuantity
+      : null);
+  const sellerOfferOriginalUnitPrice =
+    parseOptionalNumber(sellerOffer?.original_unit_price) ??
+    parseOptionalNumber(sellerOffer?.unit_price) ??
+    (sellerOfferOriginalTotal !== null
+      ? sellerOfferOriginalTotal / sellerOfferQuantity
+      : null);
+
+  const selectedExternalIds = uniqueStrings([
+    selectedExternalProductId,
+    externalProductId,
+    externalVariantId,
+    externalAvailabilityId,
+    externalPerformanceId &&
+    externalProductId
+      ? `${externalPerformanceId}:${externalProductId}`
+      : "",
+  ]);
+
+  const sellerOfferConsistencyError = useMemo(() => {
+    if (!offerToken) return "";
+
+    if (!sellerOfferActive || !sellerOffer) {
+      return "This seller offer could not be validated.";
+    }
+
+    if (
+      sellerOffer.quantity_locked !== false &&
+      guests !== sellerOfferQuantity
+    ) {
+      return `This seller offer is valid for ${sellerOfferQuantity} ticket${
+        sellerOfferQuantity === 1 ? "" : "s"
+      }.`;
+    }
+
+    if (
+      sellerOffer.service_date &&
+      sellerOffer.service_date_locked !== false &&
+      serviceDate !== String(sellerOffer.service_date)
+    ) {
+      return `This seller offer is valid only for ${sellerOffer.service_date}.`;
+    }
+
+    if (
+      !externalSelectionMatchesOffer(
+        sellerOffer,
+        selectedExternalIds
+      )
+    ) {
+      return (
+        "The selected ticket option does not match " +
+        "the seller offer."
+      );
+    }
+
+    if (
+      sellerOffer.package_locked &&
+      String(sellerOffer.package_id || "") !==
+        String(packageIdFromQuery || "")
+    ) {
+      return (
+        "The selected package does not match " +
+        "the seller offer."
+      );
+    }
+
+    if (
+      sellerOffer.event_ticket_type_locked &&
+      String(sellerOffer.event_ticket_type_id || "") !==
+        String(eventTicketTypeIdFromQuery || "")
+    ) {
+      return (
+        "The selected ticket type does not match " +
+        "the seller offer."
+      );
+    }
+
+    if (
+      sellerOfferCustomerTotal === null ||
+      sellerOfferCustomerTotal < 0
+    ) {
+      return (
+        "The seller offer does not contain a valid " +
+        "customer price."
+      );
+    }
+
+    return "";
+  }, [
+    offerToken,
+    sellerOfferActive,
+    sellerOffer,
+    guests,
+    sellerOfferQuantity,
+    serviceDate,
+    selectedExternalIds.join("|"),
+    packageIdFromQuery,
+    eventTicketTypeIdFromQuery,
+    sellerOfferCustomerTotal,
+  ]);
+
+  const productReturnPath = product
+    ? effectiveSellerSlug
+      ? isCustomDomain
+        ? `/s/${encodeURIComponent(
+            effectiveSellerSlug
+          )}/product/${encodeURIComponent(
+            product.slug
+          )}${
+            offerToken
+              ? `?offer_token=${encodeURIComponent(offerToken)}`
+              : ""
+          }`
+        : `/experiences/${encodeURIComponent(
+            organisationSlug
+          )}/s/${encodeURIComponent(
+            effectiveSellerSlug
+          )}/product/${encodeURIComponent(
+            product.slug
+          )}${
+            offerToken
+              ? `?offer_token=${encodeURIComponent(offerToken)}`
+              : ""
+          }`
+      : publicPath(`/product/${product.slug}`)
+    : publicPath("/");
 
   const isTransfer = product?.product_type === "transfer";
 
@@ -661,28 +982,64 @@ export default function PublicCheckoutPage() {
   const legacyUnitPrice = adultUnitPrice;
 
   const passengerTotal =
-    adults * adultUnitPrice + children * childUnitPrice + infants * infantUnitPrice;
+    adults * adultUnitPrice +
+    children * childUnitPrice +
+    infants * infantUnitPrice;
 
   const depositPerGuest = useMemo(() => {
     const productDeposit = Number(product?.deposit_amount || 0);
     const override = parseNumber(depositOverride, NaN);
 
-    if (Number.isFinite(override) && override > 0) return override;
+    if (Number.isFinite(override) && override > 0) {
+      return override;
+    }
 
     return productDeposit;
   }, [product, depositOverride]);
 
-  const isExternalTicket = Boolean(externalOptionName || externalProductId || externalAvailabilityId);
+  const isExternalTicket = Boolean(
+    externalOptionName ||
+      externalProductId ||
+      externalAvailabilityId ||
+      getSellerOfferExternalIds(sellerOffer).length
+  );
 
-  const totalFull =
-    isTransfer && Number.isFinite(transferQuotedTotal) && transferQuotedTotal > 0
+  const normalTotalFull =
+    isTransfer &&
+    Number.isFinite(transferQuotedTotal) &&
+    transferQuotedTotal > 0
       ? transferQuotedTotal
       : isExternalTicket
         ? legacyUnitPrice * guests
         : passengerTotal;
 
-  const itemQuantity = isTransfer || (!isExternalTicket && !isTransfer) ? 1 : guests;
-  const itemUnitPrice = isTransfer || (!isExternalTicket && !isTransfer) ? totalFull : legacyUnitPrice;
+  const totalFull =
+    sellerOfferActive &&
+    sellerOfferCustomerTotal !== null
+      ? sellerOfferCustomerTotal
+      : normalTotalFull;
+
+  const itemQuantity = sellerOfferActive
+    ? sellerOfferQuantity
+    : isTransfer || (!isExternalTicket && !isTransfer)
+      ? 1
+      : guests;
+
+  const itemUnitPrice = sellerOfferActive
+    ? sellerOfferCustomerUnitPrice || totalFull / itemQuantity
+    : isTransfer || (!isExternalTicket && !isTransfer)
+      ? totalFull
+      : legacyUnitPrice;
+
+  const bookingAdultUnitPrice = sellerOfferActive
+    ? sellerOfferCustomerUnitPrice || itemUnitPrice
+    : adultUnitPrice;
+  const bookingChildUnitPrice = sellerOfferActive
+    ? 0
+    : childUnitPrice;
+  const bookingInfantUnitPrice = sellerOfferActive
+    ? 0
+    : infantUnitPrice;
 
   const depositFromPercent =
     Number(product?.deposit_percentage || 0) > 0
@@ -729,6 +1086,10 @@ export default function PublicCheckoutPage() {
   }
 
   function validateForm() {
+    if (sellerOfferConsistencyError) {
+      return sellerOfferConsistencyError;
+    }
+
     if (!product) {
       return t("checkout.validation.product_missing", "Product was not found.");
     }
@@ -837,9 +1198,10 @@ export default function PublicCheckoutPage() {
         isTransfer && transferOrigin ? `Route from: ${transferOrigin}` : "",
         isTransfer && transferDestination ? `Route to: ${transferDestination}` : "",
         isTransfer && transferVehicleType ? `Vehicle: ${transferVehicleType}` : "",
-        !isTransfer && !isExternalTicket ? `Adult price: ${adultUnitPrice.toFixed(2)} x ${adults}` : "",
-        !isTransfer && !isExternalTicket && children > 0 ? `Child price: ${childUnitPrice.toFixed(2)} x ${children}` : "",
-        !isTransfer && !isExternalTicket && infants > 0 ? `Infant price: ${infantUnitPrice.toFixed(2)} x ${infants}` : "",
+        sellerOfferActive ? "Secure seller offer applied." : "",
+        !isTransfer && !isExternalTicket ? `Adult price: ${bookingAdultUnitPrice.toFixed(2)} x ${adults}` : "",
+        !isTransfer && !isExternalTicket && children > 0 ? `Child price: ${bookingChildUnitPrice.toFixed(2)} x ${children}` : "",
+        !isTransfer && !isExternalTicket && infants > 0 ? `Infant price: ${bookingInfantUnitPrice.toFixed(2)} x ${infants}` : "",
         isTransfer ? `Passengers: ${guests}` : "",
         isTransfer && form.pickup_name.trim() ? `Pickup: ${form.pickup_name.trim()}` : "",
         isTransfer && form.pickup_address.trim() ? `Pickup address: ${form.pickup_address.trim()}` : "",
@@ -852,7 +1214,10 @@ export default function PublicCheckoutPage() {
 
       const itemPayload = {
         product_id: product.id,
-        product_name: externalOptionName || product.name,
+        product_name:
+          sellerOffer?.external_option_name ||
+          externalOptionName ||
+          product.name,
         service_date: serviceDate,
         service_time: pickupTime,
         quantity: itemQuantity,
@@ -863,12 +1228,30 @@ export default function PublicCheckoutPage() {
         // These values come from PublicProductDetailPage.tsx via checkout URL.
         // Backend validates this selected option against live availability and stores
         // the official selected ticket snapshot on the BookingItem.
-        selected_external_product_id: selectedExternalProductId,
-        external_provider: externalProvider || (externalOptionName ? "wellet" : ""),
+        selected_external_product_id:
+          sellerOfferActive
+            ? sellerOffer?.external_option_id ||
+              selectedExternalProductId
+            : selectedExternalProductId,
+        external_provider:
+          externalProvider ||
+          (externalOptionName ? "wellet" : ""),
         external_product_id: externalProductId,
         external_variant_id: externalVariantId,
         external_availability_id: externalAvailabilityId,
-        external_option_name: externalOptionName,
+        external_option_name:
+          sellerOffer?.external_option_name ||
+          externalOptionName,
+        package_id:
+          sellerOffer?.package_id ||
+          (packageIdFromQuery
+            ? Number(packageIdFromQuery)
+            : null),
+        event_ticket_type_id:
+          sellerOffer?.event_ticket_type_id ||
+          (eventTicketTypeIdFromQuery
+            ? Number(eventTicketTypeIdFromQuery)
+            : null),
       };
 
       const paymentsPayload = shouldCreatePendingPayment(paymentChoice)
@@ -918,11 +1301,13 @@ export default function PublicCheckoutPage() {
         adults,
         children,
         infants,
-        adult_unit_price: adultUnitPrice.toFixed(2),
-        child_unit_price: childUnitPrice.toFixed(2),
-        infant_unit_price: infantUnitPrice.toFixed(2),
+        adult_unit_price: bookingAdultUnitPrice.toFixed(2),
+        child_unit_price: bookingChildUnitPrice.toFixed(2),
+        infant_unit_price: bookingInfantUnitPrice.toFixed(2),
         subtotal_amount: totalFull.toFixed(2),
-        discount_amount: "0.00",
+        discount_amount: sellerOfferActive
+          ? sellerOfferDiscountTotal.toFixed(2)
+          : "0.00",
         tax_amount: "0.00",
         total_amount: totalFull.toFixed(2),
         deposit_required: payNow.toFixed(2),
@@ -933,17 +1318,20 @@ export default function PublicCheckoutPage() {
         payments_payload: paymentsPayload,
       };
 
-      if (sellerSlug) {
-        payload.seller_slug = sellerSlug;
+      if (effectiveSellerSlug) {
+        payload.seller_slug = effectiveSellerSlug;
       }
 
-      const booking: Booking = sellerSlug
+      const booking: Booking = effectiveSellerSlug
         ? await ticketingApi.createPublicSellerBooking(
             organisationSlug,
-            sellerSlug,
+            effectiveSellerSlug,
             payload
           )
-        : await ticketingApi.createPublicBooking(organisationSlug, payload);
+        : await ticketingApi.createPublicBooking(
+            organisationSlug,
+            payload
+          );
 
       if (shouldCreatePendingPayment(paymentChoice)) {
         const paymentPayload = {
@@ -1064,7 +1452,7 @@ export default function PublicCheckoutPage() {
     >
       <div className="mb-6">
         <Link
-          to={product ? publicPath(`/product/${product.slug}`) : publicPath("/")}
+          to={productReturnPath}
           className="inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-extrabold"
           style={{
             backgroundColor: theme.card,
@@ -1098,10 +1486,41 @@ export default function PublicCheckoutPage() {
             Enter your details. Transfer bookings are confirmed in advance with your selected route, pickup, drop-off, date and time.
           </p>
 
-          {error && (
+          {sellerOfferActive && !sellerOfferConsistencyError && (
+            <div
+              className="mt-5 flex items-start gap-3 rounded-2xl border p-4"
+              style={{
+                backgroundColor: hexToRgba(theme.accent, 0.08),
+                borderColor: hexToRgba(theme.accent, 0.28),
+              }}
+            >
+              <ShieldCheck
+                className="mt-0.5 h-5 w-5 shrink-0"
+                style={{ color: theme.accent }}
+              />
+              <div>
+                <p className="text-sm font-black" style={{ color: theme.text }}>
+                  Secure seller offer verified
+                </p>
+                <p
+                  className="mt-1 text-xs font-semibold leading-5"
+                  style={{ color: theme.muted }}
+                >
+                  The product, price, quantity
+                  {sellerOffer?.service_date ? ", date" : ""}
+                  {getSellerOfferExternalIds(sellerOffer).length
+                    ? " and ticket option"
+                    : ""}{" "}
+                  are protected by the signed offer link.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {(error || sellerOfferConsistencyError) && (
             <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-              {error}
+              {sellerOfferConsistencyError || error}
             </div>
           )}
 
@@ -1279,7 +1698,11 @@ export default function PublicCheckoutPage() {
 
           <button
             type="submit"
-            disabled={submitting || !product}
+            disabled={
+              submitting ||
+              !product ||
+              Boolean(sellerOfferConsistencyError)
+            }
             className="mt-6 inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-60"
             style={{ backgroundColor: theme.button }}
           >
@@ -1300,7 +1723,11 @@ export default function PublicCheckoutPage() {
           </p>
 
           <h2 className="mt-2 text-xl font-black" style={{ color: theme.text }}>
-            {externalOptionName || product?.name || productSlug || "Selected experience"}
+            {sellerOffer?.external_option_name ||
+              externalOptionName ||
+              product?.name ||
+              productSlug ||
+              "Selected experience"}
           </h2>
 
           <div className="mt-5 space-y-3">
@@ -1342,7 +1769,7 @@ export default function PublicCheckoutPage() {
                   infants === 1 ? "checkout.passenger.infant" : "checkout.passenger.infants",
                   infants === 1 ? "infant" : "infants"
                 )}`} theme={theme} />
-            {!isTransfer && !isExternalTicket && (
+            {!isTransfer && !isExternalTicket && !sellerOfferActive && (
               <SummaryRow
                 icon={<Ticket className="h-4 w-4" />}
                 label={t("checkout.summary.price_breakdown", "Price breakdown")}
@@ -1376,6 +1803,69 @@ export default function PublicCheckoutPage() {
               <SummaryRow icon={<MapPin className="h-4 w-4" />} label={t("checkout.summary.pickup_point", "Pickup point")} value={pickupPoint} theme={theme} />
             )}
           </div>
+
+          {sellerOfferActive && !sellerOfferConsistencyError && (
+            <div
+              className="mt-6 rounded-2xl border p-4"
+              style={{
+                backgroundColor: hexToRgba(theme.accent, 0.08),
+                borderColor: hexToRgba(theme.accent, 0.25),
+              }}
+            >
+              <div className="flex items-center justify-between text-sm font-black">
+                <span style={{ color: theme.text }}>
+                  Secure seller offer
+                </span>
+                <ShieldCheck
+                  className="h-5 w-5"
+                  style={{ color: theme.accent }}
+                />
+              </div>
+
+              {sellerOfferOriginalTotal !== null &&
+                sellerOfferOriginalTotal > totalFull && (
+                  <div className="mt-3 flex items-center justify-between text-sm font-bold">
+                    <span style={{ color: theme.muted }}>
+                      Original total
+                    </span>
+                    <span
+                      className="line-through"
+                      style={{ color: theme.muted }}
+                    >
+                      {money(
+                        sellerOfferOriginalTotal,
+                        currencySymbol,
+                        language
+                      )}
+                    </span>
+                  </div>
+                )}
+
+              {sellerOfferDiscountTotal > 0 && (
+                <div className="mt-2 flex items-center justify-between text-sm font-bold">
+                  <span style={{ color: theme.muted }}>
+                    Offer discount
+                  </span>
+                  <span style={{ color: theme.text }}>
+                    −{money(
+                      sellerOfferDiscountTotal,
+                      currencySymbol,
+                      language
+                    )}
+                  </span>
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center justify-between text-sm font-black">
+                <span style={{ color: theme.text }}>
+                  Offer total
+                </span>
+                <span style={{ color: theme.text }}>
+                  {money(totalFull, currencySymbol, language)}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div
             className="mt-6 rounded-2xl border p-4"

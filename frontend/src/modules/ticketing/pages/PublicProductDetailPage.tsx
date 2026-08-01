@@ -158,6 +158,12 @@ type LiveTicketOption = {
   name?: string;
   option_name?: string;
   price?: number | string;
+  original_price?: number | string;
+  discount_amount?: number | string;
+  discount_percent?: number | string;
+  has_seller_offer?: boolean;
+  seller_offer_locked?: boolean;
+  seller_offer_external_option_id?: string;
   currency?: string;
   available?: boolean;
   available_quantity?: number | null;
@@ -173,6 +179,45 @@ type LiveTicketOption = {
   raw?: unknown;
 };
 
+type PublicSellerOffer = {
+  valid: boolean;
+  seller_id: number;
+  seller_slug: string;
+  seller_name?: string;
+  legacy_offer?: boolean;
+  offer_version?: number;
+  rule_id?: number | null;
+  rule_match_type?: string;
+  allowance_type?: string;
+  quantity: number;
+  quantity_locked?: boolean;
+  unit_price?: string | number | null;
+  original_unit_price?: string | number | null;
+  original_price?: string | number | null;
+  discount_percent?: string | number | null;
+  customer_discount_amount?: string | number | null;
+  discount_per_unit?: string | number | null;
+  customer_unit_price?: string | number | null;
+  customer_final_price?: string | number | null;
+  seller_allowance_amount?: string | number | null;
+  seller_commission_amount?: string | number | null;
+  seller_commission_per_unit?: string | number | null;
+  owner_net_amount?: string | number | null;
+  maximum_discount_amount?: string | number | null;
+  maximum_discount_percent?: string | number | null;
+  currency?: string;
+  package_id?: number | null;
+  event_ticket_type_id?: number | null;
+  external_option_id?: string;
+  external_option_ids?: string[];
+  external_option_name?: string;
+  service_date?: string;
+  option_locked?: boolean;
+  package_locked?: boolean;
+  event_ticket_type_locked?: boolean;
+  service_date_locked?: boolean;
+};
+
 type LiveAvailabilityResponse = {
   ok: boolean;
   provider: "wellet" | "local" | string;
@@ -185,6 +230,9 @@ type LiveAvailabilityResponse = {
   service_date?: string;
   options: LiveTicketOption[];
   error?: string;
+  offer_valid?: boolean;
+  seller_offer?: PublicSellerOffer | null;
+  selected_offer_option_id?: string;
 };
 
 const productTypeLabels: Record<ProductType, string> = {
@@ -685,6 +733,86 @@ function getLiveOptionPrice(option: LiveTicketOption | null) {
   if (!option) return 0;
 
   return Number(option.price || 0);
+}
+
+function numberValue(value: unknown) {
+  const amount = Number(value || 0);
+
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function getSellerOfferFromResponse(
+  resolveResponse: any,
+  product: ExperienceProduct | null,
+): PublicSellerOffer | null {
+  const candidate =
+    resolveResponse?.seller_offer ||
+    (product as any)?.seller_offer ||
+    null;
+
+  if (!candidate || candidate.valid !== true) {
+    return null;
+  }
+
+  return candidate as PublicSellerOffer;
+}
+
+function getSellerOfferOptionIds(
+  offer?: PublicSellerOffer | null,
+  selectedOfferOptionId?: string,
+) {
+  const values = [
+    selectedOfferOptionId,
+    offer?.external_option_id,
+    ...(Array.isArray(offer?.external_option_ids)
+      ? offer!.external_option_ids!
+      : []),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(values));
+}
+
+function getLiveOptionIdentityValues(option: LiveTicketOption) {
+  return Array.from(
+    new Set(
+      [
+        getLiveOptionKey(option),
+        option.external_availability_id,
+        option.external_variant_id,
+        option.external_product_id,
+        option.performance_id,
+        option.seller_offer_external_option_id,
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function findSellerOfferLiveOption(
+  options: LiveTicketOption[],
+  offer?: PublicSellerOffer | null,
+  selectedOfferOptionId?: string,
+) {
+  const offerIds = new Set(
+    getSellerOfferOptionIds(offer, selectedOfferOptionId),
+  );
+
+  if (!offerIds.size) return null;
+
+  return (
+    options.find((option) =>
+      getLiveOptionIdentityValues(option).some((value) =>
+        offerIds.has(value),
+      ),
+    ) || null
+  );
+}
+
+function getSellerOfferQuantity(offer?: PublicSellerOffer | null) {
+  return Math.max(1, Math.trunc(numberValue(offer?.quantity || 1)));
 }
 
 function isTransferProduct(product: ExperienceProduct | null) {
@@ -1555,6 +1683,8 @@ export default function PublicProductDetailPage() {
   const [loadingLiveAvailability, setLoadingLiveAvailability] = useState(false);
   const [liveAvailabilityError, setLiveAvailabilityError] = useState("");
   const [selectedLiveOptionId, setSelectedLiveOptionId] = useState("");
+  const [sellerOffer, setSellerOffer] =
+    useState<PublicSellerOffer | null>(null);
   const [selectedTransferRouteId, setSelectedTransferRouteId] = useState("");
   const [transferRoundTrip, setTransferRoundTrip] = useState(false);
   const [preferredPickupTime, setPreferredPickupTime] = useState("");
@@ -1592,19 +1722,42 @@ export default function PublicProductDetailPage() {
       if (!foundProduct) {
         setBranding(brandingResponse);
         setProduct(null);
+        setSellerOffer(null);
         setCanonicalUrl("");
         setPickupLocations([]);
         setError("This product is not available or is no longer public.");
         return;
       }
 
+      const resolvedSellerOffer = getSellerOfferFromResponse(
+        resolveResponse,
+        foundProduct,
+      );
+
       setBranding(brandingResponse);
       setProduct(foundProduct);
+      setSellerOffer(resolvedSellerOffer);
       setCanonicalUrl(
         resolveResponse.canonical_url ||
           String((foundProduct as any).primary_url || "") ||
           ""
       );
+
+      if (resolvedSellerOffer) {
+        const lockedQuantity = getSellerOfferQuantity(
+          resolvedSellerOffer,
+        );
+
+        setQty({
+          adult: lockedQuantity,
+          child: 0,
+          infant: 0,
+        });
+
+        if (resolvedSellerOffer.service_date) {
+          setDate(String(resolvedSellerOffer.service_date));
+        }
+      }
 
       const redirectPath = normalizePublicPath(
         resolveResponse.current_public_path || getProductPublicPath(foundProduct)
@@ -1732,16 +1885,46 @@ export default function PublicProductDetailPage() {
         );
         setLiveAvailability(response);
 
+        const responseSellerOffer =
+          response.seller_offer?.valid === true
+            ? response.seller_offer
+            : sellerOffer;
         const normalizedOptions = normalizeLiveTicketOptions(
-          response.options || []
+          response.options || [],
         );
+        const lockedOfferOption = findSellerOfferLiveOption(
+          normalizedOptions,
+          responseSellerOffer,
+          response.selected_offer_option_id,
+        );
+
+        if (response.seller_offer?.valid === true) {
+          setSellerOffer((current) => ({
+            ...(current || response.seller_offer!),
+            ...response.seller_offer!,
+          }));
+        }
+
+        if (
+          offerToken &&
+          responseSellerOffer?.option_locked &&
+          !lockedOfferOption
+        ) {
+          setSelectedLiveOptionId("");
+          setLiveAvailabilityError(
+            "The ticket option attached to this seller offer is not available.",
+          );
+          return;
+        }
 
         const firstAvailableOption = getFirstAvailableLiveOption(
-          normalizedOptions
+          normalizedOptions,
         );
+        const optionToSelect =
+          lockedOfferOption || firstAvailableOption;
 
         setSelectedLiveOptionId(
-          firstAvailableOption ? getLiveOptionKey(firstAvailableOption) : ""
+          optionToSelect ? getLiveOptionKey(optionToSelect) : "",
         );
       } catch (err: any) {
         console.error("Could not load live ticket availability:", err);
@@ -1759,7 +1942,15 @@ export default function PublicProductDetailPage() {
     }
 
     loadLiveAvailability();
-  }, [organisationSlug, product?.id, product?.slug, date,  offerToken,]);
+  }, [
+    organisationSlug,
+    product?.id,
+    product?.slug,
+    date,
+    offerToken,
+    sellerOffer?.external_option_id,
+    sellerOffer?.service_date,
+  ]);
 
   const publicSite = branding?.public_site as any;
   const ticketingSettings = branding?.ticketing_settings;
@@ -1829,6 +2020,59 @@ export default function PublicProductDetailPage() {
       ) || null
     );
   }, [selectedLiveOptionId, liveAvailabilityOptions]);
+
+  const sellerOfferActive = Boolean(
+    offerToken && sellerOffer?.valid === true,
+  );
+  const sellerOfferQuantity = getSellerOfferQuantity(sellerOffer);
+  const sellerOfferQuantityLocked = Boolean(
+    sellerOfferActive &&
+      (sellerOffer?.quantity_locked !== false),
+  );
+  const sellerOfferDateLocked = Boolean(
+    sellerOfferActive &&
+      sellerOffer?.service_date &&
+      sellerOffer?.service_date_locked !== false,
+  );
+  const sellerOfferOptionLocked = Boolean(
+    sellerOfferActive &&
+      (sellerOffer?.option_locked ||
+        sellerOffer?.external_option_id ||
+        sellerOffer?.external_option_ids?.length),
+  );
+  const sellerOfferOriginalTotal = numberValue(
+    sellerOffer?.original_price,
+  );
+  const sellerOfferCustomerTotal = numberValue(
+    sellerOffer?.customer_final_price,
+  );
+  const sellerOfferCustomerUnitPrice = numberValue(
+    sellerOffer?.customer_unit_price,
+  );
+  const sellerOfferDiscountTotal = numberValue(
+    sellerOffer?.customer_discount_amount,
+  );
+
+  const selectedLiveOptionMatchesOffer = useMemo(() => {
+    if (!sellerOfferOptionLocked) return true;
+    if (!selectedLiveOption) return false;
+
+    const allowedIds = new Set(
+      getSellerOfferOptionIds(
+        sellerOffer,
+        liveAvailability?.selected_offer_option_id,
+      ),
+    );
+
+    return getLiveOptionIdentityValues(selectedLiveOption).some(
+      (value) => allowedIds.has(value),
+    );
+  }, [
+    sellerOfferOptionLocked,
+    sellerOffer,
+    selectedLiveOption,
+    liveAvailability?.selected_offer_option_id,
+  ]);
 
   const isTransfer = isTransferProduct(product);
 
@@ -1953,11 +2197,16 @@ export default function PublicProductDetailPage() {
       };
     }
 
-    const fullTotal = isTransfer
+    const standardFullTotal = isTransfer
       ? transferTotalPrice
       : isExternalLiveProduct(product)
         ? getLiveOptionPrice(selectedLiveOption) * pax
         : getPassengerSubtotal(product, selectedAvailability, qty);
+
+    const fullTotal =
+      sellerOfferActive && sellerOfferCustomerTotal >= 0
+        ? sellerOfferCustomerTotal
+        : standardFullTotal;
 
     const depositBase = getEffectiveDepositAmount(product, selectedAvailability);
     const depositFixed = isTransfer ? depositBase : depositBase * pax;
@@ -1991,6 +2240,8 @@ export default function PublicProductDetailPage() {
     paymentChoice,
     selectedAvailability,
     selectedLiveOption,
+    sellerOfferActive,
+    sellerOfferCustomerTotal,
   ]);
 
   useEffect(() => {
@@ -2110,7 +2361,45 @@ export default function PublicProductDetailPage() {
     }
   }
 
+  function updateDate(nextDate: string) {
+    if (
+      sellerOfferDateLocked &&
+      nextDate !== String(sellerOffer?.service_date || "")
+    ) {
+      setNotice({
+        type: "checkout",
+        title: "This date is fixed by the seller offer.",
+      });
+      return;
+    }
+
+    setDate(nextDate);
+  }
+
+  function updateLiveOption(optionId: string) {
+    if (
+      sellerOfferOptionLocked &&
+      optionId !== selectedLiveOptionId
+    ) {
+      setNotice({
+        type: "checkout",
+        title: "This ticket option is fixed by the seller offer.",
+      });
+      return;
+    }
+
+    setSelectedLiveOptionId(optionId);
+  }
+
   function updateQty(key: QtyKey, direction: "up" | "down") {
+    if (sellerOfferQuantityLocked) {
+      setNotice({
+        type: "checkout",
+        title: "The ticket quantity is fixed by the seller offer.",
+      });
+      return;
+    }
+
     setQty((current) => {
       const next = {
         ...current,
@@ -2133,6 +2422,27 @@ export default function PublicProductDetailPage() {
     if (!date) return false;
     if (qty.adult < 1) return false;
     if (pax < 1) return false;
+
+    if (
+      sellerOfferQuantityLocked &&
+      pax !== sellerOfferQuantity
+    ) {
+      return false;
+    }
+
+    if (
+      sellerOfferDateLocked &&
+      date !== String(sellerOffer?.service_date || "")
+    ) {
+      return false;
+    }
+
+    if (
+      sellerOfferOptionLocked &&
+      !selectedLiveOptionMatchesOffer
+    ) {
+      return false;
+    }
 
     if (isTransfer) {
       if (!selectedTransferRoute) return false;
@@ -2176,6 +2486,12 @@ export default function PublicProductDetailPage() {
     liveAvailabilityError,
     selectedLiveOption,
     liveOptionAvailable,
+    sellerOfferQuantityLocked,
+    sellerOfferQuantity,
+    sellerOfferDateLocked,
+    sellerOffer?.service_date,
+    sellerOfferOptionLocked,
+    selectedLiveOptionMatchesOffer,
   ]);
 
   const checkoutUrl = useMemo(() => {
@@ -2227,6 +2543,42 @@ export default function PublicProductDetailPage() {
 
   function goToCheckout() {
     if (!product) return;
+
+    if (
+      sellerOfferQuantityLocked &&
+      pax !== sellerOfferQuantity
+    ) {
+      setNotice({
+        type: "checkout",
+        title: "This seller offer has a fixed ticket quantity.",
+        subtitle: `This link is valid for ${sellerOfferQuantity} ticket${
+          sellerOfferQuantity === 1 ? "" : "s"
+        }.`,
+      });
+      return;
+    }
+
+    if (
+      sellerOfferDateLocked &&
+      date !== String(sellerOffer?.service_date || "")
+    ) {
+      setNotice({
+        type: "checkout",
+        title: "This seller offer has a fixed service date.",
+      });
+      return;
+    }
+
+    if (
+      sellerOfferOptionLocked &&
+      !selectedLiveOptionMatchesOffer
+    ) {
+      setNotice({
+        type: "checkout",
+        title: "This seller offer is for one exact ticket option.",
+      });
+      return;
+    }
 
     if (!canCheckout) {
       if (!paymentOptions.length) {
@@ -2687,7 +3039,16 @@ export default function PublicProductDetailPage() {
                 transferPriceMissing={transferPriceMissing}
                 currencySymbol={currencySymbol}
                 date={date}
-                setDate={setDate}
+                setDate={updateDate}
+                sellerOffer={sellerOffer}
+                sellerOfferActive={sellerOfferActive}
+                sellerOfferDateLocked={sellerOfferDateLocked}
+                sellerOfferQuantityLocked={sellerOfferQuantityLocked}
+                sellerOfferOptionLocked={sellerOfferOptionLocked}
+                sellerOfferOriginalTotal={sellerOfferOriginalTotal}
+                sellerOfferCustomerTotal={sellerOfferCustomerTotal}
+                sellerOfferCustomerUnitPrice={sellerOfferCustomerUnitPrice}
+                sellerOfferDiscountTotal={sellerOfferDiscountTotal}
                 qty={qty}
                 updateQty={updateQty}
                 pickupLocations={pickupLocations}
@@ -2702,8 +3063,8 @@ export default function PublicProductDetailPage() {
                 liveAvailabilityOptions={liveAvailabilityOptions}
                 selectedLiveOptionId={selectedLiveOptionId}
                 selectedLiveOption={selectedLiveOption}
-                setSelectedLiveOptionId={setSelectedLiveOptionId}
-                      loadingLiveAvailability={loadingLiveAvailability}
+                setSelectedLiveOptionId={updateLiveOption}
+                loadingLiveAvailability={loadingLiveAvailability}
                 liveAvailabilityError={liveAvailabilityError}
                 isWelletProduct={isWelletProduct}
                 hasAdvancedAvailability={hasAdvancedAvailability}
@@ -2912,7 +3273,16 @@ export default function PublicProductDetailPage() {
                 transferPriceMissing={transferPriceMissing}
                 currencySymbol={currencySymbol}
                 date={date}
-                setDate={setDate}
+                setDate={updateDate}
+                sellerOffer={sellerOffer}
+                sellerOfferActive={sellerOfferActive}
+                sellerOfferDateLocked={sellerOfferDateLocked}
+                sellerOfferQuantityLocked={sellerOfferQuantityLocked}
+                sellerOfferOptionLocked={sellerOfferOptionLocked}
+                sellerOfferOriginalTotal={sellerOfferOriginalTotal}
+                sellerOfferCustomerTotal={sellerOfferCustomerTotal}
+                sellerOfferCustomerUnitPrice={sellerOfferCustomerUnitPrice}
+                sellerOfferDiscountTotal={sellerOfferDiscountTotal}
                 qty={qty}
                 updateQty={updateQty}
                 pickupLocations={pickupLocations}
@@ -2927,8 +3297,8 @@ export default function PublicProductDetailPage() {
                 liveAvailabilityOptions={liveAvailabilityOptions}
                 selectedLiveOptionId={selectedLiveOptionId}
                 selectedLiveOption={selectedLiveOption}
-                setSelectedLiveOptionId={setSelectedLiveOptionId}
-                      loadingLiveAvailability={loadingLiveAvailability}
+                setSelectedLiveOptionId={updateLiveOption}
+                loadingLiveAvailability={loadingLiveAvailability}
                 liveAvailabilityError={liveAvailabilityError}
                 isWelletProduct={isWelletProduct}
                 hasAdvancedAvailability={hasAdvancedAvailability}
@@ -3203,6 +3573,15 @@ function BookingCard({
   currencySymbol,
   date,
   setDate,
+  sellerOffer,
+  sellerOfferActive,
+  sellerOfferDateLocked,
+  sellerOfferQuantityLocked,
+  sellerOfferOptionLocked,
+  sellerOfferOriginalTotal,
+  sellerOfferCustomerTotal,
+  sellerOfferCustomerUnitPrice,
+  sellerOfferDiscountTotal,
   qty,
   updateQty,
   pickupLocations,
@@ -3251,6 +3630,15 @@ function BookingCard({
   currencySymbol: string;
   date: string;
   setDate: (date: string) => void;
+  sellerOffer: PublicSellerOffer | null;
+  sellerOfferActive: boolean;
+  sellerOfferDateLocked: boolean;
+  sellerOfferQuantityLocked: boolean;
+  sellerOfferOptionLocked: boolean;
+  sellerOfferOriginalTotal: number;
+  sellerOfferCustomerTotal: number;
+  sellerOfferCustomerUnitPrice: number;
+  sellerOfferDiscountTotal: number;
   qty: BookingQty;
   updateQty: (key: QtyKey, direction: "up" | "down") => void;
   pickupLocations: PickupLocation[];
@@ -3292,11 +3680,18 @@ function BookingCard({
   theme: PublicTheme;
 }) {
   const pax = qty.adult + qty.child + qty.infant;
-  const displayUnitPrice = isTransfer
-    ? transferTotalPrice
-    : isWelletProduct
-      ? getLiveOptionPrice(selectedLiveOption)
-      : getEffectiveAdultPrice(product, selectedAvailability);
+  const displayUnitPrice = sellerOfferActive
+    ? sellerOfferCustomerUnitPrice ||
+      sellerOfferCustomerTotal / Math.max(1, pax)
+    : isTransfer
+      ? transferTotalPrice
+      : isWelletProduct
+        ? getLiveOptionPrice(selectedLiveOption)
+        : getEffectiveAdultPrice(product, selectedAvailability);
+  const displayOriginalUnitPrice = sellerOfferActive
+    ? numberValue(sellerOffer?.original_unit_price) ||
+      sellerOfferOriginalTotal / Math.max(1, pax)
+    : 0;
   const displayDeposit = isTransfer
     ? getEffectiveDepositAmount(product, selectedAvailability)
     : getEffectiveDepositAmount(product, selectedAvailability);
@@ -3317,19 +3712,32 @@ function BookingCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-bold" style={{ color: theme.muted }}>
-              From
+              {sellerOfferActive ? "Your seller offer" : "From"}
             </div>
+
+            {sellerOfferActive &&
+              displayOriginalUnitPrice > displayUnitPrice && (
+                <div
+                  className="mt-1 text-sm font-bold line-through"
+                  style={{ color: theme.muted }}
+                >
+                  {money2(displayOriginalUnitPrice, currencySymbol)}
+                </div>
+              )}
+
             <div className="mt-1 text-3xl font-extrabold" style={{ color: theme.text }}>
-              {money(displayUnitPrice, currencySymbol)}
+              {money2(displayUnitPrice, currencySymbol)}
             </div>
             <div className="text-sm font-semibold" style={{ color: theme.muted }}>
-              {isTransfer
-                ? selectedTransferRoute
-                  ? "per vehicle / group"
-                  : "choose route"
-                : selectedAvailability?.price_override
-                  ? "adult price · selected date price"
-                  : "adult price"}
+              {sellerOfferActive
+                ? "per ticket · secure signed price"
+                : isTransfer
+                  ? selectedTransferRoute
+                    ? "per vehicle / group"
+                    : "choose route"
+                  : selectedAvailability?.price_override
+                    ? "adult price · selected date price"
+                    : "adult price"}
             </div>
           </div>
 
@@ -3385,6 +3793,64 @@ function BookingCard({
         <div className="mt-3 text-xs font-semibold" style={{ color: theme.muted }}>
           Secure checkout • Local support • Fast confirmation
         </div>
+
+        {sellerOfferActive && (
+          <div
+            className="mt-4 rounded-2xl border p-4"
+            style={{
+              backgroundColor: hexToRgba(theme.accent, 0.1),
+              borderColor: hexToRgba(theme.accent, 0.28),
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <ShieldCheck
+                className="mt-0.5 h-5 w-5 shrink-0"
+                style={{ color: theme.accent }}
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-black" style={{ color: theme.text }}>
+                  Secure seller offer applied
+                </div>
+                <div className="mt-2 flex flex-wrap items-baseline gap-2">
+                  {sellerOfferOriginalTotal > sellerOfferCustomerTotal && (
+                    <span
+                      className="text-sm font-bold line-through"
+                      style={{ color: theme.muted }}
+                    >
+                      {money2(sellerOfferOriginalTotal, currencySymbol)}
+                    </span>
+                  )}
+                  <span
+                    className="text-xl font-black"
+                    style={{ color: theme.text }}
+                  >
+                    {money2(sellerOfferCustomerTotal, currencySymbol)}
+                  </span>
+                  <span
+                    className="text-xs font-bold"
+                    style={{ color: theme.muted }}
+                  >
+                    total for {Math.max(1, pax)} ticket{pax === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {sellerOfferDiscountTotal > 0 && (
+                  <div
+                    className="mt-1 text-xs font-black"
+                    style={{ color: theme.accent }}
+                  >
+                    You save {money2(sellerOfferDiscountTotal, currencySymbol)}
+                  </div>
+                )}
+                <div
+                  className="mt-2 text-xs font-semibold leading-5"
+                  style={{ color: theme.muted }}
+                >
+                  The signed date, quantity and ticket option cannot be changed.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 p-5 sm:p-6">
@@ -3454,6 +3920,8 @@ function BookingCard({
           availabilityDateAllowed={availabilityDateAllowed}
           pickupDateAllowed={pickupDateAllowed}
           dateAllowed={dateAllowed}
+          locked={sellerOfferDateLocked}
+          lockedValue={String(sellerOffer?.service_date || "")}
           theme={theme}
         />
 
@@ -3466,6 +3934,7 @@ function BookingCard({
             error={liveAvailabilityError}
             date={date}
             currencySymbol={currencySymbol}
+            selectionLocked={sellerOfferOptionLocked}
             theme={theme}
           />
         )}
@@ -3491,6 +3960,7 @@ function BookingCard({
           totals={totals}
           pax={pax}
           currencySymbol={currencySymbol}
+          locked={sellerOfferQuantityLocked}
           theme={theme}
         />
 
@@ -3817,6 +4287,7 @@ function LiveTicketOptionsCard({
   error,
   date,
   currencySymbol,
+  selectionLocked,
   theme,
 }: {
   options: LiveTicketOption[];
@@ -3826,6 +4297,7 @@ function LiveTicketOptionsCard({
   error: string;
   date: string;
   currencySymbol: string;
+  selectionLocked: boolean;
   theme: PublicTheme;
 }) {
   if (!date) {
@@ -3903,7 +4375,9 @@ function LiveTicketOptionsCard({
             Coco Bongo tickets
           </div>
           <p className="mt-1 text-xs font-bold" style={{ color: theme.muted }}>
-            Choose one option. Prices and availability are live.
+            {selectionLocked
+              ? "This exact ticket option is fixed by the seller offer."
+              : "Choose one option. Prices and availability are live."}
           </p>
         </div>
 
@@ -3921,7 +4395,10 @@ function LiveTicketOptionsCard({
       <div className="mt-4 space-y-2.5">
         {options.map((option, index) => {
           const optionId = getLiveOptionKey(option) || `option-${index}`;
-          const disabled = option.available === false || option.sold_out === true;
+          const unavailable =
+            option.available === false || option.sold_out === true;
+          const disabled =
+            unavailable || (selectionLocked && optionId !== selectedOptionId);
           const selected = selectedOptionId === optionId;
           const availableQuantity = option.available_quantity;
           const features = Array.isArray(option.features)
@@ -3950,7 +4427,7 @@ function LiveTicketOptionsCard({
                   name="live_ticket_option"
                   value={optionId}
                   checked={selected}
-                  disabled={disabled}
+                  disabled={disabled || selectionLocked}
                   onChange={() => setSelectedOptionId(optionId)}
                   className="mt-1 shrink-0"
                   style={{ accentColor: theme.accent }}
@@ -3977,6 +4454,16 @@ function LiveTicketOptionsCard({
                     </div>
 
                     <div className="shrink-0 text-right">
+                      {option.has_seller_offer &&
+                        numberValue(option.original_price) >
+                          numberValue(option.price) && (
+                          <div
+                            className="text-xs font-bold line-through"
+                            style={{ color: theme.muted }}
+                          >
+                            {money2(option.original_price, currencySymbol)}
+                          </div>
+                        )}
                       <div className="text-lg font-black" style={{ color: theme.text }}>
                         {money2(option.price || 0, currencySymbol)}
                       </div>
@@ -4039,9 +4526,21 @@ function LiveTicketOptionsCard({
                     ))}
                   </div>
 
-                  {disabled && (
+                  {unavailable && (
                     <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-600">
                       Sold out
+                    </div>
+                  )}
+
+                  {selectionLocked && selected && !unavailable && (
+                    <div
+                      className="mt-3 rounded-xl px-3 py-2 text-xs font-black"
+                      style={{
+                        backgroundColor: hexToRgba(theme.accent, 0.14),
+                        color: theme.text,
+                      }}
+                    >
+                      Selected by your secure seller offer
                     </div>
                   )}
                 </div>
@@ -4105,6 +4604,8 @@ function FilteredDatePicker({
   availabilityDateAllowed,
   pickupDateAllowed,
   dateAllowed,
+  locked,
+  lockedValue,
   theme,
 }: {
   product: ExperienceProduct;
@@ -4117,6 +4618,8 @@ function FilteredDatePicker({
   availabilityDateAllowed: boolean;
   pickupDateAllowed: boolean;
   dateAllowed: boolean;
+  locked?: boolean;
+  lockedValue?: string;
   theme: PublicTheme;
 }) {
   const initialMonth = value
@@ -4142,6 +4645,10 @@ function FilteredDatePicker({
   const requiresHotelFirst = showPickup && productHasSchedules && !pickupLocationId;
 
   function isDateEnabled(iso: string) {
+    if (locked) {
+      return Boolean(lockedValue) && iso === lockedValue;
+    }
+
     if (iso < today) return false;
 
     if (requiresHotelFirst) return false;
@@ -4180,7 +4687,8 @@ function FilteredDatePicker({
           <button
             type="button"
             onClick={() => setMonthDate((current) => addMonths(current, -1))}
-            className="rounded-xl border px-3 py-2 text-xs font-black"
+            disabled={locked}
+            className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-40"
             style={{
               backgroundColor: theme.card,
               borderColor: hexToRgba(theme.primary, 0.12),
@@ -4197,7 +4705,8 @@ function FilteredDatePicker({
           <button
             type="button"
             onClick={() => setMonthDate((current) => addMonths(current, 1))}
-            className="rounded-xl border px-3 py-2 text-xs font-black"
+            disabled={locked}
+            className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-40"
             style={{
               backgroundColor: theme.card,
               borderColor: hexToRgba(theme.primary, 0.12),
@@ -4229,8 +4738,8 @@ function FilteredDatePicker({
               <button
                 key={iso}
                 type="button"
-                disabled={!enabled}
-                onClick={() => enabled && onChange(iso)}
+                disabled={!enabled || Boolean(locked)}
+                onClick={() => enabled && !locked && onChange(iso)}
                 className={[
                   "aspect-square rounded-xl text-xs font-black transition",
                   selected ? "text-white" : "",
@@ -4259,14 +4768,24 @@ function FilteredDatePicker({
           })}
         </div>
 
-        {requiresHotelFirst && (
+        {locked && value && (
+          <p
+            className="mt-3 text-xs font-black"
+            style={{ color: theme.accent }}
+          >
+            This date is fixed by the secure seller offer:{" "}
+            {formatDateLabel(value)}.
+          </p>
+        )}
+
+        {!locked && requiresHotelFirst && (
           <p className="mt-3 text-xs font-bold leading-5" style={{ color: theme.muted }}>
             Select your hotel first. Then this calendar will show only the
             available pickup dates for that hotel.
           </p>
         )}
 
-        {!requiresHotelFirst && selectableDatesInMonth.length === 0 && (
+        {!locked && !requiresHotelFirst && selectableDatesInMonth.length === 0 && (
           <p className="mt-3 text-xs font-bold leading-5" style={{ color: theme.accent }}>
             No available dates in this month. Try the next month or check the
             product pickup schedule.
@@ -4610,6 +5129,7 @@ function GuestSelector({
   totals,
   pax,
   currencySymbol,
+  locked,
   theme,
 }: {
   product: ExperienceProduct;
@@ -4625,6 +5145,7 @@ function GuestSelector({
   };
   pax: number;
   currencySymbol: string;
+  locked?: boolean;
   theme: PublicTheme;
 }) {
   return (
@@ -4652,7 +5173,9 @@ function GuestSelector({
               Guests
             </div>
             <div className="text-xs font-semibold" style={{ color: theme.muted }}>
-              At least 1 adult
+              {locked
+                ? "Quantity fixed by the secure seller offer"
+                : "At least 1 adult"}
             </div>
           </div>
         </div>
@@ -4694,7 +5217,8 @@ function GuestSelector({
                 <button
                   type="button"
                   onClick={() => updateQty(key, "down")}
-                  className="rounded-xl border p-2 transition"
+                  disabled={locked}
+                  className="rounded-xl border p-2 transition disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     backgroundColor: theme.card,
                     borderColor: hexToRgba(theme.primary, 0.12),
@@ -4712,7 +5236,8 @@ function GuestSelector({
                 <button
                   type="button"
                   onClick={() => updateQty(key, "up")}
-                  className="rounded-xl border p-2 transition"
+                  disabled={locked}
+                  className="rounded-xl border p-2 transition disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     backgroundColor: theme.card,
                     borderColor: hexToRgba(theme.primary, 0.12),

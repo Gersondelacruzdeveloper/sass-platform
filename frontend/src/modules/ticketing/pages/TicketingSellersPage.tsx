@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   ToggleLeft,
   ToggleRight,
+  Trash2,
   Upload,
   UserRound,
   Users,
@@ -71,6 +72,7 @@ type PermissionKey =
   | "can_cancel_bookings"
   | "can_send_whatsapp"
   | "can_send_email"
+  | "can_send_payment_links"
   | "can_override_pickup_time"
   | "can_view_reports"
   | "can_manage_products"
@@ -123,6 +125,99 @@ type Seller = {
   created_at?: string;
   updated_at?: string;
 } & Partial<Record<PermissionKey, boolean>>;
+
+
+type CommissionRuleType = "fixed_amount" | "percentage";
+
+type CommissionRuleTargetType =
+  | "product"
+  | "package"
+  | "event_ticket_type"
+  | "external_option";
+
+type CommissionProductPackage = {
+  id: number;
+  name: string;
+  product?: number;
+  price?: string | number;
+  is_active?: boolean;
+};
+
+type CommissionEventTicketType = {
+  id: number;
+  name: string;
+  product?: number;
+  price?: string | number;
+  is_active?: boolean;
+};
+
+type CommissionProduct = {
+  id: number;
+  name: string;
+  slug?: string;
+  product_type?: string;
+  external_provider?: string;
+  external_product_id?: string | null;
+  is_cocobongo_product?: boolean;
+  is_active?: boolean;
+  seller_enabled?: boolean;
+  packages?: CommissionProductPackage[];
+  event_ticket_types?: CommissionEventTicketType[];
+};
+
+type CommissionLiveOption = {
+  external_product_id?: string;
+  external_variant_id?: string;
+  external_availability_id?: string;
+  name?: string;
+  option_name?: string;
+  price?: string | number;
+  currency?: string;
+  available?: boolean;
+  sold_out?: boolean;
+};
+
+type SellerProductCommissionRule = {
+  id: number;
+  organisation?: number;
+  seller: number;
+  seller_name?: string;
+  product: number;
+  product_name?: string;
+  package?: number | null;
+  package_name?: string;
+  event_ticket_type?: number | null;
+  event_ticket_type_name?: string;
+  external_option_id?: string;
+  external_option_name?: string;
+  target_type?: CommissionRuleTargetType;
+  target_name?: string;
+  rule_type: CommissionRuleType;
+  fixed_amount: string | number;
+  percentage: string | number;
+  currency: string;
+  is_per_unit: boolean;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type CommissionRuleFormState = {
+  id: number | null;
+  product_id: string;
+  target_type: CommissionRuleTargetType;
+  package_id: string;
+  event_ticket_type_id: string;
+  external_option_id: string;
+  external_option_name: string;
+  service_date: string;
+  rule_type: CommissionRuleType;
+  fixed_amount: string;
+  percentage: string;
+  currency: string;
+  is_per_unit: boolean;
+  is_active: boolean;
+};
 
 type SellerFormState = {
   id?: number | null;
@@ -226,6 +321,7 @@ const permissionLabels: Record<PermissionKey, string> = {
   can_cancel_bookings: "Cancel bookings",
   can_send_whatsapp: "Send WhatsApp",
   can_send_email: "Send email",
+  can_send_payment_links: "Generate customer offer links",
   can_override_pickup_time: "Override pickup time",
   can_view_reports: "View reports",
   can_manage_products: "Manage products",
@@ -274,6 +370,7 @@ const permissionGroups: PermissionGroup[] = [
       "can_view_own_commissions",
       "can_send_whatsapp",
       "can_send_email",
+      "can_send_payment_links",
       "can_apply_discounts",
       "can_cancel_bookings",
       "can_override_pickup_time",
@@ -293,6 +390,42 @@ const permissionGroups: PermissionGroup[] = [
 ];
 
 const permissionKeys = permissionGroups.flatMap((group) => group.keys);
+
+
+function localDateInputValue(date = new Date()) {
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
+const blankCommissionRuleForm: CommissionRuleFormState = {
+  id: null,
+  product_id: "",
+  target_type: "product",
+  package_id: "",
+  event_ticket_type_id: "",
+  external_option_id: "",
+  external_option_name: "",
+  service_date: localDateInputValue(),
+  rule_type: "fixed_amount",
+  fixed_amount: "0.00",
+  percentage: "0.00",
+  currency: "USD",
+  is_per_unit: true,
+  is_active: true,
+};
+
+function getCommissionExternalOptionId(option: CommissionLiveOption) {
+  return String(
+    option.external_product_id ||
+      option.external_variant_id ||
+      option.external_availability_id ||
+      ""
+  ).trim();
+}
+
+function getCommissionExternalOptionName(option: CommissionLiveOption) {
+  return String(option.option_name || option.name || getCommissionExternalOptionId(option)).trim();
+}
 
 const blankForm: SellerFormState = {
   id: null,
@@ -337,6 +470,7 @@ const blankForm: SellerFormState = {
   can_cancel_bookings: false,
   can_send_whatsapp: true,
   can_send_email: false,
+  can_send_payment_links: false,
   can_override_pickup_time: false,
   can_view_reports: false,
   can_manage_products: false,
@@ -1313,6 +1447,1113 @@ export default function TicketingSellersPage() {
   );
 }
 
+
+function SellerCommissionRulesSection({
+  seller,
+  organisationSlug,
+}: {
+  seller: Seller;
+  organisationSlug: string;
+}) {
+  const { language, t } = useTicketingAdminTranslation();
+
+  const requestParams = useMemo(
+    () => getRequestParams(organisationSlug),
+    [organisationSlug]
+  );
+
+  const [rules, setRules] = useState<SellerProductCommissionRule[]>([]);
+  const [products, setProducts] = useState<CommissionProduct[]>([]);
+  const [liveOptions, setLiveOptions] = useState<CommissionLiveOption[]>([]);
+  const [ruleForm, setRuleForm] = useState<CommissionRuleFormState>({
+    ...blankCommissionRuleForm,
+  });
+
+  const [loadingRules, setLoadingRules] = useState(true);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const [savingRule, setSavingRule] = useState(false);
+  const [ruleError, setRuleError] = useState("");
+  const [ruleMessage, setRuleMessage] = useState("");
+
+  const selectedProduct = useMemo(
+    () =>
+      products.find(
+        (product) => String(product.id) === String(ruleForm.product_id)
+      ) || null,
+    [products, ruleForm.product_id]
+  );
+
+  const productPackages = useMemo(
+    () =>
+      (selectedProduct?.packages || []).filter(
+        (item) => item.is_active !== false
+      ),
+    [selectedProduct]
+  );
+
+  const productEventTicketTypes = useMemo(
+    () =>
+      (selectedProduct?.event_ticket_types || []).filter(
+        (item) => item.is_active !== false
+      ),
+    [selectedProduct]
+  );
+
+  const isExternalProduct = Boolean(
+    selectedProduct &&
+      (selectedProduct.is_cocobongo_product ||
+        selectedProduct.external_provider === "wellet")
+  );
+
+  async function loadCommissionRules() {
+    try {
+      setLoadingRules(true);
+      setRuleError("");
+
+      const [rulesResponse, productsResponse] = await Promise.all([
+        api.get("/ticketing/seller-commission-rules/", {
+          params: {
+            ...requestParams,
+            seller: seller.id,
+          },
+        }),
+        api.get("/ticketing/products/", {
+          params: {
+            ...requestParams,
+            status: "active",
+          },
+        }),
+      ]);
+
+      setRules(
+        normalizeList<SellerProductCommissionRule>(rulesResponse.data)
+      );
+      setProducts(normalizeList<CommissionProduct>(productsResponse.data));
+    } catch (err: any) {
+      console.error("Could not load seller commission rules:", err);
+      setRuleError(
+        getErrorMessage(
+          err,
+          t(
+            "sellers.commissionRules.errors.load",
+            undefined,
+            "Could not load product commission rules."
+          )
+        )
+      );
+    } finally {
+      setLoadingRules(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadCommissionRules();
+  }, [organisationSlug, seller.id]);
+
+  function resetRuleForm(options?: { keepProduct?: boolean }) {
+    setRuleForm((current) => ({
+      ...blankCommissionRuleForm,
+      product_id: options?.keepProduct ? current.product_id : "",
+      service_date: current.service_date || localDateInputValue(),
+    }));
+    setLiveOptions([]);
+  }
+
+  function setRuleField<K extends keyof CommissionRuleFormState>(
+    field: K,
+    value: CommissionRuleFormState[K]
+  ) {
+    setRuleForm((current) => {
+      const next = {
+        ...current,
+        [field]: value,
+      };
+
+      if (field === "product_id") {
+        next.target_type = "product";
+        next.package_id = "";
+        next.event_ticket_type_id = "";
+        next.external_option_id = "";
+        next.external_option_name = "";
+      }
+
+      if (field === "target_type") {
+        next.package_id = "";
+        next.event_ticket_type_id = "";
+        next.external_option_id = "";
+        next.external_option_name = "";
+      }
+
+      if (field === "rule_type") {
+        if (value === "fixed_amount") {
+          next.percentage = "0.00";
+        } else {
+          next.fixed_amount = "0.00";
+          next.is_per_unit = false;
+        }
+      }
+
+      return next;
+    });
+
+    if (field === "product_id" || field === "target_type") {
+      setLiveOptions([]);
+    }
+  }
+
+  async function loadLiveOptions() {
+    if (!ruleForm.product_id) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.selectProduct",
+          undefined,
+          "Select a product first."
+        )
+      );
+      return;
+    }
+
+    try {
+      setLoadingOptions(true);
+      setRuleError("");
+      setRuleMessage("");
+
+      const response = await api.get("/ticketing/live-availability/", {
+        params: {
+          ...requestParams,
+          product: ruleForm.product_id,
+          service_date: ruleForm.service_date || undefined,
+          include_raw: false,
+        },
+      });
+
+      const optionMap = new Map<string, CommissionLiveOption>();
+
+      normalizeList<CommissionLiveOption>(response.data?.options)
+        .filter((option) => Boolean(getCommissionExternalOptionId(option)))
+        .forEach((option) => {
+          optionMap.set(getCommissionExternalOptionId(option), option);
+        });
+
+      const options = Array.from(optionMap.values());
+
+      setLiveOptions(options);
+
+      if (options.length === 0) {
+        setRuleMessage(
+          t(
+            "sellers.commissionRules.messages.noExternalOptions",
+            undefined,
+            "No external options were returned for this date."
+          )
+        );
+      }
+    } catch (err: any) {
+      console.error("Could not load live commission options:", err);
+      setRuleError(
+        getErrorMessage(
+          err,
+          t(
+            "sellers.commissionRules.errors.loadOptions",
+            undefined,
+            "Could not load Coco Bongo options."
+          )
+        )
+      );
+    } finally {
+      setLoadingOptions(false);
+    }
+  }
+
+  function beginEditRule(rule: SellerProductCommissionRule) {
+    const targetType: CommissionRuleTargetType =
+      rule.target_type ||
+      (rule.external_option_id
+        ? "external_option"
+        : rule.package
+          ? "package"
+          : rule.event_ticket_type
+            ? "event_ticket_type"
+            : "product");
+
+    setRuleForm({
+      id: rule.id,
+      product_id: String(rule.product),
+      target_type: targetType,
+      package_id: rule.package ? String(rule.package) : "",
+      event_ticket_type_id: rule.event_ticket_type
+        ? String(rule.event_ticket_type)
+        : "",
+      external_option_id: String(rule.external_option_id || ""),
+      external_option_name: String(rule.external_option_name || ""),
+      service_date: localDateInputValue(),
+      rule_type: rule.rule_type,
+      fixed_amount: String(rule.fixed_amount ?? "0.00"),
+      percentage: String(rule.percentage ?? "0.00"),
+      currency: String(rule.currency || "USD").toUpperCase(),
+      is_per_unit: Boolean(rule.is_per_unit),
+      is_active: Boolean(rule.is_active),
+    });
+
+    setLiveOptions([]);
+    setRuleError("");
+    setRuleMessage("");
+  }
+
+  async function saveCommissionRule() {
+    const productId = Number(ruleForm.product_id);
+
+    if (!productId) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.selectProduct",
+          undefined,
+          "Select a product."
+        )
+      );
+      return;
+    }
+
+    if (ruleForm.target_type === "package" && !ruleForm.package_id) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.selectPackage",
+          undefined,
+          "Select a package."
+        )
+      );
+      return;
+    }
+
+    if (
+      ruleForm.target_type === "event_ticket_type" &&
+      !ruleForm.event_ticket_type_id
+    ) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.selectEventTicket",
+          undefined,
+          "Select an event ticket type."
+        )
+      );
+      return;
+    }
+
+    if (
+      ruleForm.target_type === "external_option" &&
+      !ruleForm.external_option_id.trim()
+    ) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.selectExternalOption",
+          undefined,
+          "Load and select an external option."
+        )
+      );
+      return;
+    }
+
+    const fixedAmount = Number(ruleForm.fixed_amount || 0);
+    const percentage = Number(ruleForm.percentage || 0);
+
+    if (
+      ruleForm.rule_type === "fixed_amount" &&
+      (!Number.isFinite(fixedAmount) || fixedAmount <= 0)
+    ) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.invalidFixed",
+          undefined,
+          "Fixed amount must be greater than zero."
+        )
+      );
+      return;
+    }
+
+    if (
+      ruleForm.rule_type === "percentage" &&
+      (!Number.isFinite(percentage) ||
+        percentage <= 0 ||
+        percentage > 100)
+    ) {
+      setRuleError(
+        t(
+          "sellers.commissionRules.errors.invalidPercentage",
+          undefined,
+          "Percentage must be greater than zero and no more than 100."
+        )
+      );
+      return;
+    }
+
+    const payload = {
+      seller: seller.id,
+      product: productId,
+      package:
+        ruleForm.target_type === "package"
+          ? Number(ruleForm.package_id)
+          : null,
+      event_ticket_type:
+        ruleForm.target_type === "event_ticket_type"
+          ? Number(ruleForm.event_ticket_type_id)
+          : null,
+      external_option_id:
+        ruleForm.target_type === "external_option"
+          ? ruleForm.external_option_id.trim()
+          : "",
+      external_option_name:
+        ruleForm.target_type === "external_option"
+          ? ruleForm.external_option_name.trim()
+          : "",
+      rule_type: ruleForm.rule_type,
+      fixed_amount:
+        ruleForm.rule_type === "fixed_amount"
+          ? ruleForm.fixed_amount
+          : "0.00",
+      percentage:
+        ruleForm.rule_type === "percentage"
+          ? ruleForm.percentage
+          : "0.00",
+      currency: (ruleForm.currency || "USD").trim().toUpperCase(),
+      is_per_unit:
+        ruleForm.rule_type === "fixed_amount"
+          ? ruleForm.is_per_unit
+          : false,
+      is_active: ruleForm.is_active,
+    };
+
+    try {
+      setSavingRule(true);
+      setRuleError("");
+      setRuleMessage("");
+
+      const response = ruleForm.id
+        ? await api.patch(
+            `/ticketing/seller-commission-rules/${ruleForm.id}/`,
+            payload,
+            { params: requestParams }
+          )
+        : await api.post(
+            "/ticketing/seller-commission-rules/",
+            payload,
+            { params: requestParams }
+          );
+
+      const savedRule = response.data as SellerProductCommissionRule;
+
+      setRules((current) => {
+        const alreadyExists = current.some(
+          (rule) => rule.id === savedRule.id
+        );
+
+        if (alreadyExists) {
+          return current.map((rule) =>
+            rule.id === savedRule.id ? savedRule : rule
+          );
+        }
+
+        return [savedRule, ...current];
+      });
+
+      setRuleMessage(
+        ruleForm.id
+          ? t(
+              "sellers.commissionRules.messages.updated",
+              undefined,
+              "Commission rule updated."
+            )
+          : t(
+              "sellers.commissionRules.messages.created",
+              undefined,
+              "Commission rule created."
+            )
+      );
+
+      resetRuleForm({ keepProduct: true });
+    } catch (err: any) {
+      console.error("Could not save seller commission rule:", err);
+      setRuleError(
+        getErrorMessage(
+          err,
+          t(
+            "sellers.commissionRules.errors.save",
+            undefined,
+            "Could not save the commission rule."
+          )
+        )
+      );
+    } finally {
+      setSavingRule(false);
+    }
+  }
+
+  async function deleteCommissionRule(rule: SellerProductCommissionRule) {
+    const confirmed = window.confirm(
+      t(
+        "sellers.commissionRules.confirmDelete",
+        undefined,
+        `Delete the commission rule for ${rule.target_name || rule.product_name || "this product"}?`
+      )
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setSavingRule(true);
+      setRuleError("");
+      setRuleMessage("");
+
+      await api.delete(
+        `/ticketing/seller-commission-rules/${rule.id}/`,
+        { params: requestParams }
+      );
+
+      setRules((current) =>
+        current.filter((item) => item.id !== rule.id)
+      );
+
+      if (ruleForm.id === rule.id) {
+        resetRuleForm();
+      }
+
+      setRuleMessage(
+        t(
+          "sellers.commissionRules.messages.deleted",
+          undefined,
+          "Commission rule deleted."
+        )
+      );
+    } catch (err: any) {
+      console.error("Could not delete seller commission rule:", err);
+      setRuleError(
+        getErrorMessage(
+          err,
+          t(
+            "sellers.commissionRules.errors.delete",
+            undefined,
+            "Could not delete the commission rule."
+          )
+        )
+      );
+    } finally {
+      setSavingRule(false);
+    }
+  }
+
+  const selectedExternalOptionIsMissing =
+    Boolean(ruleForm.external_option_id) &&
+    !liveOptions.some(
+      (option) =>
+        getCommissionExternalOptionId(option) ===
+        ruleForm.external_option_id
+    );
+
+  return (
+    <section className="rounded-3xl border border-slate-200 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
+            {t(
+              "sellers.commissionRules.title",
+              undefined,
+              "Product & package commissions"
+            )}
+          </h3>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+            {t(
+              "sellers.commissionRules.subtitle",
+              undefined,
+              "Override the seller default for an entire product or an exact package, event ticket, or external Coco Bongo option."
+            )}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={loadCommissionRules}
+          disabled={loadingRules || savingRule}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-60"
+        >
+          <RefreshCw
+            className={[
+              "h-4 w-4",
+              loadingRules ? "animate-spin" : "",
+            ].join(" ")}
+          />
+          {t("sellers.actions.refresh")}
+        </button>
+      </div>
+
+      {ruleError && (
+        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {ruleError}
+        </div>
+      )}
+
+      {ruleMessage && (
+        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          {ruleMessage}
+        </div>
+      )}
+
+      <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              {t(
+                "sellers.commissionRules.product",
+                undefined,
+                "Product"
+              )}
+            </span>
+            <select
+              value={ruleForm.product_id}
+              onChange={(event) =>
+                setRuleField("product_id", event.target.value)
+              }
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none"
+            >
+              <option value="">
+                {t(
+                  "sellers.commissionRules.selectProduct",
+                  undefined,
+                  "Select a product"
+                )}
+              </option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              {t(
+                "sellers.commissionRules.applyTo",
+                undefined,
+                "Apply rule to"
+              )}
+            </span>
+            <select
+              value={ruleForm.target_type}
+              onChange={(event) =>
+                setRuleField(
+                  "target_type",
+                  event.target.value as CommissionRuleTargetType
+                )
+              }
+              disabled={!selectedProduct}
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              <option value="product">
+                {t(
+                  "sellers.commissionRules.entireProduct",
+                  undefined,
+                  "Entire product"
+                )}
+              </option>
+              {productPackages.length > 0 && (
+                <option value="package">
+                  {t(
+                    "sellers.commissionRules.localPackage",
+                    undefined,
+                    "Local package"
+                  )}
+                </option>
+              )}
+              {productEventTicketTypes.length > 0 && (
+                <option value="event_ticket_type">
+                  {t(
+                    "sellers.commissionRules.eventTicketType",
+                    undefined,
+                    "Event ticket type"
+                  )}
+                </option>
+              )}
+              {isExternalProduct && (
+                <option value="external_option">
+                  {t(
+                    "sellers.commissionRules.externalOption",
+                    undefined,
+                    "Coco Bongo / external option"
+                  )}
+                </option>
+              )}
+            </select>
+          </label>
+
+          {ruleForm.target_type === "package" && (
+            <label className="block md:col-span-2">
+              <span className="text-sm font-bold text-slate-700">
+                {t(
+                  "sellers.commissionRules.package",
+                  undefined,
+                  "Package"
+                )}
+              </span>
+              <select
+                value={ruleForm.package_id}
+                onChange={(event) =>
+                  setRuleField("package_id", event.target.value)
+                }
+                className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none"
+              >
+                <option value="">
+                  {t(
+                    "sellers.commissionRules.selectPackage",
+                    undefined,
+                    "Select a package"
+                  )}
+                </option>
+                {productPackages.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {ruleForm.target_type === "event_ticket_type" && (
+            <label className="block md:col-span-2">
+              <span className="text-sm font-bold text-slate-700">
+                {t(
+                  "sellers.commissionRules.eventTicket",
+                  undefined,
+                  "Event ticket type"
+                )}
+              </span>
+              <select
+                value={ruleForm.event_ticket_type_id}
+                onChange={(event) =>
+                  setRuleField(
+                    "event_ticket_type_id",
+                    event.target.value
+                  )
+                }
+                className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none"
+              >
+                <option value="">
+                  {t(
+                    "sellers.commissionRules.selectEventTicket",
+                    undefined,
+                    "Select an event ticket type"
+                  )}
+                </option>
+                {productEventTicketTypes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {ruleForm.target_type === "external_option" && (
+            <>
+              <Input
+                label={t(
+                  "sellers.commissionRules.serviceDate",
+                  undefined,
+                  "Option date"
+                )}
+                type="date"
+                value={ruleForm.service_date}
+                onChange={(value) =>
+                  setRuleField("service_date", value)
+                }
+              />
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={loadLiveOptions}
+                  disabled={
+                    !ruleForm.product_id ||
+                    loadingOptions ||
+                    savingRule
+                  }
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white disabled:opacity-60"
+                >
+                  {loadingOptions ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {t(
+                    "sellers.commissionRules.loadOptions",
+                    undefined,
+                    "Load external options"
+                  )}
+                </button>
+              </div>
+
+              <label className="block md:col-span-2">
+                <span className="text-sm font-bold text-slate-700">
+                  {t(
+                    "sellers.commissionRules.externalOption",
+                    undefined,
+                    "Coco Bongo / external option"
+                  )}
+                </span>
+                <select
+                  value={ruleForm.external_option_id}
+                  onChange={(event) => {
+                    const optionId = event.target.value;
+                    const option = liveOptions.find(
+                      (item) =>
+                        getCommissionExternalOptionId(item) === optionId
+                    );
+
+                    setRuleForm((current) => ({
+                      ...current,
+                      external_option_id: optionId,
+                      external_option_name: option
+                        ? getCommissionExternalOptionName(option)
+                        : current.external_option_name,
+                    }));
+                  }}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none"
+                >
+                  <option value="">
+                    {t(
+                      "sellers.commissionRules.selectExternalOption",
+                      undefined,
+                      "Load and select an option"
+                    )}
+                  </option>
+
+                  {selectedExternalOptionIsMissing && (
+                    <option value={ruleForm.external_option_id}>
+                      {ruleForm.external_option_name ||
+                        ruleForm.external_option_id}{" "}
+                      ({t(
+                        "sellers.commissionRules.savedOption",
+                        undefined,
+                        "saved"
+                      )})
+                    </option>
+                  )}
+
+                  {liveOptions.map((option) => {
+                    const optionId =
+                      getCommissionExternalOptionId(option);
+                    const optionName =
+                      getCommissionExternalOptionName(option);
+                    const price =
+                      option.price !== undefined &&
+                      option.price !== null &&
+                      String(option.price) !== ""
+                        ? ` · ${formatMoney(
+                            option.price,
+                            language,
+                            option.currency === "USD"
+                              ? "US$"
+                              : option.currency || "US$"
+                          )}`
+                        : "";
+
+                    return (
+                      <option key={optionId} value={optionId}>
+                        {optionName}
+                        {price}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  {t(
+                    "sellers.commissionRules.externalIdHelp",
+                    undefined,
+                    "The stable external option ID is saved; the customer never sees this commission rule."
+                  )}
+                </p>
+              </label>
+            </>
+          )}
+
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">
+              {t(
+                "sellers.commissionRules.ruleType",
+                undefined,
+                "Commission type"
+              )}
+            </span>
+            <select
+              value={ruleForm.rule_type}
+              onChange={(event) =>
+                setRuleField(
+                  "rule_type",
+                  event.target.value as CommissionRuleType
+                )
+              }
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black outline-none"
+            >
+              <option value="fixed_amount">
+                {t(
+                  "sellers.commissionRules.fixedAmount",
+                  undefined,
+                  "Fixed amount"
+                )}
+              </option>
+              <option value="percentage">
+                {t(
+                  "sellers.commissionRules.percentage",
+                  undefined,
+                  "Percentage"
+                )}
+              </option>
+            </select>
+          </label>
+
+          {ruleForm.rule_type === "fixed_amount" ? (
+            <Input
+              label={t(
+                "sellers.commissionRules.amount",
+                undefined,
+                "Fixed seller allowance"
+              )}
+              type="number"
+              min={0}
+              step="0.01"
+              value={ruleForm.fixed_amount}
+              onChange={(value) =>
+                setRuleField("fixed_amount", value)
+              }
+              placeholder="20.00"
+              icon={<Wallet className="h-4 w-4" />}
+            />
+          ) : (
+            <Input
+              label={t(
+                "sellers.commissionRules.percentage",
+                undefined,
+                "Percentage"
+              )}
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={ruleForm.percentage}
+              onChange={(value) =>
+                setRuleField("percentage", value)
+              }
+              placeholder="15.00"
+              icon={<BadgeDollarSign className="h-4 w-4" />}
+            />
+          )}
+
+          <Input
+            label={t(
+              "sellers.commissionRules.currency",
+              undefined,
+              "Currency"
+            )}
+            value={ruleForm.currency}
+            onChange={(value) =>
+              setRuleField("currency", value.toUpperCase())
+            }
+            placeholder="USD"
+          />
+
+          {ruleForm.rule_type === "fixed_amount" && (
+            <Toggle
+              label={t(
+                "sellers.commissionRules.perUnit",
+                undefined,
+                "Apply fixed amount per ticket/unit"
+              )}
+              checked={ruleForm.is_per_unit}
+              onChange={(value) =>
+                setRuleField("is_per_unit", value)
+              }
+            />
+          )}
+
+          <Toggle
+            label={t(
+              "sellers.commissionRules.active",
+              undefined,
+              "Active rule"
+            )}
+            checked={ruleForm.is_active}
+            onChange={(value) =>
+              setRuleField("is_active", value)
+            }
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={saveCommissionRule}
+            disabled={savingRule || loadingRules}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white disabled:opacity-60"
+          >
+            {savingRule ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            {ruleForm.id
+              ? t(
+                  "sellers.commissionRules.updateRule",
+                  undefined,
+                  "Update rule"
+                )
+              : t(
+                  "sellers.commissionRules.addRule",
+                  undefined,
+                  "Add commission rule"
+                )}
+          </button>
+
+          {ruleForm.id && (
+            <button
+              type="button"
+              onClick={() => resetRuleForm()}
+              disabled={savingRule}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-60"
+            >
+              <X className="h-4 w-4" />
+              {t("sellers.actions.cancel")}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-black text-slate-950">
+            {t(
+              "sellers.commissionRules.currentRules",
+              undefined,
+              "Current rules"
+            )}
+          </h4>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            {rules.length}
+          </span>
+        </div>
+
+        {loadingRules ? (
+          <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t(
+              "sellers.commissionRules.loading",
+              undefined,
+              "Loading commission rules..."
+            )}
+          </div>
+        ) : rules.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState
+              text={t(
+                "sellers.commissionRules.empty",
+                undefined,
+                "No product-specific rules have been configured. The seller default remains active."
+              )}
+            />
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {rules.map((rule) => {
+              const isFixed = rule.rule_type === "fixed_amount";
+              const target =
+                rule.target_name ||
+                rule.external_option_name ||
+                rule.package_name ||
+                rule.event_ticket_type_name ||
+                rule.product_name ||
+                "Product";
+
+              return (
+                <div
+                  key={rule.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black text-slate-950">
+                      {rule.product_name || "Product"} · {target}
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      {isFixed
+                        ? `${formatMoney(
+                            rule.fixed_amount,
+                            language,
+                            rule.currency === "USD"
+                              ? "US$"
+                              : rule.currency || "US$"
+                          )}${
+                            rule.is_per_unit
+                              ? ` ${t(
+                                  "sellers.commissionRules.perTicketShort",
+                                  undefined,
+                                  "per ticket"
+                                )}`
+                              : ""
+                          }`
+                        : formatPercent(rule.percentage, language)}
+                      {" · "}
+                      {rule.is_active
+                        ? t(
+                            "sellers.status.active",
+                            undefined,
+                            "Active"
+                          )
+                        : t(
+                            "sellers.status.inactive",
+                            undefined,
+                            "Inactive"
+                          )}
+                    </p>
+                    {rule.external_option_id && (
+                      <p className="mt-1 break-all text-[11px] font-semibold text-slate-400">
+                        ID: {rule.external_option_id}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => beginEditRule(rule)}
+                      disabled={savingRule}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-60"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      {t("sellers.actions.edit")}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteCommissionRule(rule)}
+                      disabled={savingRule}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-red-600 px-3 text-xs font-black text-white disabled:opacity-60"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t(
+                        "sellers.actions.delete",
+                        undefined,
+                        "Delete"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SellerFormModal({
   form,
   editingSeller,
@@ -1521,6 +2762,30 @@ function SellerFormModal({
                   {t("sellers.form.marginHelp")}
                 </p>
               </section>
+
+              {editingSeller ? (
+                <SellerCommissionRulesSection
+                  seller={editingSeller}
+                  organisationSlug={organisationSlug}
+                />
+              ) : (
+                <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="text-sm font-black uppercase tracking-wide text-amber-800">
+                    {t(
+                      "sellers.commissionRules.title",
+                      undefined,
+                      "Product & package commissions"
+                    )}
+                  </h3>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                    {t(
+                      "sellers.commissionRules.saveSellerFirst",
+                      undefined,
+                      "Create this seller first. Then open Edit to assign exact product, package, event-ticket, or Coco Bongo option commissions."
+                    )}
+                  </p>
+                </section>
+              )}
 
               <section className="rounded-3xl border border-slate-200 p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
