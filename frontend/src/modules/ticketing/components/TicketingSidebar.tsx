@@ -1,3 +1,5 @@
+// src/modules/ticketing/components/TicketingSidebar.tsx
+
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   BadgeDollarSign,
@@ -13,6 +15,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Loader2,
+  Newspaper,
   Package,
   Plane,
   QrCode,
@@ -192,6 +195,14 @@ export default function TicketingSidebar({
         "can_sell_cocobongo",
       ],
       section: "main",
+    },
+    {
+      labelKey: "navigation.items.blog",
+      path: buildPath(safeSlug, "/blog"),
+      icon: Newspaper,
+      permissions: ["can_manage_products"],
+      section: "main",
+      ownerOnly: true,
     },
     {
       labelKey: "navigation.items.pickupTimes",

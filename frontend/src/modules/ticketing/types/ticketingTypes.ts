@@ -1016,6 +1016,211 @@ export interface ProductReview {
   created_at?: string;
 }
 
+
+
+// =============================================================================
+// Blog CMS
+// =============================================================================
+
+export type BlogPostStatus =
+  | "draft"
+  | "scheduled"
+  | "published"
+  | "archived";
+
+export type SupportedBlogLanguage = SupportedProductLanguage;
+
+export interface BlogTranslationMeta {
+  source?: "manual" | "ai" | string;
+  manually_edited?: boolean;
+  source_language?: SupportedBlogLanguage | string;
+  target_language?: SupportedBlogLanguage | string;
+  generated_at?: string;
+  updated_at?: string;
+  updated_by?: ID | null;
+}
+
+export interface BlogCategoryTranslation {
+  name?: string;
+  description?: string;
+  seo_title?: string;
+  meta_description?: string;
+  _meta?: BlogTranslationMeta;
+}
+
+export interface BlogPostTranslation {
+  title?: string;
+  excerpt?: string;
+  content?: string;
+  cover_image_alt?: string;
+  seo_title?: string;
+  meta_description?: string;
+  og_title?: string;
+  og_description?: string;
+  twitter_title?: string;
+  twitter_description?: string;
+  _meta?: BlogTranslationMeta;
+}
+
+export type BlogCategoryTranslations = Partial<
+  Record<SupportedBlogLanguage, BlogCategoryTranslation>
+>;
+
+export type BlogPostTranslations = Partial<
+  Record<SupportedBlogLanguage, BlogPostTranslation>
+>;
+
+export interface BlogCategory {
+  id: ID;
+  organisation?: ID;
+  organisation_name?: string;
+  name: string;
+  slug: string;
+  description: string;
+  image?: string | null;
+  image_url?: string | null;
+  default_language: SupportedBlogLanguage;
+  translations?: BlogCategoryTranslations;
+  is_active: boolean;
+  sort_order: number;
+  seo_title: string;
+  meta_description: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BlogRelatedProduct {
+  id: ID;
+  name: string;
+  slug: string;
+  product_type: ProductType | string;
+  short_description?: string;
+  image_url?: string | null;
+  current_public_path?: string;
+  adult_price?: Money;
+  base_price?: Money;
+}
+
+export interface BlogPostGalleryImage {
+  id: ID;
+  post?: ID;
+  post_title?: string;
+  image?: string;
+  image_url?: string | null;
+  alt_text: string;
+  caption: string;
+  sort_order: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BlogPost {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  category?: ID | null;
+  category_detail?: BlogCategory | null;
+  author?: ID | null;
+  author_name: string;
+  author_display_name?: string;
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  cover_image?: string | null;
+  cover_image_url?: string | null;
+  cover_image_alt: string;
+  default_language: SupportedBlogLanguage;
+  translations: BlogPostTranslations;
+  related_products: BlogRelatedProduct[];
+  gallery_images: BlogPostGalleryImage[];
+  status: BlogPostStatus;
+  is_active: boolean;
+  is_featured: boolean;
+  published_at?: string | null;
+  current_public_path: string;
+  reading_time_minutes: number;
+  is_publicly_visible: boolean;
+  seo_title: string;
+  meta_description: string;
+  canonical_url: string;
+  og_title: string;
+  og_description: string;
+  og_image?: string | null;
+  og_image_url?: string | null;
+  twitter_title: string;
+  twitter_description: string;
+  keywords_tags: string[];
+  json_ld_override: Record<string, unknown>;
+  robots_allow_indexing: boolean;
+  view_count: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BlogPostWritePayload {
+  category_id?: ID | null;
+  author_name?: string;
+  title: string;
+  slug?: string;
+  excerpt?: string;
+  content?: string;
+  cover_image_alt?: string;
+  default_language?: SupportedBlogLanguage;
+  translations?: BlogPostTranslations;
+  related_product_ids?: ID[];
+  status?: BlogPostStatus;
+  is_active?: boolean;
+  is_featured?: boolean;
+  published_at?: string | null;
+  seo_title?: string;
+  meta_description?: string;
+  canonical_url?: string;
+  og_title?: string;
+  og_description?: string;
+  twitter_title?: string;
+  twitter_description?: string;
+  keywords_tags?: string[];
+  json_ld_override?: Record<string, unknown>;
+  robots_allow_indexing?: boolean;
+}
+
+export interface PublicBlogPostSummary {
+  id: ID;
+  title: string;
+  slug: string;
+  excerpt: string;
+  cover_image_url?: string | null;
+  cover_image_alt: string;
+  default_language: SupportedBlogLanguage;
+  category?: BlogCategory | null;
+  author_name: string;
+  current_public_path: string;
+  reading_time_minutes: number;
+  is_featured: boolean;
+  published_at?: string | null;
+  updated_at?: string;
+  seo_title: string;
+  meta_description: string;
+}
+
+export interface PublicBlogPostDetail extends PublicBlogPostSummary {
+  content: string;
+  gallery_images: BlogPostGalleryImage[];
+  related_products: BlogRelatedProduct[];
+  canonical_url: string;
+  og_title: string;
+  og_description: string;
+  og_image_url?: string | null;
+  twitter_title: string;
+  twitter_description: string;
+  keywords_tags: string[];
+  json_ld_override: Record<string, unknown>;
+  robots_allow_indexing: boolean;
+  view_count: number;
+}
+
 export type CreatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 export type UpdatePayload<T> = Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 

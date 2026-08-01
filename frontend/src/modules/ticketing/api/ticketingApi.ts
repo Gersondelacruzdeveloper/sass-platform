@@ -67,6 +67,12 @@ import type {
   LedgerSummary,
   ManualLedgerAdjustmentPayload,
   SettlementReconciliation,
+  BlogCategory,
+  BlogPost,
+  BlogPostGalleryImage,
+  BlogPostWritePayload,
+  PublicBlogPostSummary,
+  PublicBlogPostDetail,
 } from "../types/ticketingTypes";
 
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
@@ -445,6 +451,11 @@ const withSlug = (params?: QueryParams, slug?: string): QueryParams => {
     slug,
     organisation_slug: slug,
   });
+};
+
+const unwrapList = <T>(payload: T[] | { results?: T[] }): T[] => {
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload?.results) ? payload.results : [];
 };
 
 export const ticketingApi = {
@@ -2434,6 +2445,240 @@ getPublicProductResolve: async (
       }
     );
 
+    return response.data;
+  },
+
+
+  // ==========================================================================
+  // Blog CMS
+  // ==========================================================================
+
+  getBlogCategories: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BlogCategory[]> => {
+    const response = await api.get<BlogCategory[] | { results?: BlogCategory[] }>(
+      "/ticketing/blog-categories/",
+      { params: withSlug(params, slug) }
+    );
+    return unwrapList(response.data);
+  },
+
+  getBlogCategory: async (
+    id: number,
+    slug?: string
+  ): Promise<BlogCategory> => {
+    const response = await api.get<BlogCategory>(
+      `/ticketing/blog-categories/${id}/`,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  createBlogCategory: async (
+    payload: Partial<BlogCategory> | FormData,
+    slug?: string
+  ): Promise<BlogCategory> => {
+    const response = await api.post<BlogCategory>(
+      "/ticketing/blog-categories/",
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  updateBlogCategory: async (
+    id: number,
+    payload: Partial<BlogCategory> | FormData,
+    slug?: string
+  ): Promise<BlogCategory> => {
+    const response = await api.patch<BlogCategory>(
+      `/ticketing/blog-categories/${id}/`,
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  deleteBlogCategory: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/blog-categories/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  getBlogPosts: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BlogPost[]> => {
+    const response = await api.get<BlogPost[] | { results?: BlogPost[] }>(
+      "/ticketing/blog-posts/",
+      { params: withSlug(params, slug) }
+    );
+    return unwrapList(response.data);
+  },
+
+  getBlogPost: async (
+    id: number,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.get<BlogPost>(
+      `/ticketing/blog-posts/${id}/`,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  createBlogPost: async (
+    payload: BlogPostWritePayload | FormData,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.post<BlogPost>(
+      "/ticketing/blog-posts/",
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  updateBlogPost: async (
+    id: number,
+    payload: Partial<BlogPostWritePayload> | FormData,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.patch<BlogPost>(
+      `/ticketing/blog-posts/${id}/`,
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  deleteBlogPost: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/blog-posts/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  publishBlogPost: async (
+    id: number,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.post<BlogPost>(
+      `/ticketing/blog-posts/${id}/publish/`,
+      {},
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  unpublishBlogPost: async (
+    id: number,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.post<BlogPost>(
+      `/ticketing/blog-posts/${id}/unpublish/`,
+      {},
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  archiveBlogPost: async (
+    id: number,
+    slug?: string
+  ): Promise<BlogPost> => {
+    const response = await api.post<BlogPost>(
+      `/ticketing/blog-posts/${id}/archive/`,
+      {},
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  getBlogGalleryImages: async (
+    slug?: string,
+    params?: QueryParams
+  ): Promise<BlogPostGalleryImage[]> => {
+    const response = await api.get<
+      BlogPostGalleryImage[] | { results?: BlogPostGalleryImage[] }
+    >("/ticketing/blog-gallery-images/", {
+      params: withSlug(params, slug),
+    });
+    return unwrapList(response.data);
+  },
+
+  createBlogGalleryImage: async (
+    payload: FormData,
+    slug?: string
+  ): Promise<BlogPostGalleryImage> => {
+    const response = await api.post<BlogPostGalleryImage>(
+      "/ticketing/blog-gallery-images/",
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  updateBlogGalleryImage: async (
+    id: number,
+    payload: Partial<BlogPostGalleryImage> | FormData,
+    slug?: string
+  ): Promise<BlogPostGalleryImage> => {
+    const response = await api.patch<BlogPostGalleryImage>(
+      `/ticketing/blog-gallery-images/${id}/`,
+      payload,
+      { params: withSlug(undefined, slug) }
+    );
+    return response.data;
+  },
+
+  deleteBlogGalleryImage: async (
+    id: number,
+    slug?: string
+  ): Promise<void> => {
+    await api.delete(`/ticketing/blog-gallery-images/${id}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  getPublicBlogCategories: async (
+    slug: string,
+    params?: QueryParams
+  ): Promise<BlogCategory[]> => {
+    const response = await api.get<BlogCategory[] | { results?: BlogCategory[] }>(
+      `/ticketing/public/${slug}/blog-categories/`,
+      { params: cleanParams(params) }
+    );
+    return unwrapList(response.data);
+  },
+
+  getPublicBlogPosts: async (
+    slug: string,
+    params?: QueryParams
+  ): Promise<PublicBlogPostSummary[]> => {
+    const response = await api.get<
+      PublicBlogPostSummary[] | { results?: PublicBlogPostSummary[] }
+    >(`/ticketing/public/${slug}/blog/`, {
+      params: cleanParams(params),
+    });
+    return unwrapList(response.data);
+  },
+
+  getPublicBlogPost: async (
+    slug: string,
+    blogSlug: string,
+    params?: QueryParams
+  ): Promise<PublicBlogPostDetail> => {
+    const response = await api.get<PublicBlogPostDetail>(
+      `/ticketing/public/${slug}/blog/${blogSlug}/`,
+      { params: cleanParams(params) }
+    );
     return response.data;
   },
 

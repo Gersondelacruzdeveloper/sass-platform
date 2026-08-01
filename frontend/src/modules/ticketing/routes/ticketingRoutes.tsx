@@ -73,6 +73,10 @@ import PublicProductDetailPage from "../pages/PublicProductDetailPage";
 import PublicProductsListingPage from "../pages/PublicProductsListingPage";
 import PublicCheckoutPage from "../pages/PublicCheckoutPage";
 import PublicConfirmationPage from "../pages/PublicConfirmationPage";
+import TicketingBlogPostsPage from "../pages/TicketingBlogPostsPage";
+import TicketingBlogEditorPage from "../pages/TicketingBlogEditorPage";
+import PublicBlogListPage from "../pages/PublicBlogListPage";
+import PublicBlogDetailPage from "../pages/PublicBlogDetailPage";
 
 const PLATFORM_HOSTS = [
   "localhost",
@@ -493,6 +497,24 @@ export const ticketingRoutes = (
     />
 
     <Route
+      path="/blog"
+      element={
+        <CustomDomainOnly>
+          <PublicBlogListPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
+      path="/blog/:blogSlug"
+      element={
+        <CustomDomainOnly>
+          <PublicBlogDetailPage />
+        </CustomDomainOnly>
+      }
+    />
+
+    <Route
       path="/:listingType"
       element={
         <CustomDomainOnly>
@@ -520,6 +542,16 @@ export const ticketingRoutes = (
     <Route
       path="/experiences/:organisationSlug/confirmation/:bookingCode"
       element={<PublicConfirmationPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/blog"
+      element={<PublicBlogListPage />}
+    />
+
+    <Route
+      path="/experiences/:organisationSlug/blog/:blogSlug"
+      element={<PublicBlogDetailPage />}
     />
 
     {/*
@@ -712,6 +744,12 @@ export const ticketingRoutes = (
         <Route path="bookings" element={<TicketingBookingsPage />} />
         <Route path="new-booking" element={<TicketingNewBookingPage />} />
         <Route path="products" element={<TicketingProductsPage />} />
+        <Route path="blog" element={<TicketingBlogPostsPage />} />
+        <Route path="blog/new" element={<TicketingBlogEditorPage />} />
+        <Route
+          path="blog/:blogPostId/edit"
+          element={<TicketingBlogEditorPage />}
+        />
         <Route
           path="pickup-schedules"
           element={<TicketingPickupSchedulesPage />}
