@@ -1883,11 +1883,23 @@ export default function PublicProductDetailPage() {
             offer_token: offerToken,
           }
         );
-        setLiveAvailability(response);
+
+        const normalizedLiveAvailability: LiveAvailabilityResponse = {
+          ...response,
+          options: response.options || [],
+          seller_offer: response.seller_offer
+            ? {
+                ...response.seller_offer,
+                quantity: Number(response.seller_offer.quantity),
+              }
+            : null,
+        };
+
+        setLiveAvailability(normalizedLiveAvailability);
 
         const responseSellerOffer =
-          response.seller_offer?.valid === true
-            ? response.seller_offer
+          normalizedLiveAvailability.seller_offer?.valid === true
+            ? normalizedLiveAvailability.seller_offer
             : sellerOffer;
         const normalizedOptions = normalizeLiveTicketOptions(
           response.options || [],
@@ -1899,10 +1911,16 @@ export default function PublicProductDetailPage() {
         );
 
         if (response.seller_offer?.valid === true) {
-          setSellerOffer((current) => ({
-            ...(current || response.seller_offer!),
-            ...response.seller_offer!,
-          }));
+          setSellerOffer((current) => {
+            const normalizedOffer = {
+              ...response.seller_offer!,
+              quantity: Number(response.seller_offer!.quantity),
+            };
+            return {
+              ...(current || normalizedOffer),
+              ...normalizedOffer,
+            };
+          });
         }
 
         if (

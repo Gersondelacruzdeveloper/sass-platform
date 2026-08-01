@@ -810,12 +810,6 @@ export default function PublicCheckoutPage() {
     (sellerOfferCustomerTotal !== null
       ? sellerOfferCustomerTotal / sellerOfferQuantity
       : null);
-  const sellerOfferOriginalUnitPrice =
-    parseOptionalNumber(sellerOffer?.original_unit_price) ??
-    parseOptionalNumber(sellerOffer?.unit_price) ??
-    (sellerOfferOriginalTotal !== null
-      ? sellerOfferOriginalTotal / sellerOfferQuantity
-      : null);
 
   const selectedExternalIds = uniqueStrings([
     selectedExternalProductId,

@@ -73,46 +73,254 @@ type QueryParams = Record<string, string | number | boolean | null | undefined>;
 
 export type LiveTicketOption = {
   provider: "wellet" | "local" | string;
+
   external_product_id?: string;
   external_variant_id?: string;
   external_availability_id?: string;
+  external_option_id?: string;
+  selected_external_product_id?: string;
+
   name?: string;
   option_name?: string;
+  original_option_name?: string;
+
   price?: number | string;
+  original_price?: number | string;
+  discount_amount?: number | string;
+  discount_percent?: number | string;
+
   currency?: string;
+
   available?: boolean;
   available_quantity?: number | null;
   sold_out?: boolean;
+
   service_date?: string;
   start_time?: string;
   end_time?: string;
+  checkin_time?: string;
+  performance_id?: string;
+
+  description?: string;
+  features?: string[];
+  high_demand?: boolean;
+
+  has_seller_offer?: boolean;
+  seller_offer_locked?: boolean;
+  seller_offer_external_option_id?: string;
+
+  seller_commission_per_unit?: number | string;
+  seller_allowance_per_unit?: number | string;
+  owner_net_per_unit?: number | string;
+
   raw?: unknown;
 };
-export interface SellerSignedOfferLinkResponse {
+
+export type SellerOfferAllowanceType =
+  | "fixed_amount"
+  | "percentage"
+  | string;
+
+export type SellerOfferLockMap = {
+  product?: boolean;
+  service_date?: boolean;
+  external_option?: boolean;
+  quantity?: boolean;
+  package?: boolean;
+  event_ticket_type?: boolean;
+};
+
+/**
+ * Shared lock fields returned by the product-resolve and live-availability
+ * endpoints. Both the direct fields and the nested `locked` shape are
+ * supported while the frontend and backend migrate to one response format.
+ */
+export type SellerOfferLockFields = {
+  product_locked?: boolean;
+  option_locked?: boolean;
+  package_locked?: boolean;
+  event_ticket_type_locked?: boolean;
+  service_date_locked?: boolean;
+  date_locked?: boolean;
+  quantity_locked?: boolean;
+  locked?: SellerOfferLockMap;
+};
+
+export type PublicSellerOffer = SellerOfferLockFields & {
+  valid: boolean;
+  seller_id: number;
   seller_slug: string;
-  product_id: number;
-  product_slug: string;
-  discount_percent: string;
-  maximum_discount_percent: string;
-  offer_token: string;
-  expires_in_seconds: number;
-}
+  seller_name?: string;
+
+  legacy_offer?: boolean;
+  offer_version?: number;
+
+  rule_id?: number | null;
+  rule_match_type?: string;
+  allowance_type?: SellerOfferAllowanceType;
+
+  quantity: number | string;
+
+  unit_price?: number | string | null;
+  original_unit_price?: number | string | null;
+  original_price?: number | string | null;
+
+  discount_percent?: number | string | null;
+  customer_discount_amount?: number | string | null;
+  discount_amount?: number | string | null;
+  discount_per_unit?: number | string | null;
+
+  customer_unit_price?: number | string | null;
+  customer_final_price?: number | string | null;
+
+  seller_allowance_amount?: number | string | null;
+  seller_commission_amount?: number | string | null;
+  seller_commission_per_unit?: number | string | null;
+  owner_net_amount?: number | string | null;
+
+  maximum_discount_amount?: number | string | null;
+  maximum_discount_percent?: number | string | null;
+  minimum_selling_price?: number | string | null;
+
+  currency?: string;
+
+  package_id?: number | null;
+  event_ticket_type_id?: number | null;
+
+  external_option_id?: string;
+  external_option_ids?: string[];
+  matched_external_option_id?: string;
+  external_option_name?: string;
+
+  service_date?: string;
+};
+
+export type LiveSellerOffer = PublicSellerOffer;
 
 export type LiveProductAvailabilityResponse = {
   ok: boolean;
   provider: "wellet" | "local" | string;
+
   product?: {
     id: number;
     name: string;
     slug: string;
     external_product_id?: string;
   };
+
   service_date?: string;
   options: LiveTicketOption[];
+
+  offer_valid?: boolean;
+  seller_offer?: LiveSellerOffer | null;
+  selected_offer_option_id?: string;
+
   raw?: unknown;
   error?: string;
+  detail?: string;
 };
 
+export type SellerPricingQuoteParams = {
+  quantity?: number;
+  unit_price?: number | string;
+
+  service_date?: string;
+  date?: string;
+
+  package?: number;
+  package_id?: number;
+
+  event_ticket_type?: number;
+  event_ticket_type_id?: number;
+
+  external_option_id?: string;
+  selected_external_product_id?: string;
+  external_product_id?: string;
+  external_variant_id?: string;
+  external_availability_id?: string;
+  external_option_name?: string;
+};
+
+export type SellerPricingQuoteResponse = {
+  product_id: number;
+  product_name?: string;
+
+  quantity: number;
+  unit_price: string;
+  original_price: string;
+
+  rule_id?: number | null;
+  rule_match_type?: string;
+  rule_name?: string;
+  allowance_type: SellerOfferAllowanceType;
+  allowance_percentage?: string;
+
+  seller_allowance_amount: string;
+  seller_commission_amount: string;
+
+  maximum_discount_amount: string;
+  maximum_discount_percent: string;
+  minimum_selling_price: string;
+  owner_net_amount: string;
+
+  is_per_unit?: boolean;
+  can_apply_discounts?: boolean;
+  currency?: string;
+
+  package_id?: number | string | null;
+  event_ticket_type_id?: number | string | null;
+
+  external_option_id?: string;
+  external_option_ids?: string[];
+  external_option_name?: string;
+  service_date?: string;
+};
+
+export type SellerSignedOfferLinkPayload = SellerPricingQuoteParams & {
+  customer_unit_price?: number | string;
+  customer_price?: number | string;
+  customer_total_price?: number | string;
+  discount_amount?: number | string;
+  discount_percent?: number | string;
+};
+
+export interface SellerSignedOfferLinkResponse {
+  organisation_slug: string;
+  seller_slug: string;
+
+  product_id: number;
+  product_slug: string;
+
+  rule_id?: number | null;
+  rule_match_type?: string;
+  allowance_type?: SellerOfferAllowanceType;
+
+  quantity: number;
+  unit_price: string;
+  original_price: string;
+
+  discount_percent: string;
+  discount_amount: string;
+  maximum_discount_percent: string;
+  maximum_discount_amount: string;
+
+  customer_unit_price: string;
+  customer_final_price: string;
+  minimum_selling_price: string;
+
+  seller_allowance_amount: string;
+  seller_commission_per_unit: string;
+  seller_commission_amount: string;
+  owner_net_amount: string;
+
+  external_option_id?: string;
+  external_option_name?: string;
+  currency?: string;
+
+  offer_token: string;
+  expires_in_seconds: number;
+  offer_url?: string;
+}
 
 export type SupportedProductLanguage = "en" | "es" | "fr" | "pt" | "de";
 
@@ -199,11 +407,27 @@ export type OrganisationAIConnectionTestResponse = {
 };
 
 export interface PublicProductResolveResponse {
-  product: ExperienceProduct;
+  found?: boolean;
+  offer_valid?: boolean;
+  seller_offer?: PublicSellerOffer | null;
+
+  product: ExperienceProduct & {
+    has_seller_offer?: boolean;
+    seller_offer?: PublicSellerOffer | null;
+    seller_offer_original_price?: number | string | null;
+    seller_offer_customer_price?: number | string | null;
+    seller_offer_discount_amount?: number | string | null;
+    seller_offer_discount_percent?: number | string | null;
+  };
+
   canonical_url: string;
+  canonical_path?: string;
   current_public_path: string;
+  requested_path?: string;
+
   resolved_by: string;
   should_redirect: boolean;
+  redirect_path?: string;
   redirect_type: number;
 }
 
@@ -2170,24 +2394,48 @@ getPublicProductResolve: async (
     return response.data;
   },
 
-  generateSellerOfferLink: async (
-  productId: number,
-  discountPercent: number,
-  slug?: string
-): Promise<SellerSignedOfferLinkResponse> => {
-  const response =
-    await api.post<SellerSignedOfferLinkResponse>(
-      `/ticketing/seller/products/${productId}/signed-offer-link/`,
+  getSellerPricingQuote: async (
+    productId: number,
+    params: SellerPricingQuoteParams = {},
+    slug?: string
+  ): Promise<SellerPricingQuoteResponse> => {
+    const response = await api.get<SellerPricingQuoteResponse>(
+      `/ticketing/seller/products/${productId}/pricing-quote/`,
       {
-        discount_percent: discountPercent,
-      },
+        params: withSlug(params, slug),
+      }
+    );
+
+    return response.data;
+  },
+
+  generateSellerOfferLink: async (
+    productId: number,
+    payloadOrDiscount: SellerSignedOfferLinkPayload | number,
+    slug?: string
+  ): Promise<SellerSignedOfferLinkResponse> => {
+    /*
+     * A numeric second argument keeps older calls working:
+     * generateSellerOfferLink(productId, 10, slug)
+     *
+     * New code should pass the complete exact-option payload so the backend
+     * signs the quantity, date, option and customer price.
+     */
+    const payload: SellerSignedOfferLinkPayload =
+      typeof payloadOrDiscount === "number"
+        ? { discount_percent: payloadOrDiscount }
+        : payloadOrDiscount;
+
+    const response = await api.post<SellerSignedOfferLinkResponse>(
+      `/ticketing/seller/products/${productId}/signed-offer-link/`,
+      payload,
       {
         params: withSlug(undefined, slug),
       }
     );
 
-  return response.data;
-},
+    return response.data;
+  },
 
 };
 
