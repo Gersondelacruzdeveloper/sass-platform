@@ -6511,6 +6511,129 @@ class SellerOnlyMixin(TicketingOrganisationMixin):
         )
 
 
+class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Seller-only products endpoint.
+
+    Sellers only see products:
+    - in their organisation
+    - active
+    - seller_enabled
+    - matching their seller permissions/product types
+    """
+
+    serializer_class = ExperienceProductSerializer
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return ExperienceProduct.objects.none()
+
+        seller = get_user_seller(self.request.user, organisation)
+
+        if not seller or not seller.is_active:
+            return ExperienceProduct.objects.none()
+
+        allowed_product_types = self.get_allowed_seller_product_types(seller)
+
+        if not allowed_product_types:
+            return ExperienceProduct.objects.none()
+
+        queryset = (
+            ExperienceProduct.objects
+            .filter(
+                organisation=organisation,
+                seller_enabled=True,
+                is_active=True,
+                status="active",
+                product_type__in=allowed_product_types,
+            )
+            .select_related("organisation", "category", "created_by")
+            .prefetch_related(
+                "gallery_images",
+                "packages",
+                "availability",
+                "pickup_schedules",
+                "pickup_schedules__pickup_location",
+                "transfer_routes",
+                "event_ticket_types",
+            )
+        )
+
+        if not seller.can_sell_cocobongo:
+            queryset = queryset.exclude(is_cocobongo_product=True)
+
+        product_type = self.request.query_params.get("product_type")
+        search = self.request.query_params.get("search")
+
+        if product_type:
+            queryset = queryset.filter(product_type=product_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(location__icontains=search)
+                | Q(keywords_tags__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    @action(detail=True, methods=["post"], url_path="signed-offer-link")
+    def signed_offer_link(self, request, pk=None):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            return self.seller_not_found_response()
+
+        product = self.get_object()
+
+        try:
+            discount_percent = _decimal_percent(
+                request.data.get("discount_percent", "0.00")
+            )
+        except ValueError as exc:
+            return Response(
+                {"discount_percent": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_discount = _seller_offer_allowed_discount(seller, product)
+
+        if discount_percent > allowed_discount:
+            return Response(
+                {
+                    "discount_percent": (
+                        f"Maximum discount allowed for this product is "
+                        f"{allowed_discount.normalize()}%."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        token = _build_seller_offer_token(
+            organisation=organisation,
+            seller=seller,
+            product=product,
+            discount_percent=discount_percent,
+        )
+
+        return Response(
+            {
+                "organisation_slug": organisation.slug,
+                "seller_slug": seller.seller_slug,
+                "product_id": product.id,
+                "product_slug": product.slug,
+                "discount_percent": str(discount_percent),
+                "maximum_discount_percent": str(allowed_discount),
+                "offer_token": token,
+                "expires_in_seconds": SELLER_OFFER_MAX_AGE_SECONDS,
+            }
+        )
+
+
 class SellerBookingsViewSet(
     SellerOnlyMixin,
     viewsets.ModelViewSet,
@@ -7551,22 +7674,24 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
 
 
 class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
-    """
-    Resolve a public product URL and, when present, validate a signed seller
-    offer token.
-
-    Important seller-offer behaviour:
-    - zero-discount links are valid;
-    - fixed and percentage commission snapshots are supported;
-    - the signed customer total is never recalculated from browser values;
-    - exact package, event-ticket and external-option targets are returned;
-    - product/package/option prices are not discounted globally;
-    - the frontend receives one explicit seller_offer object and must use it.
-    """
-
     permission_classes = [permissions.AllowAny]
 
-    OFFER_TOLERANCE = Decimal("0.02")
+    PRICE_FIELDS = (
+        "base_price",
+        "adult_price",
+        "child_price",
+        "infant_price",
+    )
+
+    NESTED_PRICE_FIELDS = (
+        "price",
+        "base_price",
+        "adult_price",
+        "child_price",
+        "infant_price",
+        "one_way_price",
+        "round_trip_price",
+    )
 
     def clean_requested_path(self, raw_path):
         raw_path = str(raw_path or "").strip()
@@ -7582,527 +7707,73 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
 
         return raw_path
 
-    @staticmethod
-    def _has_value(payload, key):
-        return key in payload and payload.get(key) not in (None, "")
-
-    @staticmethod
-    def _money_decimal(value, field_name="amount"):
+    def _money_decimal(self, value):
         try:
-            return Decimal(str(value)).quantize(Decimal("0.01"))
-        except Exception as exc:
-            raise ValueError(
-                f"{field_name} must be a valid money amount."
-            ) from exc
-
-    @staticmethod
-    def _percentage_decimal(value, field_name="discount_percent"):
-        try:
-            percentage = Decimal(str(value or "0")).quantize(
+            return Decimal(str(value or "0")).quantize(
                 Decimal("0.01")
             )
-        except Exception as exc:
-            raise ValueError(
-                f"{field_name} must be a valid percentage."
-            ) from exc
-
-        if percentage < Decimal("0.00"):
-            raise ValueError(f"{field_name} cannot be negative.")
-
-        if percentage > Decimal("100.00"):
-            raise ValueError(f"{field_name} cannot exceed 100%.")
-
-        return percentage
-
-    @staticmethod
-    def _positive_quantity(value):
-        try:
-            quantity = int(value or 1)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "The seller offer quantity must be a whole number."
-            ) from exc
-
-        if quantity <= 0:
-            raise ValueError(
-                "The seller offer quantity must be greater than zero."
-            )
-
-        return quantity
-
-    @staticmethod
-    def _optional_integer(value, field_name):
-        if value in (None, ""):
-            return None
-
-        try:
-            return int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"{field_name} must be a valid integer."
-            ) from exc
-
-    @staticmethod
-    def _string_list(value):
-        if value in (None, ""):
-            return []
-
-        if isinstance(value, (list, tuple, set)):
-            raw_values = value
-        else:
-            raw_values = [value]
-
-        result = []
-
-        for raw_value in raw_values:
-            clean_value = str(raw_value or "").strip()
-
-            if clean_value and clean_value not in result:
-                result.append(clean_value)
-
-        return result
-
-    @staticmethod
-    def _percentage_from_amount(amount, original_price):
-        if original_price <= Decimal("0.00"):
+        except Exception:
             return Decimal("0.00")
 
-        return (
-            amount / original_price * Decimal("100.00")
+    def _discount_price(self, value, discount_percent):
+        original_price = self._money_decimal(value)
+
+        discount_amount = (
+            original_price * discount_percent / Decimal("100")
         ).quantize(Decimal("0.01"))
 
-    def _assert_close(self, actual, expected, message):
-        if abs(actual - expected) > self.OFFER_TOLERANCE:
-            raise ValueError(message)
-
-    def _validate_new_offer_snapshot(
-        self,
-        *,
-        payload,
-        seller,
-        product,
-    ):
-        quantity = self._positive_quantity(
-            payload.get("quantity") or 1
-        )
-
-        has_unit_price = self._has_value(payload, "unit_price")
-        has_original_price = self._has_value(payload, "original_price")
-
-        if not has_unit_price and not has_original_price:
-            raise ValueError(
-                "This seller offer does not contain a signed price."
-            )
-
-        unit_price = (
-            self._money_decimal(
-                payload.get("unit_price"),
-                "unit_price",
-            )
-            if has_unit_price
-            else Decimal("0.00")
-        )
-
-        original_price = (
-            self._money_decimal(
-                payload.get("original_price"),
-                "original_price",
-            )
-            if has_original_price
-            else Decimal("0.00")
-        )
-
-        if original_price <= Decimal("0.00") and unit_price > Decimal("0.00"):
-            original_price = (
-                unit_price * Decimal(quantity)
-            ).quantize(Decimal("0.01"))
-
-        if unit_price <= Decimal("0.00") and original_price > Decimal("0.00"):
-            unit_price = (
-                original_price / Decimal(quantity)
-            ).quantize(Decimal("0.01"))
-
-        if original_price <= Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains an invalid original price."
-            )
-
-        if unit_price <= Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains an invalid unit price."
-            )
-
-        expected_original = (
-            unit_price * Decimal(quantity)
-        ).quantize(Decimal("0.01"))
-
-        self._assert_close(
-            original_price,
-            expected_original,
-            "This seller offer contains inconsistent quantity and price data.",
-        )
-
-        has_final_price = self._has_value(
-            payload,
-            "customer_final_price",
-        )
-        has_discount_amount = self._has_value(
-            payload,
-            "customer_discount_amount",
-        )
-
-        customer_final_price = (
-            self._money_decimal(
-                payload.get("customer_final_price"),
-                "customer_final_price",
-            )
-            if has_final_price
-            else None
-        )
-
-        customer_discount_amount = (
-            self._money_decimal(
-                payload.get("customer_discount_amount"),
-                "customer_discount_amount",
-            )
-            if has_discount_amount
-            else None
-        )
-
-        discount_percent = self._percentage_decimal(
-            payload.get("discount_percent") or "0.00",
-            "discount_percent",
-        )
-
-        if customer_final_price is None and customer_discount_amount is None:
-            customer_discount_amount = (
-                original_price
-                * discount_percent
-                / Decimal("100.00")
-            ).quantize(Decimal("0.01"))
-            customer_final_price = (
-                original_price - customer_discount_amount
-            ).quantize(Decimal("0.01"))
-        elif customer_final_price is None:
-            customer_final_price = (
-                original_price - customer_discount_amount
-            ).quantize(Decimal("0.01"))
-        elif customer_discount_amount is None:
-            customer_discount_amount = (
-                original_price - customer_final_price
-            ).quantize(Decimal("0.01"))
-
-        if customer_discount_amount < Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains a negative customer discount."
-            )
-
-        if customer_final_price < Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains a negative customer price."
-            )
-
-        if customer_final_price > original_price:
-            raise ValueError(
-                "This seller offer customer price exceeds the original price."
-            )
-
-        if customer_discount_amount > original_price:
-            raise ValueError(
-                "This seller offer discount exceeds the original price."
-            )
-
-        expected_discount = (
-            original_price - customer_final_price
-        ).quantize(Decimal("0.01"))
-
-        self._assert_close(
-            customer_discount_amount,
-            expected_discount,
-            "This seller offer contains inconsistent customer-price data.",
-        )
-
-        calculated_discount_percent = self._percentage_from_amount(
-            customer_discount_amount,
-            original_price,
-        )
-
-        self._assert_close(
-            discount_percent,
-            calculated_discount_percent,
-            "This seller offer contains an inconsistent discount percentage.",
-        )
-
-        seller_allowance_amount = self._money_decimal(
-            payload.get("seller_allowance_amount") or "0.00",
-            "seller_allowance_amount",
-        )
-
-        if seller_allowance_amount < Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains a negative seller allowance."
-            )
-
-        if seller_allowance_amount > original_price:
-            raise ValueError(
-                "This seller offer allowance exceeds the original price."
-            )
-
-        if customer_discount_amount > (
-            seller_allowance_amount + self.OFFER_TOLERANCE
-        ):
-            raise ValueError(
-                "This seller offer discount exceeds the signed seller allowance."
-            )
-
-        expected_seller_commission = max(
-            seller_allowance_amount - customer_discount_amount,
-            Decimal("0.00"),
-        ).quantize(Decimal("0.01"))
-
-        seller_commission_amount = (
-            self._money_decimal(
-                payload.get("seller_commission_amount"),
-                "seller_commission_amount",
-            )
-            if self._has_value(payload, "seller_commission_amount")
-            else expected_seller_commission
-        )
-
-        if seller_commission_amount < Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains a negative seller commission."
-            )
-
-        self._assert_close(
-            seller_commission_amount,
-            expected_seller_commission,
-            "This seller offer contains inconsistent seller-commission data.",
-        )
-
-        expected_owner_net = max(
-            original_price - seller_allowance_amount,
-            Decimal("0.00"),
-        ).quantize(Decimal("0.01"))
-
-        owner_net_amount = (
-            self._money_decimal(
-                payload.get("owner_net_amount"),
-                "owner_net_amount",
-            )
-            if self._has_value(payload, "owner_net_amount")
-            else expected_owner_net
-        )
-
-        if owner_net_amount < Decimal("0.00"):
-            raise ValueError(
-                "This seller offer contains a negative owner net amount."
-            )
-
-        self._assert_close(
-            owner_net_amount,
-            expected_owner_net,
-            "This seller offer contains inconsistent owner-net data.",
-        )
-
-        self._assert_close(
-            customer_final_price,
-            owner_net_amount + seller_commission_amount,
-            "This seller offer contains inconsistent final-price data.",
-        )
-
-        maximum_discount_amount = (
-            self._money_decimal(
-                payload.get("maximum_discount_amount"),
-                "maximum_discount_amount",
-            )
-            if self._has_value(payload, "maximum_discount_amount")
-            else customer_discount_amount
-        )
-
-        maximum_discount_percent = (
-            self._percentage_decimal(
-                payload.get("maximum_discount_percent"),
-                "maximum_discount_percent",
-            )
-            if self._has_value(payload, "maximum_discount_percent")
-            else discount_percent
-        )
-
-        if customer_discount_amount > (
-            maximum_discount_amount + self.OFFER_TOLERANCE
-        ):
-            raise ValueError(
-                "This seller offer exceeds its signed maximum discount."
-            )
-
-        external_option_ids = self._string_list(
-            payload.get("external_option_ids")
-        )
-        external_option_id = str(
-            payload.get("external_option_id") or ""
-        ).strip()
-
-        if external_option_id and external_option_id not in external_option_ids:
-            external_option_ids.insert(0, external_option_id)
-
-        original_unit_price = (
-            original_price / Decimal(quantity)
-        ).quantize(Decimal("0.01"))
-        customer_unit_price = (
-            customer_final_price / Decimal(quantity)
-        ).quantize(Decimal("0.01"))
-        discount_per_unit = (
-            customer_discount_amount / Decimal(quantity)
-        ).quantize(Decimal("0.01"))
-        seller_commission_per_unit = (
-            seller_commission_amount / Decimal(quantity)
+        final_price = (
+            original_price - discount_amount
         ).quantize(Decimal("0.01"))
 
         return {
-            "seller": seller,
-            "legacy_offer": False,
-            "offer_version": int(payload.get("offer_version") or 2),
-            "rule_id": self._optional_integer(
-                payload.get("rule_id"),
-                "rule_id",
-            ),
-            "rule_match_type": str(
-                payload.get("rule_match_type") or "fallback"
-            ).strip(),
-            "allowance_type": str(
-                payload.get("allowance_type") or "percentage"
-            ).strip(),
-            "quantity": quantity,
-            "quantity_locked": True,
-            "unit_price": unit_price,
-            "original_unit_price": original_unit_price,
             "original_price": original_price,
-            "discount_percent": discount_percent,
-            "customer_discount_amount": customer_discount_amount,
-            "discount_per_unit": discount_per_unit,
-            "customer_unit_price": customer_unit_price,
-            "customer_final_price": customer_final_price,
-            "seller_allowance_amount": seller_allowance_amount,
-            "seller_commission_amount": seller_commission_amount,
-            "seller_commission_per_unit": seller_commission_per_unit,
-            "owner_net_amount": owner_net_amount,
-            "maximum_discount_amount": maximum_discount_amount,
-            "maximum_discount_percent": maximum_discount_percent,
-            "currency": str(payload.get("currency") or "USD").strip(),
-            "package_id": self._optional_integer(
-                payload.get("package_id"),
-                "package_id",
-            ),
-            "event_ticket_type_id": self._optional_integer(
-                payload.get("event_ticket_type_id"),
-                "event_ticket_type_id",
-            ),
-            "external_option_id": external_option_id,
-            "external_option_ids": external_option_ids,
-            "external_option_name": str(
-                payload.get("external_option_name") or ""
-            ).strip(),
-            "service_date": str(
-                payload.get("service_date") or ""
-            ).strip(),
+            "discount_amount": discount_amount,
+            "final_price": max(final_price, Decimal("0.00")),
         }
 
-    def _validate_legacy_offer(
+    def _apply_discount_to_nested_items(
         self,
-        *,
-        payload,
-        seller,
-        product,
+        items,
+        discount_percent,
     ):
-        """
-        Keep older percentage-only signed links usable during migration.
-        New links should always use _validate_new_offer_snapshot().
-        """
+        if not isinstance(items, list):
+            return items
 
-        discount_percent = self._percentage_decimal(
-            payload.get("discount_percent") or "0.00",
-            "discount_percent",
-        )
+        discounted_items = []
 
-        maximum_discount_percent = _seller_offer_allowed_discount(
-            seller,
-            product,
-        )
+        for raw_item in items:
+            if not isinstance(raw_item, dict):
+                discounted_items.append(raw_item)
+                continue
 
-        if discount_percent > maximum_discount_percent:
-            raise ValueError(
-                "This seller offer exceeds the currently allowed discount."
-            )
+            item = deepcopy(raw_item)
 
-        unit_price = Decimal(
-            str(
-                product.adult_price
-                or product.base_price
-                or "0.00"
-            )
-        ).quantize(Decimal("0.01"))
+            for field_name in self.NESTED_PRICE_FIELDS:
+                if field_name not in item:
+                    continue
 
-        if unit_price <= Decimal("0.00"):
-            raise ValueError(
-                "This legacy seller offer does not contain a valid price."
-            )
+                raw_value = item.get(field_name)
 
-        original_price = unit_price
-        customer_discount_amount = (
-            original_price
-            * discount_percent
-            / Decimal("100.00")
-        ).quantize(Decimal("0.01"))
-        customer_final_price = (
-            original_price - customer_discount_amount
-        ).quantize(Decimal("0.01"))
+                if raw_value in (None, ""):
+                    continue
 
-        seller_allowance_amount = (
-            original_price
-            * maximum_discount_percent
-            / Decimal("100.00")
-        ).quantize(Decimal("0.01"))
-        seller_commission_amount = max(
-            seller_allowance_amount - customer_discount_amount,
-            Decimal("0.00"),
-        ).quantize(Decimal("0.01"))
-        owner_net_amount = max(
-            original_price - seller_allowance_amount,
-            Decimal("0.00"),
-        ).quantize(Decimal("0.01"))
+                price = self._discount_price(
+                    raw_value,
+                    discount_percent,
+                )
 
-        return {
-            "seller": seller,
-            "legacy_offer": True,
-            "offer_version": 1,
-            "rule_id": None,
-            "rule_match_type": "legacy_percentage",
-            "allowance_type": "percentage",
-            "quantity": 1,
-            "quantity_locked": False,
-            "unit_price": unit_price,
-            "original_unit_price": unit_price,
-            "original_price": original_price,
-            "discount_percent": discount_percent,
-            "customer_discount_amount": customer_discount_amount,
-            "discount_per_unit": customer_discount_amount,
-            "customer_unit_price": customer_final_price,
-            "customer_final_price": customer_final_price,
-            "seller_allowance_amount": seller_allowance_amount,
-            "seller_commission_amount": seller_commission_amount,
-            "seller_commission_per_unit": seller_commission_amount,
-            "owner_net_amount": owner_net_amount,
-            "maximum_discount_amount": seller_allowance_amount,
-            "maximum_discount_percent": maximum_discount_percent,
-            "currency": "USD",
-            "package_id": None,
-            "event_ticket_type_id": None,
-            "external_option_id": "",
-            "external_option_ids": [],
-            "external_option_name": "",
-            "service_date": "",
-        }
+                item[f"original_{field_name}"] = str(
+                    price["original_price"]
+                )
+                item[f"{field_name}_discount_amount"] = str(
+                    price["discount_amount"]
+                )
+                item[field_name] = str(price["final_price"])
+
+            discounted_items.append(item)
+
+        return discounted_items
 
     def _validate_offer(
         self,
@@ -8167,67 +7838,34 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
         ):
             raise ValueError("This seller offer is invalid.")
 
-        has_signed_price_snapshot = any(
-            self._has_value(payload, field_name)
-            for field_name in (
-                "original_price",
-                "customer_final_price",
-                "seller_allowance_amount",
-                "seller_commission_amount",
-                "owner_net_amount",
+        try:
+            requested_discount = _decimal_percent(
+                payload.get("discount_percent"),
+                "discount_percent",
             )
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
+        maximum_discount = _seller_offer_allowed_discount(
+            seller,
+            product,
         )
 
-        if has_signed_price_snapshot:
-            return self._validate_new_offer_snapshot(
-                payload=payload,
-                seller=seller,
-                product=product,
+        if requested_discount <= Decimal("0.00"):
+            raise ValueError(
+                "This seller offer does not contain a discount."
             )
 
-        return self._validate_legacy_offer(
-            payload=payload,
-            seller=seller,
-            product=product,
-        )
+        if requested_discount > maximum_discount:
+            raise ValueError(
+                "This seller offer exceeds the currently allowed discount."
+            )
 
-    @staticmethod
-    def _decimal_string(value):
-        if isinstance(value, Decimal):
-            return str(value.quantize(Decimal("0.01")))
-
-        return value
-
-    def _serialize_offer(self, offer):
-        seller = offer["seller"]
-
-        serialized = {
-            key: self._decimal_string(value)
-            for key, value in offer.items()
-            if key != "seller"
+        return {
+            "seller": seller,
+            "discount_percent": requested_discount,
+            "maximum_discount_percent": maximum_discount,
         }
-
-        serialized.update(
-            {
-                "valid": True,
-                "seller_id": seller.id,
-                "seller_slug": seller.seller_slug,
-                "seller_name": seller.full_name,
-                "option_locked": bool(
-                    serialized.get("external_option_id")
-                    or serialized.get("external_option_ids")
-                ),
-                "package_locked": bool(serialized.get("package_id")),
-                "event_ticket_type_locked": bool(
-                    serialized.get("event_ticket_type_id")
-                ),
-                "service_date_locked": bool(
-                    serialized.get("service_date")
-                ),
-            }
-        )
-
-        return serialized
 
     def _apply_offer_to_product_data(
         self,
@@ -8242,28 +7880,64 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             data["seller_offer"] = None
             return data
 
-        serialized_offer = self._serialize_offer(offer)
+        seller = offer["seller"]
+        discount_percent = offer["discount_percent"]
 
-        # Do not rewrite every product/package/route/option price. The offer is
-        # a signed total for one exact selection. Applying it globally could
-        # discount the wrong package or Coco Bongo option.
+        price_preview = {}
+
+        for field_name in self.PRICE_FIELDS:
+            if field_name not in data:
+                continue
+
+            raw_value = data.get(field_name)
+
+            if raw_value in (None, ""):
+                continue
+
+            price = self._discount_price(
+                raw_value,
+                discount_percent,
+            )
+
+            data[f"original_{field_name}"] = str(
+                price["original_price"]
+            )
+            data[f"{field_name}_discount_amount"] = str(
+                price["discount_amount"]
+            )
+            data[field_name] = str(price["final_price"])
+
+            price_preview[field_name] = {
+                "original_price": str(price["original_price"]),
+                "discount_amount": str(price["discount_amount"]),
+                "final_price": str(price["final_price"]),
+            }
+
+        for nested_field in (
+            "packages",
+            "availability",
+            "transfer_routes",
+            "event_ticket_types",
+        ):
+            if nested_field in data:
+                data[nested_field] = (
+                    self._apply_discount_to_nested_items(
+                        data.get(nested_field),
+                        discount_percent,
+                    )
+                )
+
         data["has_seller_offer"] = True
-        data["seller_offer"] = serialized_offer
-
-        # Convenience fields for older frontend code during migration. These
-        # are explicit offer fields; the normal product prices remain intact.
-        data["seller_offer_original_price"] = serialized_offer[
-            "original_price"
-        ]
-        data["seller_offer_customer_price"] = serialized_offer[
-            "customer_final_price"
-        ]
-        data["seller_offer_discount_amount"] = serialized_offer[
-            "customer_discount_amount"
-        ]
-        data["seller_offer_discount_percent"] = serialized_offer[
-            "discount_percent"
-        ]
+        data["seller_offer"] = {
+            "valid": True,
+            "seller_id": seller.id,
+            "seller_slug": seller.seller_slug,
+            "discount_percent": str(discount_percent),
+            "maximum_discount_percent": str(
+                offer["maximum_discount_percent"]
+            ),
+            "price_preview": price_preview,
+        }
 
         return data
 
@@ -8343,18 +8017,11 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             offer=offer,
         )
 
-        serialized_offer = (
-            self._serialize_offer(offer)
-            if offer
-            else None
-        )
-
         response = Response(
             {
                 "found": True,
                 "product": product_data,
                 "offer_valid": bool(offer),
-                "seller_offer": serialized_offer,
                 "canonical_url": canonical_url,
                 "canonical_path": canonical_path,
                 "current_public_path": canonical_path,
@@ -8368,22 +8035,9 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
 
         response["Link"] = f'<{canonical_url}>; rel="canonical"'
         return response
-
     
 
 class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
-    """
-    Public live-availability endpoint.
-
-    Seller offer behaviour:
-    - accepts signed offers with or without a customer discount
-    - supports fixed-commission and percentage-commission offers
-    - applies the signed customer price only to the exact external option
-    - never applies one seller discount to every live option
-    - locks the signed service date and option identifiers
-    - rejects stale links when the provider price has changed
-    """
-
     permission_classes = [permissions.AllowAny]
 
     COCO_BONGO_PACKAGE_NAMES = {
@@ -8393,81 +8047,21 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
         "general": "ENTRADA GENERAL + OPEN BAR REGULAR + SNACK.",
     }
 
-    MONEY_QUANT = Decimal("0.01")
-    PRICE_TOLERANCE = Decimal("0.01")
-
-    @classmethod
-    def _money(cls, value) -> Decimal:
+    @staticmethod
+    def _money(value) -> Decimal:
         try:
-            return Decimal(str(value or "0")).quantize(cls.MONEY_QUANT)
+            return Decimal(str(value or "0")).quantize(Decimal("0.01"))
         except (InvalidOperation, TypeError, ValueError):
             return Decimal("0.00")
 
     @classmethod
-    def _optional_money(cls, value):
-        if value in (None, ""):
-            return None
-
-        try:
-            return Decimal(str(value)).quantize(cls.MONEY_QUANT)
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError("The seller offer contains an invalid price.") from exc
-
-    @staticmethod
-    def _text(value):
-        return str(value or "").strip()
-
-    @staticmethod
-    def _unique_text_values(values):
-        unique_values = []
-
-        for value in values:
-            text = str(value or "").strip()
-
-            if text and text not in unique_values:
-                unique_values.append(text)
-
-        return unique_values
-
-    @staticmethod
-    def _positive_integer(value, field_name="quantity"):
-        try:
-            number = int(value or 1)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"The seller offer contains an invalid {field_name}."
-            ) from exc
-
-        if number <= 0:
-            raise ValueError(
-                f"The seller offer contains an invalid {field_name}."
-            )
-
-        return number
-
-    @classmethod
-    def _percentage(cls, value):
-        try:
-            percentage = Decimal(str(value or "0")).quantize(cls.MONEY_QUANT)
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError(
-                "The seller offer contains an invalid discount percentage."
-            ) from exc
-
-        if percentage < Decimal("0.00") or percentage > Decimal("100.00"):
-            raise ValueError(
-                "The seller offer contains an invalid discount percentage."
-            )
-
-        return percentage
-
-    @classmethod
     def _get_coco_bongo_package_name(cls, value):
         """
-        Convert Wellet package names into consistent customer-facing names.
+        Convert Wellet's package names into consistent customer-facing names.
+
         Unknown package names are left unchanged.
         """
-        original_name = cls._text(value)
+        original_name = str(value or "").strip()
 
         if not original_name:
             return original_name
@@ -8498,43 +8092,32 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
 
         return original_name
 
-    @staticmethod
-    def _is_external_option_product(product):
-        provider = str(
-            getattr(product, "external_provider", "") or ""
-        ).strip().lower()
-        slug = str(getattr(product, "slug", "") or "").lower()
-        name = str(getattr(product, "name", "") or "").lower()
-        external_product_id = str(
-            getattr(product, "external_product_id", "") or ""
-        ).lower()
+    def _apply_discount(self, value, discount_percent: Decimal):
+        original_price = self._money(value)
+        discount_amount = (
+            original_price * discount_percent / Decimal("100.00")
+        ).quantize(Decimal("0.01"))
+        final_price = (
+            original_price - discount_amount
+        ).quantize(Decimal("0.01"))
 
-        return (
-            provider == "wellet"
-            or (provider and provider != "local")
-            or bool(getattr(product, "is_cocobongo_product", False))
-            or "coco-bongo" in slug
-            or "coco bongo" in name
-            or "coco-bongo" in external_product_id
-        )
+        return original_price, discount_amount, final_price
 
     def _normalize_wellet_raw_products(self, raw_value):
         """
-        Normalize nested Coco Bongo/Wellet package names for every visitor.
+        Normalize the nested Coco Bongo/Wellet package names even when there
+        is no seller discount.
         """
         if not isinstance(raw_value, dict):
             return raw_value
 
         raw = deepcopy(raw_value)
+
         products = raw.get("products")
 
         if not isinstance(products, list):
             single_product = raw.get("product")
-            products = (
-                [single_product]
-                if isinstance(single_product, dict)
-                else []
-            )
+            products = [single_product] if isinstance(single_product, dict) else []
 
         for product_item in products:
             if not isinstance(product_item, dict):
@@ -8545,9 +8128,7 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
                 or product_item.get("description")
                 or ""
             )
-            display_name = self._get_coco_bongo_package_name(
-                current_name
-            )
+            display_name = self._get_coco_bongo_package_name(current_name)
 
             if display_name:
                 product_item["original_name"] = str(
@@ -8563,755 +8144,98 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
 
         return raw
 
-    def _normalize_options(self, options):
-        normalized_options = []
-
-        for option in options or []:
-            if not isinstance(option, dict):
-                normalized_options.append(option)
-                continue
-
-            updated_option = deepcopy(option)
-            option_name = (
-                updated_option.get("option_name")
-                or updated_option.get("name")
-                or ""
-            )
-            display_name = self._get_coco_bongo_package_name(
-                option_name
-            )
-
-            if display_name:
-                updated_option["original_option_name"] = option_name
-                updated_option["option_name"] = display_name
-                updated_option["name"] = display_name
-
-            if isinstance(updated_option.get("raw"), dict):
-                updated_option["raw"] = (
-                    self._normalize_wellet_raw_products(
-                        updated_option["raw"]
-                    )
-                )
-
-            normalized_options.append(updated_option)
-
-        return normalized_options
-
-    def _validate_offer(
+    def _discount_wellet_raw_products(
         self,
-        *,
-        token,
-        organisation,
-        product,
+        raw_value,
+        discount_percent: Decimal,
     ):
-        if not token:
-            return None
+        """
+        Coco Bongo/Wellet prices may be nested inside:
+        option["raw"]["products"][n]["prices"][n]["amount"].
 
-        try:
-            payload = _load_seller_offer_token(token)
-        except signing.SignatureExpired as exc:
-            raise ValueError(
-                "This seller offer has expired."
-            ) from exc
-        except signing.BadSignature as exc:
-            raise ValueError(
-                "This seller offer is invalid."
-            ) from exc
-        except Exception as exc:
-            raise ValueError(
-                "This seller offer could not be validated."
-            ) from exc
+        The frontend flattens those nested products, so both their names and
+        prices are normalized by the backend.
+        """
+        raw = self._normalize_wellet_raw_products(raw_value)
 
-        if not isinstance(payload, dict):
-            raise ValueError("This seller offer is invalid.")
-
-        if str(payload.get("organisation_id")) != str(
-            organisation.id
-        ):
-            raise ValueError(
-                "This seller offer does not belong to this organisation."
-            )
-
-        if str(payload.get("product_id")) != str(product.id):
-            raise ValueError(
-                "This seller offer does not belong to this product."
-            )
-
-        token_product_slug = self._text(
-            payload.get("product_slug")
-        )
-
-        if (
-            token_product_slug
-            and token_product_slug != product.slug
-        ):
-            raise ValueError(
-                "This seller offer does not belong to this product."
-            )
-
-        seller = (
-            Seller.objects
-            .filter(
-                id=payload.get("seller_id"),
-                organisation=organisation,
-                is_active=True,
-            )
-            .first()
-        )
-
-        if not seller:
-            raise ValueError(
-                "The seller attached to this offer is not available."
-            )
-
-        token_seller_slug = self._text(
-            payload.get("seller_slug")
-            or payload.get("seller_code")
-        )
-
-        if (
-            token_seller_slug
-            and token_seller_slug != seller.seller_slug
-        ):
-            raise ValueError("This seller offer is invalid.")
-
-        quantity = self._positive_integer(
-            payload.get("quantity") or 1
-        )
-        discount_percent = self._percentage(
-            payload.get("discount_percent") or "0.00"
-        )
-
-        unit_price = self._optional_money(
-            payload.get("unit_price")
-        )
-        original_price = self._optional_money(
-            payload.get("original_price")
-        )
-        customer_final_price = self._optional_money(
-            payload.get("customer_final_price")
-        )
-        customer_discount_amount = self._optional_money(
-            payload.get("customer_discount_amount")
-            if payload.get("customer_discount_amount") not in (None, "")
-            else payload.get("discount_amount")
-        )
-        seller_allowance_amount = self._optional_money(
-            payload.get("seller_allowance_amount")
-        )
-        seller_commission_amount = self._optional_money(
-            payload.get("seller_commission_amount")
-        )
-        owner_net_amount = self._optional_money(
-            payload.get("owner_net_amount")
-        )
-
-        if unit_price is None and original_price is not None:
-            unit_price = (
-                original_price / Decimal(quantity)
-            ).quantize(self.MONEY_QUANT)
-
-        if original_price is None and unit_price is not None:
-            original_price = (
-                unit_price * Decimal(quantity)
-            ).quantize(self.MONEY_QUANT)
-
-        if (
-            customer_final_price is None
-            and original_price is not None
-        ):
-            calculated_discount = (
-                original_price
-                * discount_percent
-                / Decimal("100.00")
-            ).quantize(self.MONEY_QUANT)
-
-            customer_final_price = max(
-                original_price - calculated_discount,
-                Decimal("0.00"),
-            ).quantize(self.MONEY_QUANT)
-
-            if customer_discount_amount is None:
-                customer_discount_amount = calculated_discount
-
-        if (
-            customer_discount_amount is None
-            and original_price is not None
-            and customer_final_price is not None
-        ):
-            customer_discount_amount = max(
-                original_price - customer_final_price,
-                Decimal("0.00"),
-            ).quantize(self.MONEY_QUANT)
-
-        external_option_ids = self._unique_text_values(
-            [
-                *(
-                    payload.get("external_option_ids")
-                    if isinstance(
-                        payload.get("external_option_ids"),
-                        list,
-                    )
-                    else []
-                ),
-                payload.get("external_option_id"),
-                payload.get("selected_external_product_id"),
-                payload.get("external_product_id"),
-                payload.get("external_variant_id"),
-                payload.get("external_availability_id"),
-            ]
-        )
-
-        token_service_date = None
-        token_service_date_value = self._text(
-            payload.get("service_date")
-        )
-
-        if token_service_date_value:
-            token_service_date = parse_date(
-                token_service_date_value
-            )
-
-            if not token_service_date:
-                raise ValueError(
-                    "This seller offer contains an invalid service date."
-                )
-
-        if (
-            self._is_external_option_product(product)
-            and not external_option_ids
-        ):
-            raise ValueError(
-                "This seller offer does not identify an exact ticket option."
-            )
-
-        return {
-            "payload": payload,
-            "seller": seller,
-            "quantity": quantity,
-            "discount_percent": discount_percent,
-            "unit_price": unit_price,
-            "original_price": original_price,
-            "customer_final_price": customer_final_price,
-            "customer_discount_amount": (
-                customer_discount_amount
-            ),
-            "seller_allowance_amount": (
-                seller_allowance_amount
-            ),
-            "seller_commission_amount": (
-                seller_commission_amount
-            ),
-            "owner_net_amount": owner_net_amount,
-            "allowance_type": self._text(
-                payload.get("allowance_type")
-            ),
-            "rule_id": payload.get("rule_id"),
-            "rule_match_type": self._text(
-                payload.get("rule_match_type")
-            ),
-            "external_option_ids": external_option_ids,
-            "external_option_id": (
-                external_option_ids[0]
-                if external_option_ids
-                else ""
-            ),
-            "external_option_name": self._text(
-                payload.get("external_option_name")
-            ),
-            "service_date": token_service_date,
-            "service_date_value": (
-                token_service_date.isoformat()
-                if token_service_date
-                else ""
-            ),
-            "currency": self._text(
-                payload.get("currency")
-            ) or "USD",
-        }
-
-    def _option_identity_values(self, option):
-        if not isinstance(option, dict):
-            return []
-
-        raw = (
-            option.get("raw")
-            if isinstance(option.get("raw"), dict)
-            else {}
-        )
-        performance = (
-            raw.get("performance")
-            if isinstance(raw.get("performance"), dict)
-            else {}
-        )
-
-        return self._unique_text_values(
-            [
-                option.get("selected_external_product_id"),
-                option.get("external_option_id"),
-                option.get("external_product_id"),
-                option.get("external_variant_id"),
-                option.get("external_availability_id"),
-                option.get("performance_id"),
-                performance.get("id"),
-            ]
-        )
-
-    def _raw_product_identity_values(
-        self,
-        product_item,
-        performance_id="",
-    ):
-        if not isinstance(product_item, dict):
-            return []
-
-        product_id = self._text(
-            product_item.get("id")
-            or product_item.get("productId")
-            or product_item.get("product_id")
-        )
-
-        values = [
-            product_id,
-            product_item.get("external_product_id"),
-            product_item.get("external_variant_id"),
-            product_item.get("external_availability_id"),
-        ]
-
-        if performance_id and product_id:
-            values.append(f"{performance_id}:{product_id}")
-
-        return self._unique_text_values(values)
-
-    def _extract_raw_products(self, raw):
         if not isinstance(raw, dict):
-            return [], ""
-
-        performance = (
-            raw.get("performance")
-            if isinstance(raw.get("performance"), dict)
-            else {}
-        )
-        performance_id = self._text(
-            performance.get("id")
-        )
+            return raw
 
         products = raw.get("products")
 
-        if isinstance(products, list):
-            return products, performance_id
+        if not isinstance(products, list):
+            single_product = raw.get("product")
+            products = [single_product] if isinstance(single_product, dict) else []
 
-        single_product = raw.get("product")
+        for product_item in products:
+            if not isinstance(product_item, dict):
+                continue
 
-        if isinstance(single_product, dict):
-            return [single_product], performance_id
+            prices = product_item.get("prices")
 
-        return [], performance_id
+            if isinstance(prices, list):
+                for price_item in prices:
+                    if not isinstance(price_item, dict):
+                        continue
 
-    def _get_raw_product_price(self, product_item):
-        if not isinstance(product_item, dict):
-            return Decimal("0.00")
+                    source_amount = (
+                        price_item.get("amount")
+                        if price_item.get("amount") is not None
+                        else price_item.get("amountWithoutDiscount")
+                    )
 
-        prices = product_item.get("prices")
+                    original, discount, final = self._apply_discount(
+                        source_amount,
+                        discount_percent,
+                    )
 
-        if isinstance(prices, list):
-            for price_item in prices:
-                if not isinstance(price_item, dict):
-                    continue
+                    price_item["original_amount"] = str(original)
+                    price_item["discount_amount"] = str(discount)
+                    price_item["discount_percent"] = str(discount_percent)
+                    price_item["amount"] = str(final)
+                    price_item["has_seller_offer"] = True
 
+            else:
                 source_amount = (
-                    price_item.get("amountWithoutDiscount")
-                    if price_item.get(
-                        "amountWithoutDiscount"
-                    ) not in (None, "")
-                    else price_item.get("amount")
+                    product_item.get("price")
+                    if product_item.get("price") is not None
+                    else product_item.get("amount")
                 )
 
-                if source_amount not in (None, ""):
-                    return self._money(source_amount)
-
-        source_amount = (
-            product_item.get("price")
-            if product_item.get("price") not in (None, "")
-            else product_item.get("amount")
-        )
-
-        return self._money(source_amount)
-
-    def _get_signed_unit_values(
-        self,
-        *,
-        offer,
-        current_unit_price,
-    ):
-        quantity = Decimal(offer["quantity"])
-
-        signed_original_unit = offer["unit_price"]
-
-        if signed_original_unit is None:
-            signed_original_unit = current_unit_price
-
-        if (
-            signed_original_unit > Decimal("0.00")
-            and current_unit_price > Decimal("0.00")
-            and abs(
-                current_unit_price - signed_original_unit
-            ) > self.PRICE_TOLERANCE
-        ):
-            raise ValueError(
-                "The price for this ticket option has changed. "
-                "The seller must generate a new offer link."
-            )
-
-        customer_final_price = offer[
-            "customer_final_price"
-        ]
-
-        if customer_final_price is not None:
-            signed_final_unit = (
-                customer_final_price / quantity
-            ).quantize(self.MONEY_QUANT)
-        else:
-            discount_amount = (
-                signed_original_unit
-                * offer["discount_percent"]
-                / Decimal("100.00")
-            ).quantize(self.MONEY_QUANT)
-
-            signed_final_unit = max(
-                signed_original_unit - discount_amount,
-                Decimal("0.00"),
-            ).quantize(self.MONEY_QUANT)
-
-        signed_discount_unit = max(
-            signed_original_unit - signed_final_unit,
-            Decimal("0.00"),
-        ).quantize(self.MONEY_QUANT)
-
-        seller_commission_total = (
-            offer["seller_commission_amount"]
-        )
-        seller_commission_unit = (
-            seller_commission_total / quantity
-        ).quantize(self.MONEY_QUANT) if seller_commission_total is not None else None
-
-        seller_allowance_total = (
-            offer["seller_allowance_amount"]
-        )
-        seller_allowance_unit = (
-            seller_allowance_total / quantity
-        ).quantize(self.MONEY_QUANT) if seller_allowance_total is not None else None
-
-        owner_net_total = offer["owner_net_amount"]
-        owner_net_unit = (
-            owner_net_total / quantity
-        ).quantize(self.MONEY_QUANT) if owner_net_total is not None else None
-
-        return {
-            "original_unit_price": signed_original_unit,
-            "final_unit_price": signed_final_unit,
-            "discount_unit_amount": signed_discount_unit,
-            "seller_commission_unit": seller_commission_unit,
-            "seller_allowance_unit": seller_allowance_unit,
-            "owner_net_unit": owner_net_unit,
-        }
-
-    def _apply_signed_price_to_raw_product(
-        self,
-        *,
-        product_item,
-        offer,
-    ):
-        current_unit_price = self._get_raw_product_price(
-            product_item
-        )
-        signed = self._get_signed_unit_values(
-            offer=offer,
-            current_unit_price=current_unit_price,
-        )
-
-        prices = product_item.get("prices")
-        updated_price = False
-
-        if isinstance(prices, list):
-            for price_item in prices:
-                if not isinstance(price_item, dict):
-                    continue
-
-                source_amount = (
-                    price_item.get("amountWithoutDiscount")
-                    if price_item.get(
-                        "amountWithoutDiscount"
-                    ) not in (None, "")
-                    else price_item.get("amount")
-                )
-
-                if source_amount in (None, ""):
-                    continue
-
-                price_item["original_amount"] = str(
-                    signed["original_unit_price"]
-                )
-                price_item["discount_amount"] = str(
-                    signed["discount_unit_amount"]
-                )
-                price_item["discount_percent"] = str(
-                    offer["discount_percent"]
-                )
-                price_item["amount"] = str(
-                    signed["final_unit_price"]
-                )
-                price_item["has_seller_offer"] = True
-                updated_price = True
-                break
-
-        if not updated_price:
-            product_item["original_price"] = str(
-                signed["original_unit_price"]
-            )
-            product_item["discount_amount"] = str(
-                signed["discount_unit_amount"]
-            )
-            product_item["discount_percent"] = str(
-                offer["discount_percent"]
-            )
-            product_item["price"] = str(
-                signed["final_unit_price"]
-            )
-            product_item["amount"] = str(
-                signed["final_unit_price"]
-            )
-
-        product_item["has_seller_offer"] = True
-        product_item["seller_offer_locked"] = True
-        product_item["seller_offer_external_option_id"] = (
-            offer["external_option_id"]
-        )
-
-        if signed["seller_commission_unit"] is not None:
-            product_item["seller_commission_per_unit"] = str(
-                signed["seller_commission_unit"]
-            )
-
-        if signed["seller_allowance_unit"] is not None:
-            product_item["seller_allowance_per_unit"] = str(
-                signed["seller_allowance_unit"]
-            )
-
-        if signed["owner_net_unit"] is not None:
-            product_item["owner_net_per_unit"] = str(
-                signed["owner_net_unit"]
-            )
-
-        return signed
-
-    def _apply_signed_price_to_option(
-        self,
-        *,
-        option,
-        offer,
-    ):
-        updated_option = deepcopy(option)
-        offer_ids = set(offer["external_option_ids"])
-        matched = False
-        matched_external_id = ""
-        matched_signed_values = None
-
-        raw = (
-            updated_option.get("raw")
-            if isinstance(updated_option.get("raw"), dict)
-            else None
-        )
-
-        if raw is not None:
-            products, performance_id = (
-                self._extract_raw_products(raw)
-            )
-
-            for product_item in products:
-                identity_values = set(
-                    self._raw_product_identity_values(
-                        product_item,
-                        performance_id,
+                if source_amount is not None:
+                    original, discount, final = self._apply_discount(
+                        source_amount,
+                        discount_percent,
                     )
-                )
-                matches = offer_ids.intersection(
-                    identity_values
-                )
 
-                if not matches:
-                    continue
+                    product_item["original_price"] = str(original)
+                    product_item["discount_amount"] = str(discount)
+                    product_item["discount_percent"] = str(discount_percent)
+                    product_item["price"] = str(final)
+                    product_item["amount"] = str(final)
+                    product_item["has_seller_offer"] = True
 
-                matched_external_id = sorted(matches)[0]
-                matched_signed_values = (
-                    self._apply_signed_price_to_raw_product(
-                        product_item=product_item,
-                        offer=offer,
-                    )
-                )
-                matched = True
-                break
+        if isinstance(raw.get("product"), dict) and products:
+            raw["product"] = products[0]
+        elif isinstance(raw.get("products"), list):
+            raw["products"] = products
 
-            if isinstance(raw.get("product"), dict) and products:
-                raw["product"] = products[0]
-            elif isinstance(raw.get("products"), list):
-                raw["products"] = products
+        return raw
 
-            updated_option["raw"] = raw
-
-        if not matched:
-            direct_values = set(
-                self._option_identity_values(
-                    updated_option
-                )
-            )
-            matches = offer_ids.intersection(direct_values)
-
-            if matches:
-                matched_external_id = sorted(matches)[0]
-                current_unit_price = self._money(
-                    updated_option.get("price")
-                )
-                matched_signed_values = (
-                    self._get_signed_unit_values(
-                        offer=offer,
-                        current_unit_price=current_unit_price,
-                    )
-                )
-                matched = True
-
-        if not matched:
-            return updated_option, False, ""
-
-        signed = matched_signed_values or {}
-        original_unit_price = signed.get(
-            "original_unit_price",
-            self._money(updated_option.get("price")),
-        )
-        final_unit_price = signed.get(
-            "final_unit_price",
-            original_unit_price,
-        )
-        discount_unit_amount = signed.get(
-            "discount_unit_amount",
-            Decimal("0.00"),
-        )
-
-        updated_option["original_price"] = str(
-            original_unit_price
-        )
-        updated_option["discount_amount"] = str(
-            discount_unit_amount
-        )
-        updated_option["discount_percent"] = str(
-            offer["discount_percent"]
-        )
-        updated_option["price"] = str(final_unit_price)
-        updated_option["has_seller_offer"] = True
-        updated_option["seller_offer_locked"] = True
-        updated_option["seller_offer_external_option_id"] = (
-            matched_external_id
-        )
-
-        return updated_option, True, matched_external_id
-
-    @staticmethod
-    def _serialize_optional_money(value):
-        return str(value) if value is not None else None
-
-    def _seller_offer_response(self, offer):
-        return {
-            "valid": True,
-            "seller_id": offer["seller"].id,
-            "seller_slug": offer["seller"].seller_slug,
-            "rule_id": offer["rule_id"],
-            "rule_match_type": offer["rule_match_type"],
-            "allowance_type": offer["allowance_type"],
-            "quantity": offer["quantity"],
-            "unit_price": self._serialize_optional_money(
-                offer["unit_price"]
-            ),
-            "original_price": self._serialize_optional_money(
-                offer["original_price"]
-            ),
-            "customer_final_price": (
-                self._serialize_optional_money(
-                    offer["customer_final_price"]
-                )
-            ),
-            "customer_discount_amount": (
-                self._serialize_optional_money(
-                    offer["customer_discount_amount"]
-                )
-            ),
-            "discount_percent": str(
-                offer["discount_percent"]
-            ),
-            "seller_allowance_amount": (
-                self._serialize_optional_money(
-                    offer["seller_allowance_amount"]
-                )
-            ),
-            "seller_commission_amount": (
-                self._serialize_optional_money(
-                    offer["seller_commission_amount"]
-                )
-            ),
-            "owner_net_amount": (
-                self._serialize_optional_money(
-                    offer["owner_net_amount"]
-                )
-            ),
-            "external_option_id": (
-                offer["external_option_id"]
-            ),
-            "external_option_ids": (
-                offer["external_option_ids"]
-            ),
-            "external_option_name": (
-                offer["external_option_name"]
-            ),
-            "service_date": offer["service_date_value"],
-            "currency": offer["currency"],
-            "locked": {
-                "product": True,
-                "service_date": bool(
-                    offer["service_date"]
-                ),
-                "external_option": True,
-                "quantity": True,
-            },
-        }
-
-    def get(
-        self,
-        request,
-        organisation_slug=None,
-        product_slug=None,
-    ):
+    def get(self, request, organisation_slug=None, product_slug=None):
         organisation = self.get_public_organisation()
 
         if not organisation:
             return Response(
-                {
-                    "detail": (
-                        "Organisation slug is required."
-                    )
-                },
+                {"detail": "Organisation slug is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        site_settings = self.get_public_site_settings(
-            organisation
-        )
+        site_settings = self.get_public_site_settings(organisation)
 
         if not site_settings:
             return Response(
-                {
-                    "detail": (
-                        "Public site is not published."
-                    )
-                },
+                {"detail": "Public site is not published."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -9324,69 +8248,20 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
             status="active",
         )
 
-        offer_token = self._text(
-            request.query_params.get("offer_token")
-        )
-
-        try:
-            offer = self._validate_offer(
-                token=offer_token,
-                organisation=organisation,
-                product=product,
-            )
-        except ValueError as exc:
-            return Response(
-                {
-                    "detail": str(exc),
-                    "offer_valid": False,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         service_date_value = (
             request.query_params.get("date")
             or request.query_params.get("service_date")
         )
-        requested_service_date = None
+        service_date = None
 
         if service_date_value:
-            requested_service_date = parse_date(
-                service_date_value
-            )
+            service_date = parse_date(service_date_value)
 
-            if not requested_service_date:
+            if not service_date:
                 return Response(
-                    {
-                        "detail": (
-                            "date must be YYYY-MM-DD."
-                        )
-                    },
+                    {"detail": "date must be YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
-        if (
-            offer
-            and offer["service_date"]
-            and requested_service_date
-            and requested_service_date
-            != offer["service_date"]
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "This seller offer is valid only "
-                        f"for {offer['service_date_value']}."
-                    ),
-                    "offer_valid": False,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        service_date = (
-            offer["service_date"]
-            if offer and offer["service_date"]
-            else requested_service_date
-        )
 
         result = get_live_product_availability(
             organisation=organisation,
@@ -9396,88 +8271,144 @@ class PublicProductAvailabilityAPIView(PublicOrganisationMixin, APIView):
         )
 
         if not result.get("ok"):
-            return Response(
-                result,
-                status=status.HTTP_400_BAD_REQUEST,
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        # Normalize Coco Bongo/Wellet package names for every visitor,
+        # including visitors without a seller offer.
+        normalized_options = []
+
+        for option in result.get("options") or []:
+            if not isinstance(option, dict):
+                normalized_options.append(option)
+                continue
+
+            updated_option = deepcopy(option)
+
+            option_name = (
+                updated_option.get("option_name")
+                or updated_option.get("name")
+                or ""
             )
+            display_name = self._get_coco_bongo_package_name(option_name)
 
-        result["options"] = self._normalize_options(
-            result.get("options") or []
-        )
-        result["offer_valid"] = False
-        result["seller_offer"] = None
+            if display_name:
+                updated_option["original_option_name"] = option_name
+                updated_option["option_name"] = display_name
+                updated_option["name"] = display_name
 
-        if not offer:
-            return Response(result)
-
-        updated_options = []
-        matched = False
-        matched_external_id = ""
-
-        try:
-            for option in result.get("options") or []:
-                if not isinstance(option, dict):
-                    updated_options.append(option)
-                    continue
-
-                (
-                    updated_option,
-                    option_matched,
-                    option_match_id,
-                ) = self._apply_signed_price_to_option(
-                    option=option,
-                    offer=offer,
+            if isinstance(updated_option.get("raw"), dict):
+                updated_option["raw"] = self._normalize_wellet_raw_products(
+                    updated_option["raw"]
                 )
 
-                if option_matched:
-                    if matched:
-                        raise ValueError(
-                            "This seller offer matches more "
-                            "than one live ticket option."
-                        )
+            normalized_options.append(updated_option)
 
-                    matched = True
-                    matched_external_id = option_match_id
+        result["options"] = normalized_options
 
-                updated_options.append(updated_option)
-        except ValueError as exc:
-            return Response(
-                {
-                    "detail": str(exc),
-                    "offer_valid": False,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        offer_token = str(
+            request.query_params.get("offer_token") or ""
+        ).strip()
+
+        result["offer_valid"] = False
+
+        if not offer_token:
+            return Response(result)
+
+        try:
+            offer = _load_seller_offer_token(offer_token)
+        except Exception:
+            return Response(result)
+
+        if not isinstance(offer, dict):
+            return Response(result)
+
+        try:
+            offer_organisation_id = int(offer.get("organisation_id"))
+            offer_product_id = int(offer.get("product_id"))
+            offer_seller_id = int(offer.get("seller_id"))
+        except (TypeError, ValueError):
+            return Response(result)
+
+        if (
+            offer_organisation_id != organisation.id
+            or offer_product_id != product.id
+        ):
+            return Response(result)
+
+        seller = Seller.objects.filter(
+            id=offer_seller_id,
+            organisation=organisation,
+            is_active=True,
+        ).first()
+
+        if not seller:
+            return Response(result)
+
+        discount_percent = self._money(offer.get("discount_percent"))
+        token_maximum = self._money(
+            offer.get("maximum_discount_percent")
+            or offer.get("discount_percent")
+        )
+        product_maximum = self._money(
+            getattr(product, "seller_allowed_discount_percent", 0)
+        )
+        allowed_maximum = min(token_maximum, product_maximum)
+
+        if (
+            discount_percent <= Decimal("0.00")
+            or discount_percent > allowed_maximum
+            or discount_percent > Decimal("100.00")
+        ):
+            return Response(result)
+
+        discounted_options = []
+
+        for option in result.get("options") or []:
+            if not isinstance(option, dict):
+                discounted_options.append(option)
+                continue
+
+            updated_option = deepcopy(option)
+
+            original_price, discount_amount, final_price = self._apply_discount(
+                updated_option.get("price"),
+                discount_percent,
             )
 
-        if not matched:
-            return Response(
-                {
-                    "detail": (
-                        "The ticket option attached to this "
-                        "seller offer is not available for "
-                        "the selected date."
-                    ),
-                    "offer_valid": False,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if original_price > Decimal("0.00"):
+                updated_option.update(
+                    {
+                        "original_price": str(original_price),
+                        "discount_amount": str(discount_amount),
+                        "price": str(final_price),
+                        "discount_percent": str(discount_percent),
+                        "has_seller_offer": True,
+                    }
+                )
 
-        result["options"] = updated_options
+            if isinstance(updated_option.get("raw"), dict):
+                updated_option["raw"] = self._discount_wellet_raw_products(
+                    updated_option["raw"],
+                    discount_percent,
+                )
+                updated_option["discount_percent"] = str(discount_percent)
+                updated_option["has_seller_offer"] = True
+
+            discounted_options.append(updated_option)
+
+        result["options"] = discounted_options
         result["offer_valid"] = True
-        result["seller_offer"] = (
-            self._seller_offer_response(offer)
-        )
-        result["seller_offer"][
-            "matched_external_option_id"
-        ] = matched_external_id
-        result["selected_offer_option_id"] = (
-            matched_external_id
-        )
-        result["service_date"] = (
-            service_date.isoformat()
-            if service_date
-            else result.get("service_date")
-        )
+        result["seller_offer"] = {
+            "valid": True,
+            "seller_id": seller.id,
+            "seller_slug": str(
+                offer.get("seller_slug")
+                or offer.get("seller_code")
+                or ""
+            ),
+            "discount_percent": str(discount_percent),
+            "maximum_discount_percent": str(allowed_maximum),
+        }
 
         return Response(result)
 

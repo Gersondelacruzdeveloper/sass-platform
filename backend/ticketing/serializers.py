@@ -1830,6 +1830,7 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_manage_sellers",
             "can_manage_settings",
             "can_manage_integrations",
+            "can_send_payment_links",
             "permissions",
             "is_active",
             "total_sales_amount",
