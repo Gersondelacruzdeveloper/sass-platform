@@ -10,7 +10,6 @@ import {
   Copy,
   Edit3,
   ExternalLink,
-  Eye,
   FileText,
   Image as ImageIcon,
   Loader2,

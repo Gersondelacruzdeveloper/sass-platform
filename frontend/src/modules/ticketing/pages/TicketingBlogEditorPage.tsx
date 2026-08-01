@@ -13,7 +13,6 @@ import {
   Languages,
   Loader2,
   Newspaper,
-  Plus,
   Save,
   Search,
   Sparkles,
