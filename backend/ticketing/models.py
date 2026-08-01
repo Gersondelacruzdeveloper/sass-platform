@@ -2,6 +2,7 @@ from decimal import Decimal
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -1721,6 +1722,383 @@ class EventTicketType(models.Model):
 
     class Meta:
         ordering = ["sort_order", "price"]
+
+
+class SellerProductCommissionRule(models.Model):
+    """
+    Seller-specific commission rule for an exact product, package,
+    event ticket type, or external option such as a Coco Bongo package.
+
+    Resolution priority is handled by ticketing.finance.calculator:
+
+    1. Exact external option
+    2. Exact local package
+    3. Exact event ticket type
+    4. Entire product
+    """
+
+    RULE_TYPE_CHOICES = (
+        ("fixed_amount", "Fixed amount"),
+        ("percentage", "Percentage"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_product_commission_rules",
+    )
+
+    seller = models.ForeignKey(
+        Seller,
+        on_delete=models.CASCADE,
+        related_name="product_commission_rules",
+    )
+
+    product = models.ForeignKey(
+        ExperienceProduct,
+        on_delete=models.CASCADE,
+        related_name="seller_commission_rules",
+    )
+
+    # Local package rule.
+    package = models.ForeignKey(
+        ExperiencePackage,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="seller_commission_rules",
+    )
+
+    # Local event ticket type rule.
+    event_ticket_type = models.ForeignKey(
+        EventTicketType,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="seller_commission_rules",
+    )
+
+    # External option such as a specific Coco Bongo / Wellet package.
+    external_option_id = models.CharField(
+        max_length=150,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Stable external option, variant, availability, or ticket ID. "
+            "Used for Coco Bongo and other external providers."
+        ),
+    )
+
+    external_option_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Display name of the external option.",
+    )
+
+    rule_type = models.CharField(
+        max_length=30,
+        choices=RULE_TYPE_CHOICES,
+        default="fixed_amount",
+        db_index=True,
+    )
+
+    fixed_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Fixed seller allowance. When per-unit is enabled, this amount "
+            "is multiplied by the booking item quantity."
+        ),
+    )
+
+    percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Seller allowance percentage from 0 to 100.",
+    )
+
+    currency = models.CharField(
+        max_length=10,
+        default="USD",
+    )
+
+    is_per_unit = models.BooleanField(
+        default=True,
+        help_text=(
+            "For fixed rules, multiply the amount by the number of tickets "
+            "or units booked."
+        ),
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+
+        # Tenant protection.
+        if (
+            self.seller_id
+            and self.organisation_id
+            and self.seller.organisation_id != self.organisation_id
+        ):
+            errors["seller"] = (
+                "The seller must belong to the selected organisation."
+            )
+
+        if (
+            self.product_id
+            and self.organisation_id
+            and self.product.organisation_id != self.organisation_id
+        ):
+            errors["product"] = (
+                "The product must belong to the selected organisation."
+            )
+
+        # Exact local package must belong to the selected product.
+        if (
+            self.package_id
+            and self.product_id
+            and self.package.product_id != self.product_id
+        ):
+            errors["package"] = (
+                "The package must belong to the selected product."
+            )
+
+        # Exact event ticket must belong to the selected product.
+        if (
+            self.event_ticket_type_id
+            and self.product_id
+            and self.event_ticket_type.product_id != self.product_id
+        ):
+            errors["event_ticket_type"] = (
+                "The event ticket type must belong to the selected product."
+            )
+
+        selected_targets = sum(
+            [
+                bool(self.package_id),
+                bool(self.event_ticket_type_id),
+                bool(str(self.external_option_id or "").strip()),
+            ]
+        )
+
+        if selected_targets > 1:
+            errors["external_option_id"] = (
+                "Choose only one exact target: package, event ticket type, "
+                "or external option."
+            )
+
+        if self.rule_type == "fixed_amount":
+            if self.fixed_amount <= Decimal("0.00"):
+                errors["fixed_amount"] = (
+                    "Enter a fixed amount greater than zero."
+                )
+
+            self.percentage = Decimal("0.00")
+
+        elif self.rule_type == "percentage":
+            if (
+                self.percentage <= Decimal("0.00")
+                or self.percentage > Decimal("100.00")
+            ):
+                errors["percentage"] = (
+                    "Percentage must be greater than zero and no more than 100."
+                )
+
+            self.fixed_amount = Decimal("0.00")
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.external_option_id = str(
+            self.external_option_id or ""
+        ).strip()
+
+        self.external_option_name = str(
+            self.external_option_name or ""
+        ).strip()
+
+        self.currency = str(
+            self.currency or "USD"
+        ).strip().upper()
+
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def target_type(self):
+        if self.external_option_id:
+            return "external_option"
+
+        if self.package_id:
+            return "package"
+
+        if self.event_ticket_type_id:
+            return "event_ticket_type"
+
+        return "product"
+
+    @property
+    def target_name(self):
+        if self.external_option_id:
+            return (
+                self.external_option_name
+                or self.external_option_id
+            )
+
+        if self.package_id:
+            return self.package.name
+
+        if self.event_ticket_type_id:
+            return self.event_ticket_type.name
+
+        return self.product.name
+
+    def __str__(self):
+        if self.rule_type == "fixed_amount":
+            value = f"{self.currency} {self.fixed_amount}"
+        else:
+            value = f"{self.percentage}%"
+
+        return (
+            f"{self.seller.full_name} - "
+            f"{self.target_name} - {value}"
+        )
+
+    class Meta:
+        ordering = [
+            "seller__full_name",
+            "product__name",
+            "external_option_name",
+            "id",
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "organisation",
+                    "seller",
+                    "product",
+                    "is_active",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "seller",
+                    "product",
+                    "external_option_id",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "seller",
+                    "product",
+                    "package",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "seller",
+                    "product",
+                    "event_ticket_type",
+                ]
+            ),
+        ]
+
+        constraints = [
+            # One whole-product rule per seller/product.
+            models.UniqueConstraint(
+                fields=[
+                    "organisation",
+                    "seller",
+                    "product",
+                ],
+                condition=models.Q(
+                    package__isnull=True,
+                    event_ticket_type__isnull=True,
+                    external_option_id="",
+                ),
+                name="ticketing_unique_seller_product_rule",
+            ),
+
+            # One package rule per seller/package.
+            models.UniqueConstraint(
+                fields=[
+                    "organisation",
+                    "seller",
+                    "product",
+                    "package",
+                ],
+                condition=models.Q(
+                    package__isnull=False,
+                    event_ticket_type__isnull=True,
+                    external_option_id="",
+                ),
+                name="ticketing_unique_seller_package_rule",
+            ),
+
+            # One event ticket rule per seller/ticket type.
+            models.UniqueConstraint(
+                fields=[
+                    "organisation",
+                    "seller",
+                    "product",
+                    "event_ticket_type",
+                ],
+                condition=models.Q(
+                    package__isnull=True,
+                    event_ticket_type__isnull=False,
+                    external_option_id="",
+                ),
+                name="ticketing_unique_seller_event_rule",
+            ),
+
+            # One external-option rule per seller/external option.
+            models.UniqueConstraint(
+                fields=[
+                    "organisation",
+                    "seller",
+                    "product",
+                    "external_option_id",
+                ],
+                condition=(
+                    models.Q(
+                        package__isnull=True,
+                        event_ticket_type__isnull=True,
+                    )
+                    & ~models.Q(external_option_id="")
+                ),
+                name="ticketing_unique_seller_external_rule",
+            ),
+
+            models.CheckConstraint(
+                condition=models.Q(fixed_amount__gte=Decimal("0.00")),
+                name="ticketing_seller_rule_fixed_non_negative",
+            ),
+
+            models.CheckConstraint(
+                condition=(
+                    models.Q(percentage__gte=Decimal("0.00"))
+                    & models.Q(percentage__lte=Decimal("100.00"))
+                ),
+                name="ticketing_seller_rule_percent_valid",
+            ),
+        ]
+
+
 
 
 class ExternalProviderConfig(models.Model):

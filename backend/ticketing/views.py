@@ -133,6 +133,7 @@ from .models import (
     ProductPickupSchedule,
     Customer,
     Seller,
+    SellerProductCommissionRule,
     Booking,
     BookingItem,
     BookingPickupInfo,
@@ -176,6 +177,7 @@ from .serializers import (
     ProductPickupScheduleSerializer,
     CustomerSerializer,
     SellerSerializer,
+    SellerProductCommissionRuleSerializer,
     BookingSerializer,
     BookingItemSerializer,
     BookingPickupInfoSerializer,
@@ -3203,6 +3205,107 @@ class SellerViewSet(TicketingPrivateViewSet):
 
         serializer = self.get_serializer(seller)
         return Response(serializer.data)
+
+
+class SellerProductCommissionRuleViewSet(
+    TicketingPrivateViewSet,
+):
+    """
+    Owner/manager endpoint for seller-specific product commission rules.
+
+    Supports rules for:
+
+    - entire product
+    - local package
+    - event ticket type
+    - external option, such as an exact Coco Bongo package
+    """
+
+    serializer_class = SellerProductCommissionRuleSerializer
+    permission_classes = [CanManageTicketingSellers]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return SellerProductCommissionRule.objects.none()
+
+        queryset = (
+            SellerProductCommissionRule.objects
+            .filter(organisation=organisation)
+            .select_related(
+                "organisation",
+                "seller",
+                "product",
+                "package",
+                "event_ticket_type",
+            )
+        )
+
+        seller_id = self.request.query_params.get("seller")
+        product_id = self.request.query_params.get("product")
+        package_id = self.request.query_params.get("package")
+        event_ticket_type_id = self.request.query_params.get(
+            "event_ticket_type"
+        )
+        external_option_id = self.request.query_params.get(
+            "external_option_id"
+        )
+        rule_type = self.request.query_params.get("rule_type")
+        is_active = self.request.query_params.get("is_active")
+        search = self.request.query_params.get("search")
+
+        if seller_id:
+            queryset = queryset.filter(seller_id=seller_id)
+
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        if package_id:
+            queryset = queryset.filter(package_id=package_id)
+
+        if event_ticket_type_id:
+            queryset = queryset.filter(
+                event_ticket_type_id=event_ticket_type_id
+            )
+
+        if external_option_id:
+            queryset = queryset.filter(
+                external_option_id=external_option_id
+            )
+
+        if rule_type:
+            queryset = queryset.filter(rule_type=rule_type)
+
+        if is_active in ["true", "false"]:
+            queryset = queryset.filter(
+                is_active=is_active == "true"
+            )
+
+        if search:
+            queryset = queryset.filter(
+                Q(seller__full_name__icontains=search)
+                | Q(product__name__icontains=search)
+                | Q(package__name__icontains=search)
+                | Q(event_ticket_type__name__icontains=search)
+                | Q(external_option_name__icontains=search)
+                | Q(external_option_id__icontains=search)
+            )
+
+        return queryset.order_by(
+            "seller__full_name",
+            "product__name",
+            "external_option_name",
+            "id",
+        )
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+
+        serializer.save(
+            organisation=organisation,
+        )
+
 
 
 class TransferRouteViewSet(

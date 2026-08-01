@@ -30,6 +30,7 @@ from .models import (
     BookingPickupInfo,
     BookingPayment,
     SellerCommission,
+    SellerProductCommissionRule,
     Receipt,
     NotificationLog,
     ExternalProviderConfig,
@@ -1952,7 +1953,224 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
 
         return instance
 
+class SellerProductCommissionRuleSerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    seller_name = serializers.CharField(
+        source="seller.full_name",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
+    package_name = serializers.CharField(
+        source="package.name",
+        read_only=True,
+    )
+    event_ticket_type_name = serializers.CharField(
+        source="event_ticket_type.name",
+        read_only=True,
+    )
 
+    target_type = serializers.CharField(read_only=True)
+    target_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = SellerProductCommissionRule
+        fields = [
+            "id",
+            "organisation",
+
+            "seller",
+            "seller_name",
+
+            "product",
+            "product_name",
+
+            "package",
+            "package_name",
+
+            "event_ticket_type",
+            "event_ticket_type_name",
+
+            "external_option_id",
+            "external_option_name",
+
+            "target_type",
+            "target_name",
+
+            "rule_type",
+            "fixed_amount",
+            "percentage",
+            "currency",
+            "is_per_unit",
+            "is_active",
+
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "organisation",
+            "seller_name",
+            "product_name",
+            "package_name",
+            "event_ticket_type_name",
+            "target_type",
+            "target_name",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate(self, attrs):
+        organisation = self.get_current_organisation()
+
+        seller = attrs.get(
+            "seller",
+            getattr(self.instance, "seller", None),
+        )
+        product = attrs.get(
+            "product",
+            getattr(self.instance, "product", None),
+        )
+        package = attrs.get(
+            "package",
+            getattr(self.instance, "package", None),
+        )
+        event_ticket_type = attrs.get(
+            "event_ticket_type",
+            getattr(self.instance, "event_ticket_type", None),
+        )
+        external_option_id = str(
+            attrs.get(
+                "external_option_id",
+                getattr(
+                    self.instance,
+                    "external_option_id",
+                    "",
+                ),
+            )
+            or ""
+        ).strip()
+
+        if organisation and seller:
+            if seller.organisation_id != organisation.id:
+                raise serializers.ValidationError(
+                    {
+                        "seller": (
+                            "This seller does not belong to the "
+                            "current organisation."
+                        )
+                    }
+                )
+
+        if organisation and product:
+            if product.organisation_id != organisation.id:
+                raise serializers.ValidationError(
+                    {
+                        "product": (
+                            "This product does not belong to the "
+                            "current organisation."
+                        )
+                    }
+                )
+
+        if package and product:
+            if package.product_id != product.id:
+                raise serializers.ValidationError(
+                    {
+                        "package": (
+                            "This package does not belong to the "
+                            "selected product."
+                        )
+                    }
+                )
+
+        if event_ticket_type and product:
+            if event_ticket_type.product_id != product.id:
+                raise serializers.ValidationError(
+                    {
+                        "event_ticket_type": (
+                            "This ticket type does not belong to "
+                            "the selected product."
+                        )
+                    }
+                )
+
+        exact_targets = sum(
+            [
+                bool(package),
+                bool(event_ticket_type),
+                bool(external_option_id),
+            ]
+        )
+
+        if exact_targets > 1:
+            raise serializers.ValidationError(
+                {
+                    "external_option_id": (
+                        "Choose only one exact target: package, "
+                        "ticket type, or external option."
+                    )
+                }
+            )
+
+        rule_type = attrs.get(
+            "rule_type",
+            getattr(
+                self.instance,
+                "rule_type",
+                "fixed_amount",
+            ),
+        )
+
+        fixed_amount = attrs.get(
+            "fixed_amount",
+            getattr(
+                self.instance,
+                "fixed_amount",
+                Decimal("0.00"),
+            ),
+        )
+
+        percentage = attrs.get(
+            "percentage",
+            getattr(
+                self.instance,
+                "percentage",
+                Decimal("0.00"),
+            ),
+        )
+
+        if rule_type == "fixed_amount":
+            if fixed_amount <= Decimal("0.00"):
+                raise serializers.ValidationError(
+                    {
+                        "fixed_amount": (
+                            "Enter a fixed amount greater than zero."
+                        )
+                    }
+                )
+
+        if rule_type == "percentage":
+            if (
+                percentage <= Decimal("0.00")
+                or percentage > Decimal("100.00")
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "percentage": (
+                            "Enter a percentage greater than zero "
+                            "and no more than 100."
+                        )
+                    }
+                )
+
+        return attrs
+    
 class BookingPickupInfoSerializer(serializers.ModelSerializer):
     pickup_location_name = serializers.CharField(
         source="pickup_location.name",
