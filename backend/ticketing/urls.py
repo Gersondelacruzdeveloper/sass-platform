@@ -13,6 +13,9 @@ from .views import (
     ExperienceCategoryViewSet,
     ExperienceProductViewSet,
     ProductGalleryImageViewSet,
+    BlogCategoryViewSet,
+    BlogPostViewSet,
+    BlogPostGalleryImageViewSet,
     ExperiencePackageViewSet,
     ProductAvailabilityViewSet,
     PickupZoneViewSet,
@@ -50,6 +53,8 @@ from .views import (
     PublicProductResolveAPIView,
     PublicProductViewSet,
     PublicCategoryViewSet,
+    PublicBlogCategoryViewSet,
+    PublicBlogPostViewSet,
     PublicBookingViewSet,
     PublicProductAvailabilityAPIView,
     PublicPickupLocationViewSet,
@@ -92,6 +97,9 @@ router.register("whatsapp-settings", TicketingWhatsAppSettingsViewSet, basename=
 router.register("categories", ExperienceCategoryViewSet, basename="ticketing-categories")
 router.register("products", ExperienceProductViewSet, basename="ticketing-products")
 router.register("product-gallery-images", ProductGalleryImageViewSet, basename="ticketing-product-gallery-images")
+router.register("blog-categories", BlogCategoryViewSet, basename="ticketing-blog-categories")
+router.register("blog-posts", BlogPostViewSet, basename="ticketing-blog-posts")
+router.register("blog-gallery-images", BlogPostGalleryImageViewSet, basename="ticketing-blog-gallery-images")
 router.register("packages", ExperiencePackageViewSet, basename="ticketing-packages")
 router.register("availability", ProductAvailabilityViewSet, basename="ticketing-availability")
 router.register("pickup-zones", PickupZoneViewSet, basename="ticketing-pickup-zones")
@@ -140,6 +148,8 @@ router.register("seller/commissions", SellerCommissionsViewSet, basename="ticket
 # These support ?slug=organisation-slug or ?organisation_slug=organisation-slug.
 router.register("public/products", PublicProductViewSet, basename="ticketing-public-products")
 router.register("public/categories", PublicCategoryViewSet, basename="ticketing-public-categories")
+router.register("public/blog-categories", PublicBlogCategoryViewSet, basename="ticketing-public-blog-categories")
+router.register("public/blog-posts", PublicBlogPostViewSet, basename="ticketing-public-blog-posts")
 router.register("public/bookings", PublicBookingViewSet, basename="ticketing-public-bookings")
 router.register("public/pickup-locations", PublicPickupLocationViewSet, basename="ticketing-public-pickup-locations")
 
@@ -206,6 +216,25 @@ urlpatterns = [
     path("public/<slug:organisation_slug>/seo/", PublicSEOAPIView.as_view(), name="ticketing-public-seo-by-slug"),
     path("public/<slug:organisation_slug>/sitemap.xml", PublicSitemapAPIView.as_view(), name="ticketing-public-sitemap-by-slug"),
     path("public/<slug:organisation_slug>/robots.txt", PublicRobotsAPIView.as_view(), name="ticketing-public-robots-by-slug"),
+
+
+
+    # Public blog API using an organisation path slug.
+    path(
+        "public/<slug:organisation_slug>/blog/",
+        PublicBlogPostViewSet.as_view({"get": "list"}),
+        name="ticketing-public-blog-list",
+    ),
+    path(
+        "public/<slug:organisation_slug>/blog/<slug:slug>/",
+        PublicBlogPostViewSet.as_view({"get": "retrieve"}),
+        name="ticketing-public-blog-detail",
+    ),
+    path(
+        "public/<slug:organisation_slug>/blog-categories/",
+        PublicBlogCategoryViewSet.as_view({"get": "list"}),
+        name="ticketing-public-blog-categories",
+    ),
 
     # Public pickup schedule resolver.
     path(

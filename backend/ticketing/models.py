@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from django.utils.html import strip_tags
 from django.utils.text import slugify
 
 from organisations.models import Organisation
@@ -935,6 +936,323 @@ class ProductGalleryImage(models.Model):
             models.Index(fields=["product", "is_active"]),
             models.Index(fields=["product", "sort_order"]),
         ]
+
+
+class BlogCategory(models.Model):
+    """Organisation-scoped category used by the public blog."""
+
+    SUPPORTED_LANGUAGE_CHOICES = ExperienceProduct.SUPPORTED_LANGUAGE_CHOICES
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_blog_categories",
+    )
+
+    name = models.CharField(max_length=150)
+    slug = models.SlugField(max_length=180)
+    description = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to="ticketing/blog/categories/",
+        blank=True,
+        null=True,
+    )
+
+    default_language = models.CharField(
+        max_length=2,
+        choices=SUPPORTED_LANGUAGE_CHOICES,
+        default="en",
+    )
+    translations = models.JSONField(default=dict, blank=True)
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    seo_title = models.CharField(max_length=255, blank=True)
+    meta_description = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def _unique_slug(self, value):
+        base = slugify(value or self.name)[:160] or "blog-category"
+        candidate = base
+        counter = 2
+
+        queryset = BlogCategory.objects.filter(
+            organisation_id=self.organisation_id,
+        )
+
+        if self.pk:
+            queryset = queryset.exclude(pk=self.pk)
+
+        while queryset.filter(slug=candidate).exists():
+            suffix = f"-{counter}"
+            candidate = f"{base[: 180 - len(suffix)]}{suffix}"
+            counter += 1
+
+        return candidate
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._unique_slug(self.name)
+        else:
+            self.slug = self._unique_slug(self.slug)
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "slug"],
+                name="ticketing_unique_blog_category_slug",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["organisation", "is_active", "sort_order"]),
+        ]
+        verbose_name = "Blog Category"
+        verbose_name_plural = "Blog Categories"
+
+
+class BlogPost(models.Model):
+    """Multi-tenant, multilingual and SEO-ready blog article."""
+
+    STATUS_CHOICES = (
+        ("draft", "Draft"),
+        ("scheduled", "Scheduled"),
+        ("published", "Published"),
+        ("archived", "Archived"),
+    )
+
+    SUPPORTED_LANGUAGE_CHOICES = ExperienceProduct.SUPPORTED_LANGUAGE_CHOICES
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_blog_posts",
+    )
+
+    category = models.ForeignKey(
+        BlogCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="posts",
+    )
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_blog_posts",
+    )
+    author_name = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="Optional public author name. Falls back to the linked user.",
+    )
+
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=220)
+    excerpt = models.TextField(blank=True)
+    content = models.TextField(blank=True)
+
+    cover_image = models.ImageField(
+        upload_to="ticketing/blog/covers/",
+        blank=True,
+        null=True,
+    )
+    cover_image_alt = models.CharField(max_length=255, blank=True)
+
+    default_language = models.CharField(
+        max_length=2,
+        choices=SUPPORTED_LANGUAGE_CHOICES,
+        default="en",
+    )
+    translations = models.JSONField(default=dict, blank=True)
+
+    related_products = models.ManyToManyField(
+        ExperienceProduct,
+        blank=True,
+        related_name="related_blog_posts",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="draft",
+        db_index=True,
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_featured = models.BooleanField(default=False, db_index=True)
+    published_at = models.DateTimeField(blank=True, null=True, db_index=True)
+
+    seo_title = models.CharField(max_length=255, blank=True)
+    meta_description = models.TextField(blank=True)
+    canonical_url = models.URLField(blank=True)
+
+    og_title = models.CharField(max_length=255, blank=True)
+    og_description = models.TextField(blank=True)
+    og_image = models.ImageField(
+        upload_to="ticketing/blog/seo/",
+        blank=True,
+        null=True,
+    )
+
+    twitter_title = models.CharField(max_length=255, blank=True)
+    twitter_description = models.TextField(blank=True)
+    keywords_tags = models.JSONField(default=list, blank=True)
+    json_ld_override = models.JSONField(default=dict, blank=True)
+    robots_allow_indexing = models.BooleanField(default=True)
+
+    view_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    def _unique_slug(self, value):
+        base = slugify(value or self.title)[:200] or "blog-post"
+        candidate = base
+        counter = 2
+
+        queryset = BlogPost.objects.filter(
+            organisation_id=self.organisation_id,
+        )
+
+        if self.pk:
+            queryset = queryset.exclude(pk=self.pk)
+
+        while queryset.filter(slug=candidate).exists():
+            suffix = f"-{counter}"
+            candidate = f"{base[: 220 - len(suffix)]}{suffix}"
+            counter += 1
+
+        return candidate
+
+    def clean(self):
+        errors = {}
+
+        if (
+            self.category_id
+            and self.organisation_id
+            and self.category.organisation_id != self.organisation_id
+        ):
+            errors["category"] = (
+                "The blog category must belong to the selected organisation."
+            )
+
+        if self.status == "scheduled" and not self.published_at:
+            errors["published_at"] = (
+                "A scheduled article requires a publication date and time."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.slug = self._unique_slug(self.slug or self.title)
+
+        if self.status == "published" and not self.published_at:
+            self.published_at = timezone.now()
+
+        self.full_clean(exclude=["related_products"])
+        super().save(*args, **kwargs)
+
+    @property
+    def current_public_path(self):
+        return f"/blog/{self.slug}/"
+
+    @property
+    def resolved_author_name(self):
+        if self.author_name:
+            return self.author_name
+
+        if not self.author:
+            return ""
+
+        full_name = ""
+        if hasattr(self.author, "get_full_name"):
+            full_name = self.author.get_full_name() or ""
+
+        return (
+            full_name
+            or getattr(self.author, "username", "")
+            or getattr(self.author, "email", "")
+        )
+
+    @property
+    def reading_time_minutes(self):
+        text = strip_tags(self.content or "")
+        word_count = len(text.split())
+        return max(1, round(word_count / 200)) if word_count else 1
+
+    @property
+    def is_publicly_visible(self):
+        if not self.is_active or not self.published_at:
+            return False
+
+        if self.status not in {"published", "scheduled"}:
+            return False
+
+        return self.published_at <= timezone.now()
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        ordering = ["-published_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "slug"],
+                name="ticketing_unique_blog_post_slug",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["organisation", "status", "published_at"]),
+            models.Index(fields=["organisation", "is_active", "is_featured"]),
+            models.Index(fields=["organisation", "category", "published_at"]),
+        ]
+        verbose_name = "Blog Post"
+        verbose_name_plural = "Blog Posts"
+
+
+class BlogPostGalleryImage(models.Model):
+    post = models.ForeignKey(
+        BlogPost,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+    )
+
+    image = models.ImageField(upload_to="ticketing/blog/gallery/")
+    alt_text = models.CharField(max_length=255, blank=True)
+    caption = models.CharField(max_length=255, blank=True)
+
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def organisation(self):
+        return self.post.organisation
+
+    def __str__(self):
+        return f"{self.post.title} - Image {self.id}"
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        indexes = [
+            models.Index(fields=["post", "is_active", "sort_order"]),
+        ]
+        verbose_name = "Blog Post Gallery Image"
+        verbose_name_plural = "Blog Post Gallery Images"
 
 
 class ExperiencePackage(models.Model):

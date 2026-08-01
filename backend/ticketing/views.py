@@ -14,7 +14,7 @@ import stripe
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import (
     get_object_or_404,
@@ -140,6 +140,9 @@ from .models import (
     ExperienceCategory,
     ExperienceProduct,
     ProductGalleryImage,
+    BlogCategory,
+    BlogPost,
+    BlogPostGalleryImage,
     ExperiencePackage,
     ProductAvailability,
     PickupZone,
@@ -184,6 +187,12 @@ from .serializers import (
     ExperienceCategorySerializer,
     ExperienceProductSerializer,
     ProductGalleryImageSerializer,
+    BlogCategorySerializer,
+    BlogPostSerializer,
+    BlogPostGalleryImageSerializer,
+    PublicBlogCategorySerializer,
+    PublicBlogPostListSerializer,
+    PublicBlogPostDetailSerializer,
     ExperiencePackageSerializer,
     ProductAvailabilitySerializer,
     PickupZoneSerializer,
@@ -2411,6 +2420,170 @@ class ProductGalleryImageViewSet(
 
         return Response(serializer.data)
 
+
+
+class BlogCategoryViewSet(TicketingPrivateViewSet):
+    serializer_class = BlogCategorySerializer
+    permission_classes = [CanManageTicketingProducts]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BlogCategory.objects.none()
+
+        queryset = BlogCategory.objects.filter(organisation=organisation)
+
+        is_active = self.request.query_params.get("is_active")
+        search = self.request.query_params.get("search")
+
+        if is_active in {"true", "false"}:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(description__icontains=search)
+                | Q(slug__icontains=search)
+            )
+
+        return queryset
+
+
+class BlogPostViewSet(TicketingPrivateViewSet):
+    serializer_class = BlogPostSerializer
+    permission_classes = [CanManageTicketingProducts]
+    lookup_field = "pk"
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BlogPost.objects.none()
+
+        queryset = (
+            BlogPost.objects
+            .filter(organisation=organisation)
+            .select_related("organisation", "category", "author")
+            .prefetch_related(
+                "gallery_images",
+                "related_products",
+            )
+        )
+
+        status_filter = self.request.query_params.get("status")
+        category = self.request.query_params.get("category")
+        featured = self.request.query_params.get("featured")
+        is_active = self.request.query_params.get("is_active")
+        search = self.request.query_params.get("search")
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if category:
+            queryset = queryset.filter(
+                Q(category_id=category) | Q(category__slug=category)
+            )
+
+        if featured in {"true", "false"}:
+            queryset = queryset.filter(is_featured=featured == "true")
+
+        if is_active in {"true", "false"}:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(excerpt__icontains=search)
+                | Q(content__icontains=search)
+                | Q(slug__icontains=search)
+                | Q(author_name__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        serializer.save(
+            organisation=organisation,
+            author=self.request.user,
+        )
+
+    @action(detail=True, methods=["post"], url_path="publish")
+    def publish(self, request, pk=None):
+        post = self.get_object()
+        post.status = "published"
+
+        if not post.published_at:
+            post.published_at = timezone.now()
+
+        post.is_active = True
+        post.save(
+            update_fields=[
+                "status",
+                "published_at",
+                "is_active",
+                "updated_at",
+            ]
+        )
+
+        return Response(self.get_serializer(post).data)
+
+    @action(detail=True, methods=["post"], url_path="unpublish")
+    def unpublish(self, request, pk=None):
+        post = self.get_object()
+        post.status = "draft"
+        post.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(post).data)
+
+    @action(detail=True, methods=["post"], url_path="archive")
+    def archive(self, request, pk=None):
+        post = self.get_object()
+        post.status = "archived"
+        post.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(post).data)
+
+
+class BlogPostGalleryImageViewSet(TicketingPrivateViewSet):
+    serializer_class = BlogPostGalleryImageSerializer
+    permission_classes = [CanManageTicketingProducts]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+
+        if not organisation:
+            return BlogPostGalleryImage.objects.none()
+
+        queryset = (
+            BlogPostGalleryImage.objects
+            .filter(post__organisation=organisation)
+            .select_related("post", "post__organisation")
+        )
+
+        post_id = self.request.query_params.get("post")
+        is_active = self.request.query_params.get("is_active")
+
+        if post_id:
+            queryset = queryset.filter(post_id=post_id)
+
+        if is_active in {"true", "false"}:
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset
+
+    def perform_create(self, serializer):
+        organisation = self.require_organisation()
+        post = serializer.validated_data.get("post")
+
+        if not post:
+            post_id = self.request.data.get("post") or self.request.data.get("post_id")
+            post = get_object_or_404(
+                BlogPost,
+                id=post_id,
+                organisation=organisation,
+            )
+
+        serializer.save(post=post)
 
 
 class ExperiencePackageViewSet(
@@ -9499,6 +9672,120 @@ class PublicCategoryViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewS
         )
 
 
+class PublicBlogCategoryViewSet(
+    PublicOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    serializer_class = PublicBlogCategorySerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = "slug"
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return BlogCategory.objects.none()
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return BlogCategory.objects.none()
+
+        return BlogCategory.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        )
+
+
+class PublicBlogPostViewSet(
+    PublicOrganisationMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    permission_classes = [permissions.AllowAny]
+    lookup_field = "slug"
+    http_method_names = ["get", "head", "options"]
+
+    def get_serializer_class(self):
+        if getattr(self, "action", None) == "retrieve":
+            return PublicBlogPostDetailSerializer
+
+        return PublicBlogPostListSerializer
+
+    def get_queryset(self):
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return BlogPost.objects.none()
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return BlogPost.objects.none()
+
+        now = timezone.now()
+        queryset = (
+            BlogPost.objects
+            .filter(
+                organisation=organisation,
+                is_active=True,
+                published_at__isnull=False,
+                published_at__lte=now,
+            )
+            .filter(status__in=["published", "scheduled"])
+            .select_related("organisation", "category", "author")
+            .prefetch_related(
+                "gallery_images",
+                "related_products",
+            )
+        )
+
+        category = self.request.query_params.get("category")
+        featured = self.request.query_params.get("featured")
+        search = self.request.query_params.get("search")
+        ordering = self.request.query_params.get("ordering")
+
+        if category:
+            queryset = queryset.filter(
+                Q(category_id=category) | Q(category__slug=category)
+            )
+
+        if featured in {"true", "false"}:
+            queryset = queryset.filter(is_featured=featured == "true")
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(excerpt__icontains=search)
+                | Q(content__icontains=search)
+            )
+
+        allowed_ordering = {
+            "published_at": "published_at",
+            "-published_at": "-published_at",
+            "updated_at": "updated_at",
+            "-updated_at": "-updated_at",
+            "title": "title",
+            "-title": "-title",
+        }
+
+        if ordering in allowed_ordering:
+            queryset = queryset.order_by(allowed_ordering[ordering])
+
+        return queryset.distinct()
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        BlogPost.objects.filter(pk=instance.pk).update(
+            view_count=F("view_count") + 1
+        )
+        instance.view_count += 1
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+
 class PublicPickupLocationViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
     """
     Public read-only pickup locations for the public booking website.
@@ -11243,7 +11530,15 @@ class PublicSitemapAPIView(PublicOrganisationMixin, APIView):
                 content_type="text/plain",
             )
 
-        base_url = site_settings.canonical_url.rstrip("/") if site_settings.canonical_url else ""
+        base_url = (
+            site_settings.canonical_url.rstrip("/")
+            if site_settings.canonical_url
+            else (
+                f"https://{site_settings.custom_domain}"
+                if site_settings.custom_domain
+                else ""
+            )
+        )
 
         products = ExperienceProduct.objects.filter(
             organisation=organisation,
@@ -11257,6 +11552,15 @@ class PublicSitemapAPIView(PublicOrganisationMixin, APIView):
             is_active=True,
         )
 
+        blog_posts = BlogPost.objects.filter(
+            organisation=organisation,
+            is_active=True,
+            status__in=["published", "scheduled"],
+            published_at__isnull=False,
+            published_at__lte=timezone.now(),
+            robots_allow_indexing=True,
+        )
+
         urls = []
 
         if base_url:
@@ -11267,8 +11571,13 @@ class PublicSitemapAPIView(PublicOrganisationMixin, APIView):
             for category in categories:
                 urls.append(f"{base_url}/category/{category.slug}")
 
+            urls.append(f"{base_url}/blog/")
+
             for product in products:
                 urls.append(f"{base_url}/product/{product.slug}")
+
+            for blog_post in blog_posts:
+                urls.append(f"{base_url}/blog/{blog_post.slug}/")
 
         xml_urls = "\n".join(
             [

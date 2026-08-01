@@ -6,6 +6,11 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import serializers
+
+try:
+    import bleach
+except ImportError:  # Rich HTML writes fail closed until bleach is installed.
+    bleach = None
 from .notifications import BookingNotificationService
 
 from .models import (
@@ -18,6 +23,9 @@ from .models import (
     ExperienceProduct,
     ProductURLAlias,
     ProductGalleryImage,
+    BlogCategory,
+    BlogPost,
+    BlogPostGalleryImage,
     ExperiencePackage,
     ProductAvailability,
     PickupZone,
@@ -1700,6 +1708,576 @@ class ExperienceProductSerializer(
         return product
 
 
+BLOG_SUPPORTED_LANGUAGES = {"en", "es", "fr", "pt", "de"}
+BLOG_TRANSLATABLE_FIELDS = {
+    "title",
+    "excerpt",
+    "content",
+    "cover_image_alt",
+    "seo_title",
+    "meta_description",
+    "og_title",
+    "og_description",
+    "twitter_title",
+    "twitter_description",
+}
+BLOG_ALLOWED_TAGS = [
+    "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+    "strong", "b", "em", "i", "u", "s", "blockquote", "pre", "code",
+    "ul", "ol", "li", "a", "img", "figure", "figcaption", "span", "div",
+    "table", "thead", "tbody", "tr", "th", "td",
+]
+BLOG_ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title", "width", "height", "loading"],
+    "div": ["class"],
+    "span": ["class"],
+    "p": ["class"],
+    "h1": ["class"],
+    "h2": ["class"],
+    "h3": ["class"],
+    "h4": ["class"],
+    "table": ["class"],
+    "th": ["scope", "colspan", "rowspan"],
+    "td": ["colspan", "rowspan"],
+}
+BLOG_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel"]
+
+
+def sanitize_blog_html(value):
+    raw = str(value or "")
+
+    if not raw:
+        return ""
+
+    if bleach is None:
+        if "<" in raw or ">" in raw:
+            raise serializers.ValidationError(
+                "Rich blog HTML requires the bleach package. "
+                "Install it with: pip install bleach"
+            )
+        return raw
+
+    cleaned = bleach.clean(
+        raw,
+        tags=BLOG_ALLOWED_TAGS,
+        attributes=BLOG_ALLOWED_ATTRIBUTES,
+        protocols=BLOG_ALLOWED_PROTOCOLS,
+        strip=True,
+        strip_comments=True,
+    )
+
+    return bleach.linkify(
+        cleaned,
+        callbacks=[bleach.callbacks.nofollow, bleach.callbacks.target_blank],
+        skip_tags=["pre", "code"],
+    )
+
+
+class BlogTranslationRepresentationMixin:
+    translation_fields = ()
+
+    def _get_requested_blog_language(self):
+        request = self.context.get("request")
+        language = ""
+
+        if request is not None:
+            language = (
+                request.query_params.get("language")
+                or request.query_params.get("lang")
+                or ""
+            )
+
+        if not language:
+            language = self.context.get("language") or ""
+
+        language = str(language).strip().lower()
+        return language if language in BLOG_SUPPORTED_LANGUAGES else ""
+
+    def _apply_blog_translation(self, instance, representation):
+        requested_language = self._get_requested_blog_language()
+        default_language = str(
+            getattr(instance, "default_language", "en") or "en"
+        ).strip().lower()
+
+        representation["resolved_language"] = requested_language or default_language
+        representation["translation_applied"] = False
+
+        if not requested_language or requested_language == default_language:
+            return representation
+
+        translations = getattr(instance, "translations", None)
+        translation = (
+            translations.get(requested_language)
+            if isinstance(translations, dict)
+            else None
+        )
+
+        if not isinstance(translation, dict):
+            representation["resolved_language"] = default_language
+            return representation
+
+        for field_name in self.translation_fields:
+            if field_name in translation and translation[field_name] is not None:
+                representation[field_name] = translation[field_name]
+
+        representation["resolved_language"] = requested_language
+        representation["translation_applied"] = True
+        return representation
+
+
+class BlogRelatedProductSerializer(MediaURLMixin, serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    current_public_path = serializers.ReadOnlyField()
+
+    class Meta:
+        model = ExperienceProduct
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "product_type",
+            "short_description",
+            "image_url",
+            "current_public_path",
+            "adult_price",
+            "base_price",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+
+class BlogCategorySerializer(
+    MediaURLMixin,
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogCategory
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "name",
+            "slug",
+            "description",
+            "image",
+            "image_url",
+            "default_language",
+            "translations",
+            "is_active",
+            "sort_order",
+            "seo_title",
+            "meta_description",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "image_url",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "slug": {"required": False, "allow_blank": True},
+        }
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+
+class BlogPostGalleryImageSerializer(
+    MediaURLMixin,
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    post_title = serializers.CharField(source="post.title", read_only=True)
+    post_id = serializers.PrimaryKeyRelatedField(
+        source="post",
+        queryset=BlogPost.objects.all(),
+        write_only=True,
+        required=False,
+    )
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogPostGalleryImage
+        fields = [
+            "id",
+            "post",
+            "post_id",
+            "post_title",
+            "image",
+            "image_url",
+            "alt_text",
+            "caption",
+            "sort_order",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "post",
+            "post_title",
+            "image_url",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+    def validate(self, attrs):
+        post = attrs.get("post") or getattr(self.instance, "post", None)
+        if post:
+            self.validate_same_organisation(post, "post_id")
+        return attrs
+
+
+class BlogPostSerializer(
+    MediaURLMixin,
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(
+        source="organisation.name",
+        read_only=True,
+    )
+    category_detail = BlogCategorySerializer(source="category", read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        source="category",
+        queryset=BlogCategory.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
+    related_products = BlogRelatedProductSerializer(many=True, read_only=True)
+    related_product_ids = serializers.PrimaryKeyRelatedField(
+        source="related_products",
+        queryset=ExperienceProduct.objects.all(),
+        many=True,
+        write_only=True,
+        required=False,
+    )
+    gallery_images = BlogPostGalleryImageSerializer(many=True, read_only=True)
+
+    cover_image_url = serializers.SerializerMethodField()
+    og_image_url = serializers.SerializerMethodField()
+    author_display_name = serializers.CharField(
+        source="resolved_author_name",
+        read_only=True,
+    )
+    current_public_path = serializers.ReadOnlyField()
+    reading_time_minutes = serializers.IntegerField(read_only=True)
+    is_publicly_visible = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "category",
+            "category_id",
+            "category_detail",
+            "author",
+            "author_name",
+            "author_display_name",
+            "title",
+            "slug",
+            "excerpt",
+            "content",
+            "cover_image",
+            "cover_image_url",
+            "cover_image_alt",
+            "default_language",
+            "translations",
+            "related_products",
+            "related_product_ids",
+            "gallery_images",
+            "status",
+            "is_active",
+            "is_featured",
+            "published_at",
+            "current_public_path",
+            "reading_time_minutes",
+            "is_publicly_visible",
+            "seo_title",
+            "meta_description",
+            "canonical_url",
+            "og_title",
+            "og_description",
+            "og_image",
+            "og_image_url",
+            "twitter_title",
+            "twitter_description",
+            "keywords_tags",
+            "json_ld_override",
+            "robots_allow_indexing",
+            "view_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "organisation",
+            "organisation_name",
+            "category",
+            "category_detail",
+            "author",
+            "author_display_name",
+            "related_products",
+            "gallery_images",
+            "cover_image_url",
+            "og_image_url",
+            "current_public_path",
+            "reading_time_minutes",
+            "is_publicly_visible",
+            "view_count",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "slug": {"required": False, "allow_blank": True},
+        }
+
+    def get_cover_image_url(self, obj):
+        return self.build_file_url(obj.cover_image)
+
+    def get_og_image_url(self, obj):
+        return self.build_file_url(obj.og_image)
+
+    def validate_content(self, value):
+        return sanitize_blog_html(value)
+
+    def validate_translations(self, value):
+        if value in (None, ""):
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Blog translations must be a JSON object."
+            )
+
+        cleaned_translations = {}
+
+        for language, payload in value.items():
+            language = str(language).strip().lower()
+
+            if language not in BLOG_SUPPORTED_LANGUAGES:
+                raise serializers.ValidationError(
+                    f"Unsupported blog translation language: {language}."
+                )
+
+            if not isinstance(payload, dict):
+                raise serializers.ValidationError(
+                    f"Translation for {language} must be a JSON object."
+                )
+
+            cleaned_payload = {}
+
+            for field_name, field_value in payload.items():
+                if field_name == "_meta":
+                    cleaned_payload[field_name] = field_value
+                    continue
+
+                if field_name not in BLOG_TRANSLATABLE_FIELDS:
+                    continue
+
+                if field_name == "content":
+                    cleaned_payload[field_name] = sanitize_blog_html(field_value)
+                else:
+                    cleaned_payload[field_name] = str(field_value or "")
+
+            cleaned_translations[language] = cleaned_payload
+
+        return cleaned_translations
+
+    def validate(self, attrs):
+        organisation = self.get_current_organisation()
+        category = attrs.get("category", getattr(self.instance, "category", None))
+        products = attrs.get("related_products")
+        status_value = attrs.get(
+            "status",
+            getattr(self.instance, "status", "draft"),
+        )
+        published_at = attrs.get(
+            "published_at",
+            getattr(self.instance, "published_at", None),
+        )
+
+        if category and organisation and category.organisation_id != organisation.id:
+            raise serializers.ValidationError(
+                {"category_id": "This category does not belong to the current organisation."}
+            )
+
+        if products is not None and organisation:
+            invalid_products = [
+                product.id
+                for product in products
+                if product.organisation_id != organisation.id
+            ]
+
+            if invalid_products:
+                raise serializers.ValidationError(
+                    {
+                        "related_product_ids": (
+                            "All related products must belong to the current organisation."
+                        )
+                    }
+                )
+
+        if status_value == "scheduled" and not published_at:
+            raise serializers.ValidationError(
+                {"published_at": "A scheduled article requires a publication date and time."}
+            )
+
+        return attrs
+
+
+class PublicBlogCategorySerializer(
+    BlogTranslationRepresentationMixin,
+    MediaURLMixin,
+    serializers.ModelSerializer,
+):
+    image_url = serializers.SerializerMethodField()
+    translation_fields = (
+        "name",
+        "description",
+        "seo_title",
+        "meta_description",
+    )
+
+    class Meta:
+        model = BlogCategory
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "description",
+            "image_url",
+            "default_language",
+            "seo_title",
+            "meta_description",
+            "sort_order",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        return self._apply_blog_translation(instance, representation)
+
+
+class PublicBlogPostGalleryImageSerializer(
+    MediaURLMixin,
+    serializers.ModelSerializer,
+):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BlogPostGalleryImage
+        fields = ["id", "image_url", "alt_text", "caption", "sort_order"]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+
+class PublicBlogPostListSerializer(
+    BlogTranslationRepresentationMixin,
+    MediaURLMixin,
+    serializers.ModelSerializer,
+):
+    category = PublicBlogCategorySerializer(read_only=True)
+    cover_image_url = serializers.SerializerMethodField()
+    author_name = serializers.CharField(
+        source="resolved_author_name",
+        read_only=True,
+    )
+    current_public_path = serializers.ReadOnlyField()
+    reading_time_minutes = serializers.IntegerField(read_only=True)
+    translation_fields = (
+        "title",
+        "excerpt",
+        "cover_image_alt",
+        "seo_title",
+        "meta_description",
+    )
+
+    class Meta:
+        model = BlogPost
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "excerpt",
+            "cover_image_url",
+            "cover_image_alt",
+            "default_language",
+            "category",
+            "author_name",
+            "current_public_path",
+            "reading_time_minutes",
+            "is_featured",
+            "published_at",
+            "updated_at",
+            "seo_title",
+            "meta_description",
+        ]
+
+    def get_cover_image_url(self, obj):
+        return self.build_file_url(obj.cover_image)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        return self._apply_blog_translation(instance, representation)
+
+
+class PublicBlogPostDetailSerializer(PublicBlogPostListSerializer):
+    gallery_images = PublicBlogPostGalleryImageSerializer(many=True, read_only=True)
+    related_products = BlogRelatedProductSerializer(many=True, read_only=True)
+    og_image_url = serializers.SerializerMethodField()
+    translation_fields = PublicBlogPostListSerializer.translation_fields + (
+        "content",
+        "og_title",
+        "og_description",
+        "twitter_title",
+        "twitter_description",
+    )
+
+    class Meta(PublicBlogPostListSerializer.Meta):
+        fields = PublicBlogPostListSerializer.Meta.fields + [
+            "content",
+            "gallery_images",
+            "related_products",
+            "canonical_url",
+            "og_title",
+            "og_description",
+            "og_image_url",
+            "twitter_title",
+            "twitter_description",
+            "keywords_tags",
+            "json_ld_override",
+            "robots_allow_indexing",
+            "view_count",
+        ]
+
+    def get_og_image_url(self, obj):
+        return self.build_file_url(obj.og_image)
+
+
 class CustomerSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
@@ -1830,7 +2408,6 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_manage_sellers",
             "can_manage_settings",
             "can_manage_integrations",
-            "can_send_payment_links",
             "permissions",
             "is_active",
             "total_sales_amount",

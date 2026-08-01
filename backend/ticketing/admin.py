@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils import timezone
 from django.utils.html import format_html
 from .models import (
     TicketingEmailSettings,
@@ -7,6 +8,9 @@ from .models import (
     TicketingPublicSiteSettings,
     ExperienceCategory,
     ExperienceProduct,
+    BlogCategory,
+    BlogPost,
+    BlogPostGalleryImage,
     ExperiencePackage,
     ProductAvailability,
     PickupZone,
@@ -91,6 +95,203 @@ class ExperienceCategoryAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "organisation")
     search_fields = ("name", "slug", "organisation__name")
     prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BlogCategory)
+class BlogCategoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "organisation",
+        "slug",
+        "default_language",
+        "is_active",
+        "sort_order",
+        "updated_at",
+    )
+    list_filter = ("is_active", "default_language", "organisation")
+    search_fields = ("name", "slug", "description", "organisation__name")
+    prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ("created_at", "updated_at")
+
+
+class BlogPostGalleryImageInline(admin.TabularInline):
+    model = BlogPostGalleryImage
+    extra = 0
+    fields = (
+        "image",
+        "alt_text",
+        "caption",
+        "sort_order",
+        "is_active",
+    )
+    ordering = ("sort_order", "id")
+
+
+@admin.register(BlogPost)
+class BlogPostAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "organisation",
+        "category",
+        "status",
+        "is_featured",
+        "is_active",
+        "published_at",
+        "view_count",
+        "updated_at",
+    )
+    list_filter = (
+        "status",
+        "is_featured",
+        "is_active",
+        "default_language",
+        "category",
+        "organisation",
+        "published_at",
+    )
+    search_fields = (
+        "title",
+        "slug",
+        "excerpt",
+        "content",
+        "author_name",
+        "author__email",
+        "organisation__name",
+    )
+    prepopulated_fields = {"slug": ("title",)}
+    readonly_fields = (
+        "current_public_path",
+        "reading_time_minutes",
+        "is_publicly_visible",
+        "view_count",
+        "created_at",
+        "updated_at",
+    )
+    filter_horizontal = ("related_products",)
+    inlines = (BlogPostGalleryImageInline,)
+    date_hierarchy = "published_at"
+    actions = ("publish_selected", "move_to_draft", "archive_selected")
+
+    fieldsets = (
+        (
+            "Article",
+            {
+                "fields": (
+                    "organisation",
+                    "category",
+                    "author",
+                    "author_name",
+                    "title",
+                    "slug",
+                    "excerpt",
+                    "content",
+                    "cover_image",
+                    "cover_image_alt",
+                )
+            },
+        ),
+        (
+            "Publication",
+            {
+                "fields": (
+                    "status",
+                    "is_active",
+                    "is_featured",
+                    "published_at",
+                    "current_public_path",
+                    "reading_time_minutes",
+                    "is_publicly_visible",
+                    "view_count",
+                )
+            },
+        ),
+        (
+            "Languages",
+            {
+                "fields": (
+                    "default_language",
+                    "translations",
+                )
+            },
+        ),
+        (
+            "Related products",
+            {
+                "fields": ("related_products",),
+            },
+        ),
+        (
+            "SEO and social sharing",
+            {
+                "fields": (
+                    "seo_title",
+                    "meta_description",
+                    "canonical_url",
+                    "og_title",
+                    "og_description",
+                    "og_image",
+                    "twitter_title",
+                    "twitter_description",
+                    "keywords_tags",
+                    "json_ld_override",
+                    "robots_allow_indexing",
+                )
+            },
+        ),
+        (
+            "Dates",
+            {
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
+    )
+
+    @admin.action(description="Publish selected blog posts")
+    def publish_selected(self, request, queryset):
+        now = timezone.now()
+
+        for post in queryset:
+            post.status = "published"
+            post.is_active = True
+            post.published_at = post.published_at or now
+            post.save(
+                update_fields=[
+                    "status",
+                    "is_active",
+                    "published_at",
+                    "updated_at",
+                ]
+            )
+
+        self.message_user(request, f"{queryset.count()} blog post(s) published.")
+
+    @admin.action(description="Move selected blog posts to draft")
+    def move_to_draft(self, request, queryset):
+        updated = queryset.update(status="draft")
+        self.message_user(request, f"{updated} blog post(s) moved to draft.")
+
+    @admin.action(description="Archive selected blog posts")
+    def archive_selected(self, request, queryset):
+        updated = queryset.update(status="archived")
+        self.message_user(request, f"{updated} blog post(s) archived.")
+
+
+@admin.register(BlogPostGalleryImage)
+class BlogPostGalleryImageAdmin(admin.ModelAdmin):
+    list_display = (
+        "post",
+        "sort_order",
+        "is_active",
+        "created_at",
+    )
+    list_filter = ("is_active", "post__organisation")
+    search_fields = (
+        "post__title",
+        "post__organisation__name",
+        "alt_text",
+        "caption",
+    )
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -437,6 +638,7 @@ class SellerAdmin(admin.ModelAdmin):
                     "can_sell_events",
                     "can_sell_custom_tours",
                     "can_create_bookings",
+                    "can_send_payment_links",
                 )
             },
         ),
