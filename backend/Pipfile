@@ -25,6 +25,7 @@ google-api-python-client = "*"
 cryptography = "*"
 openai = "*"
 django-redis = "*"
+bleach = "*"
 
 [dev-packages]
 
