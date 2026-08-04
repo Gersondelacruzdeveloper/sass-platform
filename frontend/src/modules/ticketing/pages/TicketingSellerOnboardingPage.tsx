@@ -578,10 +578,8 @@ export default function TicketingSellerOnboardingPage() {
   ];
 
   return (
-    <TicketingPageShell
-      title="Seller onboarding"
-      description="Create seller signup links, review applications, configure commission permissions and process payout requests."
-      actions={
+    <TicketingPageShell title="Seller onboarding">
+      <div className="mb-4 flex justify-end">
         <button
           type="button"
           onClick={() => void loadAll(true)}
@@ -591,8 +589,8 @@ export default function TicketingSellerOnboardingPage() {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
         </button>
-      }
-    >
+      </div>
+
       {error ? (
         <div className="mb-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />

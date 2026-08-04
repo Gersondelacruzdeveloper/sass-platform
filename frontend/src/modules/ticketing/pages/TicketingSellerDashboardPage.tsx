@@ -57,6 +57,11 @@ function emptyPermissions(): SellerPermissions {
     can_manage_sellers: false,
     can_manage_settings: false,
     can_manage_integrations: false,
+    can_send_payment_links: false,
+    can_apply_customer_discount: false,
+    can_keep_commission_first: false,
+    can_mark_cash_collected: false,
+    can_request_payouts: false,
   };
 }
 
