@@ -3592,9 +3592,12 @@ class SellerApplicationViewSet(TicketingPrivateViewSet):
     @transaction.atomic
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
-        application = SellerApplication.objects.select_for_update().select_related(
-            "invite", "seller", "organisation"
-        ).get(pk=self.get_object().pk)
+        application = (
+                SellerApplication.objects
+                .select_for_update(of=("self",))
+                .select_related("invite", "seller", "organisation")
+                .get(pk=self.get_object().pk)
+            )
         serializer = SellerApplicationDecisionSerializer(
             data=request.data,
             context={"organisation": application.organisation},
