@@ -75,6 +75,21 @@ import type {
   PublicBlogPostDetail,
 } from "../types/ticketingTypes";
 
+import type {
+  PublicSellerApplicationPayload,
+  PublicSellerSignupInvite,
+  SellerApplication,
+  SellerApplicationDecisionPayload,
+  SellerPayoutAccount,
+  SellerPayoutAccountPayload,
+  SellerPayoutBalance,
+  SellerPayoutCreatePayload,
+  SellerPayoutDecisionPayload,
+  SellerPayoutRequest,
+  SellerSignupInvite,
+  SellerSignupInvitePayload,
+} from "../types/ticketingTypes";
+
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
 
 export type LiveTicketOption = {
@@ -456,6 +471,40 @@ const withSlug = (params?: QueryParams, slug?: string): QueryParams => {
 const unwrapList = <T>(payload: T[] | { results?: T[] }): T[] => {
   if (Array.isArray(payload)) return payload;
   return Array.isArray(payload?.results) ? payload.results : [];
+};
+
+
+const appendFormValue = (formData: FormData, key: string, value: unknown) => {
+  if (value === undefined || value === null) return;
+
+  if (value instanceof File) {
+    formData.append(key, value);
+    return;
+  }
+
+  if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+    formData.append(key, JSON.stringify(value));
+    return;
+  }
+
+  if (typeof value === "boolean") {
+    formData.append(key, value ? "true" : "false");
+    return;
+  }
+
+  formData.append(key, String(value));
+};
+
+const buildSellerApplicationFormData = (
+  payload: Partial<PublicSellerApplicationPayload>,
+): FormData => {
+  const formData = new FormData();
+
+  Object.entries(payload).forEach(([key, value]) => {
+    appendFormValue(formData, key, value);
+  });
+
+  return formData;
 };
 
 export const ticketingApi = {
@@ -2678,6 +2727,370 @@ getPublicProductResolve: async (
     const response = await api.get<PublicBlogPostDetail>(
       `/ticketing/public/${slug}/blog/${blogSlug}/`,
       { params: cleanParams(params) }
+    );
+    return response.data;
+  },
+
+
+  // Seller onboarding — owner/admin
+  getSellerSignupInvites: async (
+    slug: string,
+    params?: QueryParams,
+  ): Promise<SellerSignupInvite[]> => {
+    const response = await api.get<SellerSignupInvite[] | { results?: SellerSignupInvite[] }>(
+      "/ticketing/seller-signup-invites/",
+      { params: withSlug(params, slug) },
+    );
+
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  },
+
+  createSellerSignupInvite: async (
+    slug: string,
+    payload: SellerSignupInvitePayload,
+  ): Promise<SellerSignupInvite> => {
+    const response = await api.post<SellerSignupInvite>(
+      "/ticketing/seller-signup-invites/",
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  updateSellerSignupInvite: async (
+    slug: string,
+    inviteId: number,
+    payload: Partial<SellerSignupInvitePayload>,
+  ): Promise<SellerSignupInvite> => {
+    const response = await api.patch<SellerSignupInvite>(
+      `/ticketing/seller-signup-invites/${inviteId}/`,
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  deleteSellerSignupInvite: async (
+    slug: string,
+    inviteId: number,
+  ): Promise<void> => {
+    await api.delete(`/ticketing/seller-signup-invites/${inviteId}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  rotateSellerSignupInviteToken: async (
+    slug: string,
+    inviteId: number,
+  ): Promise<SellerSignupInvite> => {
+    const response = await api.post<SellerSignupInvite>(
+      `/ticketing/seller-signup-invites/${inviteId}/rotate-token/`,
+      {},
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  getSellerApplications: async (
+    slug: string,
+    params?: QueryParams,
+  ): Promise<SellerApplication[]> => {
+    const response = await api.get<SellerApplication[] | { results?: SellerApplication[] }>(
+      "/ticketing/seller-applications/",
+      { params: withSlug(params, slug) },
+    );
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  },
+
+  getSellerApplication: async (
+    slug: string,
+    applicationId: number,
+  ): Promise<SellerApplication> => {
+    const response = await api.get<SellerApplication>(
+      `/ticketing/seller-applications/${applicationId}/`,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  approveSellerApplication: async (
+    slug: string,
+    applicationId: number,
+    payload: SellerApplicationDecisionPayload,
+  ): Promise<SellerApplication> => {
+    const response = await api.post<SellerApplication>(
+      `/ticketing/seller-applications/${applicationId}/approve/`,
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  rejectSellerApplication: async (
+    slug: string,
+    applicationId: number,
+    rejectionReason: string,
+    reviewNotes = "",
+  ): Promise<SellerApplication> => {
+    const response = await api.post<SellerApplication>(
+      `/ticketing/seller-applications/${applicationId}/reject/`,
+      {
+        rejection_reason: rejectionReason,
+        review_notes: reviewNotes,
+      },
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  requestSellerApplicationInformation: async (
+    slug: string,
+    applicationId: number,
+    reviewNotes: string,
+  ): Promise<SellerApplication> => {
+    const response = await api.post<SellerApplication>(
+      `/ticketing/seller-applications/${applicationId}/request-information/`,
+      { review_notes: reviewNotes },
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  // Public seller application
+  getPublicSellerSignupInvite: async (
+    token: string,
+  ): Promise<PublicSellerSignupInvite> => {
+    const response = await api.get<PublicSellerSignupInvite>(
+      `/ticketing/public/seller-apply/${token}/`,
+    );
+    return response.data;
+  },
+
+  submitPublicSellerApplication: async (
+    token: string,
+    payload: PublicSellerApplicationPayload,
+  ): Promise<{
+    id: number;
+    status: string;
+    organisation: string;
+    organisation_slug?: string;
+    message: string;
+  }> => {
+    const response = await api.post(
+      `/ticketing/public/seller-apply/${token}/`,
+      buildSellerApplicationFormData(payload),
+    );
+    return response.data;
+  },
+
+  getMySellerApplication: async (
+    slug: string,
+  ): Promise<SellerApplication> => {
+    const response = await api.get<SellerApplication>(
+      "/ticketing/seller/application/",
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  updateMySellerApplication: async (
+    slug: string,
+    payload: Partial<PublicSellerApplicationPayload>,
+  ): Promise<SellerApplication> => {
+    const response = await api.patch<SellerApplication>(
+      "/ticketing/seller/application/",
+      buildSellerApplicationFormData(payload),
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  resubmitMySellerApplication: async (
+    slug: string,
+  ): Promise<SellerApplication> => {
+    const response = await api.post<SellerApplication>(
+      "/ticketing/seller/application/",
+      {},
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  // Seller payout accounts and requests
+  getSellerPayoutAccounts: async (
+    slug: string,
+  ): Promise<SellerPayoutAccount[]> => {
+    const response = await api.get<SellerPayoutAccount[] | { results?: SellerPayoutAccount[] }>(
+      "/ticketing/seller/payout-accounts/",
+      { params: withSlug(undefined, slug) },
+    );
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  },
+
+  createSellerPayoutAccount: async (
+    slug: string,
+    payload: SellerPayoutAccountPayload,
+  ): Promise<SellerPayoutAccount> => {
+    const response = await api.post<SellerPayoutAccount>(
+      "/ticketing/seller/payout-accounts/",
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  updateSellerPayoutAccount: async (
+    slug: string,
+    accountId: number,
+    payload: Partial<SellerPayoutAccountPayload>,
+  ): Promise<SellerPayoutAccount> => {
+    const response = await api.patch<SellerPayoutAccount>(
+      `/ticketing/seller/payout-accounts/${accountId}/`,
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  deleteSellerPayoutAccount: async (
+    slug: string,
+    accountId: number,
+  ): Promise<void> => {
+    await api.delete(`/ticketing/seller/payout-accounts/${accountId}/`, {
+      params: withSlug(undefined, slug),
+    });
+  },
+
+  makeSellerPayoutAccountDefault: async (
+    slug: string,
+    accountId: number,
+  ): Promise<SellerPayoutAccount> => {
+    const response = await api.post<SellerPayoutAccount>(
+      `/ticketing/seller/payout-accounts/${accountId}/make-default/`,
+      {},
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  getSellerPayoutBalance: async (
+    slug: string,
+  ): Promise<SellerPayoutBalance> => {
+    const response = await api.get<SellerPayoutBalance>(
+      "/ticketing/seller/payout-requests/balance/",
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  getMySellerPayoutRequests: async (
+    slug: string,
+  ): Promise<SellerPayoutRequest[]> => {
+    const response = await api.get<SellerPayoutRequest[] | { results?: SellerPayoutRequest[] }>(
+      "/ticketing/seller/payout-requests/",
+      { params: withSlug(undefined, slug) },
+    );
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  },
+
+  createSellerPayoutRequest: async (
+    slug: string,
+    payload: SellerPayoutCreatePayload,
+  ): Promise<SellerPayoutRequest> => {
+    const response = await api.post<SellerPayoutRequest>(
+      "/ticketing/seller/payout-requests/",
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  cancelSellerPayoutRequest: async (
+    slug: string,
+    payoutId: number,
+  ): Promise<SellerPayoutRequest> => {
+    const response = await api.post<SellerPayoutRequest>(
+      `/ticketing/seller/payout-requests/${payoutId}/cancel/`,
+      {},
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  // Owner payout processing
+  getOwnerSellerPayoutRequests: async (
+    slug: string,
+    params?: QueryParams,
+  ): Promise<SellerPayoutRequest[]> => {
+    const response = await api.get<SellerPayoutRequest[] | { results?: SellerPayoutRequest[] }>(
+      "/ticketing/seller-payout-requests/",
+      { params: withSlug(params, slug) },
+    );
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  },
+
+  approveSellerPayoutRequest: async (
+    slug: string,
+    payoutId: number,
+    payload: SellerPayoutDecisionPayload = {},
+  ): Promise<SellerPayoutRequest> => {
+    const response = await api.post<SellerPayoutRequest>(
+      `/ticketing/seller-payout-requests/${payoutId}/approve/`,
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  rejectSellerPayoutRequest: async (
+    slug: string,
+    payoutId: number,
+    payload: SellerPayoutDecisionPayload,
+  ): Promise<SellerPayoutRequest> => {
+    const response = await api.post<SellerPayoutRequest>(
+      `/ticketing/seller-payout-requests/${payoutId}/reject/`,
+      payload,
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  markSellerPayoutProcessing: async (
+    slug: string,
+    payoutId: number,
+  ): Promise<SellerPayoutRequest> => {
+    const response = await api.post<SellerPayoutRequest>(
+      `/ticketing/seller-payout-requests/${payoutId}/mark-processing/`,
+      {},
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
+  markSellerPayoutPaid: async (
+    slug: string,
+    payoutId: number,
+    payload: SellerPayoutDecisionPayload,
+  ): Promise<SellerPayoutRequest> => {
+    const formData = new FormData();
+    appendFormValue(formData, "payment_reference", payload.payment_reference || "");
+    appendFormValue(formData, "owner_note", payload.owner_note || "");
+    appendFormValue(formData, "payment_receipt", payload.payment_receipt || null);
+
+    const response = await api.post<SellerPayoutRequest>(
+      `/ticketing/seller-payout-requests/${payoutId}/mark-paid/`,
+      formData,
+      { params: withSlug(undefined, slug) },
     );
     return response.data;
   },

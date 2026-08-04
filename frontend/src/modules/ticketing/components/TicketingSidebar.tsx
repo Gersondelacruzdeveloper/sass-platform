@@ -26,6 +26,7 @@ import {
   Sparkles,
   Ticket,
   Users,
+  UserRoundPlus,
   WalletCards,
   X,
 } from "lucide-react";
@@ -62,6 +63,7 @@ type NavSection = "main" | "operations" | "configuration";
 
 type NavItem = {
   labelKey: string;
+  fallbackLabel?: string;
   path: string;
   icon: LucideIcon;
   permissions: TicketingPermissionKey[];
@@ -257,6 +259,15 @@ export default function TicketingSidebar({
       labelKey: "navigation.items.sellers",
       path: buildPath(safeSlug, "/sellers"),
       icon: Users,
+      permissions: ["can_manage_sellers"],
+      section: "main",
+      ownerOnly: true,
+    },
+    {
+      labelKey: "navigation.items.sellerOnboarding",
+      fallbackLabel: "Seller onboarding",
+      path: buildPath(safeSlug, "/seller-onboarding"),
+      icon: UserRoundPlus,
       permissions: ["can_manage_sellers"],
       section: "main",
       ownerOnly: true,
@@ -571,7 +582,7 @@ export default function TicketingSidebar({
                     <Icon className="h-5 w-5 shrink-0" />
 
                     <span className="truncate">
-                      {t(item.labelKey)}
+                      {t(item.labelKey, undefined, item.fallbackLabel)}
                     </span>
                   </Link>
                 );

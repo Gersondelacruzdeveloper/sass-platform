@@ -515,6 +515,7 @@ export interface SellerPermissions {
   can_sell_events: boolean;
   can_sell_custom_tours: boolean;
   can_create_bookings: boolean;
+  can_send_payment_links: boolean;
   can_take_deposits: boolean;
   can_take_full_payments: boolean;
   can_collect_cash_payment: boolean;
@@ -530,6 +531,10 @@ export interface SellerPermissions {
   can_view_own_sales: boolean;
   can_view_own_commissions: boolean;
   can_apply_discounts: boolean;
+  can_apply_customer_discount: boolean;
+  can_keep_commission_first: boolean;
+  can_mark_cash_collected: boolean;
+  can_request_payouts: boolean;
   can_cancel_bookings: boolean;
   can_send_whatsapp: boolean;
   can_send_email: boolean;
@@ -559,6 +564,18 @@ export interface Seller extends SellerPermissions {
   photo_url?: string | null;
   commission_rate: Money;
   fixed_commission_amount: Money;
+  default_margin_percent?: Money;
+  max_customer_discount_percent?: Money;
+  application_status?: SellerApplicationStatus;
+  assigned_products?: Array<{
+    id: ID;
+    name: string;
+    product_type: ProductType | string;
+  }>;
+  approved_at?: string | null;
+  available_commission_amount?: Money;
+  pending_payout_amount?: Money;
+  total_paid_commission_amount?: Money;
   permissions?: SellerPermissions;
   is_active: boolean;
   total_sales_amount: Money;
@@ -1853,5 +1870,304 @@ export interface SettlementReconciliation {
   ledger_total: Money;
   difference: Money;
   is_reconciled: boolean;
+}
+
+// ============================================================================
+// Seller onboarding, applications and payouts
+// ============================================================================
+
+export type SellerCommissionType = "percentage" | "fixed_amount";
+
+export type SellerApplicationStatus =
+  | "pending"
+  | "needs_information"
+  | "approved"
+  | "rejected"
+  | "withdrawn";
+
+export type SellerType =
+  | "independent"
+  | "hotel_representative"
+  | "travel_agency"
+  | "tour_operator"
+  | "concierge"
+  | "taxi_transport"
+  | "influencer"
+  | "external_vendor"
+  | "other";
+
+export type SellerIdentificationType =
+  | "national_id"
+  | "passport"
+  | "driver_license"
+  | "other";
+
+export type SellerPayoutMethod =
+  | "bank_transfer"
+  | "paypal"
+  | "mobile_wallet"
+  | "cash"
+  | "other";
+
+export type SellerPayoutStatus =
+  | "requested"
+  | "under_review"
+  | "approved"
+  | "rejected"
+  | "processing"
+  | "paid"
+  | "cancelled";
+
+export interface SellerSignupInvite {
+  id: ID;
+  organisation: ID;
+  organisation_name?: string;
+  name: string;
+  description: string;
+  token: string;
+  public_path: string;
+  signup_url: string;
+  default_role: SellerRole;
+  default_commission_type: SellerCommissionType;
+  default_commission_rate: Money;
+  default_fixed_commission_amount: Money;
+  default_margin_percent: Money;
+  default_max_customer_discount_percent: Money;
+  default_permissions: Partial<SellerPermissions>;
+  allowed_products: ID[];
+  allowed_product_names: string[];
+  allowed_product_types: ProductType[];
+  require_profile_photo: boolean;
+  require_identification: boolean;
+  show_commission_offer: boolean;
+  terms_version: string;
+  expires_at?: string | null;
+  max_uses: number;
+  use_count: number;
+  is_active: boolean;
+  is_available: boolean;
+  created_by?: ID | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type SellerSignupInvitePayload = Omit<
+  SellerSignupInvite,
+  | "id"
+  | "organisation"
+  | "organisation_name"
+  | "token"
+  | "public_path"
+  | "signup_url"
+  | "allowed_product_names"
+  | "use_count"
+  | "is_available"
+  | "created_by"
+  | "created_at"
+  | "updated_at"
+>;
+
+export interface PublicSellerSignupInviteProduct {
+  id: ID;
+  name: string;
+  product_type: ProductType | string;
+}
+
+export interface PublicSellerSignupInvite {
+  name: string;
+  description: string;
+  organisation_name: string;
+  organisation_slug?: string;
+  default_role: SellerRole;
+  default_commission_type: SellerCommissionType;
+  default_commission_rate: Money;
+  default_fixed_commission_amount: Money;
+  default_margin_percent: Money;
+  default_max_customer_discount_percent: Money;
+  show_commission_offer: boolean;
+  allowed_products: PublicSellerSignupInviteProduct[];
+  allowed_product_types: ProductType[];
+  require_profile_photo: boolean;
+  require_identification: boolean;
+  terms_version: string;
+  expires_at?: string | null;
+  is_available: boolean;
+}
+
+export interface PublicSellerApplicationPayload {
+  legal_name: string;
+  display_name?: string;
+  email: string;
+  phone: string;
+  whatsapp?: string;
+  profile_photo?: File | null;
+  country?: string;
+  city?: string;
+  address?: string;
+  preferred_language?: string;
+  seller_type: SellerType;
+  business_name?: string;
+  experience_years?: number;
+  biography?: string;
+  languages?: string[];
+  product_interests?: string[];
+  website_url?: string;
+  instagram_url?: string;
+  facebook_url?: string;
+  identification_type?: SellerIdentificationType | "";
+  identification_number?: string;
+  identification_front?: File | null;
+  identification_back?: File | null;
+  verification_selfie?: File | null;
+  applicant_message?: string;
+  terms_accepted: boolean;
+  password: string;
+  password_confirm: string;
+}
+
+export interface SellerApplication {
+  id: ID;
+  organisation: ID;
+  organisation_name: string;
+  invite: ID;
+  invite_name: string;
+  user: ID;
+  seller_id?: ID | null;
+  seller_slug?: string | null;
+  status: SellerApplicationStatus;
+  legal_name: string;
+  display_name: string;
+  email: string;
+  phone: string;
+  whatsapp: string;
+  profile_photo_url?: string | null;
+  country: string;
+  city: string;
+  address: string;
+  preferred_language: string;
+  seller_type: SellerType;
+  business_name: string;
+  experience_years: number;
+  biography: string;
+  languages: string[];
+  product_interests: string[];
+  website_url: string;
+  instagram_url: string;
+  facebook_url: string;
+  identification_type: SellerIdentificationType | "";
+  identification_number: string;
+  identification_front_url?: string | null;
+  identification_back_url?: string | null;
+  verification_selfie_url?: string | null;
+  commission_type: SellerCommissionType;
+  proposed_commission_rate: Money;
+  proposed_fixed_commission_amount: Money;
+  proposed_margin_percent: Money;
+  proposed_max_customer_discount_percent: Money;
+  invitation_snapshot: Record<string, unknown>;
+  terms_accepted: boolean;
+  terms_version: string;
+  terms_accepted_at?: string | null;
+  applicant_message: string;
+  review_notes: string;
+  rejection_reason: string;
+  reviewed_by?: ID | null;
+  submitted_at: string;
+  reviewed_at?: string | null;
+  approved_at?: string | null;
+  permissions: Partial<SellerPermissions>;
+  assigned_products: PublicSellerSignupInviteProduct[];
+  is_editable_by_applicant: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SellerApplicationDecisionPayload {
+  role?: SellerRole;
+  commission_type?: SellerCommissionType;
+  commission_rate?: Money;
+  fixed_commission_amount?: Money;
+  default_margin_percent?: Money;
+  max_customer_discount_percent?: Money;
+  permissions?: Partial<SellerPermissions>;
+  product_ids?: ID[];
+  review_notes?: string;
+}
+
+export interface SellerPayoutAccount {
+  id: ID;
+  organisation: ID;
+  seller: ID;
+  seller_name?: string;
+  method: SellerPayoutMethod;
+  nickname: string;
+  account_holder_name: string;
+  bank_name: string;
+  account_type: string;
+  masked_destination: string;
+  is_default: boolean;
+  is_verified: boolean;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SellerPayoutAccountPayload {
+  method: SellerPayoutMethod;
+  nickname?: string;
+  account_holder_name: string;
+  bank_name?: string;
+  account_type?: string;
+  account_number?: string;
+  paypal_email?: string;
+  mobile_wallet_phone?: string;
+  extra_details?: Record<string, unknown>;
+  is_default?: boolean;
+  is_active?: boolean;
+}
+
+export interface SellerPayoutRequest {
+  id: ID;
+  organisation: ID;
+  seller: ID;
+  seller_name: string;
+  payout_account: ID;
+  payout_destination: string;
+  amount: Money;
+  currency: string;
+  available_commission_snapshot: Money;
+  allocated_amount: Money;
+  status: SellerPayoutStatus;
+  seller_note: string;
+  owner_note: string;
+  rejection_reason: string;
+  payment_reference: string;
+  payment_receipt_url?: string | null;
+  reviewed_by?: ID | null;
+  requested_at: string;
+  reviewed_at?: string | null;
+  approved_at?: string | null;
+  paid_at?: string | null;
+  updated_at?: string;
+  commission_ids: ID[];
+}
+
+export interface SellerPayoutBalance {
+  seller_id: ID;
+  currency: string;
+  available_for_payout: Money;
+}
+
+export interface SellerPayoutCreatePayload {
+  amount: Money;
+  payout_account: ID;
+  seller_note?: string;
+}
+
+export interface SellerPayoutDecisionPayload {
+  owner_note?: string;
+  rejection_reason?: string;
+  payment_reference?: string;
+  payment_receipt?: File | null;
 }
 

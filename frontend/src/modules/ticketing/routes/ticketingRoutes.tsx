@@ -46,6 +46,9 @@ import TicketingBrandingPage from "../pages/TicketingBrandingPage";
 import TicketingDomainPage from "../pages/TicketingDomainPage";
 import TicketingIntegrationsPage from "../pages/TicketingIntegrationsPage";
 import TicketingSEOPage from "../pages/TicketingSEOPage";
+import TicketingSellerOnboardingPage from "../pages/TicketingSellerOnboardingPage";
+import PublicSellerApplicationPage from "../pages/PublicSellerApplicationPage";
+import SellerApplicationStatusPage from "../pages/SellerApplicationStatusPage";
 
 import TicketingSellerDashboardPage from "../pages/seller/TicketingSellerDashboardPage";
 import TicketingSellerProductsPage from "../pages/seller/TicketingSellerProductsPage";
@@ -55,6 +58,7 @@ import TicketingSellerBookingsPage from "../pages/seller/TicketingSellerBookings
 import TicketingSellerCustomersPage from "../pages/seller/TicketingSellerCustomersPage";
 import TicketingSellerCommissionsPage from "../pages/seller/TicketingSellerCommissionsPage";
 import TicketingSellerProfilePage from "../pages/seller/TicketingSellerProfilePage";
+import TicketingSellerPayoutsPage from "../pages/seller/TicketingSellerPayoutsPage";
 
 // Operations pages
 import TicketingOperationsDashboardPage from "../pages/operations/TicketingOperationsDashboardPage";
@@ -514,6 +518,12 @@ export const ticketingRoutes = (
       }
     />
 
+    {/* Public seller invitation and application route. */}
+    <Route
+      path="/seller-apply/:token"
+      element={<PublicSellerApplicationPage />}
+    />
+
     <Route
       path="/:listingType"
       element={
@@ -621,6 +631,12 @@ export const ticketingRoutes = (
 
     {/* Protected dashboards */}
     <Route element={<ProtectedRoute />}>
+      {/* Pending or approved seller application status. */}
+      <Route
+        path="/ticketing/:organisationSlug/seller-application"
+        element={<SellerApplicationStatusPage />}
+      />
+
       {/* Seller portal */}
       <Route
         path="/ticketing/:organisationSlug/seller"
@@ -655,6 +671,10 @@ export const ticketingRoutes = (
         <Route
           path="commissions"
           element={<TicketingSellerCommissionsPage />}
+        />
+        <Route
+          path="payouts"
+          element={<TicketingSellerPayoutsPage />}
         />
         <Route
           path="profile"
@@ -762,6 +782,10 @@ export const ticketingRoutes = (
         <Route path="transfers" element={<TicketingTransfersPage />} />
         <Route path="events" element={<TicketingEventsPage />} />
         <Route path="sellers" element={<TicketingSellersPage />} />
+        <Route
+          path="seller-onboarding"
+          element={<TicketingSellerOnboardingPage />}
+        />
         <Route
           path="commissions"
           element={<TicketingCommissionsPage />}
