@@ -3,8 +3,12 @@ import secrets
 import string
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q, Sum
 from rest_framework import serializers
 
 try:
@@ -33,6 +37,11 @@ from .models import (
     ProductPickupSchedule,
     Customer,
     Seller,
+    SellerSignupInvite,
+    SellerApplication,
+    SellerPayoutAccount,
+    SellerPayoutRequest,
+    SellerPayoutCommissionAllocation,
     Booking,
     BookingItem,
     BookingPickupInfo,
@@ -2323,6 +2332,11 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
     photo_url = serializers.SerializerMethodField()
     public_path = serializers.CharField(read_only=True)
     permissions = serializers.SerializerMethodField()
+    assigned_products = serializers.PrimaryKeyRelatedField(
+        queryset=ExperienceProduct.objects.all(),
+        many=True,
+        required=False,
+    )
 
     create_login = serializers.BooleanField(
         write_only=True,
@@ -2373,6 +2387,12 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "fixed_commission_amount",
             "default_margin_percent",
             "max_customer_discount_percent",
+            "assigned_products",
+            "application_status",
+            "approved_by",
+            "approved_at",
+            "suspended_at",
+            "suspension_reason",
             "can_access_dashboard",
             "can_sell_cocobongo",
             "can_sell_excursions",
@@ -2398,6 +2418,7 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_send_receipt_before_full_payment",
             "can_view_own_sales",
             "can_view_own_commissions",
+            "can_request_payouts",
             "can_apply_discounts",
             "can_cancel_bookings",
             "can_send_whatsapp",
@@ -2432,6 +2453,10 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "photo_url",
             "public_path",
             "permissions",
+            "application_status",
+            "approved_by",
+            "approved_at",
+            "suspended_at",
             "total_sales_amount",
             "total_commission_amount",
             "total_collected_amount",
@@ -2456,6 +2481,23 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
         create_login = attrs.get("create_login", False)
         login_email = attrs.get("login_email")
         login_password = attrs.get("login_password")
+        organisation = (
+            self.context.get("organisation")
+            or attrs.get("organisation")
+            or getattr(self.instance, "organisation", None)
+        )
+
+        assigned_products = attrs.get("assigned_products")
+        if assigned_products is not None and organisation:
+            invalid = [
+                product.id
+                for product in assigned_products
+                if product.organisation_id != organisation.id
+            ]
+            if invalid:
+                raise serializers.ValidationError(
+                    {"assigned_products": "All products must belong to the current organisation."}
+                )
 
         if create_login:
             if not login_email:
@@ -2481,6 +2523,7 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
         login_email = validated_data.pop("login_email", "")
         login_password = validated_data.pop("login_password", "")
         apply_role_defaults = validated_data.pop("apply_role_defaults", True)
+        assigned_products = validated_data.pop("assigned_products", [])
 
         organisation = validated_data.get("organisation") or self.context.get("organisation")
 
@@ -2510,6 +2553,8 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             seller.apply_role_default_permissions()
 
         seller.save()
+        if assigned_products:
+            seller.assigned_products.set(assigned_products)
 
         return seller
 
@@ -2520,6 +2565,7 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
         validated_data.pop("login_password", None)
 
         apply_role_defaults = validated_data.pop("apply_role_defaults", False)
+        assigned_products = validated_data.pop("assigned_products", None)
 
         for field, value in validated_data.items():
             setattr(instance, field, value)
@@ -2528,8 +2574,552 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             instance.apply_role_default_permissions()
 
         instance.save()
+        if assigned_products is not None:
+            instance.assigned_products.set(assigned_products)
 
         return instance
+
+
+class SellerSignupInviteSerializer(
+    OrganisationScopedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    organisation_name = serializers.CharField(source="organisation.name", read_only=True)
+    public_path = serializers.CharField(read_only=True)
+    signup_url = serializers.SerializerMethodField()
+    is_available = serializers.BooleanField(read_only=True)
+    allowed_products = serializers.PrimaryKeyRelatedField(
+        queryset=ExperienceProduct.objects.all(),
+        many=True,
+        required=False,
+    )
+    allowed_product_names = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SellerSignupInvite
+        fields = [
+            "id", "organisation", "organisation_name", "name", "description",
+            "token", "public_path", "signup_url", "default_role",
+            "default_commission_type", "default_commission_rate",
+            "default_fixed_commission_amount", "default_margin_percent",
+            "default_max_customer_discount_percent", "default_permissions",
+            "allowed_products", "allowed_product_names", "allowed_product_types",
+            "require_profile_photo", "require_identification",
+            "show_commission_offer", "terms_version", "expires_at", "max_uses",
+            "use_count", "is_active", "is_available", "created_by",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "id", "organisation", "organisation_name", "token", "public_path",
+            "signup_url", "use_count", "is_available", "created_by",
+            "created_at", "updated_at",
+        ]
+
+    def get_signup_url(self, obj):
+        base_url = str(getattr(django_settings, "FRONTEND_URL", "") or "").rstrip("/")
+        return f"{base_url}{obj.public_path}" if base_url else obj.public_path
+
+    def get_allowed_product_names(self, obj):
+        return list(obj.allowed_products.order_by("name").values_list("name", flat=True))
+
+    def validate_default_permissions(self, value):
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Default permissions must be a JSON object.")
+        invalid = sorted(set(value) - set(Seller.PERMISSION_FIELDS))
+        if invalid:
+            raise serializers.ValidationError(
+                f"Unknown seller permission fields: {', '.join(invalid)}"
+            )
+        return {key: bool(item) for key, item in value.items()}
+
+    def validate(self, attrs):
+        organisation = self.get_current_organisation()
+        products = attrs.get("allowed_products")
+        if products is not None and organisation:
+            if any(product.organisation_id != organisation.id for product in products):
+                raise serializers.ValidationError(
+                    {"allowed_products": "All products must belong to the current organisation."}
+                )
+        return attrs
+
+
+class PublicSellerSignupInviteSerializer(serializers.ModelSerializer):
+    organisation_name = serializers.CharField(source="organisation.name", read_only=True)
+    allowed_products = serializers.SerializerMethodField()
+    is_available = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = SellerSignupInvite
+        fields = [
+            "name", "description", "organisation_name", "default_role",
+            "default_commission_type", "default_commission_rate",
+            "default_fixed_commission_amount", "default_margin_percent",
+            "default_max_customer_discount_percent", "show_commission_offer",
+            "allowed_products", "allowed_product_types", "require_profile_photo",
+            "require_identification", "terms_version", "expires_at", "is_available",
+        ]
+
+    def get_allowed_products(self, obj):
+        return [
+            {"id": product.id, "name": product.name, "product_type": product.product_type}
+            for product in obj.allowed_products.filter(is_active=True).order_by("name")
+        ]
+
+
+class PublicSellerApplicationCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    password_confirm = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    class Meta:
+        model = SellerApplication
+        fields = [
+            "legal_name", "display_name", "email", "phone", "whatsapp",
+            "profile_photo", "country", "city", "address", "preferred_language",
+            "seller_type", "business_name", "experience_years", "biography",
+            "languages", "product_interests", "website_url", "instagram_url",
+            "facebook_url", "identification_type", "identification_number",
+            "identification_front", "identification_back", "verification_selfie",
+            "applicant_message", "terms_accepted", "password", "password_confirm",
+        ]
+
+    @staticmethod
+    def _unique_username(email):
+        base = str(email or "seller").split("@", 1)[0].lower()
+        base = "".join(
+            char for char in base.replace(" ", ".")
+            if char.isalnum() or char in "._-"
+        ).strip("._-") or "seller"
+        candidate = base[:140]
+        counter = 2
+        while User.objects.filter(username__iexact=candidate).exists():
+            suffix = f"-{counter}"
+            candidate = f"{base[:140 - len(suffix)]}{suffix}"
+            counter += 1
+        return candidate
+
+    def validate(self, attrs):
+        invite = self.context.get("invite")
+        if not invite or not invite.is_available:
+            raise serializers.ValidationError("This seller signup link is no longer available.")
+        email = str(attrs.get("email") or "").strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                {"email": "An account with this email already exists."}
+            )
+        if attrs.get("password") != attrs.get("password_confirm"):
+            raise serializers.ValidationError(
+                {"password_confirm": "Passwords do not match."}
+            )
+        try:
+            validate_password(attrs.get("password"))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)}) from exc
+        if not attrs.get("terms_accepted"):
+            raise serializers.ValidationError(
+                {"terms_accepted": "You must accept the seller terms."}
+            )
+        if invite.require_profile_photo and not attrs.get("profile_photo"):
+            raise serializers.ValidationError(
+                {"profile_photo": "A profile photo is required for this application."}
+            )
+        if invite.require_identification:
+            required = {
+                "identification_type": attrs.get("identification_type"),
+                "identification_number": attrs.get("identification_number"),
+                "identification_front": attrs.get("identification_front"),
+            }
+            missing = [field for field, value in required.items() if not value]
+            if missing:
+                raise serializers.ValidationError(
+                    {field: "This identification field is required." for field in missing}
+                )
+        attrs["email"] = email
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        invite = SellerSignupInvite.objects.select_for_update().get(
+            pk=self.context["invite"].pk
+        )
+        if not invite.is_available:
+            raise serializers.ValidationError("This seller signup link is no longer available.")
+
+        password = validated_data.pop("password")
+        validated_data.pop("password_confirm", None)
+        organisation = invite.organisation
+        email = validated_data["email"]
+        legal_name = validated_data["legal_name"]
+
+        user_fields = {field.name for field in User._meta.get_fields()}
+        user_kwargs = {
+            "username": self._unique_username(email),
+            "email": email,
+            "password": password,
+        }
+        if "organisation" in user_fields:
+            user_kwargs["organisation"] = organisation
+        name_parts = legal_name.split(maxsplit=1)
+        if "first_name" in user_fields:
+            user_kwargs["first_name"] = name_parts[0]
+        if "last_name" in user_fields:
+            user_kwargs["last_name"] = name_parts[1] if len(name_parts) > 1 else ""
+        user = User.objects.create_user(**user_kwargs)
+
+        commission_type = invite.default_commission_type
+        seller = Seller(
+            organisation=organisation,
+            user=user,
+            full_name=validated_data.get("display_name") or legal_name,
+            role=invite.default_role,
+            email=email,
+            phone=validated_data.get("phone"),
+            whatsapp=validated_data.get("whatsapp") or validated_data.get("phone"),
+            commission_rate=(
+                invite.default_commission_rate
+                if commission_type == "percentage" else Decimal("0.00")
+            ),
+            fixed_commission_amount=(
+                invite.default_fixed_commission_amount
+                if commission_type == "fixed_amount" else Decimal("0.00")
+            ),
+            default_margin_percent=invite.default_margin_percent,
+            max_customer_discount_percent=invite.default_max_customer_discount_percent,
+            application_status="pending",
+            is_active=False,
+        )
+        seller.clear_permissions()
+        seller.save()
+        seller.assigned_products.set(invite.allowed_products.all())
+
+        application = SellerApplication.objects.create(
+            organisation=organisation,
+            invite=invite,
+            user=user,
+            seller=seller,
+            commission_type=commission_type,
+            proposed_commission_rate=invite.default_commission_rate,
+            proposed_fixed_commission_amount=invite.default_fixed_commission_amount,
+            proposed_margin_percent=invite.default_margin_percent,
+            proposed_max_customer_discount_percent=(
+                invite.default_max_customer_discount_percent
+            ),
+            terms_version=invite.terms_version,
+            terms_accepted_at=timezone.now(),
+            invitation_snapshot={
+                "invite_id": invite.id,
+                "invite_name": invite.name,
+                "default_role": invite.default_role,
+                "default_permissions": invite.default_permissions,
+                "allowed_product_ids": list(
+                    invite.allowed_products.values_list("id", flat=True)
+                ),
+            },
+            **validated_data,
+        )
+
+        if application.profile_photo:
+            seller.photo = application.profile_photo
+            seller.save(update_fields=["photo", "updated_at"])
+
+        SellerSignupInvite.objects.filter(pk=invite.pk).update(use_count=F("use_count") + 1)
+        invite.refresh_from_db(fields=["use_count"])
+        return application
+
+
+class SellerApplicationSerializer(MediaURLMixin, serializers.ModelSerializer):
+    organisation_name = serializers.CharField(source="organisation.name", read_only=True)
+    invite_name = serializers.CharField(source="invite.name", read_only=True)
+    seller_id = serializers.IntegerField(source="seller.id", read_only=True)
+    seller_slug = serializers.CharField(source="seller.seller_slug", read_only=True)
+    profile_photo_url = serializers.SerializerMethodField()
+    identification_front_url = serializers.SerializerMethodField()
+    identification_back_url = serializers.SerializerMethodField()
+    verification_selfie_url = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+    assigned_products = serializers.SerializerMethodField()
+    is_editable_by_applicant = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = SellerApplication
+        fields = [
+            "id", "organisation", "organisation_name", "invite", "invite_name",
+            "user", "seller_id", "seller_slug", "status", "legal_name",
+            "display_name", "email", "phone", "whatsapp", "profile_photo_url",
+            "country", "city", "address", "preferred_language", "seller_type",
+            "business_name", "experience_years", "biography", "languages",
+            "product_interests", "website_url", "instagram_url", "facebook_url",
+            "identification_type", "identification_number", "identification_front_url",
+            "identification_back_url", "verification_selfie_url", "commission_type",
+            "proposed_commission_rate", "proposed_fixed_commission_amount",
+            "proposed_margin_percent", "proposed_max_customer_discount_percent",
+            "invitation_snapshot", "terms_accepted", "terms_version",
+            "terms_accepted_at", "applicant_message", "review_notes",
+            "rejection_reason", "reviewed_by", "submitted_at", "reviewed_at",
+            "approved_at", "permissions", "assigned_products",
+            "is_editable_by_applicant", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_profile_photo_url(self, obj):
+        return self.build_file_url(obj.profile_photo)
+
+    def get_identification_front_url(self, obj):
+        return self.build_file_url(obj.identification_front)
+
+    def get_identification_back_url(self, obj):
+        return self.build_file_url(obj.identification_back)
+
+    def get_verification_selfie_url(self, obj):
+        return self.build_file_url(obj.verification_selfie)
+
+    def get_permissions(self, obj):
+        return obj.seller.get_permissions_dict() if obj.seller else {}
+
+    def get_assigned_products(self, obj):
+        if not obj.seller:
+            return []
+        return list(
+            obj.seller.assigned_products.order_by("name").values("id", "name", "product_type")
+        )
+
+
+class SellerApplicationSelfUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SellerApplication
+        fields = [
+            "display_name", "phone", "whatsapp", "profile_photo", "country",
+            "city", "address", "preferred_language", "seller_type", "business_name",
+            "experience_years", "biography", "languages", "product_interests",
+            "website_url", "instagram_url", "facebook_url", "identification_type",
+            "identification_number", "identification_front", "identification_back",
+            "verification_selfie", "applicant_message",
+        ]
+
+    def validate(self, attrs):
+        if self.instance and not self.instance.is_editable_by_applicant:
+            raise serializers.ValidationError("This application can no longer be edited.")
+        return attrs
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        if instance.seller:
+            instance.seller.full_name = instance.display_name or instance.legal_name
+            instance.seller.phone = instance.phone
+            instance.seller.whatsapp = instance.whatsapp or instance.phone
+            if instance.profile_photo:
+                instance.seller.photo = instance.profile_photo
+            instance.seller.save()
+        return instance
+
+
+class SellerApplicationDecisionSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=Seller.ROLE_CHOICES, required=False)
+    commission_type = serializers.ChoiceField(
+        choices=SellerSignupInvite.COMMISSION_TYPE_CHOICES,
+        required=False,
+    )
+    commission_rate = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, min_value=Decimal("0.00"),
+        max_value=Decimal("100.00"),
+    )
+    fixed_commission_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, min_value=Decimal("0.00"),
+    )
+    default_margin_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, min_value=Decimal("0.00"),
+        max_value=Decimal("100.00"),
+    )
+    max_customer_discount_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, min_value=Decimal("0.00"),
+        max_value=Decimal("100.00"),
+    )
+    permissions = serializers.JSONField(required=False)
+    product_ids = serializers.PrimaryKeyRelatedField(
+        queryset=ExperienceProduct.objects.all(), many=True, required=False,
+    )
+    review_notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_permissions(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Permissions must be a JSON object.")
+        invalid = sorted(set(value) - set(Seller.PERMISSION_FIELDS))
+        if invalid:
+            raise serializers.ValidationError(
+                f"Unknown seller permission fields: {', '.join(invalid)}"
+            )
+        return {key: bool(item) for key, item in value.items()}
+
+    def validate(self, attrs):
+        organisation = self.context.get("organisation")
+        products = attrs.get("product_ids")
+        if products is not None and organisation:
+            if any(product.organisation_id != organisation.id for product in products):
+                raise serializers.ValidationError(
+                    {"product_ids": "All products must belong to this organisation."}
+                )
+        commission_type = attrs.get("commission_type")
+        if commission_type == "fixed_amount" and attrs.get(
+            "fixed_commission_amount", Decimal("0.00")
+        ) <= Decimal("0.00"):
+            raise serializers.ValidationError(
+                {"fixed_commission_amount": "Enter an amount greater than zero."}
+            )
+        return attrs
+
+
+class SellerPayoutAccountSerializer(MediaURLMixin, serializers.ModelSerializer):
+    seller_name = serializers.CharField(source="seller.full_name", read_only=True)
+    masked_destination = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = SellerPayoutAccount
+        fields = [
+            "id", "organisation", "seller", "seller_name", "method", "nickname",
+            "account_holder_name", "bank_name", "account_type", "account_number",
+            "paypal_email", "mobile_wallet_phone", "extra_details",
+            "masked_destination", "is_default", "is_verified", "is_active",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "id", "organisation", "seller", "seller_name", "masked_destination",
+            "is_verified", "created_at", "updated_at",
+        ]
+        extra_kwargs = {
+            "account_number": {"write_only": True, "required": False, "allow_blank": True},
+            "paypal_email": {"write_only": True, "required": False, "allow_blank": True},
+            "mobile_wallet_phone": {"write_only": True, "required": False, "allow_blank": True},
+            "extra_details": {"write_only": True, "required": False},
+        }
+
+
+class SellerPayoutRequestSerializer(MediaURLMixin, serializers.ModelSerializer):
+    seller_name = serializers.CharField(source="seller.full_name", read_only=True)
+    payout_destination = serializers.CharField(
+        source="payout_account.masked_destination", read_only=True
+    )
+    allocated_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    payment_receipt_url = serializers.SerializerMethodField()
+    commission_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SellerPayoutRequest
+        fields = [
+            "id", "organisation", "seller", "seller_name", "payout_account",
+            "payout_destination", "amount", "currency", "available_commission_snapshot",
+            "allocated_amount", "status", "seller_note", "owner_note",
+            "rejection_reason", "payment_reference", "payment_receipt_url",
+            "reviewed_by", "requested_at", "reviewed_at", "approved_at",
+            "paid_at", "updated_at", "commission_ids",
+        ]
+        read_only_fields = fields
+
+    def get_payment_receipt_url(self, obj):
+        return self.build_file_url(obj.payment_receipt)
+
+    def get_commission_ids(self, obj):
+        return list(obj.allocations.values_list("commission_id", flat=True))
+
+
+def calculate_seller_available_payout(seller):
+    approved_total = seller.commissions.filter(status="approved").aggregate(
+        total=Sum("amount")
+    )["total"] or Decimal("0.00")
+    reserved_total = SellerPayoutCommissionAllocation.objects.filter(
+        commission__seller=seller,
+        payout_request__status__in=SellerPayoutRequest.RESERVED_STATUSES,
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    return max(approved_total - reserved_total, Decimal("0.00"))
+
+
+class SellerPayoutRequestCreateSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+    payout_account = serializers.PrimaryKeyRelatedField(
+        queryset=SellerPayoutAccount.objects.all()
+    )
+    seller_note = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        seller = self.context["seller"]
+        account = attrs["payout_account"]
+        if account.seller_id != seller.id or not account.is_active:
+            raise serializers.ValidationError(
+                {"payout_account": "Choose an active payout account that belongs to you."}
+            )
+        available = calculate_seller_available_payout(seller)
+        if attrs["amount"] > available:
+            raise serializers.ValidationError(
+                {"amount": f"Maximum available payout is {available}."}
+            )
+        attrs["available_amount"] = available
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        seller = Seller.objects.select_for_update().get(pk=self.context["seller"].pk)
+        amount = validated_data["amount"]
+        available = calculate_seller_available_payout(seller)
+        if amount > available:
+            raise serializers.ValidationError(
+                {"amount": f"Maximum available payout is {available}."}
+            )
+
+        currency = "USD"
+        ticketing_settings = getattr(seller.organisation, "ticketing_settings", None)
+        if ticketing_settings:
+            currency = ticketing_settings.default_currency or "USD"
+
+        payout = SellerPayoutRequest.objects.create(
+            organisation=seller.organisation,
+            seller=seller,
+            payout_account=validated_data["payout_account"],
+            amount=amount,
+            currency=currency,
+            available_commission_snapshot=available,
+            seller_note=validated_data.get("seller_note", ""),
+        )
+
+        remaining = amount
+        commissions = (
+            seller.commissions.select_for_update()
+            .filter(status="approved")
+            .order_by("created_at", "id")
+        )
+        for commission in commissions:
+            reserved = commission.payout_allocations.filter(
+                payout_request__status__in=SellerPayoutRequest.RESERVED_STATUSES
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+            commission_available = max(commission.amount - reserved, Decimal("0.00"))
+            if commission_available <= Decimal("0.00"):
+                continue
+            allocation_amount = min(commission_available, remaining)
+            SellerPayoutCommissionAllocation.objects.create(
+                payout_request=payout,
+                commission=commission,
+                amount=allocation_amount,
+            )
+            remaining -= allocation_amount
+            if remaining <= Decimal("0.00"):
+                break
+
+        if remaining > Decimal("0.00"):
+            raise serializers.ValidationError(
+                "The commission balance changed. Please submit the payout request again."
+            )
+        return payout
+
+
+class SellerPayoutDecisionSerializer(serializers.Serializer):
+    owner_note = serializers.CharField(required=False, allow_blank=True)
+    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+    payment_reference = serializers.CharField(required=False, allow_blank=True)
+    payment_receipt = serializers.FileField(required=False, allow_null=True)
+
 
 class SellerProductCommissionRuleSerializer(
     OrganisationScopedSerializerMixin,

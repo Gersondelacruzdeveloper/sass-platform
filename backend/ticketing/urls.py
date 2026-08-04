@@ -23,6 +23,13 @@ from .views import (
     ProductPickupScheduleViewSet,
     CustomerViewSet,
     SellerViewSet,
+    SellerSignupInviteViewSet,
+    SellerApplicationViewSet,
+    SellerPayoutRequestViewSet,
+    SellerPayoutAccountViewSet,
+    SellerMyPayoutRequestViewSet,
+    PublicSellerApplicationAPIView,
+    SellerApplicationStatusAPIView,
     SellerProductCommissionRuleViewSet,
     TransferRouteViewSet,
     TransferPriceBandViewSet,
@@ -107,6 +114,9 @@ router.register("pickup-locations", PickupLocationViewSet, basename="ticketing-p
 router.register("pickup-schedules", ProductPickupScheduleViewSet, basename="ticketing-pickup-schedules")
 router.register("customers", CustomerViewSet, basename="ticketing-customers")
 router.register("sellers", SellerViewSet, basename="ticketing-sellers")
+router.register("seller-signup-invites", SellerSignupInviteViewSet, basename="ticketing-seller-signup-invites")
+router.register("seller-applications", SellerApplicationViewSet, basename="ticketing-seller-applications")
+router.register("seller-payout-requests", SellerPayoutRequestViewSet, basename="ticketing-seller-payout-requests")
 router.register(
     "seller-commission-rules",
     SellerProductCommissionRuleViewSet,
@@ -143,6 +153,8 @@ router.register("seller/products", SellerProductsViewSet, basename="ticketing-se
 router.register("seller/bookings", SellerBookingsViewSet, basename="ticketing-seller-bookings")
 router.register("seller/payments", SellerPaymentsViewSet, basename="ticketing-seller-payments")
 router.register("seller/commissions", SellerCommissionsViewSet, basename="ticketing-seller-commissions")
+router.register("seller/payout-accounts", SellerPayoutAccountViewSet, basename="ticketing-seller-payout-accounts")
+router.register("seller/payout-requests", SellerMyPayoutRequestViewSet, basename="ticketing-seller-my-payout-requests")
 
 # Public white-label routes.
 # These support ?slug=organisation-slug or ?organisation_slug=organisation-slug.
@@ -182,6 +194,21 @@ urlpatterns = [
 
     # New seller-only dashboard route
     path("seller/dashboard/", SellerDashboardView.as_view(), name="ticketing-seller-dashboard"),
+
+
+    # Public seller application link.
+    path(
+        "public/seller-apply/<uuid:token>/",
+        PublicSellerApplicationAPIView.as_view(),
+        name="ticketing-public-seller-apply",
+    ),
+
+    # Authenticated applicant status/update/resubmit endpoint.
+    path(
+        "seller/application/",
+        SellerApplicationStatusAPIView.as_view(),
+        name="ticketing-seller-application-status",
+    ),
 
     # Public domain resolver:
     # /api/ticketing/public/resolve-domain/?domain=www.example.com

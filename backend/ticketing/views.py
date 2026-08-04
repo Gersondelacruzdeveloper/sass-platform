@@ -7,6 +7,7 @@ import json
 import re
 import traceback
 import logging
+import uuid
 
 import requests
 import stripe
@@ -150,6 +151,11 @@ from .models import (
     ProductPickupSchedule,
     Customer,
     Seller,
+    SellerSignupInvite,
+    SellerApplication,
+    SellerPayoutAccount,
+    SellerPayoutRequest,
+    SellerPayoutCommissionAllocation,
     SellerProductCommissionRule,
     Booking,
     BookingItem,
@@ -200,6 +206,17 @@ from .serializers import (
     ProductPickupScheduleSerializer,
     CustomerSerializer,
     SellerSerializer,
+    SellerSignupInviteSerializer,
+    PublicSellerSignupInviteSerializer,
+    PublicSellerApplicationCreateSerializer,
+    SellerApplicationSerializer,
+    SellerApplicationSelfUpdateSerializer,
+    SellerApplicationDecisionSerializer,
+    SellerPayoutAccountSerializer,
+    SellerPayoutRequestSerializer,
+    SellerPayoutRequestCreateSerializer,
+    SellerPayoutDecisionSerializer,
+    calculate_seller_available_payout,
     SellerProductCommissionRuleSerializer,
     BookingSerializer,
     BookingItemSerializer,
@@ -257,6 +274,7 @@ from .permissions import (
     CanManageTicketingSellers,
     CanViewTicketingReports,
     CanAccessSellerDashboard,
+    CanRequestSellerPayout,
     is_organisation_admin,
     get_user_seller,
     get_business_entity_from_view,
@@ -2056,6 +2074,11 @@ class ExperienceProductViewSet(
                 product_type__in=allowed_product_types,
             )
 
+            if seller.assigned_products.exists():
+                queryset = queryset.filter(
+                    id__in=seller.assigned_products.values_list("id", flat=True)
+                )
+
             if not seller.can_sell_cocobongo:
                 queryset = queryset.exclude(is_cocobongo_product=True)
 
@@ -3338,17 +3361,21 @@ class SellerViewSet(TicketingPrivateViewSet):
 
         queryset = Seller.objects.filter(
             organisation=organisation,
-        ).select_related("user", "organisation")
+        ).select_related("user", "organisation").prefetch_related("assigned_products")
 
         role = self.request.query_params.get("role")
         is_active = self.request.query_params.get("is_active")
         search = self.request.query_params.get("search")
+        application_status = self.request.query_params.get("application_status")
 
         if role:
             queryset = queryset.filter(role=role)
 
         if is_active in ["true", "false"]:
             queryset = queryset.filter(is_active=is_active == "true")
+
+        if application_status:
+            queryset = queryset.filter(application_status=application_status)
 
         if search:
             queryset = queryset.filter(
@@ -3392,6 +3419,504 @@ class SellerViewSet(TicketingPrivateViewSet):
 
         serializer = self.get_serializer(seller)
         return Response(serializer.data)
+
+
+
+class SellerSignupInviteViewSet(TicketingPrivateViewSet):
+    serializer_class = SellerSignupInviteSerializer
+    permission_classes = [CanManageTicketingSellers]
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return SellerSignupInvite.objects.none()
+        queryset = (
+            SellerSignupInvite.objects.filter(organisation=organisation)
+            .select_related("organisation", "created_by")
+            .prefetch_related("allowed_products")
+        )
+        is_active = self.request.query_params.get("is_active")
+        if is_active in {"true", "false"}:
+            queryset = queryset.filter(is_active=is_active == "true")
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organisation=self.require_organisation(),
+            created_by=self.request.user,
+        )
+
+    @action(detail=True, methods=["post"], url_path="rotate-token")
+    def rotate_token(self, request, pk=None):
+        invite = self.get_object()
+        invite.token = uuid.uuid4()
+        invite.save(update_fields=["token", "updated_at"])
+        return Response(self.get_serializer(invite).data)
+
+
+class PublicSellerApplicationAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get_invite(self, token):
+        return get_object_or_404(
+            SellerSignupInvite.objects.select_related("organisation").prefetch_related(
+                "allowed_products"
+            ),
+            token=token,
+            organisation__is_active=True,
+        )
+
+    def get(self, request, token):
+        invite = self.get_invite(token)
+        serializer = PublicSellerSignupInviteSerializer(invite, context={"request": request})
+        response_status = status.HTTP_200_OK if invite.is_available else status.HTTP_410_GONE
+        return Response(serializer.data, status=response_status)
+
+    def post(self, request, token):
+        invite = self.get_invite(token)
+        serializer = PublicSellerApplicationCreateSerializer(
+            data=request.data,
+            context={"request": request, "invite": invite},
+        )
+        serializer.is_valid(raise_exception=True)
+        application = serializer.save()
+        return Response(
+            {
+                "id": application.id,
+                "status": application.status,
+                "organisation": application.organisation.name,
+                "message": "Your seller application was submitted for review.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SellerApplicationStatusAPIView(TicketingOrganisationMixin, APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_application(self):
+        organisation = self.require_organisation()
+        return get_object_or_404(
+            SellerApplication.objects.select_related(
+                "organisation", "invite", "seller", "user"
+            ).prefetch_related("seller__assigned_products"),
+            organisation=organisation,
+            user=self.request.user,
+        )
+
+    def get(self, request):
+        application = self.get_application()
+        serializer = SellerApplicationSerializer(
+            application,
+            context={"request": request, "organisation": application.organisation},
+        )
+        return Response(serializer.data)
+
+    def patch(self, request):
+        application = self.get_application()
+        serializer = SellerApplicationSelfUpdateSerializer(
+            application,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        application = serializer.save()
+        return Response(
+            SellerApplicationSerializer(application, context={"request": request}).data
+        )
+
+    def post(self, request):
+        application = self.get_application()
+        if not application.is_editable_by_applicant:
+            return Response(
+                {"detail": "This application cannot be resubmitted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        invite = application.invite
+        errors = {}
+        if invite.require_profile_photo and not application.profile_photo:
+            errors["profile_photo"] = "A profile photo is required."
+        if invite.require_identification:
+            if not application.identification_type:
+                errors["identification_type"] = "Identification type is required."
+            if not application.identification_number:
+                errors["identification_number"] = "Identification number is required."
+            if not application.identification_front:
+                errors["identification_front"] = "Identification front is required."
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+        application.status = "pending"
+        application.submitted_at = timezone.now()
+        application.save(update_fields=["status", "submitted_at", "updated_at"])
+        return Response(
+            SellerApplicationSerializer(application, context={"request": request}).data
+        )
+
+
+class SellerApplicationViewSet(TicketingPrivateViewSet):
+    serializer_class = SellerApplicationSerializer
+    permission_classes = [CanManageTicketingSellers]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Seller applications are created through the public signup link."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return SellerApplication.objects.none()
+        queryset = (
+            SellerApplication.objects.filter(organisation=organisation)
+            .select_related("organisation", "invite", "user", "seller", "reviewed_by")
+            .prefetch_related("seller__assigned_products")
+        )
+        status_filter = self.request.query_params.get("status")
+        search = self.request.query_params.get("search")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if search:
+            queryset = queryset.filter(
+                Q(legal_name__icontains=search)
+                | Q(display_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+                | Q(business_name__icontains=search)
+            )
+        return queryset
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        application = SellerApplication.objects.select_for_update().select_related(
+            "invite", "seller", "organisation"
+        ).get(pk=self.get_object().pk)
+        serializer = SellerApplicationDecisionSerializer(
+            data=request.data,
+            context={"organisation": application.organisation},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        seller = application.seller
+        if not seller:
+            return Response(
+                {"detail": "The application does not have a seller profile."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        role = data.get("role", application.invite.default_role)
+        commission_type = data.get("commission_type", application.commission_type)
+        seller.role = role
+        seller.commission_rate = data.get(
+            "commission_rate", application.proposed_commission_rate
+        ) if commission_type == "percentage" else Decimal("0.00")
+        seller.fixed_commission_amount = data.get(
+            "fixed_commission_amount", application.proposed_fixed_commission_amount
+        ) if commission_type == "fixed_amount" else Decimal("0.00")
+        seller.default_margin_percent = data.get(
+            "default_margin_percent", application.proposed_margin_percent
+        )
+        seller.max_customer_discount_percent = data.get(
+            "max_customer_discount_percent",
+            application.proposed_max_customer_discount_percent,
+        )
+        seller.apply_role_default_permissions()
+        for field, value in (application.invite.default_permissions or {}).items():
+            if field in Seller.PERMISSION_FIELDS:
+                setattr(seller, field, bool(value))
+        for field, value in data.get("permissions", {}).items():
+            setattr(seller, field, bool(value))
+        seller.application_status = "approved"
+        seller.is_active = True
+        seller.approved_by = request.user
+        seller.approved_at = timezone.now()
+        seller.suspended_at = None
+        seller.suspension_reason = ""
+        if application.profile_photo:
+            seller.photo = application.profile_photo
+        seller.save()
+
+        products = data.get("product_ids")
+        if products is None:
+            products = list(application.invite.allowed_products.all())
+        seller.assigned_products.set(products)
+
+        now = timezone.now()
+        application.status = "approved"
+        application.commission_type = commission_type
+        application.proposed_commission_rate = seller.commission_rate
+        application.proposed_fixed_commission_amount = seller.fixed_commission_amount
+        application.proposed_margin_percent = seller.default_margin_percent
+        application.proposed_max_customer_discount_percent = (
+            seller.max_customer_discount_percent
+        )
+        application.review_notes = data.get("review_notes", "")
+        application.reviewed_by = request.user
+        application.reviewed_at = now
+        application.approved_at = now
+        application.rejection_reason = ""
+        application.save()
+        return Response(self.get_serializer(application).data)
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        application = self.get_object()
+        reason = str(request.data.get("rejection_reason") or "").strip()
+        if not reason:
+            return Response(
+                {"rejection_reason": "A rejection reason is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        now = timezone.now()
+        application.status = "rejected"
+        application.rejection_reason = reason
+        application.review_notes = str(request.data.get("review_notes") or "")
+        application.reviewed_by = request.user
+        application.reviewed_at = now
+        application.save()
+        if application.seller:
+            seller = application.seller
+            seller.application_status = "rejected"
+            seller.is_active = False
+            seller.clear_permissions()
+            seller.save()
+        return Response(self.get_serializer(application).data)
+
+    @action(detail=True, methods=["post"], url_path="request-information")
+    def request_information(self, request, pk=None):
+        application = self.get_object()
+        note = str(request.data.get("review_notes") or "").strip()
+        if not note:
+            return Response(
+                {"review_notes": "Tell the applicant what information is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        application.status = "needs_information"
+        application.review_notes = note
+        application.reviewed_by = request.user
+        application.reviewed_at = timezone.now()
+        application.save()
+        return Response(self.get_serializer(application).data)
+
+
+class SellerPayoutAccountViewSet(TicketingOrganisationMixin, viewsets.ModelViewSet):
+    serializer_class = SellerPayoutAccountSerializer
+    permission_classes = [CanRequestSellerPayout]
+
+    def get_seller(self):
+        return get_user_seller(self.request.user, self.require_organisation())
+
+    def get_queryset(self):
+        seller = self.get_seller()
+        if not seller:
+            return SellerPayoutAccount.objects.none()
+        return SellerPayoutAccount.objects.filter(seller=seller).select_related(
+            "seller", "organisation"
+        )
+
+    def perform_create(self, serializer):
+        seller = self.get_seller()
+        serializer.save(organisation=seller.organisation, seller=seller)
+
+    @action(detail=True, methods=["post"], url_path="make-default")
+    def make_default(self, request, pk=None):
+        account = self.get_object()
+        account.is_default = True
+        account.save(update_fields=["is_default", "updated_at"])
+        return Response(self.get_serializer(account).data)
+
+
+class SellerMyPayoutRequestViewSet(TicketingOrganisationMixin, viewsets.ModelViewSet):
+    permission_classes = [CanRequestSellerPayout]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_seller(self):
+        return get_user_seller(self.request.user, self.require_organisation())
+
+    def get_queryset(self):
+        seller = self.get_seller()
+        if not seller:
+            return SellerPayoutRequest.objects.none()
+        return (
+            SellerPayoutRequest.objects.filter(seller=seller)
+            .select_related("seller", "organisation", "payout_account", "reviewed_by")
+            .prefetch_related("allocations")
+        )
+
+    def get_serializer_class(self):
+        return (
+            SellerPayoutRequestCreateSerializer
+            if self.action == "create"
+            else SellerPayoutRequestSerializer
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["organisation"] = self.get_organisation()
+        context["seller"] = self.get_seller()
+        return context
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payout = serializer.save()
+        output = SellerPayoutRequestSerializer(payout, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="balance")
+    def balance(self, request):
+        seller = self.get_seller()
+        return Response(
+            {
+                "seller_id": seller.id,
+                "currency": getattr(
+                    getattr(seller.organisation, "ticketing_settings", None),
+                    "default_currency",
+                    "USD",
+                ),
+                "available_for_payout": calculate_seller_available_payout(seller),
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        payout = self.get_object()
+        if payout.status not in {"requested", "under_review"}:
+            return Response(
+                {"detail": "This payout request can no longer be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payout.status = "cancelled"
+        payout.save(update_fields=["status", "updated_at"])
+        return Response(SellerPayoutRequestSerializer(payout).data)
+
+
+class SellerPayoutRequestViewSet(TicketingPrivateViewSet):
+    serializer_class = SellerPayoutRequestSerializer
+    permission_classes = [CanManageTicketingSellers]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Sellers create payout requests from the seller portal."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def get_queryset(self):
+        organisation = self.get_organisation()
+        if not organisation:
+            return SellerPayoutRequest.objects.none()
+        queryset = (
+            SellerPayoutRequest.objects.filter(organisation=organisation)
+            .select_related("seller", "organisation", "payout_account", "reviewed_by")
+            .prefetch_related("allocations")
+        )
+        status_filter = self.request.query_params.get("status")
+        seller_id = self.request.query_params.get("seller")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if seller_id:
+            queryset = queryset.filter(seller_id=seller_id)
+        return queryset
+
+    def _decision_data(self, request):
+        serializer = SellerPayoutDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        payout = self.get_object()
+        if payout.status not in {"requested", "under_review"}:
+            return Response(
+                {"detail": "Only requested payouts can be approved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = self._decision_data(request)
+        now = timezone.now()
+        payout.status = "approved"
+        payout.owner_note = data.get("owner_note", payout.owner_note)
+        payout.reviewed_by = request.user
+        payout.reviewed_at = now
+        payout.approved_at = now
+        payout.save()
+        return Response(self.get_serializer(payout).data)
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        payout = self.get_object()
+        data = self._decision_data(request)
+        reason = str(data.get("rejection_reason") or "").strip()
+        if not reason:
+            return Response(
+                {"rejection_reason": "A rejection reason is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payout.status = "rejected"
+        payout.rejection_reason = reason
+        payout.owner_note = data.get("owner_note", payout.owner_note)
+        payout.reviewed_by = request.user
+        payout.reviewed_at = timezone.now()
+        payout.save()
+        return Response(self.get_serializer(payout).data)
+
+    @action(detail=True, methods=["post"], url_path="mark-processing")
+    def mark_processing(self, request, pk=None):
+        payout = self.get_object()
+        if payout.status != "approved":
+            return Response(
+                {"detail": "Approve the payout before processing it."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payout.status = "processing"
+        payout.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(payout).data)
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="mark-paid")
+    def mark_paid(self, request, pk=None):
+        payout = SellerPayoutRequest.objects.select_for_update().get(
+            pk=self.get_object().pk
+        )
+        if payout.status not in {"approved", "processing"}:
+            return Response(
+                {"detail": "Only approved or processing payouts can be marked paid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = self._decision_data(request)
+        reference = str(data.get("payment_reference") or "").strip()
+        if not reference:
+            return Response(
+                {"payment_reference": "A payment reference is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        now = timezone.now()
+        payout.status = "paid"
+        payout.payment_reference = reference
+        payout.owner_note = data.get("owner_note", payout.owner_note)
+        payout.payment_receipt = data.get("payment_receipt", payout.payment_receipt)
+        payout.reviewed_by = request.user
+        payout.reviewed_at = payout.reviewed_at or now
+        payout.approved_at = payout.approved_at or now
+        payout.paid_at = now
+        payout.save()
+
+        for allocation in payout.allocations.select_related("commission"):
+            commission = allocation.commission
+            paid_allocated = commission.payout_allocations.filter(
+                payout_request__status="paid"
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+            if paid_allocated >= commission.amount and commission.status != "paid":
+                commission.status = "paid"
+                commission.paid_at = now
+                commission.paid_by = request.user
+                commission.save(update_fields=["status", "paid_at", "paid_by"])
+        return Response(self.get_serializer(payout).data)
 
 
 class SellerProductCommissionRuleViewSet(
@@ -5041,6 +5566,11 @@ class SellerProductsViewSet(SellerOnlyMixin, viewsets.ReadOnlyModelViewSet):
                 "event_ticket_types",
             )
         )
+
+        if seller.assigned_products.exists():
+            queryset = queryset.filter(
+                id__in=seller.assigned_products.values_list("id", flat=True)
+            )
 
         if not seller.can_sell_cocobongo:
             queryset = queryset.exclude(is_cocobongo_product=True)

@@ -72,6 +72,7 @@ def get_user_seller(user, organisation):
         user=user,
         organisation=organisation,
         is_active=True,
+        application_status="approved",
     ).first()
 
 
@@ -403,6 +404,25 @@ class CanAccessSellerDashboard(permissions.BasePermission):
             request.user,
             organisation,
             "can_access_dashboard",
+        )
+
+
+
+class CanRequestSellerPayout(permissions.BasePermission):
+    message = "You do not have permission to request seller payouts."
+
+    def has_permission(self, request, view):
+        organisation = get_organisation_from_view(request, view)
+        if not organisation:
+            return False
+
+        seller = get_user_seller(request.user, organisation)
+        return bool(
+            seller
+            and seller.is_active
+            and seller.application_status == "approved"
+            and seller.can_request_payouts
+            and seller.can_view_own_commissions
         )
 
 

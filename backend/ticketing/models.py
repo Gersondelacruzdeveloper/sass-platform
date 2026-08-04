@@ -1556,6 +1556,7 @@ class Seller(models.Model):
         "can_send_receipt_before_full_payment",
         "can_view_own_sales",
         "can_view_own_commissions",
+        "can_request_payouts",
         "can_apply_discounts",
         "can_apply_customer_discount",
         "can_keep_commission_first",
@@ -1596,6 +1597,7 @@ class Seller(models.Model):
             "can_send_receipt_before_full_payment": True,
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
+            "can_request_payouts": True,
             "can_apply_discounts": True,
             "can_apply_customer_discount": True,
             "can_keep_commission_first": True,
@@ -1633,6 +1635,7 @@ class Seller(models.Model):
             "can_send_receipt_before_full_payment": True,
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
+            "can_request_payouts": True,
             "can_apply_discounts": True,
             "can_apply_customer_discount": True,
             "can_keep_commission_first": True,
@@ -1670,6 +1673,7 @@ class Seller(models.Model):
             "can_send_receipt_before_full_payment": False,
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
+            "can_request_payouts": True,
             "can_apply_discounts": False,
             "can_apply_customer_discount": False,
             "can_keep_commission_first": False,
@@ -1706,6 +1710,7 @@ class Seller(models.Model):
             "can_send_receipt_before_full_payment": False,
             "can_view_own_sales": True,
             "can_view_own_commissions": True,
+            "can_request_payouts": True,
             "can_apply_discounts": False,
             "can_apply_customer_discount": False,
             "can_keep_commission_first": False,
@@ -1743,6 +1748,7 @@ class Seller(models.Model):
             "can_send_receipt_before_full_payment": False,
             "can_view_own_sales": False,
             "can_view_own_commissions": False,
+            "can_request_payouts": False,
             "can_apply_discounts": False,
             "can_apply_customer_discount": False,
             "can_keep_commission_first": False,
@@ -1821,6 +1827,16 @@ class Seller(models.Model):
         ),
     )
 
+    assigned_products = models.ManyToManyField(
+        ExperienceProduct,
+        blank=True,
+        related_name="assigned_sellers",
+        help_text=(
+            "Optional exact product assignment. When empty, product-type "
+            "permissions determine which products the seller can access."
+        ),
+    )
+
     can_access_dashboard = models.BooleanField(default=False)
     can_sell_cocobongo = models.BooleanField(default=False)
     can_sell_excursions = models.BooleanField(default=False)
@@ -1843,6 +1859,7 @@ class Seller(models.Model):
     can_send_receipt_before_full_payment = models.BooleanField(default=False)
     can_view_own_sales = models.BooleanField(default=True)
     can_view_own_commissions = models.BooleanField(default=True)
+    can_request_payouts = models.BooleanField(default=False)
     can_apply_discounts = models.BooleanField(default=False)
     can_apply_customer_discount = models.BooleanField(default=False)
     can_keep_commission_first = models.BooleanField(default=False)
@@ -1856,6 +1873,35 @@ class Seller(models.Model):
     can_manage_sellers = models.BooleanField(default=False)
     can_manage_settings = models.BooleanField(default=False)
     can_manage_integrations = models.BooleanField(default=False)
+
+    APPLICATION_STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("suspended", "Suspended"),
+    )
+
+    application_status = models.CharField(
+        max_length=20,
+        choices=APPLICATION_STATUS_CHOICES,
+        default="approved",
+        db_index=True,
+        help_text=(
+            "Existing manually created sellers remain approved. Public "
+            "applicants stay pending until an owner approves them."
+        ),
+    )
+
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_ticketing_sellers",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    suspension_reason = models.TextField(blank=True)
 
     is_active = models.BooleanField(default=True, db_index=True)
 
@@ -1878,6 +1924,10 @@ class Seller(models.Model):
             field: getattr(self, field)
             for field in self.PERMISSION_FIELDS
         }
+
+    def clear_permissions(self):
+        for field in self.PERMISSION_FIELDS:
+            setattr(self, field, False)
 
     def has_permission(self, permission_name):
         if self.role == "owner":
@@ -1905,6 +1955,426 @@ class Seller(models.Model):
     class Meta:
         ordering = ["full_name"]
         unique_together = ("organisation", "seller_slug")
+
+
+
+class SellerSignupInvite(models.Model):
+    """Owner-created public signup link with seller defaults."""
+
+    COMMISSION_TYPE_CHOICES = (
+        ("percentage", "Percentage"),
+        ("fixed_amount", "Fixed amount"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_signup_invites",
+    )
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+
+    default_role = models.CharField(
+        max_length=30,
+        choices=Seller.ROLE_CHOICES,
+        default="seller",
+    )
+    default_commission_type = models.CharField(
+        max_length=30,
+        choices=COMMISSION_TYPE_CHOICES,
+        default="percentage",
+    )
+    default_commission_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("10.00"),
+    )
+    default_fixed_commission_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    default_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    default_max_customer_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    default_permissions = models.JSONField(default=dict, blank=True)
+
+    allowed_products = models.ManyToManyField(
+        ExperienceProduct,
+        blank=True,
+        related_name="seller_signup_invites",
+    )
+    allowed_product_types = models.JSONField(default=list, blank=True)
+
+    require_profile_photo = models.BooleanField(default=True)
+    require_identification = models.BooleanField(default=True)
+    show_commission_offer = models.BooleanField(default=True)
+    terms_version = models.CharField(max_length=50, default="seller-terms-v1")
+
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    max_uses = models.PositiveIntegerField(
+        default=0,
+        help_text="Zero means unlimited applications.",
+    )
+    use_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_seller_signup_invites_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+
+        percentage_fields = {
+            "default_commission_rate": self.default_commission_rate,
+            "default_margin_percent": self.default_margin_percent,
+            "default_max_customer_discount_percent": (
+                self.default_max_customer_discount_percent
+            ),
+        }
+        for field_name, value in percentage_fields.items():
+            if value < Decimal("0.00") or value > Decimal("100.00"):
+                errors[field_name] = "Percentage must be between 0 and 100."
+
+        if (
+            self.default_commission_type == "fixed_amount"
+            and self.default_fixed_commission_amount <= Decimal("0.00")
+        ):
+            errors["default_fixed_commission_amount"] = (
+                "Enter a fixed commission amount greater than zero."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean(exclude=["allowed_products"])
+        super().save(*args, **kwargs)
+
+    @property
+    def is_available(self):
+        if not self.is_active:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        if self.max_uses and self.use_count >= self.max_uses:
+            return False
+        return True
+
+    @property
+    def public_path(self):
+        return f"/seller-apply/{self.token}"
+
+    def __str__(self):
+        return f"{self.organisation.name} - {self.name}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["organisation", "is_active"]),
+            models.Index(fields=["organisation", "expires_at"]),
+        ]
+
+
+class SellerApplication(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("needs_information", "Needs information"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("withdrawn", "Withdrawn"),
+    )
+    SELLER_TYPE_CHOICES = (
+        ("independent", "Independent seller"),
+        ("hotel_representative", "Hotel representative"),
+        ("travel_agency", "Travel agency"),
+        ("tour_operator", "Tour operator"),
+        ("concierge", "Concierge"),
+        ("taxi_transport", "Taxi or transport representative"),
+        ("influencer", "Influencer or content creator"),
+        ("external_vendor", "External vendor"),
+        ("other", "Other"),
+    )
+    IDENTIFICATION_TYPE_CHOICES = (
+        ("national_id", "National ID"),
+        ("passport", "Passport"),
+        ("driver_license", "Driver license"),
+        ("other", "Other"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_applications",
+    )
+    invite = models.ForeignKey(
+        SellerSignupInvite,
+        on_delete=models.PROTECT,
+        related_name="applications",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_applications",
+    )
+    seller = models.OneToOneField(
+        Seller,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="application",
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+    )
+
+    legal_name = models.CharField(max_length=180)
+    display_name = models.CharField(max_length=150, blank=True)
+    email = models.EmailField()
+    phone = models.CharField(max_length=30)
+    whatsapp = models.CharField(max_length=30, blank=True)
+    profile_photo = models.ImageField(
+        upload_to="ticketing/seller-applications/photos/",
+        blank=True,
+        null=True,
+    )
+
+    country = models.CharField(max_length=100, blank=True)
+    city = models.CharField(max_length=120, blank=True)
+    address = models.TextField(blank=True)
+    preferred_language = models.CharField(max_length=10, default="en")
+
+    seller_type = models.CharField(
+        max_length=40,
+        choices=SELLER_TYPE_CHOICES,
+        default="independent",
+    )
+    business_name = models.CharField(max_length=180, blank=True)
+    experience_years = models.PositiveSmallIntegerField(default=0)
+    biography = models.TextField(blank=True)
+    languages = models.JSONField(default=list, blank=True)
+    product_interests = models.JSONField(default=list, blank=True)
+    website_url = models.URLField(blank=True)
+    instagram_url = models.URLField(blank=True)
+    facebook_url = models.URLField(blank=True)
+
+    identification_type = models.CharField(
+        max_length=30,
+        choices=IDENTIFICATION_TYPE_CHOICES,
+        blank=True,
+    )
+    identification_number = models.CharField(max_length=100, blank=True)
+    identification_front = models.FileField(
+        upload_to="ticketing/seller-applications/identification/",
+        blank=True,
+        null=True,
+    )
+    identification_back = models.FileField(
+        upload_to="ticketing/seller-applications/identification/",
+        blank=True,
+        null=True,
+    )
+    verification_selfie = models.ImageField(
+        upload_to="ticketing/seller-applications/selfies/",
+        blank=True,
+        null=True,
+    )
+
+    commission_type = models.CharField(
+        max_length=30,
+        choices=SellerSignupInvite.COMMISSION_TYPE_CHOICES,
+        default="percentage",
+    )
+    proposed_commission_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    proposed_fixed_commission_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    proposed_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    proposed_max_customer_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    invitation_snapshot = models.JSONField(default=dict, blank=True)
+
+    terms_accepted = models.BooleanField(default=False)
+    terms_version = models.CharField(max_length=50, blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+
+    applicant_message = models.TextField(blank=True)
+    review_notes = models.TextField(blank=True)
+    rejection_reason = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_seller_applications_reviewed",
+    )
+    submitted_at = models.DateTimeField(default=timezone.now, db_index=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+        if self.invite_id and self.organisation_id:
+            if self.invite.organisation_id != self.organisation_id:
+                errors["invite"] = "The invitation belongs to another organisation."
+        if self.seller_id and self.organisation_id:
+            if self.seller.organisation_id != self.organisation_id:
+                errors["seller"] = "The seller belongs to another organisation."
+        for field_name in (
+            "proposed_commission_rate",
+            "proposed_margin_percent",
+            "proposed_max_customer_discount_percent",
+        ):
+            value = getattr(self, field_name)
+            if value < Decimal("0.00") or value > Decimal("100.00"):
+                errors[field_name] = "Percentage must be between 0 and 100."
+        if errors:
+            raise ValidationError(errors)
+
+    @property
+    def is_editable_by_applicant(self):
+        return self.status in {"pending", "needs_information"}
+
+    def __str__(self):
+        return f"{self.legal_name} - {self.get_status_display()}"
+
+    class Meta:
+        ordering = ["-submitted_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "user"],
+                name="ticketing_unique_seller_application_user_org",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["organisation", "status", "submitted_at"]),
+            models.Index(fields=["organisation", "email"]),
+        ]
+
+
+class SellerPayoutAccount(models.Model):
+    METHOD_CHOICES = (
+        ("bank_transfer", "Bank transfer"),
+        ("paypal", "PayPal"),
+        ("mobile_wallet", "Mobile wallet"),
+        ("cash", "Cash"),
+        ("other", "Other"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_payout_accounts",
+    )
+    seller = models.ForeignKey(
+        Seller,
+        on_delete=models.CASCADE,
+        related_name="payout_accounts",
+    )
+    method = models.CharField(max_length=30, choices=METHOD_CHOICES)
+    nickname = models.CharField(max_length=100, blank=True)
+    account_holder_name = models.CharField(max_length=180)
+    bank_name = models.CharField(max_length=150, blank=True)
+    account_type = models.CharField(max_length=80, blank=True)
+    account_number = models.CharField(max_length=150, blank=True)
+    paypal_email = models.EmailField(blank=True)
+    mobile_wallet_phone = models.CharField(max_length=30, blank=True)
+    extra_details = models.JSONField(default=dict, blank=True)
+
+    is_default = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+        if self.seller_id and self.organisation_id:
+            if self.seller.organisation_id != self.organisation_id:
+                errors["seller"] = "The seller belongs to another organisation."
+        if self.method == "bank_transfer" and not self.account_number:
+            errors["account_number"] = "Account number is required."
+        if self.method == "paypal" and not self.paypal_email:
+            errors["paypal_email"] = "PayPal email is required."
+        if self.method == "mobile_wallet" and not self.mobile_wallet_phone:
+            errors["mobile_wallet_phone"] = "Mobile wallet phone is required."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+        if self.is_default:
+            SellerPayoutAccount.objects.filter(
+                seller=self.seller,
+                is_default=True,
+            ).exclude(pk=self.pk).update(is_default=False)
+
+    @property
+    def masked_destination(self):
+        if self.method == "bank_transfer":
+            number = str(self.account_number or "")
+            return f"{self.bank_name} ••••{number[-4:]}".strip()
+        if self.method == "paypal":
+            email = str(self.paypal_email or "")
+            if "@" in email:
+                local, domain = email.split("@", 1)
+                return f"{local[:2]}***@{domain}"
+            return email
+        if self.method == "mobile_wallet":
+            phone = str(self.mobile_wallet_phone or "")
+            return f"••••{phone[-4:]}"
+        return self.get_method_display()
+
+    def __str__(self):
+        return f"{self.seller.full_name} - {self.masked_destination}"
+
+    class Meta:
+        ordering = ["-is_default", "-created_at"]
+        indexes = [
+            models.Index(fields=["organisation", "seller", "is_active"]),
+        ]
 
 
 class TransferRoute(models.Model):
@@ -3558,6 +4028,151 @@ class SellerCommission(models.Model):
     class Meta:
         ordering = ["-created_at"]
         unique_together = ("seller", "booking")
+
+
+
+class SellerPayoutRequest(models.Model):
+    STATUS_CHOICES = (
+        ("requested", "Requested"),
+        ("under_review", "Under review"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("processing", "Processing"),
+        ("paid", "Paid"),
+        ("cancelled", "Cancelled"),
+    )
+    RESERVED_STATUSES = (
+        "requested",
+        "under_review",
+        "approved",
+        "processing",
+        "paid",
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="ticketing_seller_payout_requests",
+    )
+    seller = models.ForeignKey(
+        Seller,
+        on_delete=models.CASCADE,
+        related_name="payout_requests",
+    )
+    payout_account = models.ForeignKey(
+        SellerPayoutAccount,
+        on_delete=models.PROTECT,
+        related_name="payout_requests",
+    )
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=10, default="USD")
+    available_commission_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    status = models.CharField(
+        max_length=30,
+        choices=STATUS_CHOICES,
+        default="requested",
+        db_index=True,
+    )
+
+    seller_note = models.TextField(blank=True)
+    owner_note = models.TextField(blank=True)
+    rejection_reason = models.TextField(blank=True)
+    payment_reference = models.CharField(max_length=180, blank=True)
+    payment_receipt = models.FileField(
+        upload_to="ticketing/seller-payouts/receipts/",
+        blank=True,
+        null=True,
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_seller_payouts_reviewed",
+    )
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+        if self.amount <= Decimal("0.00"):
+            errors["amount"] = "Payout amount must be greater than zero."
+        if self.seller_id and self.organisation_id:
+            if self.seller.organisation_id != self.organisation_id:
+                errors["seller"] = "The seller belongs to another organisation."
+        if self.payout_account_id and self.seller_id:
+            if self.payout_account.seller_id != self.seller_id:
+                errors["payout_account"] = (
+                    "The payout account does not belong to this seller."
+                )
+        if errors:
+            raise ValidationError(errors)
+
+    @property
+    def allocated_amount(self):
+        return self.allocations.aggregate(
+            total=models.Sum("amount")
+        )["total"] or Decimal("0.00")
+
+    def __str__(self):
+        return f"{self.seller.full_name} - {self.currency} {self.amount}"
+
+    class Meta:
+        ordering = ["-requested_at"]
+        indexes = [
+            models.Index(fields=["organisation", "status", "requested_at"]),
+            models.Index(fields=["seller", "status"]),
+        ]
+
+
+class SellerPayoutCommissionAllocation(models.Model):
+    payout_request = models.ForeignKey(
+        SellerPayoutRequest,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+    )
+    commission = models.ForeignKey(
+        SellerCommission,
+        on_delete=models.PROTECT,
+        related_name="payout_allocations",
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        errors = {}
+        if self.amount <= Decimal("0.00"):
+            errors["amount"] = "Allocated amount must be greater than zero."
+        if self.payout_request_id and self.commission_id:
+            if self.payout_request.seller_id != self.commission.seller_id:
+                errors["commission"] = "Commission belongs to another seller."
+            if self.payout_request.organisation_id != self.commission.organisation_id:
+                errors["commission"] = "Commission belongs to another organisation."
+            if self.amount > self.commission.amount:
+                errors["amount"] = "Allocation cannot exceed commission amount."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"Payout {self.payout_request_id} - Commission {self.commission_id}"
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payout_request", "commission"],
+                name="ticketing_unique_payout_commission_allocation",
+            )
+        ]
 
 
 class Receipt(models.Model):
