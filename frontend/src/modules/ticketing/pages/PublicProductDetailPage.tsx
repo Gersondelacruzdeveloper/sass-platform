@@ -3626,7 +3626,6 @@ function BookingCard({
   sellerOfferOptionLocked,
   sellerOfferOriginalTotal,
   sellerOfferCustomerTotal,
-  sellerOfferCustomerUnitPrice,
   sellerOfferDiscountTotal,
   qty,
   updateQty,
