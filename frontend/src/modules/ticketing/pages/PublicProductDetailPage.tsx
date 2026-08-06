@@ -741,6 +741,14 @@ function numberValue(value: unknown) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function optionalMoneyValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  const amount = Number(value);
+
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function getSellerOfferFromResponse(
   resolveResponse: any,
   product: ExperienceProduct | null,
@@ -943,6 +951,21 @@ function flattenRawWelletProducts(option: LiveTicketOption): LiveTicketOption[] 
   const raw = asObject(option.raw);
 
   if (!raw) return [option];
+
+  // The backend may already return one normalized option with the correct
+  // offer/customer price and external identifiers. Re-flattening raw.product
+  // would replace that signed price with the provider's original price.
+  const alreadyNormalized =
+    option.price !== null &&
+    option.price !== undefined &&
+    option.price !== "" &&
+    Boolean(
+      option.external_product_id ||
+        option.external_variant_id ||
+        option.external_availability_id,
+    );
+
+  if (alreadyNormalized && !Array.isArray(raw.products)) return [option];
 
   const performance = asObject(raw.performance) || {};
   const products = Array.isArray(raw.products)
@@ -2058,18 +2081,24 @@ export default function PublicProductDetailPage() {
         sellerOffer?.external_option_id ||
         sellerOffer?.external_option_ids?.length),
   );
-  const sellerOfferOriginalTotal = numberValue(
+  const sellerOfferOriginalTotalValue = optionalMoneyValue(
     sellerOffer?.original_price,
   );
-  const sellerOfferCustomerTotal = numberValue(
+  const sellerOfferCustomerTotalValue = optionalMoneyValue(
     sellerOffer?.customer_final_price,
   );
-  const sellerOfferCustomerUnitPrice = numberValue(
+  const sellerOfferCustomerUnitPriceValue = optionalMoneyValue(
     sellerOffer?.customer_unit_price,
   );
-  const sellerOfferDiscountTotal = numberValue(
+  const sellerOfferDiscountTotalValue = optionalMoneyValue(
     sellerOffer?.customer_discount_amount,
   );
+  const sellerOfferHasCustomerPrice =
+    sellerOfferActive && sellerOfferCustomerTotalValue !== null;
+  const sellerOfferOriginalTotal = sellerOfferOriginalTotalValue ?? 0;
+  const sellerOfferCustomerTotal = sellerOfferCustomerTotalValue ?? 0;
+  const sellerOfferCustomerUnitPrice = sellerOfferCustomerUnitPriceValue ?? 0;
+  const sellerOfferDiscountTotal = sellerOfferDiscountTotalValue ?? 0;
 
   const selectedLiveOptionMatchesOffer = useMemo(() => {
     if (!sellerOfferOptionLocked) return true;
@@ -2221,10 +2250,9 @@ export default function PublicProductDetailPage() {
         ? getLiveOptionPrice(selectedLiveOption) * pax
         : getPassengerSubtotal(product, selectedAvailability, qty);
 
-    const fullTotal =
-      sellerOfferActive && sellerOfferCustomerTotal >= 0
-        ? sellerOfferCustomerTotal
-        : standardFullTotal;
+    const fullTotal = sellerOfferHasCustomerPrice
+      ? sellerOfferCustomerTotal
+      : standardFullTotal;
 
     const depositBase = getEffectiveDepositAmount(product, selectedAvailability);
     const depositFixed = isTransfer ? depositBase : depositBase * pax;
@@ -2258,7 +2286,7 @@ export default function PublicProductDetailPage() {
     paymentChoice,
     selectedAvailability,
     selectedLiveOption,
-    sellerOfferActive,
+    sellerOfferHasCustomerPrice,
     sellerOfferCustomerTotal,
   ]);
 
@@ -3698,21 +3726,25 @@ function BookingCard({
   theme: PublicTheme;
 }) {
   const pax = qty.adult + qty.child + qty.infant;
-  const displayUnitPrice = sellerOfferActive
-    ? sellerOfferCustomerUnitPrice ||
-      sellerOfferCustomerTotal / Math.max(1, pax)
+  const offerUnitPrice = optionalMoneyValue(sellerOffer?.customer_unit_price);
+  const offerOriginalUnitPrice = optionalMoneyValue(
+    sellerOffer?.original_unit_price,
+  );
+  const hasSignedCustomerPrice =
+    sellerOfferActive &&
+    optionalMoneyValue(sellerOffer?.customer_final_price) !== null;
+  const displayUnitPrice = hasSignedCustomerPrice
+    ? offerUnitPrice ?? sellerOfferCustomerTotal / Math.max(1, pax)
     : isTransfer
       ? transferTotalPrice
       : isWelletProduct
         ? getLiveOptionPrice(selectedLiveOption)
         : getEffectiveAdultPrice(product, selectedAvailability);
   const displayOriginalUnitPrice = sellerOfferActive
-    ? numberValue(sellerOffer?.original_unit_price) ||
+    ? offerOriginalUnitPrice ??
       sellerOfferOriginalTotal / Math.max(1, pax)
     : 0;
-  const displayDeposit = isTransfer
-    ? getEffectiveDepositAmount(product, selectedAvailability)
-    : getEffectiveDepositAmount(product, selectedAvailability);
+  const displayDeposit = totals.totalDeposit;
 
   return (
     <div
@@ -3812,7 +3844,7 @@ function BookingCard({
           Secure checkout • Local support • Fast confirmation
         </div>
 
-        {sellerOfferActive && (
+        {hasSignedCustomerPrice && (
           <div
             className="mt-4 rounded-2xl border p-4"
             style={{
