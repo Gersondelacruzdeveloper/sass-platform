@@ -1,5 +1,5 @@
 // src/modules/ticketing/routes/ticketingRoutes.tsx
-// Route version: dedicated-partner-layout-v4-2026-07-13
+// Route version: fail-closed-portal-guards-v6-role-aware-2026-08-05
 
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
@@ -143,17 +143,99 @@ type PartnerBootstrap = {
   routes?: Record<string, string>;
 };
 
+type AccessFailure = "none" | "denied" | "unavailable";
+
 type PartnerAccessState = {
   loading: boolean;
   isPartner: boolean;
   data: PartnerBootstrap | null;
+  failure: AccessFailure;
 };
 
 const EMPTY_PARTNER_ACCESS: PartnerAccessState = {
   loading: true,
   isPartner: false,
   data: null,
+  failure: "none",
 };
+
+type PortalType =
+  | "owner"
+  | "seller"
+  | "pending"
+  | "partner"
+  | "denied"
+  | "unavailable";
+
+type PortalAccessState = {
+  loading: boolean;
+  portalType: PortalType | "checking";
+  partner: PartnerBootstrap | null;
+};
+
+function normalizeRole(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim().toLowerCase()
+    : "";
+}
+
+function getHttpStatus(error: unknown): number | undefined {
+  if (
+    !error ||
+    typeof error !== "object" ||
+    !("response" in error)
+  ) {
+    return undefined;
+  }
+
+  return (
+    error as {
+      response?: {
+        status?: number;
+      };
+    }
+  ).response?.status;
+}
+
+function getVerifiedUser(responseData: any): any {
+  return responseData?.user || responseData;
+}
+
+function hasExplicitOwnerAccess(
+  user: any,
+  organisationSlug: string,
+): boolean {
+  if (
+    user?.is_staff === true ||
+    user?.is_superuser === true ||
+    user?.is_platform_owner === true
+  ) {
+    return true;
+  }
+
+  const adminRoles = new Set(["owner", "admin", "manager"]);
+  const currentOrganisationSlug =
+    user?.organisation?.slug ||
+    user?.organisation_slug ||
+    "";
+
+  return Boolean(
+    currentOrganisationSlug === organisationSlug &&
+      user?.organisation?.is_active !== false &&
+      adminRoles.has(normalizeRole(user?.role)),
+  );
+}
+
+function isNormalAccessFailure(status?: number): boolean {
+  return status === 401 || status === 403 || status === 404;
+}
+
+function organisationParams(organisationSlug: string) {
+  return {
+    slug: organisationSlug,
+    organisation_slug: organisationSlug,
+  };
+}
 
 function getPartnerDestination(
   organisationSlug: string,
@@ -195,6 +277,7 @@ function usePartnerAccess(
           loading: false,
           isPartner: false,
           data: null,
+          failure: "denied",
         });
         return;
       }
@@ -204,33 +287,236 @@ function usePartnerAccess(
       try {
         const response = await api.get<PartnerBootstrap>(
           "/ticketing/partner/bootstrap/",
-          {
-            params: {
-              slug: organisationSlug,
-              organisation_slug: organisationSlug,
-            },
-          },
+          { params: organisationParams(organisationSlug) },
         );
 
-        if (!cancelled) {
-          setState({
-            loading: false,
-            isPartner: response.data?.portal_type === "partner",
-            data: response.data,
-          });
-        }
-      } catch {
-        if (!cancelled) {
+        if (cancelled) return;
+
+        if (response.data?.portal_type !== "partner") {
           setState({
             loading: false,
             isPartner: false,
             data: null,
+            failure: "denied",
           });
+          return;
         }
+
+        setState({
+          loading: false,
+          isPartner: true,
+          data: response.data,
+          failure: "none",
+        });
+      } catch (error) {
+        if (cancelled) return;
+
+        const status = getHttpStatus(error);
+
+        setState({
+          loading: false,
+          isPartner: false,
+          data: null,
+          failure: isNormalAccessFailure(status)
+            ? "denied"
+            : "unavailable",
+        });
       }
     }
 
     void loadPartnerAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationSlug]);
+
+  return state;
+}
+
+function usePortalAccess(
+  organisationSlug?: string,
+): PortalAccessState {
+  const [state, setState] = useState<PortalAccessState>({
+    loading: true,
+    portalType: "checking",
+    partner: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function commit(nextState: PortalAccessState) {
+      if (!cancelled) {
+        setState(nextState);
+      }
+    }
+
+    async function resolvePortalAccess() {
+      commit({
+        loading: true,
+        portalType: "checking",
+        partner: null,
+      });
+
+      if (!organisationSlug) {
+        commit({
+          loading: false,
+          portalType: "denied",
+          partner: null,
+        });
+        return;
+      }
+
+      let verifiedUser: any;
+
+      try {
+        const response = await api.get("/accounts/me/");
+        verifiedUser = getVerifiedUser(response.data);
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        commit({
+          loading: false,
+          portalType: isNormalAccessFailure(status)
+            ? "denied"
+            : "unavailable",
+          partner: null,
+        });
+        return;
+      }
+
+      if (!verifiedUser) {
+        commit({
+          loading: false,
+          portalType: "unavailable",
+          partner: null,
+        });
+        return;
+      }
+
+      // /accounts/me/ proves an organisation administrator only when its
+      // membership organisation matches the organisation in the route.
+      if (hasExplicitOwnerAccess(verifiedUser, organisationSlug)) {
+        commit({
+          loading: false,
+          portalType: "owner",
+          partner: null,
+        });
+        return;
+      }
+
+      // Seller identity is authoritative only from the organisation-specific
+      // seller endpoint. /accounts/me/ does not return Seller model data.
+      try {
+        const response = await api.get("/ticketing/sellers/me/", {
+          params: organisationParams(organisationSlug),
+        });
+        const seller = response.data;
+
+        if (
+          normalizeRole(seller?.application_status) === "approved" &&
+          seller?.is_active === true &&
+          seller?.can_access_dashboard !== false
+        ) {
+          commit({
+            loading: false,
+            portalType: "seller",
+            partner: null,
+          });
+          return;
+        }
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        if (!isNormalAccessFailure(status)) {
+          commit({
+            loading: false,
+            portalType: "unavailable",
+            partner: null,
+          });
+          return;
+        }
+      }
+
+      // A pending applicant is allowed to see only the application-status page.
+      try {
+        const response = await api.get("/ticketing/seller/application/", {
+          params: organisationParams(organisationSlug),
+        });
+        const applicationStatus = normalizeRole(response.data?.status);
+
+        if (
+          applicationStatus === "pending" ||
+          applicationStatus === "needs_information"
+        ) {
+          commit({
+            loading: false,
+            portalType: "pending",
+            partner: null,
+          });
+          return;
+        }
+
+        if (
+          applicationStatus === "rejected" ||
+          applicationStatus === "withdrawn" ||
+          applicationStatus === "approved"
+        ) {
+          commit({
+            loading: false,
+            portalType: "denied",
+            partner: null,
+          });
+          return;
+        }
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        if (!isNormalAccessFailure(status)) {
+          commit({
+            loading: false,
+            portalType: "unavailable",
+            partner: null,
+          });
+          return;
+        }
+      }
+
+      try {
+        const response = await api.get<PartnerBootstrap>(
+          "/ticketing/partner/bootstrap/",
+          { params: organisationParams(organisationSlug) },
+        );
+
+        if (response.data?.portal_type !== "partner") {
+          commit({
+            loading: false,
+            portalType: "denied",
+            partner: null,
+          });
+          return;
+        }
+
+        commit({
+          loading: false,
+          portalType: "partner",
+          partner: response.data,
+        });
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        commit({
+          loading: false,
+          portalType: isNormalAccessFailure(status)
+            ? "denied"
+            : "unavailable",
+          partner: null,
+        });
+      }
+    }
+
+    void resolvePortalAccess();
 
     return () => {
       cancelled = true;
@@ -253,30 +539,267 @@ function RouteLoadingScreen() {
   );
 }
 
-function OwnerPortalGuard({ children }: { children: ReactElement }) {
+function PortalAccessMessage({
+  title,
+  message,
+  organisationSlug,
+  allowRetry = false,
+}: {
+  title: string;
+  message: string;
+  organisationSlug?: string;
+  allowRetry?: boolean;
+}) {
+  const loginPath = organisationSlug
+    ? `/ticketing/${organisationSlug}/login`
+    : "/ticketing";
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <ShieldCheck className="mx-auto h-11 w-11 text-slate-700" />
+
+        <h1 className="mt-4 text-2xl font-black text-slate-950">
+          {title}
+        </h1>
+
+        <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+          {message}
+        </p>
+
+        <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+          {allowRetry && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50"
+            >
+              Try again
+            </button>
+          )}
+
+          <Link
+            to={loginPath}
+            className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
+          >
+            Return to login
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OwnerPortalGuard({
+  children,
+}: {
+  children: ReactElement;
+}) {
   const { organisationSlug } = useParams<{
     organisationSlug: string;
   }>();
 
-  const partnerAccess = usePartnerAccess(organisationSlug);
+  const access = usePortalAccess(organisationSlug);
 
-  if (partnerAccess.loading) {
+  if (access.loading) {
     return <RouteLoadingScreen />;
   }
 
-  if (partnerAccess.isPartner && organisationSlug) {
+  if (
+    access.portalType === "partner" &&
+    access.partner &&
+    organisationSlug
+  ) {
     return (
       <Navigate
         to={getPartnerDestination(
           organisationSlug,
-          partnerAccess.data?.permissions,
+          access.partner.permissions,
         )}
         replace
       />
     );
   }
 
+  if (access.portalType === "seller" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "pending" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller-application`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify access"
+        message="The server could not confirm your permissions. For security, the owner dashboard has been blocked and no dashboard information has been displayed."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
+
+  if (access.portalType !== "owner") {
+    return (
+      <PortalAccessMessage
+        title="Access denied"
+        message="Your account does not have owner, administrator, or manager permission for this organisation."
+        organisationSlug={organisationSlug}
+      />
+    );
+  }
+
   return children;
+}
+
+function SellerPortalGuard({
+  children,
+}: {
+  children: ReactElement;
+}) {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const access = usePortalAccess(organisationSlug);
+
+  if (access.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (access.portalType === "seller") {
+    return children;
+  }
+
+  if (access.portalType === "pending" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller-application`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "owner" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (
+    access.portalType === "partner" &&
+    access.partner &&
+    organisationSlug
+  ) {
+    return (
+      <Navigate
+        to={getPartnerDestination(
+          organisationSlug,
+          access.partner.permissions,
+        )}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify access"
+        message="The server could not confirm that this seller account is approved. For security, the seller dashboard has been blocked."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
+
+  return (
+    <PortalAccessMessage
+      title="Seller access denied"
+      message="This seller account is not approved or is no longer active."
+      organisationSlug={organisationSlug}
+    />
+  );
+}
+
+function PartnerPortalGuard({
+  children,
+}: {
+  children: ReactElement;
+}) {
+  const { organisationSlug } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const access = usePortalAccess(organisationSlug);
+
+  if (access.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (access.portalType === "partner") {
+    return children;
+  }
+
+  if (access.portalType === "owner" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "seller" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "pending" && organisationSlug) {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller-application`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify access"
+        message="The server could not confirm your partner permissions. For security, the partner portal has been blocked."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
+
+  return (
+    <PortalAccessMessage
+      title="Partner access denied"
+      message="Your account does not have access to this partner portal."
+      organisationSlug={organisationSlug}
+    />
+  );
 }
 
 function PartnerPermissionGate({
@@ -296,10 +819,21 @@ function PartnerPermissionGate({
     return <RouteLoadingScreen />;
   }
 
+  if (partnerAccess.failure === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify partner permission"
+        message="The server could not confirm this permission. For security, the requested page has been blocked."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
+
   if (!partnerAccess.isPartner || !partnerAccess.data) {
     return (
       <Navigate
-        to={`/ticketing/${organisationSlug || ""}/dashboard`}
+        to={`/ticketing/${organisationSlug || ""}/partner/access-denied`}
         replace
       />
     );
@@ -326,6 +860,17 @@ function PartnerAccessDeniedPage() {
 
   if (partnerAccess.loading) {
     return <RouteLoadingScreen />;
+  }
+
+  if (partnerAccess.failure === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify partner access"
+        message="The server could not confirm your permissions. No partner or owner information has been displayed."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
   }
 
   const fallback = organisationSlug
@@ -370,8 +915,24 @@ function PartnerPortalIndex() {
     return <RouteLoadingScreen />;
   }
 
+  if (partnerAccess.failure === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify partner access"
+        message="The server could not confirm your partner account. For security, the portal has been blocked."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
+
   if (!organisationSlug || !partnerAccess.data) {
-    return <Navigate to="/ticketing" replace />;
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug || ""}/partner/access-denied`}
+        replace
+      />
+    );
   }
 
   return (
@@ -401,41 +962,71 @@ function TicketingAppLauncher() {
     user?.seller?.organisation_slug ||
     savedSlug;
 
-  const partnerAccess = usePartnerAccess(organisationSlug);
+  const access = usePortalAccess(organisationSlug);
 
   if (!organisationSlug) {
     return <TicketingLandingPage />;
   }
 
-  if (partnerAccess.loading) {
+  if (access.loading) {
     return <RouteLoadingScreen />;
   }
 
-  if (partnerAccess.isPartner) {
+  if (access.portalType === "owner") {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "seller") {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "pending") {
+    return (
+      <Navigate
+        to={`/ticketing/${organisationSlug}/seller-application`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "partner" && access.partner) {
     return (
       <Navigate
         to={getPartnerDestination(
           organisationSlug,
-          partnerAccess.data?.permissions,
+          access.partner.permissions,
         )}
         replace
       />
     );
   }
 
-  const isSeller =
-    Boolean(user?.seller) ||
-    user?.role === "seller" ||
-    user?.membership?.role === "seller";
+  if (access.portalType === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify access"
+        message="The server could not confirm which portal this account may use. For security, no dashboard has been displayed."
+        organisationSlug={organisationSlug}
+        allowRetry
+      />
+    );
+  }
 
   return (
-    <Navigate
-      to={
-        isSeller
-          ? `/ticketing/${organisationSlug}/seller/dashboard`
-          : `/ticketing/${organisationSlug}/dashboard`
-      }
-      replace
+    <PortalAccessMessage
+      title="Access denied"
+      message="This account does not have access to an owner, seller, or partner portal for this organisation."
+      organisationSlug={organisationSlug}
     />
   );
 }
@@ -640,7 +1231,11 @@ export const ticketingRoutes = (
       {/* Seller portal */}
       <Route
         path="/ticketing/:organisationSlug/seller"
-        element={<TicketingSellerLayout />}
+        element={
+          <SellerPortalGuard>
+            <TicketingSellerLayout />
+          </SellerPortalGuard>
+        }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route
@@ -690,7 +1285,11 @@ export const ticketingRoutes = (
       {/* Restricted Partner Portal */}
       <Route
         path="/ticketing/:organisationSlug/partner"
-        element={<TicketingPartnerLayout />}
+        element={
+          <PartnerPortalGuard>
+            <TicketingPartnerLayout />
+          </PartnerPortalGuard>
+        }
       >
         <Route index element={<PartnerPortalIndex />} />
 

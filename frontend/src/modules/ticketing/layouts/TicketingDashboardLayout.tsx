@@ -1,5 +1,5 @@
 // src/modules/ticketing/layouts/TicketingDashboardLayout.tsx
-// Layout version: portal-router-v2-2026-07-13
+// Layout version: portal-router-v4-role-aware-fail-closed-2026-08-05
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -92,13 +92,28 @@ type PartnerPortalBootstrap = {
 };
 
 type PortalResolution =
-  | { loading: true; portalType: "unknown"; partner: null }
-  | { loading: false; portalType: "owner"; partner: null }
-  | { loading: false; portalType: "seller"; partner: null }
+  | {
+      loading: true;
+      portalType: "checking";
+      partner: null;
+      resolvedFor: string;
+    }
+  | {
+      loading: false;
+      portalType:
+        | "owner"
+        | "seller"
+        | "pending"
+        | "denied"
+        | "unavailable";
+      partner: null;
+      resolvedFor: string;
+    }
   | {
       loading: false;
       portalType: "partner";
       partner: PartnerPortalBootstrap;
+      resolvedFor: string;
     };
 
 export type TicketingDashboardOutletContext = {
@@ -207,6 +222,69 @@ function getUserAvatarUrl(user: any) {
   );
 }
 
+function normalizeRole(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().toLowerCase()
+    : "";
+}
+
+function getHttpStatus(error: unknown) {
+  if (
+    !error ||
+    typeof error !== "object" ||
+    !("response" in error)
+  ) {
+    return undefined;
+  }
+
+  return (
+    error as {
+      response?: {
+        status?: number;
+      };
+    }
+  ).response?.status;
+}
+
+function getVerifiedUser(responseData: any) {
+  return responseData?.user || responseData;
+}
+
+function hasExplicitOwnerAccess(
+  user: any,
+  organisationSlug: string,
+) {
+  if (
+    user?.is_staff === true ||
+    user?.is_superuser === true ||
+    user?.is_platform_owner === true
+  ) {
+    return true;
+  }
+
+  const adminRoles = new Set(["owner", "admin", "manager"]);
+  const currentOrganisationSlug =
+    user?.organisation?.slug ||
+    user?.organisation_slug ||
+    "";
+
+  return Boolean(
+    currentOrganisationSlug === organisationSlug &&
+      user?.organisation?.is_active !== false &&
+      adminRoles.has(normalizeRole(user?.role)),
+  );
+}
+
+function isNormalAccessFailure(status?: number) {
+  return status === 401 || status === 403 || status === 404;
+}
+
+function organisationParams(organisationSlug: string) {
+  return {
+    slug: organisationSlug,
+    organisation_slug: organisationSlug,
+  };
+}
 
 function getPartnerDestination(
   slug: string,
@@ -248,6 +326,54 @@ function PortalLoadingScreen() {
   );
 }
 
+function PortalAccessScreen({
+  title,
+  message,
+  onLogout,
+  allowRetry = false,
+}: {
+  title: string;
+  message: string;
+  onLogout: () => void | Promise<void>;
+  allowRetry?: boolean;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <h1 className="text-2xl font-black text-slate-950">
+          {title}
+        </h1>
+
+        <p className="mt-4 text-sm font-medium leading-6 text-slate-600">
+          {message}
+        </p>
+
+        <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+          {allowRetry && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50"
+            >
+              Try again
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              void onLogout();
+            }}
+            className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TicketingDashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [branding, setBranding] =
@@ -259,8 +385,9 @@ export default function TicketingDashboardLayout() {
   const [portalResolution, setPortalResolution] =
     useState<PortalResolution>({
       loading: true,
-      portalType: "unknown",
+      portalType: "checking",
       partner: null,
+      resolvedFor: "",
     });
 
   const dispatch = useAppDispatch();
@@ -280,17 +407,70 @@ export default function TicketingDashboardLayout() {
     authUser?.seller?.organisation_slug ||
     "";
 
-  const isSellerAccount =
-    Boolean(authUser?.seller) ||
-    authUser?.role === "seller" ||
-    authUser?.membership?.role === "seller";
+  const accessResolutionKey = `${
+    authUser?.id || authUser?.email || "anonymous"
+  }:${slug || "missing-organisation"}`;
 
   useEffect(() => {
     let cancelled = false;
+    const resolvedFor = accessResolutionKey;
+
+    function commitResolution(
+      resolution: Omit<PortalResolution, "resolvedFor">,
+    ) {
+      if (cancelled) return;
+
+      setPortalResolution({
+        ...resolution,
+        resolvedFor,
+      } as PortalResolution);
+    }
 
     async function resolvePortal() {
+      commitResolution({
+        loading: true,
+        portalType: "checking",
+        partner: null,
+      });
+
       if (!slug) {
-        setPortalResolution({
+        commitResolution({
+          loading: false,
+          portalType: "denied",
+          partner: null,
+        });
+        return;
+      }
+
+      let verifiedUser: any;
+
+      try {
+        const response = await api.get("/accounts/me/");
+        verifiedUser = getVerifiedUser(response.data);
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        commitResolution({
+          loading: false,
+          portalType: isNormalAccessFailure(status)
+            ? "denied"
+            : "unavailable",
+          partner: null,
+        });
+        return;
+      }
+
+      if (!verifiedUser) {
+        commitResolution({
+          loading: false,
+          portalType: "unavailable",
+          partner: null,
+        });
+        return;
+      }
+
+      if (hasExplicitOwnerAccess(verifiedUser, slug)) {
+        commitResolution({
           loading: false,
           portalType: "owner",
           partner: null,
@@ -298,47 +478,110 @@ export default function TicketingDashboardLayout() {
         return;
       }
 
-      if (isSellerAccount) {
-        setPortalResolution({
-          loading: false,
-          portalType: "seller",
-          partner: null,
+      try {
+        const response = await api.get("/ticketing/sellers/me/", {
+          params: organisationParams(slug),
         });
-        return;
+        const seller = response.data;
+
+        if (
+          normalizeRole(seller?.application_status) === "approved" &&
+          seller?.is_active === true &&
+          seller?.can_access_dashboard !== false
+        ) {
+          commitResolution({
+            loading: false,
+            portalType: "seller",
+            partner: null,
+          });
+          return;
+        }
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        if (!isNormalAccessFailure(status)) {
+          commitResolution({
+            loading: false,
+            portalType: "unavailable",
+            partner: null,
+          });
+          return;
+        }
       }
 
-      setPortalResolution({
-        loading: true,
-        portalType: "unknown",
-        partner: null,
-      });
+      try {
+        const response = await api.get("/ticketing/seller/application/", {
+          params: organisationParams(slug),
+        });
+        const applicationStatus = normalizeRole(response.data?.status);
+
+        if (
+          applicationStatus === "pending" ||
+          applicationStatus === "needs_information"
+        ) {
+          commitResolution({
+            loading: false,
+            portalType: "pending",
+            partner: null,
+          });
+          return;
+        }
+
+        if (
+          applicationStatus === "rejected" ||
+          applicationStatus === "withdrawn" ||
+          applicationStatus === "approved"
+        ) {
+          commitResolution({
+            loading: false,
+            portalType: "denied",
+            partner: null,
+          });
+          return;
+        }
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        if (!isNormalAccessFailure(status)) {
+          commitResolution({
+            loading: false,
+            portalType: "unavailable",
+            partner: null,
+          });
+          return;
+        }
+      }
 
       try {
         const response = await api.get<PartnerPortalBootstrap>(
           "/ticketing/partner/bootstrap/",
-          {
-            params: {
-              slug,
-              organisation_slug: slug,
-            },
-          },
+          { params: organisationParams(slug) },
         );
 
-        if (!cancelled && response.data?.portal_type === "partner") {
-          setPortalResolution({
+        if (response.data?.portal_type !== "partner") {
+          commitResolution({
             loading: false,
-            portalType: "partner",
-            partner: response.data,
-          });
-        }
-      } catch {
-        if (!cancelled) {
-          setPortalResolution({
-            loading: false,
-            portalType: "owner",
+            portalType: "denied",
             partner: null,
           });
+          return;
         }
+
+        commitResolution({
+          loading: false,
+          portalType: "partner",
+          partner: response.data,
+        });
+      } catch (error) {
+        const status = getHttpStatus(error);
+
+        commitResolution({
+          loading: false,
+          portalType: isNormalAccessFailure(status)
+            ? "denied"
+            : "unavailable",
+          partner: null,
+        });
       }
     }
 
@@ -347,7 +590,7 @@ export default function TicketingDashboardLayout() {
     return () => {
       cancelled = true;
     };
-  }, [isSellerAccount, slug]);
+  }, [accessResolutionKey, slug]);
 
   const isOperationsRoute = location.pathname.includes("/operations");
   const portalLabel = isOperationsRoute
@@ -593,7 +836,13 @@ export default function TicketingDashboardLayout() {
     ],
   );
 
-  if (portalResolution.loading) {
+  // Never render a result resolved for a previous user or organisation.
+  // This prevents a brief flash of a cached owner dashboard after login,
+  // logout, account switching, or slug changes.
+  if (
+    portalResolution.loading ||
+    portalResolution.resolvedFor !== accessResolutionKey
+  ) {
     return <PortalLoadingScreen />;
   }
 
@@ -617,6 +866,49 @@ export default function TicketingDashboardLayout() {
           portalResolution.partner.permissions,
         )}
         replace
+      />
+    );
+  }
+
+  if (portalResolution.portalType === "pending") {
+    return (
+      <PortalAccessScreen
+        title="Seller application awaiting approval"
+        message="Your application has been received. You cannot access any dashboard until an owner or administrator approves your seller account."
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (portalResolution.portalType === "denied") {
+    return (
+      <PortalAccessScreen
+        title="Access denied"
+        message="Your account does not have permission to access this portal. No owner, seller, partner, booking, reporting, or financial information has been displayed."
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (portalResolution.portalType === "unavailable") {
+    return (
+      <PortalAccessScreen
+        title="Unable to verify access"
+        message="The server could not confirm your permissions. For security, the dashboard has been blocked. Try again when the server is available."
+        onLogout={handleLogout}
+        allowRetry
+      />
+    );
+  }
+
+  // Fail closed for every unexpected state. The owner shell is rendered
+  // only after an explicit verified "owner" resolution.
+  if (portalResolution.portalType !== "owner") {
+    return (
+      <PortalAccessScreen
+        title="Access denied"
+        message="Your portal access could not be confirmed. No dashboard information has been displayed."
+        onLogout={handleLogout}
       />
     );
   }
