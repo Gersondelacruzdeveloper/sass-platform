@@ -591,30 +591,49 @@ function getLiveOptionPrice(option: LiveTicketOption | null) {
 }
 
 function getRawLivePrice(product: Record<string, any>) {
+  const pricing = asObject(product.pricing) || {};
+  const pricesByCurrency = asObject(pricing.prices_by_currency) || {};
   const prices = Array.isArray(product.prices) ? product.prices : [];
   const firstPrice = asObject(prices[0]) || {};
 
-  return {
-    amount: Number(
-      firstPrice.amount ??
-        firstPrice.amountWithoutDiscount ??
-        product.amount ??
-        product.price ??
-        0,
-    ),
-    currency: String(
+  const currency = String(
+    pricing.currency ||
       firstPrice.currencyCode ||
-        firstPrice.currency ||
-        product.currencyCode ||
-        product.currency ||
-        "USD",
-    ),
+      firstPrice.currency ||
+      product.currencyCode ||
+      product.currency ||
+      "USD",
+  );
+
+  const amount =
+    pricing.final_price ??
+    pricing.finalPrice ??
+    pricesByCurrency[currency] ??
+    pricing.price_with_multiplier ??
+    pricing.priceWithMultiplier ??
+    pricing.base_price ??
+    pricing.basePrice ??
+    firstPrice.amount ??
+    firstPrice.amountWithoutDiscount ??
+    firstPrice.price ??
+    product.amount ??
+    product.price ??
+    0;
+
+  return {
+    amount: numberValue(amount),
+    currency,
   };
 }
 
 function getRawAvailableQuantity(product: Record<string, any>) {
+  const availability = asObject(product.availability) || {};
   const value =
-    product.itemsAvailable ?? product.stock ?? product.available_quantity;
+    product.itemsAvailable ??
+    product.stock ??
+    product.available_quantity ??
+    product.availableQuantity ??
+    availability.remaining;
 
   if (value === null || value === undefined || value === "") return null;
 
@@ -628,6 +647,22 @@ function flattenRawWelletProducts(
   const raw = asObject(option.raw);
 
   if (!raw) return [option];
+
+  // The current backend already returns one normalized option per Coco Bongo
+  // product, including the correct top-level price, IDs and availability.
+  // Do not re-flatten raw.product, because doing so would overwrite those
+  // normalized values with fields from the nested provider payload.
+  const alreadyNormalized =
+    option.price !== null &&
+    option.price !== undefined &&
+    option.price !== "" &&
+    Boolean(
+      option.external_product_id ||
+        option.external_variant_id ||
+        option.external_availability_id,
+    );
+
+  if (alreadyNormalized && !Array.isArray(raw.products)) return [option];
 
   const performance = asObject(raw.performance) || {};
   const products = Array.isArray(raw.products)
@@ -653,11 +688,14 @@ function flattenRawWelletProducts(
       const productId = cleanLiveText(productItem.id);
       const availableQuantity = getRawAvailableQuantity(productItem);
 
+      const nestedAvailability = asObject(productItem.availability) || {};
       const soldOut =
         productItem.isSoldOut === true ||
         productItem.isSoldOut === "true" ||
         productItem.isUnavailable === true ||
-        productItem.isUnavailable === "true";
+        productItem.isUnavailable === "true" ||
+        productItem.available === false ||
+        nestedAvailability.available === false;
 
       const available =
         option.available !== false &&
@@ -670,7 +708,8 @@ function flattenRawWelletProducts(
         ...option,
         provider: "wellet",
         external_product_id: productId,
-        external_variant_id: productId,
+        external_variant_id:
+          cleanLiveText(productItem.venue_product_id) || productId,
         external_availability_id:
           performanceId && productId
             ? `${performanceId}:${productId}`
@@ -680,10 +719,11 @@ function flattenRawWelletProducts(
           cleanLiveText(productItem.name) ||
           cleanLiveText(productItem.description) ||
           getLiveOptionLabel(option),
-        description: cleanLiveText(productItem.description),
+        description:
+          cleanLiveText(productItem.description) || option.description,
         features: Array.isArray(productItem.features)
           ? productItem.features.map(cleanLiveText).filter(Boolean)
-          : [],
+          : option.features || [],
         price: price.amount,
         currency: price.currency,
         available,

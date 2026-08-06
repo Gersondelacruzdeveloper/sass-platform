@@ -285,42 +285,80 @@ function getLiveOptionLabel(option: LiveTicketOption) {
   return option.option_name || option.name || "Ticket option";
 }
 
-function getRawLivePrice(product: Record<string, any>) {
+function getRawLivePrice(
+  product: Record<string, any>,
+  fallbackAmount: string | number | null | undefined = 0,
+  fallbackCurrency = "USD",
+) {
+  const pricing = asObject(product.pricing) || {};
+  const pricesByCurrency = asObject(pricing.prices_by_currency) || {};
   const prices = Array.isArray(product.prices) ? product.prices : [];
   const first = asObject(prices[0]) || {};
 
-  return {
-    amount: Number(
-      first.amount ??
-        first.amountWithoutDiscount ??
-        product.amount ??
-        product.price ??
-        0,
-    ),
-    currency: String(
+  const currency = String(
+    pricing.currency ||
       first.currencyCode ||
-        first.currency ||
-        product.currencyCode ||
-        product.currency ||
-        "USD",
-    ),
+      first.currency ||
+      product.currencyCode ||
+      product.currency ||
+      fallbackCurrency ||
+      "USD",
+  );
+
+  const amount =
+    pricing.final_price ??
+    pricing.finalPrice ??
+    pricesByCurrency[currency] ??
+    pricing.price_with_multiplier ??
+    pricing.priceWithMultiplier ??
+    pricing.base_price ??
+    pricing.basePrice ??
+    first.amount ??
+    first.amountWithoutDiscount ??
+    first.price ??
+    product.amount ??
+    product.price ??
+    fallbackAmount;
+
+  return {
+    amount: numberValue(amount),
+    currency,
   };
 }
 
-function getRawAvailableQuantity(product: Record<string, any>) {
+function getRawAvailableQuantity(
+  product: Record<string, any>,
+  fallback: number | null = null,
+) {
+  const availability = asObject(product.availability) || {};
   const value =
-    product.itemsAvailable ?? product.stock ?? product.available_quantity;
+    availability.remaining ??
+    product.itemsAvailable ??
+    product.stock ??
+    product.available_quantity ??
+    fallback;
 
   if (value === null || value === undefined || value === "") return null;
 
   const amount = Number(value);
-  return Number.isFinite(amount) ? amount : null;
+  return Number.isFinite(amount) ? amount : fallback;
 }
 
 function flattenRawWelletProducts(option: LiveTicketOption) {
   const raw = asObject(option.raw);
 
   if (!raw) return [option];
+
+  // The current backend already returns a fully normalized option with a
+  // top-level price, currency, IDs and availability. Do not reopen raw.product
+  // and overwrite those correct values with fields from the old Wellet shape.
+  const hasNormalizedTopLevelOption =
+    Boolean(option.external_product_id) &&
+    option.price !== null &&
+    option.price !== undefined &&
+    option.price !== "";
+
+  if (hasNormalizedTopLevelOption) return [option];
 
   const performance = asObject(raw.performance) || {};
   const products = Array.isArray(raw.products)
@@ -331,7 +369,15 @@ function flattenRawWelletProducts(option: LiveTicketOption) {
 
   if (!products.length) return [option];
 
-  const performanceId = cleanLiveText(performance.id);
+  const venue = asObject(raw.venue) || {};
+  const meta = asObject(raw.meta) || {};
+  const metaVenue = asObject(meta.venue) || {};
+  const performanceId =
+    cleanLiveText(performance.id) ||
+    cleanLiveText(venue.id) ||
+    cleanLiveText(metaVenue.id) ||
+    option.performance_id ||
+    "";
   const startTime = cleanLiveText(
     performance.timeStart || performance.time || performance.startTime,
   );
@@ -342,15 +388,30 @@ function flattenRawWelletProducts(option: LiveTicketOption) {
     .filter((item) => item && typeof item === "object")
     .map((item) => {
       const productItem = item as Record<string, any>;
-      const price = getRawLivePrice(productItem);
-      const productId = cleanLiveText(productItem.id);
-      const availableQuantity = getRawAvailableQuantity(productItem);
+      const price = getRawLivePrice(
+        productItem,
+        option.price,
+        option.currency || "USD",
+      );
+      const productId =
+        cleanLiveText(productItem.id) || option.external_product_id || "";
+      const variantId =
+        cleanLiveText(productItem.venue_product_id) ||
+        option.external_variant_id ||
+        productId;
+      const availableQuantity = getRawAvailableQuantity(
+        productItem,
+        option.available_quantity ?? null,
+      );
 
+      const productAvailability = asObject(productItem.availability) || {};
       const soldOut =
         productItem.isSoldOut === true ||
         productItem.isSoldOut === "true" ||
         productItem.isUnavailable === true ||
-        productItem.isUnavailable === "true";
+        productItem.isUnavailable === "true" ||
+        productItem.available === false ||
+        productAvailability.available === false;
 
       const available =
         option.available !== false &&
@@ -363,20 +424,22 @@ function flattenRawWelletProducts(option: LiveTicketOption) {
         ...option,
         provider: "wellet",
         external_product_id: productId,
-        external_variant_id: productId,
+        external_variant_id: variantId,
         external_availability_id:
-          performanceId && productId
+          option.external_availability_id ||
+          (performanceId && productId
             ? `${performanceId}:${productId}`
-            : productId,
+            : productId),
         performance_id: performanceId,
         option_name:
           cleanLiveText(productItem.name) ||
           cleanLiveText(productItem.description) ||
           getLiveOptionLabel(option),
-        description: cleanLiveText(productItem.description),
+        description:
+          cleanLiveText(productItem.description) || option.description || "",
         features: Array.isArray(productItem.features)
           ? productItem.features.map(cleanLiveText).filter(Boolean)
-          : [],
+          : option.features || [],
         price: price.amount,
         currency: price.currency,
         available,
