@@ -3185,8 +3185,11 @@ def connect_ticketing_custom_domain(site_settings, custom_domain):
     site_settings.domain_status = "pending_aws_setup"
     site_settings.domain_error_message = ""
     site_settings.domain_last_checked_at = timezone.now()
-    site_settings.cloudfront_distribution_id = get_cloudfront_distribution_id()
-    site_settings.cloudfront_domain_name = get_cloudfront_domain_name()
+    if not site_settings.cloudfront_distribution_id:
+        site_settings.cloudfront_distribution_id = get_cloudfront_distribution_id()
+
+    if not site_settings.cloudfront_domain_name:
+        site_settings.cloudfront_domain_name = get_cloudfront_domain_name()
     site_settings.save()
 
     request_or_reuse_acm_certificate(site_settings, custom_domain)
