@@ -273,6 +273,7 @@ from .permissions import (
     CanManageTicketingProducts,
     CanManageTicketingSellers,
     CanViewTicketingReports,
+    CanAccessOwnerDashboard,
     CanAccessSellerDashboard,
     CanRequestSellerPayout,
     is_organisation_admin,
@@ -3396,11 +3397,7 @@ class SellerViewSet(TicketingPrivateViewSet):
     def me(self, request):
         organisation = self.require_organisation()
 
-        seller = Seller.objects.filter(
-            organisation=organisation,
-            user=request.user,
-            is_active=True,
-        ).first()
+        seller = get_user_seller(request.user, organisation)
 
         if not seller:
             return Response(
@@ -7025,7 +7022,7 @@ class SellerDashboardAPIView(TicketingOrganisationMixin, APIView):
 
 
 class TicketingDashboardAPIView(TicketingOrganisationMixin, APIView):
-    permission_classes = [CanViewTicketingReports]
+    permission_classes = [CanAccessOwnerDashboard]
 
     def get(self, request):
         organisation = self.require_organisation()

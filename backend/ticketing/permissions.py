@@ -1,6 +1,6 @@
 from rest_framework import permissions
 
-# Permissions version: partner-portal-full-v2-2026-07-13
+# Permissions version: partner-portal-full-v3-strict-access-2026-08-04
 
 from organisations.models import Membership, Organisation
 
@@ -85,6 +85,15 @@ def is_platform_admin(user):
 
 
 def is_same_organisation_user(user, organisation):
+    """
+    Check tenant association only.
+
+    SECURITY: This helper must never be used by itself to grant owner,
+    administrator, manager, settings, reporting, or other privileged access.
+    A direct ``user.organisation`` relationship identifies the tenant; it does
+    not prove that the user has an administrative role.
+    """
+
     if not user or not user.is_authenticated or not organisation:
         return False
 
@@ -93,13 +102,15 @@ def is_same_organisation_user(user, organisation):
 
 def is_organisation_admin(user, organisation):
     """
-    Allows:
-    - Django staff/superuser
-    - Membership owner/admin/manager
-    - fallback: user.organisation == organisation
+    Strict organisation administrator check.
 
-    The fallback keeps compatibility with your current SaaS pattern where
-    CustomUser has a direct organisation field.
+    Administrative access is granted only to:
+    - Django staff/superusers, or
+    - users with an active owner/admin/manager Membership for the organisation.
+
+    SECURITY: ``user.organisation == organisation`` is deliberately not enough.
+    Seller applicants may be associated with an organisation before approval,
+    so using that association as an admin fallback would expose owner features.
     """
 
     if is_platform_admin(user):
@@ -110,10 +121,10 @@ def is_organisation_admin(user, organisation):
 
     membership = get_user_membership(user, organisation)
 
-    if membership and membership.role in ADMIN_MEMBERSHIP_ROLES:
-        return True
-
-    return is_same_organisation_user(user, organisation)
+    return bool(
+        membership
+        and membership.role in ADMIN_MEMBERSHIP_ROLES
+    )
 
 
 def seller_has_permission(user, organisation, permission_name):
@@ -181,6 +192,26 @@ class IsTicketingAdminOrManager(permissions.BasePermission):
         return is_organisation_admin(request.user, organisation)
 
 
+class CanAccessOwnerDashboard(permissions.BasePermission):
+    """
+    Strict owner/admin/manager access for the organisation-wide dashboard.
+
+    Use this permission on owner dashboard, organisation-wide reports,
+    financial summaries, seller management, and other owner-only bootstrap
+    endpoints. It intentionally does not accept Seller permission flags.
+    """
+
+    message = "You need owner, admin, or manager access to view this dashboard."
+
+    def has_permission(self, request, view):
+        organisation = get_organisation_from_view(request, view)
+
+        if not organisation:
+            return False
+
+        return is_organisation_admin(request.user, organisation)
+
+
 class HasTicketingSellerPermission(permissions.BasePermission):
     """
     Checks seller permission flags from the Seller model.
@@ -227,7 +258,13 @@ class HasTicketingSellerPermission(permissions.BasePermission):
         required_permission = self.get_required_permission(view)
 
         if not required_permission:
-            return True
+            # Fail closed. A seller endpoint must explicitly declare the
+            # permission it requires; missing configuration must never grant
+            # access automatically.
+            self.message = (
+                "This endpoint has no seller permission configured."
+            )
+            return False
 
         return seller_has_permission(
             request.user,
