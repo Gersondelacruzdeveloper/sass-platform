@@ -328,22 +328,37 @@ function asObject(value: unknown): Record<string, any> | null {
 }
 
 function getFirstPrice(product: Record<string, any>) {
-  const prices = Array.isArray(product.prices) ? product.prices : [];
-  const firstPrice = asObject(prices[0]) || {};
+  const pricing = asObject(product.pricing) || {};
+  const pricesByCurrency = asObject(pricing.prices_by_currency) || {};
 
-  const amount =
-    firstPrice.amount ??
-    firstPrice.amountWithoutDiscount ??
-    product.amount ??
-    product.price ??
-    0;
+  // Backward compatibility with the previous Wellet response.
+  const legacyPrices = Array.isArray(product.prices)
+    ? product.prices
+    : [];
+  const legacyPrice = asObject(legacyPrices[0]) || {};
 
   const currency =
-    firstPrice.currencyCode ||
-    firstPrice.currency ||
+    pricing.currency ||
+    legacyPrice.currencyCode ||
+    legacyPrice.currency ||
     product.currencyCode ||
     product.currency ||
     "USD";
+
+  const amount =
+    pricing.final_price ??
+    pricing.finalPrice ??
+    pricesByCurrency[currency] ??
+    pricing.price_with_multiplier ??
+    pricing.priceWithMultiplier ??
+    pricing.base_price ??
+    pricing.basePrice ??
+    legacyPrice.amount ??
+    legacyPrice.amountWithoutDiscount ??
+    legacyPrice.price ??
+    product.amount ??
+    product.price ??
+    0;
 
   return {
     amount: numberValue(amount),
