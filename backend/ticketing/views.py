@@ -11011,6 +11011,7 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
 
 class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
@@ -11569,6 +11570,7 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
     """
 
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def stripe_to_dict(self, value):
         if hasattr(value, "to_dict_recursive"):
