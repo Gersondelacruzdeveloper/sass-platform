@@ -1091,13 +1091,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         PAGE_HEIGHT - margin - 7 * mm,
     )
 
-    pdf.setFont("Helvetica", 8)
-    pdf.drawString(
-        ticket_x + 9 * mm,
-        header_y + 8 * mm,
-        "Official booking ticket",
-    )
-
     pdf.setFont("Helvetica-Bold", 14)
     pdf.drawRightString(
         ticket_x + ticket_w - 9 * mm,
