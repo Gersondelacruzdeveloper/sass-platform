@@ -10962,9 +10962,8 @@ def get_public_cancel_url(request, organisation, booking=None):
     return f"{settings.FRONTEND_URL.rstrip('/')}/experiences/{organisation.slug}/checkout?payment_status=cancelled"
 
 
-class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
+class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
-    authentication_classes = []
 
     def get(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
