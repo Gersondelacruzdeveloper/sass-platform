@@ -1010,6 +1010,13 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     """
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setFillColor(colors.red)
+    pdf.setFont("Helvetica-Bold", 7)
+    pdf.drawString(
+        5 * mm,
+        5 * mm,
+        f"PDF VERSION: {PDF_TICKET_GENERATOR_VERSION}",
+    )
 
     booking_code = _safe_text(
         getattr(booking, "booking_code", ""),
