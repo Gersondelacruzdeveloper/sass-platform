@@ -600,20 +600,28 @@ def _draw_wrapped_text(
     return y + line_height
 
 
-def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, y: float) -> None:
+def _draw_logo_or_brand(
+    pdf: canvas.Canvas,
+    branding: dict[str, Any],
+    x: float,
+    y: float,
+) -> None:
     logo_reader = branding.get("logo_reader")
 
     if logo_reader:
         try:
+            # Larger logo area.
+            # The image is positioned from the LEFT rather than centered,
+            # while preserving its original aspect ratio.
             pdf.drawImage(
                 logo_reader,
                 x,
-                y - 22 * mm,
-                width=65 * mm,
-                height=22 * mm,
+                y - 30 * mm,
+                width=90 * mm,
+                height=30 * mm,
                 preserveAspectRatio=True,
                 mask="auto",
-                anchor="c",
+                anchor="w",
             )
             return
         except Exception:
@@ -621,7 +629,11 @@ def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, 
 
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 17)
-    pdf.drawString(x, y - 8 * mm, branding["brand_name"][:34])
+    pdf.drawString(
+        x,
+        y - 8 * mm,
+        branding["brand_name"][:34],
+    )
 
 
 def _draw_pill(pdf: canvas.Canvas, text: str, x: float, y: float, w: float, bg: str, fg: str) -> None:
@@ -1098,8 +1110,8 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     content_w = content_right - content_x
     qr_size = 35 * mm
     qr_x = content_right - qr_size
-    qr_y = header_y - qr_size - 10 * mm
-    title_w = content_w - qr_size - 20 * mm
+    qr_y = header_y - qr_size - 28 * mm
+    title_w = content_w - 8 * mm
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
@@ -1172,8 +1184,8 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         max_lines=2,
     )
 
-    # Ensure details begin below both title and QR.
-    y = min(y - 5 * mm, qr_y - 14 * mm)
+    # Keep booking details safely below the QR card.
+    y = min(y - 5 * mm, qr_y - 15 * mm)
 
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 12)
