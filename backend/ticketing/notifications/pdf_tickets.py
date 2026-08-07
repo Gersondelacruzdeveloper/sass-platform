@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "cocobongo-original-option-title-v5-2026-07-20"
+PDF_TICKET_GENERATOR_VERSION = "ticket-logo-125mm-qr-down-48mm-v6-2026-08-07"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -615,10 +615,10 @@ def _draw_logo_or_brand(
             # while preserving its original aspect ratio.
             pdf.drawImage(
                 logo_reader,
-                x,
-                y - 30 * mm,
-                width=90 * mm,
-                height=30 * mm,
+                x - 2 * mm,
+                y - 38 * mm,
+                width=125 * mm,
+                height=38 * mm,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="w",
@@ -1110,8 +1110,14 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     content_w = content_right - content_x
     qr_size = 35 * mm
     qr_x = content_right - qr_size
-    qr_y = header_y - qr_size - 28 * mm
-    title_w = content_w - 8 * mm
+
+    # Place the QR substantially lower than before.
+    # A larger subtraction lowers the QR because PDF coordinates start
+    # from the bottom of the page.
+    qr_y = header_y - qr_size - 48 * mm
+
+    # Let the title use the full content width above the QR.
+    title_w = content_w
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
@@ -1184,8 +1190,8 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         max_lines=2,
     )
 
-    # Keep booking details safely below the QR card.
-    y = min(y - 5 * mm, qr_y - 15 * mm)
+    # Keep booking details safely below the entire QR card and caption.
+    y = min(y - 7 * mm, qr_y - 18 * mm)
 
     pdf.setFillColor(_hex(text_color))
     pdf.setFont("Helvetica-Bold", 12)
