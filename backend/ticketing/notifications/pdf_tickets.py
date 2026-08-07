@@ -605,14 +605,12 @@ def _draw_logo_or_brand(pdf: canvas.Canvas, branding: dict[str, Any], x: float, 
 
     if logo_reader:
         try:
-            pdf.setFillColor(colors.white)
-            pdf.roundRect(x - 2 * mm, y - 21 * mm, 54 * mm, 22 * mm, 4 * mm, fill=1, stroke=0)
             pdf.drawImage(
                 logo_reader,
                 x,
-                y - 18 * mm,
-                width=50 * mm,
-                height=15 * mm,
+                y - 22 * mm,
+                width=65 * mm,
+                height=22 * mm,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="c",
@@ -1074,7 +1072,6 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         PAGE_HEIGHT - margin - 7 * mm,
     )
 
-    pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica", 8)
     pdf.drawString(
         ticket_x + 9 * mm,
@@ -1099,10 +1096,10 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     content_x = ticket_x + 9 * mm
     content_right = ticket_x + ticket_w - 9 * mm
     content_w = content_right - content_x
-    qr_size = 34 * mm
+    qr_size = 35 * mm
     qr_x = content_right - qr_size
-    qr_y = header_y - qr_size - 30 * mm
-    title_w = content_w - qr_size - 14 * mm
+    qr_y = header_y - qr_size - 10 * mm
+    title_w = content_w - qr_size - 20 * mm
 
     qr_buffer = generate_ticket_qr_code(booking)
     pdf.setFillColor(colors.white)
