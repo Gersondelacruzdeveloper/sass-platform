@@ -10964,6 +10964,7 @@ def get_public_cancel_url(request, organisation, booking=None):
 
 class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def get(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
@@ -11747,6 +11748,8 @@ def get_paypal_access_token(provider_settings):
 
 class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
 
     def post(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
@@ -11872,6 +11875,7 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
 
 class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, organisation_slug=None):
         organisation = self.get_public_organisation()
