@@ -616,7 +616,7 @@ def _draw_logo_or_brand(
             pdf.drawImage(
                 logo_reader,
                 x - 2 * mm,
-                y - 38 * mm,
+                y - 34 * mm,
                 width=125 * mm,
                 height=38 * mm,
                 preserveAspectRatio=True,
@@ -1121,7 +1121,7 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     # Place the QR substantially lower than before.
     # A larger subtraction lowers the QR because PDF coordinates start
     # from the bottom of the page.
-    qr_y = header_y - qr_size - 48 * mm
+    qr_y = header_y - qr_size - 36 * mm
 
     # Let the title use the full content width above the QR.
     title_w = content_w
