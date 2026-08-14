@@ -274,3 +274,18 @@ CUSTOMER_AI_TOOL_DEPENDENCIES_FACTORY = (
     "ticketing.ai.customer.tool_dependencies."
     "DjangoCustomerAIToolDependenciesFactory"
 )
+
+CUSTOMER_AI_CART_COMPONENT_FACTORY = (
+    "ticketing.ai.customer.cart_components."
+    "DjangoCustomerCartComponentFactory"
+)
+
+CUSTOMER_AI_PROMOTION_REPOSITORY = (
+    "ticketing.ai.customer.promotion_repository."
+    "DjangoCustomerPromotionRepository"
+)
+
+CUSTOMER_AI_MESSAGE_SENDER_FACTORY = (
+    "ticketing.ai.customer.whatsapp_sender."
+    "TenantWhatsAppCustomerSenderFactory"
+)
