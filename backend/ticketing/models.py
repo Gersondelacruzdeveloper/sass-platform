@@ -5312,3 +5312,18 @@ class PartnerSettlementPayment(models.Model):
                 name="partner_settlement_payer_differs_payee",
             ),
         ]
+
+
+# Customer WhatsApp/web-chat AI persistence models live in a separate module
+# to keep this already-large model file manageable. Importing them here makes
+# Django register them under the existing ``ticketing`` application.
+#
+# Keep this import at the bottom: CustomerItineraryCartItem references
+# ExperienceProduct, which must already be defined before this module loads.
+from ticketing.customer_ai_models import (  # noqa: E402, F401
+    CustomerAIConversation,
+    CustomerAIHandoff,
+    CustomerAIMessage,
+    CustomerItineraryCart,
+    CustomerItineraryCartItem,
+)

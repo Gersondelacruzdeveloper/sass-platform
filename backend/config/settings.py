@@ -254,3 +254,23 @@ TICKETING_INTERNAL_API_URL = env.str(
     "TICKETING_INTERNAL_API_URL",
     default="",
 )
+
+# Customer WhatsApp AI
+CUSTOMER_AI_RUNTIME_FACTORY = (
+    "ticketing.ai.customer.factory.DjangoCustomerAIRuntimeFactory"
+)
+
+CUSTOMER_AI_PROVIDER_ADAPTER_FACTORY = (
+    "ticketing.ai.customer.provider_adapter."
+    "OpenAICustomerProviderAdapterFactory"
+)
+
+CUSTOMER_AI_TOOLSET_FACTORY = (
+    "ticketing.ai.customer.toolset_factory."
+    "DjangoCustomerAIToolsetFactory"
+)
+
+CUSTOMER_AI_TOOL_DEPENDENCIES_FACTORY = (
+    "ticketing.ai.customer.tool_dependencies."
+    "DjangoCustomerAIToolDependenciesFactory"
+)

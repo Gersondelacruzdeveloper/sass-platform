@@ -92,6 +92,11 @@ from .views import (
     PartnerPortalLoginAPIView,
 )
 from ticketing.whatsapp_webhook_views import whatsapp_webhook
+from ticketing.customer_ai_views import (
+    CustomerAIConversationViewSet,
+    CustomerAIHandoffViewSet,
+    CustomerItineraryCartViewSet,
+)
 
 router = DefaultRouter()
 
@@ -135,6 +140,23 @@ router.register("notifications", NotificationLogViewSet, basename="ticketing-not
 router.register("integrations", ExternalProviderConfigViewSet, basename="ticketing-integrations")
 router.register("external-snapshots", ExternalProviderProductSnapshotViewSet, basename="ticketing-external-snapshots")
 router.register("reviews", ProductReviewViewSet, basename="ticketing-reviews")
+
+# Authenticated, organisation-scoped customer AI operations.
+router.register(
+    "customer-ai/conversations",
+    CustomerAIConversationViewSet,
+    basename="ticketing-customer-ai-conversations",
+)
+router.register(
+    "customer-ai/handoffs",
+    CustomerAIHandoffViewSet,
+    basename="ticketing-customer-ai-handoffs",
+)
+router.register(
+    "customer-ai/carts",
+    CustomerItineraryCartViewSet,
+    basename="ticketing-customer-ai-carts",
+)
 
 router.register("business-entities", TicketingBusinessEntityViewSet, basename="ticketing-business-entities")
 router.register("business-entity-access", BusinessEntityUserAccessViewSet, basename="ticketing-business-entity-access")

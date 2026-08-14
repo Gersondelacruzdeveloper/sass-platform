@@ -1175,3 +1175,4 @@ class SellerAIChatView(APIView):
             )
             or ""
         ).strip()
+    
