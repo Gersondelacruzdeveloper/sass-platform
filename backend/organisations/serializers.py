@@ -14,6 +14,22 @@ from .utils.branding_icons import (
 )
 
 
+class SafeImageField(serializers.ImageField):
+    def to_representation(self, value):
+        try:
+            return super().to_representation(value)
+        except Exception:
+            return None
+
+
+class SafeFileField(serializers.FileField):
+    def to_representation(self, value):
+        try:
+            return super().to_representation(value)
+        except Exception:
+            return None
+
+
 class OrganisationSerializer(serializers.ModelSerializer):
     plan_price = serializers.ReadOnlyField()
     max_users = serializers.ReadOnlyField()
@@ -22,6 +38,21 @@ class OrganisationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organisation
         fields = "__all__"
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+
+        if request and not request.user.is_superuser:
+            for field_name in (
+                "slug",
+                "business_type",
+                "plan",
+                "is_active",
+            ):
+                fields[field_name].read_only = True
+
+        return fields
 
 
 class MembershipSerializer(serializers.ModelSerializer):
@@ -48,8 +79,25 @@ class MembershipSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+
+        if request and not request.user.is_superuser:
+            fields["organisation"].read_only = True
+
+            if self.instance is not None:
+                fields["user"].read_only = True
+
+        return fields
+
 
 class OrganisationBrandingSerializer(serializers.ModelSerializer):
+    logo = SafeImageField(required=False, allow_null=True)
+    favicon = SafeFileField(read_only=True)
+    app_icon_192 = SafeImageField(read_only=True)
+    app_icon_512 = SafeImageField(read_only=True)
+    maskable_icon = SafeImageField(read_only=True)
     logo_url = serializers.SerializerMethodField()
     favicon_url = serializers.SerializerMethodField()
     app_icon_192_url = serializers.SerializerMethodField()
@@ -106,7 +154,11 @@ class OrganisationBrandingSerializer(serializers.ModelSerializer):
             return None
 
         request = self.context.get("request")
-        url = file_field.url
+
+        try:
+            url = file_field.url
+        except Exception:
+            return None
 
         if request and url.startswith("/"):
             return request.build_absolute_uri(url)
@@ -249,9 +301,13 @@ class OrganisationAISettingsSerializer(serializers.ModelSerializer):
             )
         )
 
-        resulting_is_enabled = attrs.get(
-            "is_enabled",
-            instance.is_enabled if instance else False,
+        resulting_is_enabled = (
+            False
+            if clear_api_key
+            else attrs.get(
+                "is_enabled",
+                instance.is_enabled if instance else False,
+            )
         )
 
         if resulting_is_enabled and not resulting_has_api_key:

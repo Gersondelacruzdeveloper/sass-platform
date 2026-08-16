@@ -1,11 +1,12 @@
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from django.http import JsonResponse
 from django.conf import settings
+from django.db import IntegrityError, transaction
 
 
 from .models import (
@@ -33,7 +34,10 @@ def get_user_organisation(user):
 
     membership = (
         user.memberships
-        .filter(is_active=True)
+        .filter(
+            is_active=True,
+            organisation__is_active=True,
+        )
         .select_related("organisation")
         .first()
     )
@@ -69,6 +73,8 @@ class OrganisationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganisationSerializer
     permission_classes = [IsAuthenticated]
 
+    MANAGEMENT_ROLES = ("owner", "admin")
+
     def get_queryset(self):
         if self.request.user.is_superuser:
             return Organisation.objects.all()
@@ -80,10 +86,52 @@ class OrganisationViewSet(viewsets.ModelViewSet):
 
         return Organisation.objects.filter(id=organisation.id)
 
+    def require_management_role(self, organisation):
+        if self.request.user.is_superuser:
+            return
+
+        has_management_role = Membership.objects.filter(
+            user=self.request.user,
+            organisation=organisation,
+            is_active=True,
+            organisation__is_active=True,
+            role__in=self.MANAGEMENT_ROLES,
+        ).exists()
+
+        if not has_management_role:
+            raise PermissionDenied(
+                "Owner or administrator access is required."
+            )
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied(
+                "Only a platform owner can create organisations."
+            )
+
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        organisation = self.get_object()
+        self.require_management_role(organisation)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self.get_object()
+
+        if not request.user.is_superuser:
+            raise PermissionDenied(
+                "Only a platform owner can delete organisations."
+            )
+
+        return super().destroy(request, *args, **kwargs)
+
 
 class MembershipViewSet(viewsets.ModelViewSet):
     serializer_class = MembershipSerializer
     permission_classes = [IsAuthenticated]
+
+    MANAGEMENT_ROLES = ("owner", "admin")
 
     def get_queryset(self):
         if self.request.user.is_superuser:
@@ -102,16 +150,75 @@ class MembershipViewSet(viewsets.ModelViewSet):
             "organisation",
         ).filter(organisation=organisation)
 
+    def require_management_role(self, organisation):
+        if self.request.user.is_superuser:
+            return
+
+        has_management_role = Membership.objects.filter(
+            user=self.request.user,
+            organisation=organisation,
+            is_active=True,
+            organisation__is_active=True,
+            role__in=self.MANAGEMENT_ROLES,
+        ).exists()
+
+        if not has_management_role:
+            raise PermissionDenied(
+                "Owner or administrator access is required."
+            )
+
     def perform_create(self, serializer):
         organisation = get_user_organisation(self.request.user)
 
         if not self.request.user.is_superuser and not organisation:
             raise PermissionDenied("No active organisation found.")
 
-        if self.request.user.is_superuser:
-            serializer.save()
-        else:
-            serializer.save(organisation=organisation)
+        if not self.request.user.is_superuser:
+            self.require_management_role(organisation)
+
+        target_organisation = (
+            serializer.validated_data.get("organisation")
+            if self.request.user.is_superuser
+            else organisation
+        )
+        target_user = serializer.validated_data["user"]
+
+        if Membership.objects.filter(
+            user=target_user,
+            organisation=target_organisation,
+        ).exists():
+            raise ValidationError(
+                {
+                    "non_field_errors": [
+                        "This user already has a membership in this "
+                        "organisation."
+                    ]
+                }
+            )
+
+        try:
+            with transaction.atomic():
+                if self.request.user.is_superuser:
+                    serializer.save()
+                else:
+                    serializer.save(organisation=organisation)
+        except IntegrityError as exc:
+            raise ValidationError(
+                {
+                    "non_field_errors": [
+                        "This user already has a membership in this "
+                        "organisation."
+                    ]
+                }
+            ) from exc
+
+    def perform_update(self, serializer):
+        self.require_management_role(serializer.instance.organisation)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self.require_management_role(instance.organisation)
+        instance.delete()
 
 class PublicOrganisationBrandingView(APIView):
     permission_classes = [AllowAny]
@@ -121,6 +228,7 @@ class PublicOrganisationBrandingView(APIView):
             organisation = Organisation.objects.get(
                 business_type=business_type,
                 slug=slug,
+                is_active=True,
             )
         except Organisation.DoesNotExist:
             raise NotFound("Organisation branding not found.")
@@ -167,6 +275,7 @@ class PublicOrganisationManifestView(APIView):
             organisation = Organisation.objects.get(
                 business_type=business_type,
                 slug=slug,
+                is_active=True,
             )
         except Organisation.DoesNotExist:
             raise NotFound("Organisation manifest not found.")
@@ -338,6 +447,21 @@ class OrganisationBrandingView(APIView):
 
     def patch(self, request, business_type=None, slug=None):
         organisation = self.get_organisation(request, business_type, slug)
+
+        if not request.user.is_superuser:
+            can_manage_branding = Membership.objects.filter(
+                user=request.user,
+                organisation=organisation,
+                is_active=True,
+                organisation__is_active=True,
+                role__in=("owner", "admin"),
+            ).exists()
+
+            if not can_manage_branding:
+                raise PermissionDenied(
+                    "Owner or administrator access is required."
+                )
+
         branding = self.get_branding(organisation)
 
         serializer = OrganisationBrandingSerializer(
@@ -390,6 +514,20 @@ class OrganisationAISettingsView(APIView):
 
     def patch(self, request):
         organisation = self.get_organisation(request)
+
+        can_manage_ai_settings = Membership.objects.filter(
+            user=request.user,
+            organisation=organisation,
+            is_active=True,
+            organisation__is_active=True,
+            role__in=("owner", "admin"),
+        ).exists()
+
+        if not can_manage_ai_settings:
+            raise PermissionDenied(
+                "Owner or administrator access is required."
+            )
+
         ai_settings = self.get_ai_settings(organisation)
 
         serializer = OrganisationAISettingsSerializer(
@@ -415,15 +553,38 @@ class OrganisationAIConnectionTestView(APIView):
         if not organisation:
             raise PermissionDenied("No active organisation found.")
 
+        can_test_ai_connection = Membership.objects.filter(
+            user=request.user,
+            organisation=organisation,
+            is_active=True,
+            organisation__is_active=True,
+            role__in=("owner", "admin"),
+        ).exists()
+
+        if not can_test_ai_connection:
+            raise PermissionDenied(
+                "Owner or administrator access is required."
+            )
+
         service = OrganisationAIService(organisation)
 
         try:
             service.test_connection()
-        except Exception as exc:
+        except OrganisationAIProviderError as exc:
             return Response(
                 {
                     "success": False,
                     "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "AI provider connection could not be verified."
+                    ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

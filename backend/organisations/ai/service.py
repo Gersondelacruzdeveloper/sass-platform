@@ -219,8 +219,15 @@ class OrganisationAIService:
             OrganisationAIServiceError,
             AIProviderError,
         ) as exc:
+            if isinstance(exc, AIProviderError):
+                safe_error_message = (
+                    "AI provider connection could not be verified."
+                )
+            else:
+                safe_error_message = str(exc)
+
             ai_settings.last_test_at = timezone.now()
-            ai_settings.last_error_message = str(exc)
+            ai_settings.last_error_message = safe_error_message
             ai_settings.save(
                 update_fields=[
                     "last_test_at",
@@ -232,7 +239,9 @@ class OrganisationAIService:
             if isinstance(exc, OrganisationAIServiceError):
                 raise
 
-            raise OrganisationAIProviderError(str(exc)) from exc
+            raise OrganisationAIProviderError(
+                safe_error_message
+            ) from exc
 
         ai_settings.last_test_at = timezone.now()
         ai_settings.last_error_message = ""
