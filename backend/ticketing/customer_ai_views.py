@@ -7,18 +7,21 @@ are scoped before object lookup, preventing cross-tenant ID enumeration.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 from django.conf import settings
 from django.db.models import Count, F, Q
 from django.utils.module_loading import import_string
-from organisations.models import Membership
-from rest_framework import exceptions, status, viewsets
+from organisations.models import Membership, Organisation
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from ticketing.ai.customer.handoff_service import (
     CustomerHandoffInputError,
@@ -45,6 +48,16 @@ from ticketing.customer_ai_serializers import (
     CustomerAIStaffReplyInputSerializer,
     CustomerItineraryCartSerializer,
 )
+from ticketing.customer_cart_conversion_service import (
+    PAYMENT_CHOICES,
+    CustomerCartCheckoutDetails,
+    CustomerCartConversionChangedError,
+    CustomerCartConversionNotFoundError,
+    CustomerCartConversionRepositoryError,
+    CustomerCartConversionValidationError,
+    DjangoCustomerCartConversionService,
+)
+from ticketing.serializers import BookingSerializer
 
 
 DEFAULT_VIEW_ROLES = frozenset({"owner", "admin", "manager", "staff"})
@@ -362,6 +375,320 @@ class CustomerItineraryCartViewSet(CustomerAIBaseViewSet):
         return Response(CustomerItineraryCartSerializer(self.get_object()).data)
 
 
+class PublicCustomerCartConversionInputSerializer(serializers.Serializer):
+    """Only customer-entered checkout fields are accepted from the browser."""
+
+    token = serializers.CharField(min_length=20, max_length=255, trim_whitespace=True)
+    full_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    whatsapp = serializers.CharField(max_length=50, trim_whitespace=True)
+    email = serializers.EmailField(max_length=254)
+    hotel_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+    notes = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+    payment_choice = serializers.ChoiceField(
+        choices=tuple(sorted(PAYMENT_CHOICES)),
+        required=False,
+        default="pending",
+    )
+
+
+class PublicCustomerCartSessionResolveView(APIView):
+    """Resolve one temporary checkout cart using its tenant-bound bearer token."""
+
+    authentication_classes = ()
+    permission_classes = (AllowAny,)
+    http_method_names = ("post", "head", "options")
+
+    def post(self, request, organisation_slug: str, *args, **kwargs):
+        token = request.data.get("token") if isinstance(request.data, Mapping) else None
+        if not isinstance(token, str) or not 20 <= len(token.strip()) <= 255:
+            return _public_cart_error(
+                code="invalid_request",
+                message="A valid cart-session token is required.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        organisation = Organisation.objects.filter(
+            slug=organisation_slug,
+            is_active=True,
+        ).first()
+        if organisation is None:
+            return _public_cart_not_found()
+
+        token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+        cart = (
+            CustomerItineraryCart.objects.filter(
+                organisation=organisation,
+                token_hash=token_hash,
+            )
+            .select_related("organisation")
+            .prefetch_related("items__product")
+            .first()
+        )
+        if cart is None:
+            return _public_cart_not_found()
+
+        if cart.is_expired or cart.status == CustomerItineraryCart.STATUS_EXPIRED:
+            return _public_cart_error(
+                code="cart_expired",
+                message="This cart session has expired. Please request a new link.",
+                http_status=status.HTTP_410_GONE,
+            )
+        if cart.status != CustomerItineraryCart.STATUS_ACTIVE:
+            return _public_cart_error(
+                code="cart_unavailable",
+                message="This cart session is no longer available.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        if not cart.can_checkout:
+            return _public_cart_error(
+                code="cart_not_ready",
+                message="This cart session is not ready for checkout.",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+
+        response = Response(
+            {"success": True, "cart": _serialize_public_cart(cart)},
+            status=status.HTTP_200_OK,
+        )
+        return _disable_sensitive_response_caching(response)
+
+
+class PublicCustomerCartSessionConvertView(APIView):
+    """Atomically turn one tenant-bound cart session into a booking."""
+
+    authentication_classes = ()
+    permission_classes = (AllowAny,)
+    http_method_names = ("post", "head", "options")
+
+    def post(self, request, organisation_slug: str, *args, **kwargs):
+        payload = PublicCustomerCartConversionInputSerializer(data=request.data)
+        if not payload.is_valid():
+            response = Response(
+                {
+                    "success": False,
+                    "code": "invalid_request",
+                    "message": "Please check the checkout information.",
+                    "errors": payload.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+            return _disable_sensitive_response_caching(response)
+
+        organisation = Organisation.objects.filter(
+            slug=organisation_slug,
+            is_active=True,
+        ).first()
+        if organisation is None:
+            return _public_cart_not_found()
+
+        values = payload.validated_data
+        checkout = CustomerCartCheckoutDetails(
+            customer_name=values["full_name"],
+            customer_whatsapp=values["whatsapp"],
+            customer_email=values["email"],
+            customer_hotel=values["hotel_name"],
+            customer_notes=values["notes"],
+            payment_choice=values["payment_choice"],
+        )
+
+        try:
+            result = DjangoCustomerCartConversionService().convert(
+                organisation=organisation,
+                raw_token=values["token"],
+                checkout=checkout,
+                request=request,
+            )
+        except CustomerCartConversionNotFoundError:
+            return _public_cart_not_found()
+        except CustomerCartConversionChangedError as exc:
+            return _public_cart_error(
+                code=exc.code,
+                message=str(exc),
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        except CustomerCartConversionValidationError as exc:
+            return _public_cart_error(
+                code=exc.code,
+                message=str(exc),
+                http_status=status.HTTP_409_CONFLICT,
+            )
+        except CustomerCartConversionRepositoryError:
+            return _public_cart_error(
+                code="cart_conversion_unavailable",
+                message="Checkout is temporarily unavailable. Please try again.",
+                http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response = Response(
+            {
+                "success": True,
+                "created": result.created,
+                "booking": _serialize_public_booking(result.booking, request),
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
+        )
+        return _disable_sensitive_response_caching(response)
+
+
+def _serialize_public_booking(booking, request) -> dict[str, Any]:
+    """Whitelist checkout-safe fields from the internal booking serializer."""
+
+    data = BookingSerializer(
+        booking,
+        context={"request": request, "organisation": booking.organisation},
+    ).data
+    allowed_fields = (
+        "id",
+        "booking_code",
+        "status",
+        "payment_status",
+        "payment_mode",
+        "payment_method",
+        "service_date",
+        "service_time",
+        "customer_name",
+        "customer_email",
+        "customer_hotel",
+        "adults",
+        "children",
+        "infants",
+        "total_guests",
+        "subtotal_amount",
+        "discount_amount",
+        "tax_amount",
+        "total_amount",
+        "deposit_required",
+        "deposit_paid",
+        "balance_due",
+        "items",
+        "pickup_info",
+        "created_at",
+    )
+    return {field: data[field] for field in allowed_fields if field in data}
+
+
+def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
+    organisation = cart.organisation
+    return {
+        "cart_id": cart.pk,
+        "status": cart.status,
+        "language": cart.language,
+        "currency": cart.currency,
+        "subtotal": cart.subtotal,
+        "discount_total": cart.discount_total,
+        "total": cart.total,
+        "expires_at": cart.expires_at,
+        "is_expired": cart.is_expired,
+        "can_checkout": cart.can_checkout,
+        "organisation": {
+            "id": organisation.pk,
+            "slug": organisation.slug,
+            "name": organisation.name,
+        },
+        "promotions": _serialize_public_promotions(cart.promotion_snapshot),
+        "validation_notices": [],
+        "items": [_serialize_public_cart_item(item) for item in cart.items.all()],
+    }
+
+
+def _serialize_public_cart_item(item) -> dict[str, Any]:
+    product = item.product
+    image_url = None
+    image = getattr(product, "image", None)
+    if image:
+        try:
+            image_url = image.url
+        except (AttributeError, ValueError):
+            image_url = None
+
+    return {
+        "id": item.pk,
+        "position": item.position,
+        "product_id": item.product_id,
+        "product_slug": str(getattr(product, "slug", "") or ""),
+        "product_url": str(getattr(product, "current_public_path", "") or ""),
+        "product_image_url": image_url,
+        "service_date": item.service_date,
+        "adults": item.adults,
+        "children": item.children,
+        "infants": item.infants,
+        "package_id": item.package_id,
+        "event_ticket_type_id": item.event_ticket_type_id,
+        "selected_external_option_id": item.selected_external_option_id,
+        "pickup_location_id": item.pickup_location_id,
+        "product_name_snapshot": item.product_name_snapshot,
+        "option_name_snapshot": item.option_name_snapshot,
+        "pickup_name_snapshot": item.pickup_name_snapshot,
+        "pickup_time_snapshot": item.pickup_time_snapshot,
+        "unit_price_snapshot": item.unit_price_snapshot,
+        "line_subtotal": item.line_subtotal,
+        "line_discount": item.line_discount,
+        "line_total": item.line_total,
+        "currency": item.currency,
+    }
+
+
+def _serialize_public_promotions(snapshot) -> list[dict[str, Any]]:
+    if not isinstance(snapshot, list):
+        return []
+
+    allowed_fields = (
+        "promotion_id",
+        "name",
+        "description",
+        "discount_type",
+        "discount_value",
+        "discount_amount",
+        "currency",
+        "eligible_item_positions",
+    )
+    promotions = []
+    for entry in snapshot:
+        if isinstance(entry, Mapping):
+            promotions.append(
+                {key: entry[key] for key in allowed_fields if key in entry}
+            )
+    return promotions
+
+
+def _public_cart_not_found() -> Response:
+    return _public_cart_error(
+        code="invalid_token",
+        message="The cart session could not be found.",
+        http_status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _public_cart_error(*, code: str, message: str, http_status: int) -> Response:
+    response = Response(
+        {"success": False, "code": code, "message": message},
+        status=http_status,
+    )
+    return _disable_sensitive_response_caching(response)
+
+
+def _disable_sensitive_response_caching(response: Response) -> Response:
+    response["Cache-Control"] = "no-store, private"
+    response["Pragma"] = "no-cache"
+    return response
+
+
 def _load_service(*, setting_name: str, required_method: str):
     path = str(getattr(settings, setting_name, "") or "").strip()
     if not path:
@@ -410,5 +737,8 @@ __all__ = [
     "CustomerAIPagePagination",
     "CustomerItineraryCartViewSet",
     "HasCustomerAIStaffAccess",
+    "PublicCustomerCartConversionInputSerializer",
+    "PublicCustomerCartSessionConvertView",
+    "PublicCustomerCartSessionResolveView",
     "get_request_organisation",
 ]

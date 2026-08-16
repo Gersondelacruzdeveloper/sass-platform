@@ -29,6 +29,7 @@ import type {
   Booking,
   ExperienceProduct,
   PublicBrandingResponse,
+  PublicCustomerCartSession,
   PublicPaymentOptions,
   TicketingPaymentProvider,
 } from "../types/ticketingTypes";
@@ -546,6 +547,8 @@ export default function PublicCheckoutPage() {
   const [paymentOptions, setPaymentOptions] = useState<PublicPaymentOptions | null>(null);
   const [selectedGateway, setSelectedGateway] = useState<OnlineGateway>("stripe");
   const [products, setProducts] = useState<ExperienceProduct[]>([]);
+  const [customerCartSession, setCustomerCartSession] =
+    useState<PublicCustomerCartSession | null>(null);
   const [sellerOffer, setSellerOffer] =
     useState<PublicSellerOffer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -553,6 +556,7 @@ export default function PublicCheckoutPage() {
   const [error, setError] = useState("");
 
   const productSlug = searchParams.get("product") || "";
+  const cartSessionToken = searchParams.get("cart_session") || "";
   const productId = searchParams.get("product_id") || "";
   const serviceDate = searchParams.get("service_date") || "";
   const adults = Math.max(1, parseNumber(searchParams.get("adults"), 1));
@@ -560,6 +564,11 @@ export default function PublicCheckoutPage() {
   const infants = Math.max(0, parseNumber(searchParams.get("infants"), 0));
   const guests = adults + children + infants;
   const paymentChoice = (searchParams.get("payment") || "pending") as PaymentChoice;
+  const [cartPaymentChoice, setCartPaymentChoice] = useState<PaymentChoice>(
+    ["full", "deposit", "pending", "cash"].includes(paymentChoice)
+      ? paymentChoice
+      : "pending"
+  );
   const pickupLocationId = searchParams.get("pickup_location_id") || "";
   const hotelFromQuery = searchParams.get("hotel") || "";
   const pickupTime = normalizeTime(searchParams.get("pickup_time"));
@@ -667,18 +676,28 @@ export default function PublicCheckoutPage() {
       setLoading(true);
       setError("");
       setSellerOffer(null);
+      setCustomerCartSession(null);
 
       const [
         brandingResponse,
         productsResponse,
         paymentOptionsResponse,
+        cartSessionResponse,
       ] = await Promise.all([
         ticketingApi.getPublicBranding(organisationSlug),
-        ticketingApi.getPublicProducts(organisationSlug, {
-          public_enabled: true,
-          status: "active",
-        }),
+        cartSessionToken
+          ? Promise.resolve([] as ExperienceProduct[])
+          : ticketingApi.getPublicProducts(organisationSlug, {
+              public_enabled: true,
+              status: "active",
+            }),
         ticketingApi.getPublicPaymentOptions(organisationSlug),
+        cartSessionToken
+          ? ticketingApi.getPublicCustomerCartSession(
+              organisationSlug,
+              cartSessionToken
+            )
+          : Promise.resolve(null),
       ]);
 
       const productList = Array.isArray(productsResponse)
@@ -734,6 +753,7 @@ export default function PublicCheckoutPage() {
       );
       setProducts(productList);
       setSellerOffer(validatedOffer);
+      setCustomerCartSession(cartSessionResponse);
     } catch (err: any) {
       console.error("Could not load checkout:", err);
       setSellerOffer(null);
@@ -754,6 +774,7 @@ export default function PublicCheckoutPage() {
     organisationSlug,
     productId,
     productSlug,
+    cartSessionToken,
     offerToken,
     language,
   ]);
@@ -1377,6 +1398,138 @@ export default function PublicCheckoutPage() {
     }
   }
 
+  async function submitCustomerCartSession(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!customerCartSession || !cartSessionToken) {
+      setError(
+        t("checkout.cart.unavailable", "This itinerary is no longer available.")
+      );
+      return;
+    }
+    if (!form.full_name.trim()) {
+      setError(t("checkout.validation.full_name", "Full name is required."));
+      return;
+    }
+    if (!form.whatsapp.trim()) {
+      setError(t("checkout.validation.whatsapp", "WhatsApp number is required."));
+      return;
+    }
+    if (!form.email.trim()) {
+      setError(t("checkout.validation.email", "Email is required."));
+      return;
+    }
+
+    const cartUsesOnlinePayment = shouldCreatePendingPayment(cartPaymentChoice);
+    if (cartUsesOnlinePayment && !hasOnlineGateway) {
+      setError(
+        t(
+          "checkout.validation.gateway_missing",
+          "Online payment is not configured yet. Choose pay later or pay in person."
+        )
+      );
+      return;
+    }
+    if (cartUsesOnlinePayment && selectedGateway === "stripe" && !stripeAvailable) {
+      setError(
+        t(
+          "checkout.validation.stripe_unavailable",
+          "Stripe is not available for this business."
+        )
+      );
+      return;
+    }
+    if (cartUsesOnlinePayment && selectedGateway === "paypal" && !paypalAvailable) {
+      setError(
+        t(
+          "checkout.validation.paypal_unavailable",
+          "PayPal is not available for this business."
+        )
+      );
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      const result = await ticketingApi.convertPublicCustomerCartSession(
+        organisationSlug,
+        {
+          token: cartSessionToken,
+          full_name: form.full_name,
+          whatsapp: form.whatsapp,
+          email: form.email,
+          hotel_name: form.hotel_name,
+          notes: form.notes,
+          payment_choice: cartPaymentChoice,
+        }
+      );
+      const booking = result.booking;
+
+      if (cartUsesOnlinePayment) {
+        const paymentPayload = {
+          booking_id: booking.id,
+          booking_code: booking.booking_code,
+          payment_type: cartPaymentChoice === "deposit" ? "deposit" as const : "full" as const,
+          success_url: buildSuccessUrl(booking.booking_code, selectedGateway),
+          cancel_url: buildCancelUrl(),
+        };
+
+        if (selectedGateway === "stripe") {
+          const checkoutSession =
+            await ticketingApi.createPublicStripeCheckoutSession(
+              organisationSlug,
+              paymentPayload
+            );
+          if (!checkoutSession.checkout_url) {
+            throw new Error(
+              t(
+                "checkout.error.stripe_url",
+                "Stripe checkout URL was not returned."
+              )
+            );
+          }
+          window.location.href = checkoutSession.checkout_url;
+          return;
+        }
+
+        const paypalOrder = await ticketingApi.createPublicPayPalOrder(
+          organisationSlug,
+          paymentPayload
+        );
+        if (!paypalOrder.approve_url) {
+          throw new Error(
+            t(
+              "checkout.error.paypal_url",
+              "PayPal approval URL was not returned."
+            )
+          );
+        }
+        window.location.href = paypalOrder.approve_url;
+        return;
+      }
+
+      navigate(publicPath(`/confirmation/${booking.booking_code}`), {
+        replace: true,
+        state: {
+          booking,
+          product: null,
+          currencySymbol,
+          brandName,
+          customerCartSession,
+        },
+      });
+    } catch (err: any) {
+      console.error("Could not convert customer itinerary:", err);
+      setError(getFormErrorMessage(err, t));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (organisationError) {
     return (
       <PublicShell
@@ -1430,6 +1583,373 @@ export default function PublicCheckoutPage() {
             {t("checkout.loading", "Loading checkout...")}
           </p>
         </div>
+      </PublicShell>
+    );
+  }
+
+  if (cartSessionToken) {
+    return (
+      <PublicShell
+        publicPath={publicPath}
+        brandName={brandName}
+        logoUrl={logoUrl}
+        theme={theme}
+        language={language}
+        setLanguage={setLanguage}
+        t={t}
+      >
+        {!customerCartSession ? (
+          <div
+            className="rounded-3xl border p-10 text-center"
+            style={{
+              backgroundColor: theme.card,
+              borderColor: hexToRgba(theme.primary, 0.12),
+            }}
+          >
+            <AlertCircle
+              className="mx-auto h-8 w-8"
+              style={{ color: theme.accent }}
+            />
+            <p className="mt-3 text-sm font-bold" style={{ color: theme.muted }}>
+              {error ||
+                t(
+                  "checkout.cart.unavailable",
+                  "This itinerary is no longer available. Please request a new link."
+                )}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
+            <form
+              onSubmit={submitCustomerCartSession}
+              className="rounded-3xl border p-5 shadow-sm sm:p-6"
+              style={{
+                backgroundColor: theme.card,
+                borderColor: hexToRgba(theme.primary, 0.12),
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <ShieldCheck
+                  className="mt-0.5 h-6 w-6 shrink-0"
+                  style={{ color: theme.accent }}
+                />
+                <div>
+                  <p
+                    className="text-sm font-black uppercase tracking-wide"
+                    style={{ color: theme.accent }}
+                  >
+                    {t("checkout.cart.title", "Your recommended itinerary")}
+                  </p>
+                  <h1
+                    className="mt-2 text-2xl font-black tracking-tight"
+                    style={{ color: theme.text }}
+                  >
+                    {t("checkout.cart.complete", "Complete your booking")}
+                  </h1>
+                  <p
+                    className="mt-2 text-sm font-semibold leading-6"
+                    style={{ color: theme.muted }}
+                  >
+                    {t(
+                      "checkout.cart.secured",
+                      "Your itinerary, availability, promotions and prices were verified by the booking system."
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {error && (
+                <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <Input
+                  label={t("checkout.full_name", "Full name")}
+                  value={form.full_name}
+                  onChange={(value) => updateField("full_name", value)}
+                  placeholder="John Smith"
+                  icon={<User className="h-4 w-4" />}
+                  required
+                  theme={theme}
+                />
+                <Input
+                  label={t("checkout.whatsapp", "WhatsApp")}
+                  value={form.whatsapp}
+                  onChange={(value) => updateField("whatsapp", value)}
+                  placeholder="+1 829 000 0000"
+                  icon={<MessageCircle className="h-4 w-4" />}
+                  required
+                  theme={theme}
+                />
+                <Input
+                  label={t("checkout.email", "Email")}
+                  type="email"
+                  value={form.email}
+                  onChange={(value) => updateField("email", value)}
+                  placeholder="customer@email.com"
+                  icon={<Mail className="h-4 w-4" />}
+                  required
+                  theme={theme}
+                />
+                <Input
+                  label={t(
+                    "checkout.hotel_pickup",
+                    "Hotel / pickup location"
+                  )}
+                  value={form.hotel_name}
+                  onChange={(value) => updateField("hotel_name", value)}
+                  placeholder={t("checkout.placeholder.hotel", "Hotel name")}
+                  icon={<MapPin className="h-4 w-4" />}
+                  theme={theme}
+                />
+              </div>
+
+              <Textarea
+                label={t("checkout.notes", "Notes")}
+                value={form.notes}
+                onChange={(value) => updateField("notes", value)}
+                placeholder={t(
+                  "checkout.placeholder.notes",
+                  "Room number, special requests, allergies, flight info..."
+                )}
+                theme={theme}
+              />
+
+              <div
+                className="mt-6 rounded-2xl border p-4"
+                style={{
+                  backgroundColor: hexToRgba(theme.primary, 0.04),
+                  borderColor: hexToRgba(theme.primary, 0.12),
+                }}
+              >
+                <p className="text-sm font-black" style={{ color: theme.text }}>
+                  {t("checkout.payment_option", "Payment option")}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {(["full", "deposit", "pending", "cash"] as PaymentChoice[]).map(
+                    (choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setCartPaymentChoice(choice)}
+                        className="rounded-xl border px-3 py-3 text-left text-sm font-bold"
+                        style={{
+                          color: theme.text,
+                          borderColor:
+                            cartPaymentChoice === choice
+                              ? theme.accent
+                              : hexToRgba(theme.primary, 0.15),
+                          backgroundColor:
+                            cartPaymentChoice === choice
+                              ? hexToRgba(theme.accent, 0.1)
+                              : theme.card,
+                        }}
+                      >
+                        {paymentLabel(choice, t)}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+
+              {shouldCreatePendingPayment(cartPaymentChoice) && (
+                <div
+                  className="mt-4 rounded-2xl border p-4"
+                  style={{
+                    borderColor: hexToRgba(theme.primary, 0.12),
+                    backgroundColor: hexToRgba(theme.primary, 0.04),
+                  }}
+                >
+                  <p className="text-sm font-black" style={{ color: theme.text }}>
+                    {t("checkout.online_method", "Online payment method")}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    {stripeAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGateway("stripe")}
+                        className="rounded-xl border px-4 py-2 text-sm font-bold"
+                        style={{
+                          borderColor:
+                            selectedGateway === "stripe"
+                              ? theme.accent
+                              : hexToRgba(theme.primary, 0.15),
+                          color: theme.text,
+                        }}
+                      >
+                        Stripe
+                      </button>
+                    )}
+                    {paypalAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGateway("paypal")}
+                        className="rounded-xl border px-4 py-2 text-sm font-bold"
+                        style={{
+                          borderColor:
+                            selectedGateway === "paypal"
+                              ? theme.accent
+                              : hexToRgba(theme.primary, 0.15),
+                          color: theme.text,
+                        }}
+                      >
+                        PayPal
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting || !customerCartSession.can_checkout}
+                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ backgroundColor: theme.button }}
+              >
+                {submitting ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5" />
+                )}
+                {shouldCreatePendingPayment(cartPaymentChoice)
+                  ? t(
+                      "checkout.continue_secure_payment",
+                      "Continue to Secure Payment"
+                    )
+                  : t("checkout.confirm_booking", "Confirm Booking")}
+              </button>
+            </form>
+
+            <aside
+              className="rounded-3xl border p-5 shadow-sm sm:p-6"
+              style={{
+                backgroundColor: theme.card,
+                borderColor: hexToRgba(theme.primary, 0.12),
+              }}
+            >
+              <p
+                className="text-sm font-black uppercase tracking-wide"
+                style={{ color: theme.accent }}
+              >
+                {t("checkout.cart.summary", "Itinerary summary")}
+              </p>
+
+              <div className="mt-5 space-y-4">
+                {customerCartSession.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border p-4"
+                    style={{ borderColor: hexToRgba(theme.primary, 0.12) }}
+                  >
+                    <p className="font-black" style={{ color: theme.text }}>
+                      {item.product_name_snapshot}
+                    </p>
+                    {item.option_name_snapshot && (
+                      <p className="mt-1 text-sm font-bold" style={{ color: theme.muted }}>
+                        {item.option_name_snapshot}
+                      </p>
+                    )}
+                    <p className="mt-2 text-sm font-semibold" style={{ color: theme.muted }}>
+                      {formatDate(item.service_date, language)} · {item.adults}{" "}
+                      {t("checkout.passenger.adults", "adults")}
+                      {item.children > 0 ? ` · ${item.children} children` : ""}
+                      {item.infants > 0 ? ` · ${item.infants} infants` : ""}
+                    </p>
+                    {item.pickup_name_snapshot && (
+                      <p className="mt-2 text-sm font-semibold" style={{ color: theme.muted }}>
+                        {t("checkout.summary.pickup", "Pickup")}: {item.pickup_name_snapshot}
+                        {item.pickup_time_snapshot
+                          ? ` · ${formatTime(item.pickup_time_snapshot, language)}`
+                          : ""}
+                      </p>
+                    )}
+                    <p className="mt-3 font-black" style={{ color: theme.text }}>
+                      {money(item.line_total, item.currency, language)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {customerCartSession.promotions.length > 0 && (
+                <div
+                  className="mt-5 rounded-2xl border p-4"
+                  style={{
+                    backgroundColor: hexToRgba(theme.accent, 0.08),
+                    borderColor: hexToRgba(theme.accent, 0.25),
+                  }}
+                >
+                  <p className="text-sm font-black" style={{ color: theme.text }}>
+                    {t("checkout.cart.savings", "Your savings")}
+                  </p>
+                  {customerCartSession.promotions.map((promotion, index) => (
+                    <p
+                      key={`${promotion.promotion_id || "promotion"}-${index}`}
+                      className="mt-2 text-sm font-semibold"
+                      style={{ color: theme.muted }}
+                    >
+                      {promotion.name || promotion.description || "Promotion"}
+                      {promotion.discount_amount
+                        ? `: −${money(
+                            promotion.discount_amount,
+                            promotion.currency || customerCartSession.currency,
+                            language
+                          )}`
+                        : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <div
+                className="mt-6 rounded-2xl border p-4"
+                style={{
+                  backgroundColor: hexToRgba(theme.primary, 0.04),
+                  borderColor: hexToRgba(theme.primary, 0.12),
+                }}
+              >
+                <div className="flex justify-between text-sm font-bold">
+                  <span style={{ color: theme.muted }}>
+                    {t("checkout.subtotal", "Subtotal")}
+                  </span>
+                  <span style={{ color: theme.text }}>
+                    {money(
+                      customerCartSession.subtotal,
+                      customerCartSession.currency,
+                      language
+                    )}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between text-sm font-bold">
+                  <span style={{ color: theme.muted }}>
+                    {t("checkout.discount", "Discount")}
+                  </span>
+                  <span style={{ color: theme.text }}>
+                    −{money(
+                      customerCartSession.discount_total,
+                      customerCartSession.currency,
+                      language
+                    )}
+                  </span>
+                </div>
+                <div className="mt-3 flex justify-between text-base font-black">
+                  <span style={{ color: theme.text }}>
+                    {t("checkout.total", "Total")}
+                  </span>
+                  <span style={{ color: theme.text }}>
+                    {money(
+                      customerCartSession.total,
+                      customerCartSession.currency,
+                      language
+                    )}
+                  </span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        )}
       </PublicShell>
     );
   }

@@ -317,6 +317,17 @@ class CustomerItineraryCart(models.Model):
         on_delete=models.CASCADE,
         related_name="itinerary_carts",
     )
+    converted_booking = models.OneToOneField(
+        "ticketing.Booking",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="customer_ai_source_cart",
+        help_text=(
+            "Booking created from this cart. This relationship prevents "
+            "duplicate cart conversion and preserves the audit trail."
+        ),
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -440,6 +451,19 @@ class CustomerItineraryCart(models.Model):
             raise ValidationError(
                 {"customer_approval_message": "Approved carts require evidence."}
             )
+        if self.converted_booking_id:
+            if self.converted_booking.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"converted_booking": "Booking belongs to another organisation."}
+                )
+            if self.status != self.STATUS_CONVERTED or not self.converted_at:
+                raise ValidationError(
+                    {
+                        "converted_booking": (
+                            "A converted booking requires converted status and time."
+                        )
+                    }
+                )
         if self.expires_at and self.created_at and self.expires_at <= self.created_at:
             raise ValidationError({"expires_at": "Cart expiry must follow creation."})
 

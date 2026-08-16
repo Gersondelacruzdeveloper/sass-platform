@@ -24,7 +24,7 @@ from ticketing.customer_cart_service import DjangoCustomerCartService
 from ticketing.models import ExperienceProduct
 
 
-FIXED_NOW = datetime(2026, 8, 14, 12, 0, tzinfo=datetime_timezone.utc)
+FIXED_NOW = datetime(2030, 8, 14, 12, 0, tzinfo=datetime_timezone.utc)
 SERVICE_DATE = date(2026, 8, 21)
 
 

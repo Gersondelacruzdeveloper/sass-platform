@@ -2171,3 +2171,69 @@ export interface SellerPayoutDecisionPayload {
   payment_receipt?: File | null;
 }
 
+// Public customer-AI itinerary cart session.
+// The raw bearer token is intentionally never included in response types.
+export interface PublicCustomerCartOrganisation {
+  id: ID;
+  slug: string;
+  name: string;
+}
+
+export interface PublicCustomerCartPromotion {
+  promotion_id?: ID;
+  name?: string;
+  description?: string;
+  discount_type?: string;
+  discount_value?: Money;
+  discount_amount?: Money;
+  currency?: string;
+  eligible_item_positions?: number[];
+}
+
+export interface PublicCustomerCartSessionItem {
+  id: ID;
+  position: number;
+  product_id: ID;
+  product_slug: string;
+  product_url: string;
+  product_image_url?: string | null;
+  service_date: string;
+  adults: number;
+  children: number;
+  infants: number;
+  package_id?: ID | null;
+  event_ticket_type_id?: ID | null;
+  selected_external_option_id?: string;
+  pickup_location_id?: ID | null;
+  product_name_snapshot: string;
+  option_name_snapshot: string;
+  pickup_name_snapshot: string;
+  pickup_time_snapshot?: string | null;
+  unit_price_snapshot: Money;
+  line_subtotal: Money;
+  line_discount: Money;
+  line_total: Money;
+  currency: string;
+}
+
+export interface PublicCustomerCartSession {
+  cart_id: ID;
+  status: string;
+  language: string;
+  currency: string;
+  subtotal: Money;
+  discount_total: Money;
+  total: Money;
+  expires_at: string;
+  is_expired: boolean;
+  can_checkout: boolean;
+  organisation: PublicCustomerCartOrganisation;
+  promotions: PublicCustomerCartPromotion[];
+  validation_notices: unknown[];
+  items: PublicCustomerCartSessionItem[];
+}
+
+export interface PublicCustomerCartSessionResponse {
+  success: true;
+  cart: PublicCustomerCartSession;
+}

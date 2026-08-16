@@ -73,6 +73,8 @@ import type {
   BlogPostWritePayload,
   PublicBlogPostSummary,
   PublicBlogPostDetail,
+  PublicCustomerCartSession,
+  PublicCustomerCartSessionResponse,
 } from "../types/ticketingTypes";
 
 import type {
@@ -91,6 +93,56 @@ import type {
 } from "../types/ticketingTypes";
 
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+export type PublicCustomerCartPaymentChoice =
+  | "full"
+  | "deposit"
+  | "pending"
+  | "cash";
+
+export type PublicCustomerCartConversionPayload = {
+  token: string;
+  full_name: string;
+  whatsapp: string;
+  email: string;
+  hotel_name?: string;
+  notes?: string;
+  payment_choice?: PublicCustomerCartPaymentChoice;
+};
+
+export type PublicCustomerCartBooking = {
+  id: number;
+  booking_code: string;
+  status: string;
+  payment_status: string;
+  payment_mode: string;
+  payment_method: string;
+  service_date: string;
+  service_time?: string | null;
+  customer_name: string;
+  customer_email: string;
+  customer_hotel?: string;
+  adults: number;
+  children: number;
+  infants: number;
+  total_guests: number;
+  subtotal_amount: number | string;
+  discount_amount: number | string;
+  tax_amount: number | string;
+  total_amount: number | string;
+  deposit_required: number | string;
+  deposit_paid: number | string;
+  balance_due: number | string;
+  items: unknown[];
+  pickup_info?: unknown | null;
+  created_at?: string;
+};
+
+export type PublicCustomerCartConversionResponse = {
+  success: true;
+  created: boolean;
+  booking: PublicCustomerCartBooking;
+};
 
 export type LiveTicketOption = {
   provider: "wellet" | "local" | string;
@@ -2286,6 +2338,67 @@ export const ticketingApi = {
   // Public website API
   getPublicBranding: async (slug: string): Promise<PublicBrandingResponse> => {
     const response = await api.get<PublicBrandingResponse>(`/ticketing/public/${slug}/branding/`);
+    return response.data;
+  },
+
+  /**
+   * Resolve a temporary customer-AI cart for the current public tenant.
+   *
+   * POST keeps the bearer token out of API query strings, caches, and common
+   * access logs. The backend must still verify that the token belongs to the
+   * organisation identified by `slug`.
+   */
+  getPublicCustomerCartSession: async (
+    slug: string,
+    token: string,
+  ): Promise<PublicCustomerCartSession> => {
+    const safeSlug = String(slug || "").trim();
+    const safeToken = String(token || "").trim();
+    if (!safeSlug) {
+      throw new Error("A public organisation slug is required.");
+    }
+    if (!safeToken) {
+      throw new Error("A customer cart-session token is required.");
+    }
+    const response = await api.post<PublicCustomerCartSessionResponse>(
+      `/ticketing/public/${encodeURIComponent(safeSlug)}/customer-cart-session/resolve/`,
+      { token: safeToken },
+    );
+    return response.data.cart;
+  },
+
+  /**
+   * Convert a customer-approved itinerary into a booking.
+   *
+   * The backend remains authoritative for products, dates, quantities,
+   * availability, promotions, prices, deposits, and totals. This request only
+   * sends the customer-entered contact and payment-choice fields.
+   */
+  convertPublicCustomerCartSession: async (
+    slug: string,
+    payload: PublicCustomerCartConversionPayload,
+  ): Promise<PublicCustomerCartConversionResponse> => {
+    const safeSlug = String(slug || "").trim();
+    const safeToken = String(payload?.token || "").trim();
+    if (!safeSlug) {
+      throw new Error("A public organisation slug is required.");
+    }
+    if (!safeToken) {
+      throw new Error("A customer cart-session token is required.");
+    }
+
+    const response = await api.post<PublicCustomerCartConversionResponse>(
+      `/ticketing/public/${encodeURIComponent(safeSlug)}/customer-cart-session/convert/`,
+      {
+        token: safeToken,
+        full_name: String(payload.full_name || "").trim(),
+        whatsapp: String(payload.whatsapp || "").trim(),
+        email: String(payload.email || "").trim(),
+        hotel_name: String(payload.hotel_name || "").trim(),
+        notes: String(payload.notes || "").trim(),
+        payment_choice: payload.payment_choice || "pending",
+      },
+    );
     return response.data;
   },
 

@@ -96,6 +96,8 @@ from ticketing.customer_ai_views import (
     CustomerAIConversationViewSet,
     CustomerAIHandoffViewSet,
     CustomerItineraryCartViewSet,
+    PublicCustomerCartSessionConvertView,
+    PublicCustomerCartSessionResolveView,
 )
 
 router = DefaultRouter()
@@ -189,6 +191,16 @@ router.register("public/pickup-locations", PublicPickupLocationViewSet, basename
 
 
 urlpatterns = [
+    path(
+        "public/<slug:organisation_slug>/customer-cart-session/convert/",
+        PublicCustomerCartSessionConvertView.as_view(),
+        name="ticketing-public-customer-cart-session-convert",
+    ),
+    path(
+        "public/<slug:organisation_slug>/customer-cart-session/resolve/",
+        PublicCustomerCartSessionResolveView.as_view(),
+        name="ticketing-public-customer-cart-session-resolve",
+    ),
     path(
     "whatsapp/webhook/",
     whatsapp_webhook,

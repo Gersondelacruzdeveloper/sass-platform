@@ -10529,7 +10529,13 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
             )
 
         mutable_data = request.data.copy()
-        mutable_data["source"] = mutable_data.get("source") or "public_site"
+
+        # Public clients cannot select their source or finance allowances.
+        mutable_data["source"] = "public_site"
+        mutable_data["seller_margin_percent"] = "0.00"
+        mutable_data["customer_discount_percent"] = "0.00"
+        mutable_data["customer_discount_amount"] = "0.00"
+        mutable_data["discount_amount"] = "0.00"
 
         seller_slug = (
             mutable_data.get("seller_slug")
