@@ -17,6 +17,33 @@ from .serializers import RegisterSerializer, UserSerializer
 User = get_user_model()
 
 
+def get_active_membership(user):
+    return (
+        user.memberships
+        .filter(
+            is_active=True,
+            organisation__is_active=True,
+        )
+        .select_related("organisation")
+        .first()
+    )
+
+
+def has_valid_tenant_access(user):
+    if user.is_superuser:
+        return True
+
+    memberships = user.memberships.all()
+
+    if not memberships.exists():
+        return True
+
+    return memberships.filter(
+        is_active=True,
+        organisation__is_active=True,
+    ).exists()
+
+
 def build_file_url(request, file_field):
     if not file_field:
         return None
@@ -30,12 +57,7 @@ def build_file_url(request, file_field):
 
 
 def build_current_user_payload(user, request):
-    membership = (
-        user.memberships
-        .filter(is_active=True)
-        .select_related("organisation")
-        .first()
-    )
+    membership = get_active_membership(user)
 
     organisation_data = None
     role = None
@@ -56,31 +78,45 @@ def build_current_user_payload(user, request):
 
     facilitator_data = None
 
-    if hasattr(user, "employee_profile"):
+    if membership and hasattr(user, "employee_profile"):
         employee = user.employee_profile
 
-        if hasattr(employee, "facilitator_profile"):
+        if (
+            employee.organisation_id == membership.organisation_id
+            and hasattr(employee, "facilitator_profile")
+        ):
             facilitator = employee.facilitator_profile
 
-            facilitator_data = {
-                "id": facilitator.id,
-                "employee_id": employee.id,
-                "employee_name": employee.name,
-                "active": facilitator.active,
-                "can_create_employees": facilitator.can_create_employees,
-                "can_create_trainings": facilitator.can_create_trainings,
-                "can_create_evaluations": facilitator.can_create_evaluations,
-                "can_view_reports": facilitator.can_view_reports,
-            }
+            if facilitator.organisation_id in (
+                None,
+                membership.organisation_id,
+            ):
+                facilitator_data = {
+                    "id": facilitator.id,
+                    "employee_id": employee.id,
+                    "employee_name": employee.name,
+                    "active": facilitator.active,
+                    "can_create_employees": facilitator.can_create_employees,
+                    "can_create_trainings": facilitator.can_create_trainings,
+                    "can_create_evaluations": facilitator.can_create_evaluations,
+                    "can_view_reports": facilitator.can_view_reports,
+                }
 
     disco_employee_data = None
 
-    disco_profile = (
-        user.disco_employee_profiles
-        .filter(is_active=True)
-        .select_related("organisation")
-        .first()
-    )
+    disco_profile = None
+
+    if membership:
+        disco_profile = (
+            user.disco_employee_profiles
+            .filter(
+                is_active=True,
+                organisation_id=membership.organisation_id,
+                organisation__is_active=True,
+            )
+            .select_related("organisation")
+            .first()
+        )
 
     user_avatar_url = build_file_url(request, user.avatar)
 
@@ -120,7 +156,7 @@ def build_current_user_payload(user, request):
         "last_name": user.last_name,
         "phone": user.phone,
         "preferred_language": user.preferred_language,
-        "avatar": user.avatar.url if user.avatar else None,
+        "avatar": user_avatar_url,
         "avatar_url": user_avatar_url,
         "user_avatar_url": user_avatar_url,
         "profile_image_url": profile_image_url,
@@ -176,6 +212,12 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        if not has_valid_tenant_access(user):
+            return Response(
+                {"detail": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
         login(request, user)
         request.session.save()
 
@@ -202,6 +244,12 @@ class MeView(APIView):
     def get(self, request):
         user = request.user
 
+        if not has_valid_tenant_access(user):
+            return Response(
+                {"detail": "Account unavailable"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         def build_file_url(file_field):
             if not file_field:
                 return None
@@ -215,12 +263,7 @@ class MeView(APIView):
 
         user_avatar_url = build_file_url(user.avatar)
 
-        membership = (
-            user.memberships
-            .filter(is_active=True)
-            .select_related("organisation")
-            .first()
-        )
+        membership = get_active_membership(user)
 
         organisation_data = None
         role = None
@@ -241,31 +284,45 @@ class MeView(APIView):
 
         facilitator_data = None
 
-        if hasattr(user, "employee_profile"):
+        if membership and hasattr(user, "employee_profile"):
             employee = user.employee_profile
 
-            if hasattr(employee, "facilitator_profile"):
+            if (
+                employee.organisation_id == membership.organisation_id
+                and hasattr(employee, "facilitator_profile")
+            ):
                 facilitator = employee.facilitator_profile
 
-                facilitator_data = {
-                    "id": facilitator.id,
-                    "employee_id": employee.id,
-                    "employee_name": employee.name,
-                    "active": facilitator.active,
-                    "can_create_employees": facilitator.can_create_employees,
-                    "can_create_trainings": facilitator.can_create_trainings,
-                    "can_create_evaluations": facilitator.can_create_evaluations,
-                    "can_view_reports": facilitator.can_view_reports,
-                }
+                if facilitator.organisation_id in (
+                    None,
+                    membership.organisation_id,
+                ):
+                    facilitator_data = {
+                        "id": facilitator.id,
+                        "employee_id": employee.id,
+                        "employee_name": employee.name,
+                        "active": facilitator.active,
+                        "can_create_employees": facilitator.can_create_employees,
+                        "can_create_trainings": facilitator.can_create_trainings,
+                        "can_create_evaluations": facilitator.can_create_evaluations,
+                        "can_view_reports": facilitator.can_view_reports,
+                    }
 
         disco_employee_data = None
 
-        disco_profile = (
-            user.disco_employee_profiles
-            .filter(is_active=True)
-            .select_related("organisation")
-            .first()
-        )
+        disco_profile = None
+
+        if membership:
+            disco_profile = (
+                user.disco_employee_profiles
+                .filter(
+                    is_active=True,
+                    organisation_id=membership.organisation_id,
+                    organisation__is_active=True,
+                )
+                .select_related("organisation")
+                .first()
+            )
 
         disco_employee_photo_url = None
 
@@ -304,7 +361,7 @@ class MeView(APIView):
             "preferred_language": user.preferred_language,
 
             # User image fields
-            "avatar": user.avatar.url if user.avatar else None,
+            "avatar": user_avatar_url,
             "avatar_url": user_avatar_url,
             "user_avatar_url": user_avatar_url,
             "profile_image_url": profile_image_url,
@@ -317,6 +374,12 @@ class MeView(APIView):
         })
 
     def patch(self, request):
+        if not has_valid_tenant_access(request.user):
+            return Response(
+                {"detail": "Account unavailable"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = UserSerializer(
             request.user,
             data=request.data,

@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils.text import slugify
 from rest_framework import serializers
 
@@ -8,11 +9,13 @@ from .models import CustomUser
 
 class RegisterSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(write_only=True)
-    business_type = serializers.CharField(
+    business_type = serializers.ChoiceField(
+        choices=Organisation.BUSINESS_TYPE_CHOICES,
         write_only=True,
         default="disco",
     )
-    plan = serializers.CharField(
+    plan = serializers.ChoiceField(
+        choices=Organisation.PLAN_CHOICES,
         write_only=True,
         default="basic",
     )
@@ -33,6 +36,17 @@ class RegisterSerializer(serializers.ModelSerializer):
             "plan",
         ]
 
+    def validate_email(self, value):
+        value = CustomUser.objects.normalize_email(value.strip())
+
+        if CustomUser.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "A user with this email already exists."
+            )
+
+        return value
+
+    @transaction.atomic
     def create(self, validated_data):
         organisation_name = validated_data.pop(
             "organisation_name"
