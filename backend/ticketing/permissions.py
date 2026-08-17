@@ -23,17 +23,20 @@ SELLER_MANAGEMENT_ROLES = {
 
 def get_organisation_from_view(request, view):
     """
-    Resolve organisation safely from the current view/request.
+    Resolve an active organisation safely from the current view/request.
 
     This matches the TicketingOrganisationMixin used in views.py.
+    Inactive organisations fail closed regardless of the resolution source.
     """
 
     if hasattr(view, "get_organisation"):
         try:
             organisation = view.get_organisation()
 
-            if organisation:
+            if organisation and getattr(organisation, "is_active", False):
                 return organisation
+            if organisation:
+                return None
         except Exception:
             pass
 
@@ -45,10 +48,15 @@ def get_organisation_from_view(request, view):
     )
 
     if organisation_slug:
-        return Organisation.objects.filter(slug=organisation_slug).first()
+        return Organisation.objects.filter(
+            slug=organisation_slug,
+            is_active=True,
+        ).first()
 
     if request.user and request.user.is_authenticated:
-        return getattr(request.user, "organisation", None)
+        organisation = getattr(request.user, "organisation", None)
+        if organisation and getattr(organisation, "is_active", False):
+            return organisation
 
     return None
 
@@ -1287,4 +1295,3 @@ class CanSyncOfflineScans(permissions.BasePermission):
             "can_sync_offline_scans",
             business_entity,
         )
-

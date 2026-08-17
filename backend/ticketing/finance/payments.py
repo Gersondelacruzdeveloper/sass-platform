@@ -212,6 +212,7 @@ def record_payment(
     )
 
     apply_payment_finance_flags(payment, receiver=receiver)
+    payment.full_clean()
     payment.save()
 
     booking = recalculate_booking(booking)
@@ -413,6 +414,22 @@ def mark_provider_payment_confirmed(
         getattr(booking, "payment_status", "") or ""
     )
 
+    amount = money(amount)
+    if amount <= ZERO:
+        raise ValueError("Payment amount must be greater than zero.")
+
+    if not any(
+        (
+            provider_payment_id,
+            provider_checkout_id,
+            provider_order_id,
+            provider_capture_id,
+        )
+    ):
+        raise ValueError(
+            "A stable provider payment identifier is required."
+        )
+
     lookup = {
         "booking": booking,
         "provider": provider,
@@ -443,7 +460,7 @@ def mark_provider_payment_confirmed(
     payment, _ = BookingPayment.objects.get_or_create(
         **lookup,
         defaults={
-            "amount": money(amount),
+            "amount": amount,
             "payment_type": payment_type,
             "payer_type": PAYER_CUSTOMER,
             "method": provider,
@@ -460,7 +477,7 @@ def mark_provider_payment_confirmed(
         },
     )
 
-    payment.amount = money(amount)
+    payment.amount = amount
     payment.payment_type = payment_type
     payment.payer_type = PAYER_CUSTOMER
     payment.method = provider
@@ -476,6 +493,7 @@ def mark_provider_payment_confirmed(
     payment.paid_at = timezone.now()
 
     apply_payment_finance_flags(payment, receiver=receiver)
+    payment.full_clean()
     payment.save()
 
     booking = recalculate_booking(booking)

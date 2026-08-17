@@ -8,7 +8,10 @@ It does not record payments.
 It does not send notifications.
 """
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 
 from ticketing.models import Booking, Seller, SellerCommission
 
@@ -107,6 +110,7 @@ def cancel_commissions_for_booking(booking):
     return None
 
 
+@transaction.atomic
 def sync_commission_for_booking(booking):
     """
     Create/update/cancel seller commission for a booking.
@@ -116,6 +120,18 @@ def sync_commission_for_booking(booking):
     booking.seller_commission_amount
     booking.seller_margin_percent
     """
+
+    if (
+        booking.seller_id
+        and booking.seller.organisation_id != booking.organisation_id
+    ):
+        raise ValidationError(
+            {
+                "seller": (
+                    "The seller must belong to the booking organisation."
+                )
+            }
+        )
 
     previous_seller_ids = get_previous_seller_ids_for_booking(booking)
 
@@ -142,6 +158,12 @@ def sync_commission_for_booking(booking):
 
         return result
 
+    SellerCommission.objects.filter(booking=booking).exclude(
+        seller=booking.seller
+    ).exclude(status=COMMISSION_PAID).update(
+        status=COMMISSION_CANCELLED
+    )
+
     rate_used = money(
         getattr(booking, "seller_margin_percent", ZERO)
         or getattr(booking.seller, "default_margin_percent", ZERO)
@@ -166,10 +188,20 @@ def sync_commission_for_booking(booking):
         defaults={
             "amount": commission_amount,
             "rate_used": rate_used,
+            "margin_percent_used": rate_used,
+            "customer_discount_amount": money(
+                getattr(booking, "customer_discount_amount", ZERO)
+            ),
+            "owner_net_amount": money(
+                getattr(booking, "owner_net_amount", ZERO)
+            ),
             "status": status,
             "note": "Automatically synced by booking finance engine.",
         },
     )
+
+    commission.full_clean()
+    commission.save()
 
     for seller_id in previous_seller_ids:
         recompute_seller_totals(Seller.objects.filter(id=seller_id).first())
@@ -179,7 +211,7 @@ def sync_commission_for_booking(booking):
 
 def mark_commission_paid(commission, paid_by=None):
     commission.status = COMMISSION_PAID
-    commission.paid_at = commission.paid_at or None
+    commission.paid_at = commission.paid_at or timezone.now()
     commission.paid_by = paid_by or commission.paid_by
     commission.save(
         update_fields=[

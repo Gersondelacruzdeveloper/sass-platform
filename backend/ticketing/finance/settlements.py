@@ -19,6 +19,7 @@ This module records and updates settlement state after money changes hands.
 from decimal import Decimal
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -113,7 +114,7 @@ def record_seller_settlement(
     booking,
     amount,
     collected_by=None,
-    method=PAYMENT_RECEIVER_BANK,
+    method="bank_transfer",
     reference="",
     note="Seller settlement received.",
 ):
@@ -138,6 +139,11 @@ def record_seller_settlement(
     if amount <= ZERO:
         raise ValueError("Settlement amount must be greater than zero.")
 
+    if not booking.seller_id:
+        raise ValidationError(
+            {"seller": "A seller is required to record a seller settlement."}
+        )
+
     amount_due = calculate_seller_due_to_company(booking)
 
     if amount_due <= ZERO:
@@ -149,7 +155,7 @@ def record_seller_settlement(
             f"Settlement amount cannot exceed the seller amount due ({amount_due})."
         )
 
-    payment = BookingPayment.objects.create(
+    payment = BookingPayment(
         booking=booking,
         seller=getattr(booking, "seller", None),
         collected_by=collected_by,
@@ -166,7 +172,7 @@ def record_seller_settlement(
     if hasattr(payment, "collected_by_party"):
         payment.collected_by_party = (
             PAYMENT_RECEIVER_BANK
-            if method == PAYMENT_RECEIVER_BANK
+            if method in {PAYMENT_RECEIVER_BANK, "bank_transfer"}
             else PAYMENT_RECEIVER_OWNER
         )
 
@@ -179,6 +185,7 @@ def record_seller_settlement(
     if hasattr(payment, "settlement_status"):
         payment.settlement_status = SETTLEMENT_SETTLED
 
+    payment.full_clean()
     payment.save()
 
     booking = recalculate_booking(booking)
@@ -200,7 +207,7 @@ def record_seller_settlement(
 def settle_booking_fully(
     booking,
     collected_by=None,
-    method=PAYMENT_RECEIVER_BANK,
+    method="bank_transfer",
     reference="",
     note="Seller settled full amount owed to company.",
 ):
@@ -224,7 +231,7 @@ def settle_booking_partially(
     booking,
     amount,
     collected_by=None,
-    method=PAYMENT_RECEIVER_BANK,
+    method="bank_transfer",
     reference="",
     note="Seller partially settled amount owed to company.",
 ):
@@ -601,7 +608,7 @@ def record_partner_settlement_payment(
 
     ledger_group = uuid.uuid4() if status == "confirmed" else None
 
-    payment = PartnerSettlementPayment.objects.create(
+    payment = PartnerSettlementPayment(
         settlement=settlement,
         payer_type=payer_type,
         payee_type=payee_type,
@@ -616,6 +623,8 @@ def record_partner_settlement_payment(
         recorded_by=recorded_by,
         ledger_entry_group=ledger_group,
     )
+    payment.full_clean()
+    payment.save()
 
     if status == "confirmed":
         _post_partner_settlement_ledger_entries(
@@ -659,6 +668,7 @@ def update_partner_settlement_payment_status(
         payment.notes = _append_note(payment.notes, notes)
 
     payment.status = status
+    payment.full_clean()
 
     if old_status != "confirmed" and status == "confirmed":
         payment.ledger_entry_group = payment.ledger_entry_group or uuid.uuid4()

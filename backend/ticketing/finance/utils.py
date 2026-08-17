@@ -42,14 +42,17 @@ def money(value) -> Decimal:
     if value in (None, ""):
         return ZERO
 
-    if isinstance(value, Decimal):
-        return value.quantize(
-            MONEY_DECIMAL_PLACES,
-            rounding=ROUND_HALF_UP,
+    try:
+        decimal_value = (
+            value
+            if isinstance(value, Decimal)
+            else Decimal(str(value))
         )
 
-    try:
-        return Decimal(str(value)).quantize(
+        if not decimal_value.is_finite():
+            return ZERO
+
+        return decimal_value.quantize(
             MONEY_DECIMAL_PLACES,
             rounding=ROUND_HALF_UP,
         )

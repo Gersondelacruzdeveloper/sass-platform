@@ -317,7 +317,11 @@ def issue_admission_token(
             reason="Replaced by a newly issued primary admission token."
         )
 
-    total = int(total_admissions or default_total_admissions(booking_item))
+    total = int(
+        default_total_admissions(booking_item)
+        if total_admissions is None
+        else total_admissions
+    )
     if total < 1:
         raise AdmissionTokenValidationError(
             "Total admissions must be at least one."

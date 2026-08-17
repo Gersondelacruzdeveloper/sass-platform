@@ -3662,6 +3662,52 @@ class Booking(models.Model):
         paid_amount = self.deposit_paid
         self.balance_due = max(self.total_amount - paid_amount, Decimal("0.00"))
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+        organisation_id = self.organisation_id
+
+        tenant_relations = (
+            ("customer", self.customer_id),
+            ("seller", self.seller_id),
+            ("primary_product", self.primary_product_id),
+        )
+        for field_name, related_id in tenant_relations:
+            if not organisation_id or not related_id:
+                continue
+
+            related_object = getattr(self, field_name)
+            if related_object.organisation_id != organisation_id:
+                errors[field_name] = (
+                    "This record must belong to the booking organisation."
+                )
+
+        non_negative_money_fields = (
+            "subtotal_amount",
+            "discount_amount",
+            "tax_amount",
+            "total_amount",
+            "original_price",
+            "customer_discount_amount",
+            "owner_net_amount",
+            "owner_received_amount",
+            "deposit_required",
+            "deposit_paid",
+            "balance_due",
+            "seller_collected_amount",
+            "seller_due_to_company",
+            "seller_commission_amount",
+            "commission_paid_amount",
+        )
+        for field_name in non_negative_money_fields:
+            value = getattr(self, field_name, None)
+            if value is not None and value < Decimal("0.00"):
+                errors[field_name] = "This amount cannot be negative."
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         if not self.booking_code:
             self.booking_code = self.generate_booking_code()
@@ -3778,6 +3824,28 @@ class BookingItem(models.Model):
     def profit(self):
         return (self.unit_price - self.unit_cost) * self.quantity
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.quantity is not None and self.quantity < 1:
+            errors["quantity"] = "Quantity must be at least 1."
+
+        for field_name in ("unit_price", "unit_cost", "total"):
+            value = getattr(self, field_name, None)
+            if value is not None and value < Decimal("0.00"):
+                errors[field_name] = "This amount cannot be negative."
+
+        if self.booking_id and self.product_id:
+            if self.product.organisation_id != self.booking.organisation_id:
+                errors["product"] = (
+                    "This product must belong to the booking organisation."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         self.total = self.unit_price * self.quantity
 
@@ -3857,6 +3925,7 @@ class BookingPayment(models.Model):
         ("commission_only", "Commission Only"),
         ("partial", "Partial"),
         ("refund", "Refund"),
+        ("settlement", "Seller Settlement"),
     )
 
     PAYER_TYPE_CHOICES = (
@@ -3964,6 +4033,23 @@ class BookingPayment(models.Model):
     paid_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.amount is not None and self.amount <= Decimal("0.00"):
+            errors["amount"] = "Payment amount must be greater than zero."
+
+        if self.booking_id and self.seller_id:
+            if self.seller.organisation_id != self.booking.organisation_id:
+                errors["seller"] = (
+                    "The seller must belong to the booking organisation."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
     def __str__(self):
         return f"{self.booking.booking_code} - {self.amount}"
 
@@ -3972,6 +4058,28 @@ class BookingPayment(models.Model):
         indexes = [
             models.Index(fields=["collected_by_party", "status"]),
             models.Index(fields=["settlement_status", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_payment_id"],
+                condition=~models.Q(provider_payment_id=""),
+                name="tkt_pay_provider_payment_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_checkout_id"],
+                condition=~models.Q(provider_checkout_id=""),
+                name="tkt_pay_provider_checkout_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_order_id"],
+                condition=~models.Q(provider_order_id=""),
+                name="tkt_pay_provider_order_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_capture_id"],
+                condition=~models.Q(provider_capture_id=""),
+                name="tkt_pay_provider_capture_uniq",
+            ),
         ]
 
 
@@ -4021,6 +4129,41 @@ class SellerCommission(models.Model):
     note = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.organisation_id and self.seller_id:
+            if self.seller.organisation_id != self.organisation_id:
+                errors["seller"] = (
+                    "The seller must belong to the commission organisation."
+                )
+
+        if self.organisation_id and self.booking_id:
+            if self.booking.organisation_id != self.organisation_id:
+                errors["booking"] = (
+                    "The booking must belong to the commission organisation."
+                )
+
+        non_negative_money_fields = (
+            "amount",
+            "customer_discount_amount",
+            "owner_net_amount",
+        )
+        for field_name in non_negative_money_fields:
+            value = getattr(self, field_name, None)
+            if value is not None and value < Decimal("0.00"):
+                errors[field_name] = "This amount cannot be negative."
+
+        for field_name in ("rate_used", "margin_percent_used"):
+            value = getattr(self, field_name, None)
+            if value is not None and not Decimal("0.00") <= value <= Decimal("100.00"):
+                errors[field_name] = "This percentage must be between 0 and 100."
+
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.seller.full_name} - {self.booking.booking_code} - {self.amount}"
@@ -4552,6 +4695,53 @@ class ProductBusinessAgreement(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.product_id and self.business_entity_id:
+            if (
+                self.business_entity.organisation_id
+                != self.product.organisation_id
+            ):
+                errors["business_entity"] = (
+                    "The business entity must belong to the product organisation."
+                )
+
+        if self.organisation_id and self.product_id:
+            if self.organisation_id != self.product.organisation_id:
+                errors["organisation"] = (
+                    "The agreement must belong to the product organisation."
+                )
+
+        for field_name in ("partner_fixed_amount", "platform_fixed_amount"):
+            value = getattr(self, field_name, None)
+            if value is not None and value < Decimal("0.00"):
+                errors[field_name] = "This amount cannot be negative."
+
+        for field_name in ("partner_percentage", "platform_percentage"):
+            value = getattr(self, field_name, None)
+            if (
+                value is not None
+                and not Decimal("0.00") <= value <= Decimal("100.00")
+            ):
+                errors[field_name] = (
+                    "This percentage must be between 0 and 100."
+                )
+
+        if (
+            self.effective_from
+            and self.effective_until
+            and self.effective_until < self.effective_from
+        ):
+            errors["effective_until"] = (
+                "The effective end date cannot be before the start date."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         if self.product_id:
             self.organisation = self.product.organisation
@@ -4654,6 +4844,78 @@ class BookingFinancialSnapshot(models.Model):
     def collected_total(self):
         return self.collected_by_platform + self.collected_by_partner + self.collected_by_seller
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.quantity is not None and self.quantity < 1:
+            errors["quantity"] = "Quantity must be at least 1."
+
+        non_negative_money_fields = (
+            "gross_amount",
+            "discount_amount",
+            "tax_amount",
+            "net_customer_amount",
+            "partner_entitlement",
+            "platform_entitlement",
+            "seller_entitlement",
+            "collected_by_platform",
+            "collected_by_partner",
+            "collected_by_seller",
+            "customer_balance_due",
+        )
+        for field_name in non_negative_money_fields:
+            value = getattr(self, field_name, None)
+            if value is not None and value < Decimal("0.00"):
+                errors[field_name] = "This amount cannot be negative."
+
+        if self.booking_item_id:
+            item_booking = self.booking_item.booking
+            item_organisation_id = item_booking.organisation_id
+
+            if self.booking_id and self.booking_id != item_booking.id:
+                errors["booking"] = (
+                    "The snapshot booking must match the booking item."
+                )
+
+            if (
+                self.organisation_id
+                and self.organisation_id != item_organisation_id
+            ):
+                errors["organisation"] = (
+                    "The snapshot organisation must match the booking item."
+                )
+
+            if (
+                self.business_entity_id
+                and self.business_entity.organisation_id
+                != item_organisation_id
+            ):
+                errors["business_entity"] = (
+                    "The business entity must belong to the booking organisation."
+                )
+
+            if (
+                self.agreement_id
+                and self.agreement.organisation_id != item_organisation_id
+            ):
+                errors["agreement"] = (
+                    "The agreement must belong to the booking organisation."
+                )
+
+        if (
+            self.agreement_id
+            and self.business_entity_id
+            and self.agreement.business_entity_id != self.business_entity_id
+        ):
+            errors["agreement"] = (
+                "The agreement must belong to the selected business entity."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         if self.booking_item_id:
             self.booking = self.booking_item.booking
@@ -4736,6 +4998,52 @@ class AdmissionToken(models.Model):
         if self.valid_until and now > self.valid_until:
             return False
         return self.remaining_admissions > 0
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.total_admissions is not None and self.total_admissions < 1:
+            errors["total_admissions"] = "Total admissions must be at least 1."
+
+        if (
+            self.valid_from
+            and self.valid_until
+            and self.valid_until < self.valid_from
+        ):
+            errors["valid_until"] = (
+                "The valid-until time cannot be before the valid-from time."
+            )
+
+        if self.booking_item_id:
+            item_booking = self.booking_item.booking
+            item_organisation_id = item_booking.organisation_id
+
+            if self.booking_id and self.booking_id != item_booking.id:
+                errors["booking"] = (
+                    "The token booking must match the booking item."
+                )
+
+            if (
+                self.organisation_id
+                and self.organisation_id != item_organisation_id
+            ):
+                errors["organisation"] = (
+                    "The token organisation must match the booking item."
+                )
+
+            if (
+                self.business_entity_id
+                and self.business_entity.organisation_id
+                != item_organisation_id
+            ):
+                errors["business_entity"] = (
+                    "The business entity must belong to the booking organisation."
+                )
+
+        if errors:
+            raise ValidationError(errors)
 
     def revoke(self, user=None, reason=""):
         self.status = "revoked"
@@ -4847,6 +5155,58 @@ class TicketScanAttempt(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     scanned_at = models.DateTimeField(default=timezone.now, db_index=True)
 
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.business_entity_id and self.organisation_id:
+            if self.business_entity.organisation_id != self.organisation_id:
+                errors["business_entity"] = (
+                    "The business entity must belong to the scan organisation."
+                )
+
+        if self.booking_id and self.organisation_id:
+            if self.booking.organisation_id != self.organisation_id:
+                errors["booking"] = (
+                    "The booking must belong to the scan organisation."
+                )
+
+        if self.booking_item_id:
+            if self.booking_id and self.booking_item.booking_id != self.booking_id:
+                errors["booking_item"] = (
+                    "The booking item must belong to the selected booking."
+                )
+            if (
+                self.organisation_id
+                and self.booking_item.booking.organisation_id
+                != self.organisation_id
+            ):
+                errors["booking_item"] = (
+                    "The booking item must belong to the scan organisation."
+                )
+
+        if self.admission_token_id:
+            token = self.admission_token
+            if (
+                self.organisation_id
+                and token.organisation_id != self.organisation_id
+            ):
+                errors["admission_token"] = (
+                    "The admission token must belong to the scan organisation."
+                )
+            if self.booking_id and token.booking_id != self.booking_id:
+                errors["admission_token"] = (
+                    "The admission token must belong to the selected booking."
+                )
+            if self.booking_item_id and token.booking_item_id != self.booking_item_id:
+                errors["admission_token"] = (
+                    "The admission token must belong to the selected booking item."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
     def __str__(self):
         return f"{self.result} - {self.scanned_at}"
 
@@ -4929,6 +5289,62 @@ class TicketAdmission(models.Model):
         related_name="ticketing_admissions_reversed",
     )
     reversal_reason = models.TextField(blank=True)
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.quantity_admitted is not None and self.quantity_admitted < 1:
+            errors["quantity_admitted"] = "Admitted quantity must be at least 1."
+
+        if self.booking_item_id:
+            item_booking = self.booking_item.booking
+            item_organisation_id = item_booking.organisation_id
+
+            if self.booking_id and self.booking_id != item_booking.id:
+                errors["booking"] = (
+                    "The admission booking must match the booking item."
+                )
+
+            if (
+                self.organisation_id
+                and self.organisation_id != item_organisation_id
+            ):
+                errors["organisation"] = (
+                    "The admission organisation must match the booking item."
+                )
+
+            if (
+                self.business_entity_id
+                and self.business_entity.organisation_id
+                != item_organisation_id
+            ):
+                errors["business_entity"] = (
+                    "The business entity must belong to the booking organisation."
+                )
+
+        if self.admission_token_id:
+            token = self.admission_token
+            if self.booking_id and token.booking_id != self.booking_id:
+                errors["admission_token"] = (
+                    "The admission token must belong to the selected booking."
+                )
+            if self.booking_item_id and token.booking_item_id != self.booking_item_id:
+                errors["admission_token"] = (
+                    "The admission token must belong to the selected booking item."
+                )
+            if (
+                self.business_entity_id
+                and token.business_entity_id
+                and token.business_entity_id != self.business_entity_id
+            ):
+                errors["admission_token"] = (
+                    "The admission token must belong to the selected business entity."
+                )
+
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def effective_quantity(self):
@@ -5057,6 +5473,49 @@ class TicketingLedgerEntry(models.Model):
         related_name="ticketing_ledger_entries_created",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        super().clean()
+
+        if not self.organisation_id:
+            return
+
+        errors = {}
+        related_organisations = {
+            "booking": (
+                self.booking.organisation_id if self.booking_id else None
+            ),
+            "booking_item": (
+                self.booking_item.booking.organisation_id
+                if self.booking_item_id
+                else None
+            ),
+            "booking_payment": (
+                self.booking_payment.booking.organisation_id
+                if self.booking_payment_id
+                else None
+            ),
+            "seller": (
+                self.seller.organisation_id if self.seller_id else None
+            ),
+            "business_entity": (
+                self.business_entity.organisation_id
+                if self.business_entity_id
+                else None
+            ),
+        }
+
+        for field, related_organisation_id in related_organisations.items():
+            if (
+                related_organisation_id is not None
+                and related_organisation_id != self.organisation_id
+            ):
+                errors[field] = (
+                    "Ledger relationships must belong to the ledger organisation."
+                )
+
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def signed_amount(self):
