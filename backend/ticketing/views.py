@@ -220,6 +220,7 @@ from .serializers import (
     calculate_seller_available_payout,
     SellerProductCommissionRuleSerializer,
     BookingSerializer,
+    PublicBookingSerializer,
     BookingItemSerializer,
     BookingPickupInfoSerializer,
     BookingPaymentSerializer,
@@ -2724,7 +2725,16 @@ class PickupLocationViewSet(
         search = self.request.query_params.get("search")
 
         if zone:
-            queryset = queryset.filter(Q(zone_id=zone) | Q(zone__name__icontains=zone))
+            zone_value = str(zone).strip()
+
+            if zone_value.isdigit():
+                queryset = queryset.filter(
+                    zone_id=int(zone_value)
+                )
+            else:
+                queryset = queryset.filter(
+                    zone__name__icontains=zone_value
+                )
 
         if location_type:
             queryset = queryset.filter(location_type=location_type)
@@ -8233,6 +8243,23 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
 
         return queryset
 
+    def _public_product_data(self, product):
+        serializer = self.get_serializer(product)
+        data = dict(serializer.data)
+
+        organisation = self.get_public_organisation()
+        site_settings = (
+            self.get_public_site_settings(organisation)
+            if organisation
+            else None
+        )
+
+        if site_settings and not site_settings.show_reviews:
+            data.pop("average_rating", None)
+            data.pop("review_count", None)
+
+        return data
+
     def retrieve(self, request, *args, **kwargs):
         organisation = self.get_public_organisation()
 
@@ -8255,8 +8282,7 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
         product = self.get_queryset().filter(slug=slug).first()
 
         if product:
-            serializer = self.get_serializer(product)
-            response = Response(serializer.data)
+            response = Response(self._public_product_data(product))
             response["Link"] = (
                 f'<{build_product_url(product, site_settings)}>; rel="canonical"'
             )
@@ -8279,8 +8305,7 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             return build_redirect_response(result)
 
         product = result.product
-        serializer = self.get_serializer(product)
-        response = Response(serializer.data)
+        response = Response(self._public_product_data(product))
         response["Link"] = (
             f'<{build_product_url(product, site_settings)}>; rel="canonical"'
         )
@@ -10315,9 +10340,16 @@ class PublicBlogPostViewSet(
         ordering = self.request.query_params.get("ordering")
 
         if category:
-            queryset = queryset.filter(
-                Q(category_id=category) | Q(category__slug=category)
-            )
+            category_value = str(category).strip()
+
+            if category_value.isdigit():
+                queryset = queryset.filter(
+                    category_id=int(category_value)
+                )
+            else:
+                queryset = queryset.filter(
+                    category__slug=category_value
+                )
 
         if featured in {"true", "false"}:
             queryset = queryset.filter(is_featured=featured == "true")
@@ -10392,7 +10424,16 @@ class PublicPickupLocationViewSet(PublicOrganisationMixin, viewsets.ReadOnlyMode
         search = self.request.query_params.get("search")
 
         if zone:
-            queryset = queryset.filter(Q(zone_id=zone) | Q(zone__name__icontains=zone))
+            zone_value = str(zone).strip()
+
+            if zone_value.isdigit():
+                queryset = queryset.filter(
+                    zone_id=int(zone_value)
+                )
+            else:
+                queryset = queryset.filter(
+                    zone__name__icontains=zone_value
+                )
 
         if location_type:
             queryset = queryset.filter(location_type=location_type)
@@ -10533,6 +10574,11 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
     authentication_classes = []
     http_method_names = ["get", "post", "head", "options"]
 
+    def get_serializer_class(self):
+        if self.action == "create":
+            return BookingSerializer
+        return PublicBookingSerializer
+
     def get_queryset(self):
         organisation = self.get_public_organisation()
 
@@ -10599,6 +10645,16 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
             or request.query_params.get("seller")
             or self.kwargs.get("seller_slug")
         )
+
+        if seller_slug and not settings_obj.allow_seller_bookings:
+            return Response(
+                {
+                    "detail": (
+                        "Seller bookings are disabled for this organisation."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if seller_slug:
             seller = Seller.objects.filter(
@@ -10722,7 +10778,7 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
                     )
                     mutable_data["offer_token"] = offer_token
 
-        serializer = self.get_serializer(
+        serializer = BookingSerializer(
             data=mutable_data,
             context={
                 "request": request,
@@ -10734,7 +10790,7 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
         booking = serializer.save(organisation=organisation)
         booking_finance.recalculate_booking_payment_totals(booking)
 
-        response_serializer = self.get_serializer(
+        response_serializer = PublicBookingSerializer(
             booking,
             context={
                 "request": request,
@@ -11039,6 +11095,14 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         provider_settings = TicketingPaymentProviderSettings.objects.filter(
             organisation=organisation,
             is_active=True,
@@ -11084,6 +11148,14 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
             return Response(
                 {"detail": "Organisation slug is required."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         provider_settings = TicketingPaymentProviderSettings.objects.filter(
@@ -11662,6 +11734,14 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         session_id = (
             request.data.get("session_id")
             or request.query_params.get("session_id")
@@ -11740,17 +11820,28 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
         stripe_payment_status = str(session_data.get("payment_status") or "").lower()
 
         if stripe_payment_status != "paid":
-            serializer = BookingSerializer(
-                booking,
-                context={"request": request, "organisation": organisation},
-            )
-
             return Response(
                 {
                     "provider": "stripe",
                     "confirmed": False,
                     "payment_status": stripe_payment_status or "unknown",
-                    "booking": serializer.data,
+                    "booking": {
+                    "id": booking.id,
+                    "booking_code": booking.booking_code,
+                    "status": booking.status,
+                    "payment_status": booking.payment_status,
+                    "payment_mode": booking.payment_mode,
+                    "payment_method": booking.payment_method,
+                    "service_date": booking.service_date,
+                    "service_time": booking.service_time,
+                    "customer_name": booking.customer_name,
+                    "primary_product": booking.primary_product_id,
+                    "total_amount": booking.total_amount,
+                    "deposit_required": booking.deposit_required,
+                    "deposit_paid": booking.deposit_paid,
+                    "balance_due": booking.balance_due,
+                    "confirmed_at": booking.confirmed_at,
+                },
                     "detail": "Stripe has not marked this Checkout Session as paid yet.",
                 },
                 status=status.HTTP_202_ACCEPTED,
@@ -11780,11 +11871,6 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
         # Notification delivery is handled centrally by the finance/Celery
         # transition pipeline. Do not send directly from this fallback endpoint.
 
-        serializer = BookingSerializer(
-            booking,
-            context={"request": request, "organisation": organisation},
-        )
-
         return Response(
             {
                 "provider": "stripe",
@@ -11792,7 +11878,23 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
                 "payment_id": confirmed_payment.id,
                 "booking_id": booking.id,
                 "booking_code": booking.booking_code,
-                "booking": serializer.data,
+                "booking": {
+                    "id": booking.id,
+                    "booking_code": booking.booking_code,
+                    "status": booking.status,
+                    "payment_status": booking.payment_status,
+                    "payment_mode": booking.payment_mode,
+                    "payment_method": booking.payment_method,
+                    "service_date": booking.service_date,
+                    "service_time": booking.service_time,
+                    "customer_name": booking.customer_name,
+                    "primary_product": booking.primary_product_id,
+                    "total_amount": booking.total_amount,
+                    "deposit_required": booking.deposit_required,
+                    "deposit_paid": booking.deposit_paid,
+                    "balance_due": booking.balance_due,
+                    "confirmed_at": booking.confirmed_at,
+                },
             }
         )
 
@@ -11830,6 +11932,14 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
             return Response(
                 {"detail": "Organisation slug is required."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         provider_settings = TicketingPaymentProviderSettings.objects.filter(
@@ -11959,6 +12069,14 @@ class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         provider_settings = TicketingPaymentProviderSettings.objects.filter(
             organisation=organisation,
             is_active=True,
@@ -12040,18 +12158,29 @@ class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
                 booking.booking_code,
             )
 
-        serializer = BookingSerializer(
-            booking,
-            context={"request": request, "organisation": organisation},
-        )
-
         return Response(
             {
                 "provider": "paypal",
                 "booking_id": booking.id,
                 "booking_code": booking.booking_code,
                 "status": capture_response.get("status", ""),
-                "booking": serializer.data,
+                "booking": {
+                    "id": booking.id,
+                    "booking_code": booking.booking_code,
+                    "status": booking.status,
+                    "payment_status": booking.payment_status,
+                    "payment_mode": booking.payment_mode,
+                    "payment_method": booking.payment_method,
+                    "service_date": booking.service_date,
+                    "service_time": booking.service_time,
+                    "customer_name": booking.customer_name,
+                    "primary_product": booking.primary_product_id,
+                    "total_amount": booking.total_amount,
+                    "deposit_required": booking.deposit_required,
+                    "deposit_paid": booking.deposit_paid,
+                    "balance_due": booking.balance_due,
+                    "confirmed_at": booking.confirmed_at,
+                },
             }
         )
 

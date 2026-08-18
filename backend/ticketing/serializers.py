@@ -3837,6 +3837,147 @@ class ProductReviewSerializer(serializers.ModelSerializer):
             "customer_full_name",
             "created_at",
         ]
+
+class PublicBookingProductSerializer(MediaURLMixin, serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExperienceProduct
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "product_type",
+            "short_description",
+            "image_url",
+            "adult_price",
+            "child_price",
+            "infant_price",
+            "deposit_amount",
+            "deposit_percentage",
+            "duration_text",
+            "location",
+            "supports_pickup",
+            "requires_pickup_location",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+
+class PublicBookingSellerSerializer(MediaURLMixin, serializers.ModelSerializer):
+    photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Seller
+        fields = [
+            "id",
+            "full_name",
+            "seller_slug",
+            "public_path",
+            "photo_url",
+        ]
+
+    def get_photo_url(self, obj):
+        if obj.user and getattr(obj.user, "avatar", None):
+            url = self.build_file_url(obj.user.avatar)
+            if url:
+                return url
+        return self.build_file_url(obj.photo)
+
+
+class PublicBookingItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookingItem
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "product_type",
+            "service_date",
+            "service_time",
+            "quantity",
+            "unit_price",
+            "total",
+            "instructions",
+        ]
+
+
+class PublicBookingReceiptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Receipt
+        fields = [
+            "receipt_number",
+            "public_url_token",
+        ]
+
+
+class PublicBookingSerializer(serializers.ModelSerializer):
+    """Restricted representation for unauthenticated booking endpoints."""
+
+    seller_detail = PublicBookingSellerSerializer(source="seller", read_only=True)
+    primary_product_detail = PublicBookingProductSerializer(
+        source="primary_product",
+        read_only=True,
+    )
+    items = PublicBookingItemSerializer(many=True, read_only=True)
+    receipt = PublicBookingReceiptSerializer(read_only=True)
+    total_guests = serializers.IntegerField(read_only=True)
+    is_fully_paid = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "booking_code",
+            "seller",
+            "seller_detail",
+            "primary_product",
+            "primary_product_detail",
+            "source",
+            "status",
+            "payment_status",
+            "payment_mode",
+            "payment_method",
+            "service_date",
+            "service_time",
+            "customer_name",
+            "customer_whatsapp",
+            "customer_email",
+            "customer_hotel",
+            "customer_notes",
+            "adults",
+            "children",
+            "infants",
+            "total_guests",
+            "original_price",
+            "subtotal_amount",
+            "customer_discount_percent",
+            "customer_discount_amount",
+            "discount_amount",
+            "tax_amount",
+            "total_amount",
+            "deposit_required",
+            "deposit_paid",
+            "balance_due",
+            "is_fully_paid",
+            "transfer_origin",
+            "transfer_destination",
+            "transfer_airport",
+            "transfer_flight_number",
+            "transfer_vehicle_type",
+            "transfer_round_trip",
+            "transfer_return_date",
+            "transfer_return_time",
+            "transfer_status",
+            "items",
+            "receipt",
+            "created_at",
+            "confirmed_at",
+        ]
+        read_only_fields = fields
+
+
 class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
