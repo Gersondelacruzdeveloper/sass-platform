@@ -3681,11 +3681,7 @@ class BookingPaymentSerializer(serializers.ModelSerializer):
 
 class BookingPaymentWriteSerializer(serializers.Serializer):
     seller_id = serializers.IntegerField(required=False, allow_null=True)
-    amount = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=Decimal("0.01"),
-    )
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     payment_type = serializers.ChoiceField(choices=BookingPayment.PAYMENT_TYPE_CHOICES)
     payer_type = serializers.ChoiceField(
         choices=BookingPayment.PAYER_TYPE_CHOICES,
@@ -4178,6 +4174,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
         customer = attrs.get("customer")
         seller = attrs.get("seller")
         primary_product = attrs.get("primary_product")
+        public_checkout = bool(self.context.get("public_checkout"))
 
         if customer:
             self.validate_same_organisation(customer, "customer")
@@ -4187,6 +4184,18 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         if primary_product:
             self.validate_same_organisation(primary_product, "primary_product")
+            if public_checkout and (
+                not primary_product.public_enabled
+                or not primary_product.is_active
+                or primary_product.status != "active"
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "primary_product": (
+                            "This product is not available for public booking."
+                        )
+                    }
+                )
 
         return attrs
 
@@ -4245,6 +4254,20 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             id=item_data["product_id"],
             organisation=organisation,
         )
+
+        if self.context.get("public_checkout") and (
+            not product.public_enabled
+            or not product.is_active
+            or product.status != "active"
+        ):
+            raise serializers.ValidationError(
+                {
+                    "items_payload": (
+                        "One or more selected products are not available "
+                        "for public booking."
+                    )
+                }
+            )
 
         package = None
         event_ticket_type = None
@@ -4632,25 +4655,45 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 )
 
             else:
-                if unit_price is None:
+                public_booking = bool(
+                    self.context.get("public_checkout")
+                )
+
+                if public_booking:
+                    # Public clients must never set authoritative local pricing.
+                    # Re-resolve price/cost from backend product/package data.
                     if package:
                         unit_price = package.price
+                        unit_cost = package.cost_price
                     elif event_ticket_type:
                         unit_price = event_ticket_type.price
+                        unit_cost = getattr(product, "adult_cost_price", None) or product.cost_price
                     elif external_snapshot:
                         unit_price = external_snapshot.price
-                    else:
-                        # Local excursion/product pricing now supports passenger categories.
-                        # For normal products, calculate the booking item total from:
-                        # (adults × adult_price) + (children × child_price) + (infants × infant_price).
-                        # Keep unit_price as the adult price for display/backwards compatibility.
-                        unit_price = getattr(product, "adult_price", None) or product.base_price
-
-                if unit_cost is None:
-                    if package:
-                        unit_cost = package.cost_price
-                    else:
                         unit_cost = getattr(product, "adult_cost_price", None) or product.cost_price
+                    else:
+                        unit_price = getattr(product, "adult_price", None) or product.base_price
+                        unit_cost = getattr(product, "adult_cost_price", None) or product.cost_price
+                else:
+                    if unit_price is None:
+                        if package:
+                            unit_price = package.price
+                        elif event_ticket_type:
+                            unit_price = event_ticket_type.price
+                        elif external_snapshot:
+                            unit_price = external_snapshot.price
+                        else:
+                            # Local excursion/product pricing now supports passenger categories.
+                            # For normal products, calculate the booking item total from:
+                            # (adults × adult_price) + (children × child_price) + (infants × infant_price).
+                            # Keep unit_price as the adult price for display/backwards compatibility.
+                            unit_price = getattr(product, "adult_price", None) or product.base_price
+
+                    if unit_cost is None:
+                        if package:
+                            unit_cost = package.cost_price
+                        else:
+                            unit_cost = getattr(product, "adult_cost_price", None) or product.cost_price
 
             item_total = unit_price * quantity
             item_cost_total = unit_cost * quantity
@@ -4660,7 +4703,10 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 and not package
                 and not event_ticket_type
                 and not external_snapshot
-                and not item_data.get("unit_price")
+                and (
+                    public_booking
+                    or not item_data.get("unit_price")
+                )
             ):
                 adults = Decimal(str(getattr(booking, "adults", 0) or 0))
                 children = Decimal(str(getattr(booking, "children", 0) or 0))

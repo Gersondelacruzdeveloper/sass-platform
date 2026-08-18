@@ -123,20 +123,23 @@ def _get_item_original_unit_price(item):
 
 
 def _get_item_original_total(item):
+    stored_total = money(
+        getattr(item, "original_total", ZERO)
+        or getattr(item, "subtotal", ZERO)
+        or getattr(item, "total", ZERO)
+        or ZERO
+    )
+
+    if stored_total > ZERO:
+        return round_money(stored_total)
+
     quantity = money(_get_item_quantity(item))
     original_unit_price = _get_item_original_unit_price(item)
 
     if original_unit_price > ZERO:
         return round_money(original_unit_price * quantity)
 
-    return round_money(
-        money(
-            getattr(item, "original_total", ZERO)
-            or getattr(item, "subtotal", ZERO)
-            or getattr(item, "total", ZERO)
-            or ZERO
-        )
-    )
+    return ZERO
 
 
 def get_booking_original_price(booking):

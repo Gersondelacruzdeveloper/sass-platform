@@ -356,7 +356,6 @@ class TicketingOrganisationMixin:
     def get_organisation(self):
         organisation_slug = (
             self.kwargs.get("organisation_slug")
-            or self.kwargs.get("slug")
             or self.request.query_params.get("organisation_slug")
             or self.request.query_params.get("slug")
         )
@@ -8075,7 +8074,6 @@ class PublicOrganisationMixin:
     def get_public_organisation(self):
         organisation_slug = (
             self.kwargs.get("organisation_slug")
-            or self.kwargs.get("slug")
             or self.request.query_params.get("organisation_slug")
             or self.request.query_params.get("slug")
         )
@@ -8208,9 +8206,15 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             queryset = queryset.filter(product_type=product_type)
 
         if category:
-            queryset = queryset.filter(
-                Q(category_id=category) | Q(category__slug=category)
-            )
+            category_value = str(category).strip()
+            if category_value.isdigit():
+                queryset = queryset.filter(
+                    category_id=int(category_value)
+                )
+            else:
+                queryset = queryset.filter(
+                    category__slug=category_value
+                )
 
         if featured in ["true", "false"]:
             queryset = queryset.filter(is_featured=featured == "true")
@@ -8247,6 +8251,17 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
             )
 
         slug = kwargs.get(self.lookup_field) or kwargs.get("slug") or ""
+
+        product = self.get_queryset().filter(slug=slug).first()
+
+        if product:
+            serializer = self.get_serializer(product)
+            response = Response(serializer.data)
+            response["Link"] = (
+                f'<{build_product_url(product, site_settings)}>; rel="canonical"'
+            )
+            return response
+
         path = f"/product/{slug}"
 
         result = resolve_public_product_url(
@@ -8266,7 +8281,9 @@ class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSe
         product = result.product
         serializer = self.get_serializer(product)
         response = Response(serializer.data)
-        response["Link"] = f'<{build_product_url(product, site_settings)}>; rel="canonical"'
+        response["Link"] = (
+            f'<{build_product_url(product, site_settings)}>; rel="canonical"'
+        )
         return response
 
 
@@ -10213,6 +10230,11 @@ class PublicCategoryViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewS
         if not organisation:
             return ExperienceCategory.objects.none()
 
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return ExperienceCategory.objects.none()
+
         return ExperienceCategory.objects.filter(
             organisation=organisation,
             is_active=True,
@@ -10526,6 +10548,17 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    def list(self, request, *args, **kwargs):
+        # Public booking data is never enumerable. Confirmation retrieval is
+        # exposed only through the explicit booking-code route, which injects
+        # ``booking_code`` into kwargs.
+        if not self.kwargs.get("booking_code"):
+            return Response(
+                {"detail": "Booking listing is not available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return super().list(request, *args, **kwargs)
+
     def create(self, request, *args, **kwargs):
         organisation = self.get_public_organisation()
 
@@ -10533,6 +10566,13 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
             return Response(
                 {"detail": "Organisation slug is required."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         settings_obj, created = TicketingSettings.objects.get_or_create(
@@ -10687,6 +10727,7 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
             context={
                 "request": request,
                 "organisation": organisation,
+                "public_checkout": True,
             },
         )
         serializer.is_valid(raise_exception=True)
@@ -13731,6 +13772,17 @@ class PartnerSettlementPaymentViewSet(
             "settlement__business_entity",
             "recorded_by",
         )
+
+        if not self.is_admin_user():
+            entity_ids = get_user_business_entity_accesses(
+                self.request.user,
+                organisation,
+            ).filter(
+                can_view_settlements=True,
+            ).values_list("business_entity_id", flat=True)
+            queryset = queryset.filter(
+                settlement__business_entity_id__in=entity_ids,
+            )
 
         settlement_id = self.request.query_params.get("settlement")
         payment_status = self.request.query_params.get("status")
