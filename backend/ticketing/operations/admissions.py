@@ -322,7 +322,7 @@ def _update_scan_attempt_after_admission(
 
 
 @transaction.atomic
-def admit_guests(
+def _admit_guests_atomic(
     raw_value,
     *,
     organisation,
@@ -345,11 +345,15 @@ def admit_guests(
     the same remaining admission at the same time.
     """
 
-    requested_quantity = int(requested_quantity or 1)
+    requested_quantity = int(
+        1 if requested_quantity in (None, "") else requested_quantity
+    )
     offline_event_id = _normalise_offline_event_id(offline_event_id)
 
     existing_attempt = _load_existing_offline_attempt(offline_event_id)
-    if existing_attempt:
+    if existing_attempt and (
+        scan_attempt is None or existing_attempt.pk != scan_attempt.pk
+    ):
         existing_admission = getattr(existing_attempt, "admission", None)
 
         if existing_admission:
@@ -510,6 +514,109 @@ def admit_guests(
                 request=request,
             )
         raise AdmissionValidationError(str(exc)) from exc
+
+
+def admit_guests(
+    raw_value,
+    *,
+    organisation,
+    business_entity: TicketingBusinessEntity | None = None,
+    admitted_by=None,
+    requested_quantity: int = 1,
+    scanner_device_id="",
+    scanner_name="",
+    location_name="",
+    notes="",
+    offline_event_id=None,
+    metadata=None,
+    request=None,
+    scan_attempt: TicketScanAttempt | None = None,
+) -> AdmissionResult:
+    """
+    Admit guests atomically while retaining rejected-scan audit records.
+
+    The locked mutation runs in its own transaction. If validation rejects the
+    scan, that transaction rolls back first; the failure audit row and any
+    durable expiry status are then written outside the failed transaction.
+    """
+
+    normalised_quantity = int(
+        1 if requested_quantity in (None, "") else requested_quantity
+    )
+    normalised_offline_event_id = _normalise_offline_event_id(offline_event_id)
+
+    try:
+        return _admit_guests_atomic(
+            raw_value,
+            organisation=organisation,
+            business_entity=business_entity,
+            admitted_by=admitted_by,
+            requested_quantity=normalised_quantity,
+            scanner_device_id=scanner_device_id,
+            scanner_name=scanner_name,
+            location_name=location_name,
+            notes=notes,
+            offline_event_id=normalised_offline_event_id,
+            metadata=metadata,
+            request=request,
+            scan_attempt=scan_attempt,
+        )
+    except (AdmissionConflictError, AdmissionValidationError) as exc:
+        token = None
+        try:
+            token_uuid = extract_token_uuid(raw_value)
+            token = AdmissionToken.objects.filter(
+                token=token_uuid,
+                organisation=organisation,
+            ).first()
+        except AdmissionTokenValidationError:
+            pass
+
+        offline_attempt_exists = bool(
+            normalised_offline_event_id
+            and TicketScanAttempt.objects.filter(
+                offline_event_id=normalised_offline_event_id
+            ).exists()
+        )
+
+        if token and not offline_attempt_exists:
+            now = timezone.now()
+            if (
+                token.status == "active"
+                and token.valid_until
+                and now > token.valid_until
+            ):
+                AdmissionToken.objects.filter(pk=token.pk).update(status="expired")
+                token.status = "expired"
+
+            audit_entity = business_entity or token.business_entity
+            if (
+                audit_entity
+                and audit_entity.organisation_id != organisation.id
+            ):
+                audit_entity = None
+
+            _record_failed_attempt(
+                token=token,
+                organisation=organisation,
+                business_entity=audit_entity,
+                scanned_by=admitted_by,
+                raw_value=raw_value,
+                requested_quantity=normalised_quantity,
+                result=(
+                    "already_used"
+                    if isinstance(exc, AdmissionConflictError)
+                    else "invalid"
+                ),
+                message=str(exc),
+                scanner_device_id=scanner_device_id,
+                scanner_name=scanner_name,
+                location_name=location_name,
+                offline_event_id=normalised_offline_event_id,
+                metadata=metadata,
+                request=request,
+            )
+        raise
 
 
 @transaction.atomic

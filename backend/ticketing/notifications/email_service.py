@@ -315,15 +315,17 @@ class BookingEmailService:
             return log
 
         except Exception as exc:
-            logger.exception(
-                "Booking email failed for booking %s",
+            logger.error(
+                "Booking email delivery failed for booking %s "
+                "using provider %s.",
                 booking.booking_code,
+                email_settings.provider,
             )
 
             log.status = "failed"
             log.provider_response = {
                 "audience": audience,
-                "error": str(exc),
+                "error": "Email provider request failed.",
                 "error_type": exc.__class__.__name__,
                 "provider": email_settings.provider,
             }

@@ -189,6 +189,7 @@ from .models import (
 from .serializers import (
     TicketingSettingsSerializer,
     TicketingPublicSiteSettingsSerializer,
+    PublicSEOSettingsSerializer,
     TicketingPaymentProviderSettingsSerializer,
     ExperienceCategorySerializer,
     ExperienceProductSerializer,
@@ -7419,6 +7420,22 @@ class SellerBookingsViewSet(
             booking
         )
 
+    @transaction.atomic
+    def perform_update(self, serializer):
+        organisation = self.require_organisation()
+        seller = self.require_seller()
+
+        if not seller:
+            raise PermissionDenied(
+                "No active seller profile was found "
+                "for this user."
+            )
+
+        serializer.save(
+            organisation=organisation,
+            seller=seller,
+        )
+
     @action(
         detail=True,
         methods=["post"],
@@ -11107,9 +11124,10 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
 
         try:
             checkout_session = stripe.checkout.Session.create(**session_payload)
-        except Exception as exc:
+        except Exception:
+            logger.error("Stripe checkout session creation failed.")
             return Response(
-                {"detail": str(exc)},
+                {"detail": "Payment provider request failed."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11312,42 +11330,46 @@ class StripeWebhookAPIView(APIView):
             is_active=provider_settings.is_active,
         )
 
-        if provider_settings.stripe_webhook_secret:
-            try:
-                event = stripe.Webhook.construct_event(
-                    payload,
-                    sig_header,
-                    provider_settings.stripe_webhook_secret,
-                )
-                self.webhook_log(
-                    "SIGNATURE_VERIFIED",
-                    event_id=stripe_obj_get(event, "id"),
-                    event_type=stripe_obj_get(event, "type"),
-                )
-            except Exception as exc:
-                self.webhook_log(
-                    "SIGNATURE_VERIFICATION_FAILED",
-                    organisation_id=organisation_id,
-                    event_id=event_id,
-                    error=str(exc),
-                    traceback=traceback.format_exc(),
-                )
-                return Response(
-                    {
-                        "received": False,
-                        "stage": "signature_verification_failed",
-                        "detail": str(exc),
-                        "traceback": traceback.format_exc(),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
+        if not provider_settings.stripe_webhook_secret:
             self.webhook_log(
-                "WEBHOOK_SECRET_EMPTY_USING_UNVERIFIED_EVENT",
+                "WEBHOOK_SECRET_NOT_CONFIGURED",
                 organisation_id=organisation_id,
                 event_id=event_id,
             )
-            event = unverified_event
+            return Response(
+                {
+                    "received": False,
+                    "stage": "webhook_secret_not_configured",
+                    "detail": "Stripe webhook is not configured for this organisation.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            event = stripe.Webhook.construct_event(
+                payload,
+                sig_header,
+                provider_settings.stripe_webhook_secret,
+            )
+            self.webhook_log(
+                "SIGNATURE_VERIFIED",
+                event_id=stripe_obj_get(event, "id"),
+                event_type=stripe_obj_get(event, "type"),
+            )
+        except Exception:
+            self.webhook_log(
+                "SIGNATURE_VERIFICATION_FAILED",
+                organisation_id=organisation_id,
+                event_id=event_id,
+            )
+            return Response(
+                {
+                    "received": False,
+                    "stage": "signature_verification_failed",
+                    "detail": "Invalid Stripe webhook signature.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         verified_event_type = stripe_obj_get(event, "type")
         verified_event_id = stripe_obj_get(event, "id")
@@ -11630,9 +11652,10 @@ class PublicStripeConfirmSessionAPIView(PublicOrganisationMixin, APIView):
                 session_id,
                 expand=["payment_intent"],
             )
-        except Exception as exc:
+        except Exception:
+            logger.error("Stripe checkout session retrieval failed.")
             return Response(
-                {"detail": str(exc)},
+                {"detail": "Payment provider request failed."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11840,9 +11863,10 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
             )
             response.raise_for_status()
             paypal_order = response.json()
-        except Exception as exc:
+        except Exception:
+            logger.error("PayPal order creation failed.")
             return Response(
-                {"detail": str(exc)},
+                {"detail": "Payment provider request failed."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11941,9 +11965,10 @@ class PublicPayPalCaptureOrderAPIView(PublicOrganisationMixin, APIView):
             )
             response.raise_for_status()
             capture_response = response.json()
-        except Exception as exc:
+        except Exception:
+            logger.error("PayPal order capture failed.")
             return Response(
-                {"detail": str(exc)},
+                {"detail": "Payment provider request failed."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -12025,7 +12050,7 @@ class PublicSEOAPIView(PublicOrganisationMixin, APIView):
 
         return Response(
             {
-                "site": TicketingPublicSiteSettingsSerializer(
+                "site": PublicSEOSettingsSerializer(
                     site_settings,
                     context={"request": request},
                 ).data,

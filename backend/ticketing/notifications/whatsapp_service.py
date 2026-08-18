@@ -243,7 +243,7 @@ class BookingWhatsAppService:
             )
         except requests.RequestException as exc:
             raise WhatsAppAPIError(
-                f"Could not reach the Meta WhatsApp API: {exc}"
+                "Could not reach the Meta WhatsApp API."
             ) from exc
 
         if not response.ok:

@@ -110,8 +110,31 @@ def send_booking_created_notifications_task(
     close_old_connections()
 
     try:
-        booking = _load_booking(booking_id)
-        logs = BookingNotificationService.booking_created(booking)
+        try:
+            booking = _load_booking(booking_id)
+            logs = BookingNotificationService.booking_created(booking)
+
+        except Booking.DoesNotExist:
+            logger.warning(
+                "Booking-created notification task skipped: booking id=%s "
+                "does not exist.",
+                booking_id,
+            )
+            return []
+
+        except self.MaxRetriesExceededError:
+            logger.exception(
+                "Booking-created notifications exhausted retries for booking id=%s.",
+                booking_id,
+            )
+            raise
+
+        except Exception as exc:
+            logger.exception(
+                "Booking-created notification task failed for booking id=%s.",
+                booking_id,
+            )
+            raise self.retry(exc=exc)
 
         if _has_failed_logs(logs):
             raise self.retry(
@@ -122,28 +145,6 @@ def send_booking_created_notifications_task(
             )
 
         return _serialize_logs(logs)
-
-    except Booking.DoesNotExist:
-        logger.warning(
-            "Booking-created notification task skipped: booking id=%s "
-            "does not exist.",
-            booking_id,
-        )
-        return []
-
-    except self.MaxRetriesExceededError:
-        logger.exception(
-            "Booking-created notifications exhausted retries for booking id=%s.",
-            booking_id,
-        )
-        raise
-
-    except Exception as exc:
-        logger.exception(
-            "Booking-created notification task failed for booking id=%s.",
-            booking_id,
-        )
-        raise self.retry(exc=exc)
 
     finally:
         close_old_connections()
@@ -177,18 +178,42 @@ def send_payment_confirmed_notifications_task(
     close_old_connections()
 
     try:
-        booking = _load_booking(booking_id)
+        try:
+            booking = _load_booking(booking_id)
 
-        if not BookingNotificationService.is_payment_confirmed(booking):
-            logger.info(
-                "Payment-confirmed notification task skipped for booking %s "
-                "because payment_status=%s.",
-                booking.booking_code,
-                booking.payment_status,
+            if not BookingNotificationService.is_payment_confirmed(booking):
+                logger.info(
+                    "Payment-confirmed notification task skipped for booking %s "
+                    "because payment_status=%s.",
+                    booking.booking_code,
+                    booking.payment_status,
+                )
+                return []
+
+            logs = BookingNotificationService.payment_confirmed(booking)
+
+        except Booking.DoesNotExist:
+            logger.warning(
+                "Payment-confirmed notification task skipped: booking id=%s "
+                "does not exist.",
+                booking_id,
             )
             return []
 
-        logs = BookingNotificationService.payment_confirmed(booking)
+        except self.MaxRetriesExceededError:
+            logger.exception(
+                "Payment-confirmed notifications exhausted retries for "
+                "booking id=%s.",
+                booking_id,
+            )
+            raise
+
+        except Exception as exc:
+            logger.exception(
+                "Payment-confirmed notification task failed for booking id=%s.",
+                booking_id,
+            )
+            raise self.retry(exc=exc)
 
         if _has_failed_logs(logs):
             raise self.retry(
@@ -199,29 +224,6 @@ def send_payment_confirmed_notifications_task(
             )
 
         return _serialize_logs(logs)
-
-    except Booking.DoesNotExist:
-        logger.warning(
-            "Payment-confirmed notification task skipped: booking id=%s "
-            "does not exist.",
-            booking_id,
-        )
-        return []
-
-    except self.MaxRetriesExceededError:
-        logger.exception(
-            "Payment-confirmed notifications exhausted retries for "
-            "booking id=%s.",
-            booking_id,
-        )
-        raise
-
-    except Exception as exc:
-        logger.exception(
-            "Payment-confirmed notification task failed for booking id=%s.",
-            booking_id,
-        )
-        raise self.retry(exc=exc)
 
     finally:
         close_old_connections()
@@ -298,52 +300,82 @@ def retry_failed_notification_task(
     close_old_connections()
 
     try:
-        log = NotificationLog.objects.select_related(
-            "booking",
-            "booking__organisation",
-        ).get(pk=notification_log_id)
+        try:
+            log = NotificationLog.objects.select_related(
+                "booking",
+                "booking__organisation",
+            ).get(pk=notification_log_id)
 
-        if log.status != "failed":
-            logger.info(
-                "Notification retry skipped for log id=%s because status=%s.",
+            if log.status != "failed":
+                logger.info(
+                    "Notification retry skipped for log id=%s because status=%s.",
+                    notification_log_id,
+                    log.status,
+                )
+                return _serialize_logs([log])
+
+            booking = _load_booking(log.booking_id)
+            provider_response = log.provider_response or {}
+            audience = str(provider_response.get("audience") or "").lower()
+
+            if audience == "owner":
+                new_log = BookingNotificationService.send_owner_notification(booking)
+                logs = [new_log] if new_log else []
+            elif audience == "customer":
+                if log.channel == "email":
+                    new_log = (
+                        BookingNotificationService.send_customer_email_confirmation(
+                            booking,
+                            require_payment=True,
+                        )
+                    )
+                elif log.channel == "whatsapp":
+                    new_log = (
+                        BookingNotificationService.send_customer_whatsapp_confirmation(
+                            booking,
+                            require_payment=True,
+                        )
+                    )
+                else:
+                    new_log = None
+
+                logs = [new_log] if new_log else []
+            else:
+                # Older logs may not contain audience metadata. Use the safest event
+                # based on current booking payment state.
+                if BookingNotificationService.is_payment_confirmed(booking):
+                    logs = BookingNotificationService.payment_confirmed(booking)
+                else:
+                    logs = BookingNotificationService.booking_created(booking)
+
+        except NotificationLog.DoesNotExist:
+            logger.warning(
+                "Notification retry skipped: notification log id=%s does not exist.",
                 notification_log_id,
-                log.status,
             )
-            return _serialize_logs([log])
+            return []
 
-        booking = _load_booking(log.booking_id)
-        provider_response = log.provider_response or {}
-        audience = str(provider_response.get("audience") or "").lower()
+        except Booking.DoesNotExist:
+            logger.warning(
+                "Notification retry skipped because its booking no longer exists. "
+                "notification_log_id=%s",
+                notification_log_id,
+            )
+            return []
 
-        if audience == "owner":
-            new_log = BookingNotificationService.send_owner_notification(booking)
-            logs = [new_log] if new_log else []
-        elif audience == "customer":
-            if log.channel == "email":
-                new_log = (
-                    BookingNotificationService.send_customer_email_confirmation(
-                        booking,
-                        require_payment=True,
-                    )
-                )
-            elif log.channel == "whatsapp":
-                new_log = (
-                    BookingNotificationService.send_customer_whatsapp_confirmation(
-                        booking,
-                        require_payment=True,
-                    )
-                )
-            else:
-                new_log = None
+        except self.MaxRetriesExceededError:
+            logger.exception(
+                "Notification retry exhausted retries for log id=%s.",
+                notification_log_id,
+            )
+            raise
 
-            logs = [new_log] if new_log else []
-        else:
-            # Older logs may not contain audience metadata. Use the safest event
-            # based on current booking payment state.
-            if BookingNotificationService.is_payment_confirmed(booking):
-                logs = BookingNotificationService.payment_confirmed(booking)
-            else:
-                logs = BookingNotificationService.booking_created(booking)
+        except Exception as exc:
+            logger.exception(
+                "Notification retry task failed for log id=%s.",
+                notification_log_id,
+            )
+            raise self.retry(exc=exc)
 
         if _has_failed_logs(logs):
             raise self.retry(
@@ -354,35 +386,6 @@ def retry_failed_notification_task(
             )
 
         return _serialize_logs(logs)
-
-    except NotificationLog.DoesNotExist:
-        logger.warning(
-            "Notification retry skipped: notification log id=%s does not exist.",
-            notification_log_id,
-        )
-        return []
-
-    except Booking.DoesNotExist:
-        logger.warning(
-            "Notification retry skipped because its booking no longer exists. "
-            "notification_log_id=%s",
-            notification_log_id,
-        )
-        return []
-
-    except self.MaxRetriesExceededError:
-        logger.exception(
-            "Notification retry exhausted retries for log id=%s.",
-            notification_log_id,
-        )
-        raise
-
-    except Exception as exc:
-        logger.exception(
-            "Notification retry task failed for log id=%s.",
-            notification_log_id,
-        )
-        raise self.retry(exc=exc)
 
     finally:
         close_old_connections()

@@ -619,7 +619,7 @@ def resolve_admission_token(
             requested_quantity=requested_quantity,
         )
 
-    def finish(ok, result, message):
+    def finish(ok, result, message, *, expose_token=True):
         attempt = None
         if record_attempt:
             attempt = _record_scan_attempt(
@@ -642,13 +642,18 @@ def resolve_admission_token(
             ok=ok,
             result=result,
             message=message,
-            token=token,
+            token=token if expose_token else None,
             requested_quantity=requested_quantity,
             scan_attempt=attempt,
         )
 
     if token.organisation_id != organisation.id:
-        return finish(False, "unauthorised", "This ticket belongs to another organisation.")
+        return finish(
+            False,
+            "unauthorised",
+            "This ticket belongs to another organisation.",
+            expose_token=False,
+        )
 
     if business_entity:
         if business_entity.organisation_id != organisation.id:

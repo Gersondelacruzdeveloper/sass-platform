@@ -143,21 +143,20 @@ def refresh_google_credentials(email_settings):
         try:
             credentials.refresh(Request())
         except RefreshError as exc:
-            error_text = str(exc)
             message = (
                 "Google authorization has expired or was revoked. "
                 "Reconnect the Google account in Email Settings."
             )
 
             logger.warning(
-                "Google OAuth refresh failed for organisation id=%s: %s",
+                "Google OAuth refresh failed for organisation id=%s; "
+                "reconnection is required.",
                 getattr(email_settings, "organisation_id", None),
-                error_text,
             )
 
             mark_google_reconnect_required(
                 email_settings,
-                f"{message} Google response: {error_text}",
+                message,
             )
             raise GoogleOAuthReconnectRequired(message) from exc
 

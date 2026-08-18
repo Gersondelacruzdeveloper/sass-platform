@@ -371,6 +371,45 @@ class TicketingPublicSiteSettingsSerializer(MediaURLMixin, serializers.ModelSeri
         return self.build_file_url(obj.og_image)
 
 
+PUBLIC_SEO_PRIVATE_FIELDS = {
+    "domain_status",
+    "domain_verified_at",
+    "domain_last_checked_at",
+    "domain_error_message",
+    "aws_acm_certificate_arn",
+    "aws_acm_certificate_status",
+    "aws_acm_requested_at",
+    "aws_acm_validation_record_name",
+    "aws_acm_validation_record_type",
+    "aws_acm_validation_record_value",
+    "cloudfront_distribution_id",
+    "cloudfront_domain_name",
+    "cloudfront_alias_added_at",
+    "dns_records_payload",
+    "domain_dns_records",
+}
+
+PUBLIC_SEO_FIELDS = [
+    field
+    for field in TicketingPublicSiteSettingsSerializer.Meta.fields
+    if field not in PUBLIC_SEO_PRIVATE_FIELDS
+]
+
+PUBLIC_SEO_READ_ONLY_FIELDS = [
+    field
+    for field in TicketingPublicSiteSettingsSerializer.Meta.read_only_fields
+    if field in PUBLIC_SEO_FIELDS
+]
+
+
+class PublicSEOSettingsSerializer(TicketingPublicSiteSettingsSerializer):
+    """Public-only site serializer with infrastructure details removed."""
+
+    class Meta(TicketingPublicSiteSettingsSerializer.Meta):
+        fields = PUBLIC_SEO_FIELDS
+        read_only_fields = PUBLIC_SEO_READ_ONLY_FIELDS
+
+
 class ExperienceCategorySerializer(MediaURLMixin, serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
@@ -959,6 +998,7 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
     )
 
     configured = serializers.SerializerMethodField()
+    last_error_message = serializers.SerializerMethodField()
 
     class Meta:
         model = TicketingEmailSettings
@@ -1043,6 +1083,14 @@ class TicketingEmailSettingsSerializer(serializers.ModelSerializer):
     def get_configured(self, obj):
         return obj.has_credentials
 
+    def get_last_error_message(self, obj):
+        # Provider exceptions can contain credentials, tokens, request payloads,
+        # or other sensitive diagnostics. Keep the stored backend value private
+        # and expose only a stable, non-sensitive status message to API clients.
+        if not obj.last_error_message:
+            return ""
+        return "Provider connection failed."
+
     def update(self, instance, validated_data):
         # Don't overwrite the saved SMTP password if the frontend sends ""
         if (
@@ -1070,6 +1118,7 @@ class TicketingWhatsAppSettingsSerializer(serializers.ModelSerializer):
 
     configured = serializers.SerializerMethodField()
     connected = serializers.SerializerMethodField()
+    last_error_message = serializers.SerializerMethodField()
     has_credentials = serializers.SerializerMethodField()
     is_connected = serializers.SerializerMethodField()
     masked_phone_number_id = serializers.CharField(read_only=True)
@@ -1190,6 +1239,14 @@ class TicketingWhatsAppSettingsSerializer(serializers.ModelSerializer):
 
     def get_is_connected(self, obj):
         return obj.is_connected
+
+    def get_last_error_message(self, obj):
+        # Meta/WhatsApp provider exceptions may include access tokens, app
+        # secrets, webhook credentials, or request details. Never serialize
+        # the stored diagnostic message back to API clients.
+        if not obj.last_error_message:
+            return ""
+        return "Provider connection failed."
 
     def update(self, instance, validated_data):
         # Do not erase stored secrets when password fields are left blank.
@@ -3624,7 +3681,11 @@ class BookingPaymentSerializer(serializers.ModelSerializer):
 
 class BookingPaymentWriteSerializer(serializers.Serializer):
     seller_id = serializers.IntegerField(required=False, allow_null=True)
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
     payment_type = serializers.ChoiceField(choices=BookingPayment.PAYMENT_TYPE_CHOICES)
     payer_type = serializers.ChoiceField(
         choices=BookingPayment.PAYER_TYPE_CHOICES,
