@@ -1942,6 +1942,24 @@ class PublicExperienceProductSerializer(ExperienceProductSerializer):
             for field in ExperienceProductSerializer.Meta.fields
             if field
             not in {
+                "organisation",
+                "organisation_name",
+                "category",
+                "category_id",
+                "category_detail",
+                "sku",
+                "external_provider",
+                "external_product_id",
+                "imported_from_url",
+                "imported_from_domain",
+                "preserve_legacy_url",
+                "status",
+                "is_active",
+                "created_by",
+                "created_at",
+                "updated_at",
+                "view_count",
+                "booking_count",
                 "cost_price",
                 "adult_cost_price",
                 "child_cost_price",
@@ -1949,7 +1967,7 @@ class PublicExperienceProductSerializer(ExperienceProductSerializer):
                 "seller_margin_percent",
                 "seller_allowed_discount_percent",
                 "profit_per_unit",
-                "created_by",
+                "url_aliases",
             }
         ]
 
