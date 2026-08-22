@@ -193,6 +193,7 @@ from .serializers import (
     TicketingPaymentProviderSettingsSerializer,
     ExperienceCategorySerializer,
     ExperienceProductSerializer,
+    PublicExperienceProductSerializer,
     ProductGalleryImageSerializer,
     BlogCategorySerializer,
     BlogPostSerializer,
@@ -205,6 +206,7 @@ from .serializers import (
     PickupZoneSerializer,
     PickupLocationSerializer,
     ProductPickupScheduleSerializer,
+    PublicPickupLocationSerializer,
     CustomerSerializer,
     SellerSerializer,
     SellerSignupInviteSerializer,
@@ -8148,6 +8150,101 @@ class PublicBrandingAPIView(PublicOrganisationMixin, APIView):
             organisation=organisation,
         )
 
+        public_site_data = TicketingPublicSiteSettingsSerializer(
+            site_settings,
+            context={"request": request},
+        ).data
+
+        public_site_allowed_fields = {
+            "id",
+            "organisation",
+            "organisation_name",
+            "site_title",
+            "display_title",
+            "public_description",
+            "hero_title",
+            "hero_subtitle",
+            "primary_cta_label",
+            "secondary_cta_label",
+            "whatsapp_cta_label",
+            "public_email",
+            "public_whatsapp",
+            "subdomain",
+            "custom_domain",
+            "domain_status",
+            "logo",
+            "logo_url",
+            "favicon",
+            "favicon_url",
+            "hero_media_type",
+            "hero_image",
+            "hero_image_url",
+            "hero_video",
+            "hero_video_file_url",
+            "hero_video_url",
+            "hero_video_poster",
+            "hero_video_poster_url",
+            "hero_overlay_opacity",
+            "primary_color",
+            "secondary_color",
+            "accent_color",
+            "background_color",
+            "button_color",
+            "text_color",
+            "muted_text_color",
+            "card_background_color",
+            "homepage_layout_style",
+            "trust_badges",
+            "show_category_grid",
+            "show_trust_badges",
+            "show_excursions_section",
+            "show_transfers_section",
+            "show_tickets_section",
+            "show_events_section",
+            "show_nightlife_section",
+            "show_packages_section",
+            "show_ai_assistant_section",
+            "show_final_cta_section",
+            "excursions_section_title",
+            "excursions_section_subtitle",
+            "transfers_section_title",
+            "transfers_section_subtitle",
+            "tickets_section_title",
+            "tickets_section_subtitle",
+            "events_section_title",
+            "events_section_subtitle",
+            "nightlife_section_title",
+            "nightlife_section_subtitle",
+            "packages_section_title",
+            "packages_section_subtitle",
+            "ai_assistant_title",
+            "ai_assistant_subtitle",
+            "final_cta_title",
+            "final_cta_subtitle",
+            "seo_title",
+            "meta_description",
+            "canonical_url",
+            "product_url_pattern",
+            "custom_product_url_pattern",
+            "preserve_imported_product_urls",
+            "auto_create_product_redirects",
+            "og_title",
+            "og_description",
+            "og_image",
+            "og_image_url",
+            "robots_allow_indexing",
+            "robots_allow_ai_crawlers",
+            "allow_gptbot",
+            "allow_oai_searchbot",
+            "json_ld_local_business",
+            "show_public_rankings",
+            "show_seller_public_pages",
+            "show_reviews",
+            "is_published",
+            "created_at",
+            "updated_at",
+        }
+
         return Response(
             {
                 "organisation": {
@@ -8161,16 +8258,17 @@ class PublicBrandingAPIView(PublicOrganisationMixin, APIView):
                     ticketing_settings,
                     context={"request": request},
                 ).data,
-                "public_site": TicketingPublicSiteSettingsSerializer(
-                    site_settings,
-                    context={"request": request},
-                ).data,
+                "public_site": {
+                    key: value
+                    for key, value in public_site_data.items()
+                    if key in public_site_allowed_fields
+                },
             }
         )
 
 
 class PublicProductViewSet(PublicOrganisationMixin, viewsets.ReadOnlyModelViewSet):
-    serializer_class = ExperienceProductSerializer
+    serializer_class = PublicExperienceProductSerializer
     lookup_field = "slug"
     permission_classes = [permissions.AllowAny]
 
@@ -8991,6 +9089,68 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
 
         return serialized
 
+    @staticmethod
+    def _sanitize_public_product_data(product_data):
+        """Remove private commercial and URL-management fields recursively."""
+
+        blocked_keys = {
+            "cost_price",
+            "adult_cost_price",
+            "child_cost_price",
+            "infant_cost_price",
+            "profit_per_unit",
+            "seller_margin_percent",
+            "seller_allowed_discount_percent",
+            "imported_from_url",
+            "imported_from_domain",
+            "preserve_legacy_url",
+            "created_by",
+            "original_full_url",
+            "notes",
+            "hit_count",
+            "last_hit_at",
+        }
+
+        def clean(value):
+            if isinstance(value, dict):
+                return {
+                    key: clean(item)
+                    for key, item in value.items()
+                    if key not in blocked_keys
+                }
+
+            if isinstance(value, list):
+                return [clean(item) for item in value]
+
+            return value
+
+        sanitized = clean(product_data)
+
+        # URL aliases are useful to the resolver internally, but the public
+        # response only needs safe routing metadata.
+        aliases = sanitized.get("url_aliases")
+        if isinstance(aliases, list):
+            alias_allowed_fields = {
+                "id",
+                "path",
+                "is_primary",
+                "is_active",
+                "redirect_to_primary",
+                "redirect_type",
+                "source",
+            }
+            sanitized["url_aliases"] = [
+                {
+                    key: value
+                    for key, value in alias.items()
+                    if key in alias_allowed_fields
+                }
+                for alias in aliases
+                if isinstance(alias, dict) and alias.get("is_active", True)
+            ]
+
+        return sanitized
+
     def _apply_offer_to_product_data(
         self,
         *,
@@ -9100,8 +9260,12 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             },
         )
 
+        public_product_data = self._sanitize_public_product_data(
+            serializer.data
+        )
+
         product_data = self._apply_offer_to_product_data(
-            product_data=serializer.data,
+            product_data=public_product_data,
             offer=offer,
         )
 
@@ -10395,7 +10559,7 @@ class PublicPickupLocationViewSet(PublicOrganisationMixin, viewsets.ReadOnlyMode
     PickupLocationViewSet. It only exposes active pickup locations for a
     published public ticketing site.
     """
-    serializer_class = PickupLocationSerializer
+    serializer_class = PublicPickupLocationSerializer
     permission_classes = [permissions.AllowAny]
     http_method_names = ["get", "head", "options"]
 
@@ -10603,6 +10767,23 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
                 {"detail": "Booking listing is not available."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        organisation = self.get_public_organisation()
+
+        if not organisation:
+            return Response(
+                {"detail": "Organisation slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        site_settings = self.get_public_site_settings(organisation)
+
+        if not site_settings:
+            return Response(
+                {"detail": "Public site is not published."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         return super().list(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):

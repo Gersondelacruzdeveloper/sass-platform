@@ -426,6 +426,15 @@ class PublicCustomerCartSessionResolveView(APIView):
         if organisation is None:
             return _public_cart_not_found()
 
+        from ticketing.models import TicketingPublicSiteSettings
+
+        site_settings = TicketingPublicSiteSettings.objects.filter(
+            organisation=organisation,
+            is_published=True,
+        ).first()
+        if site_settings is None:
+            return _public_cart_not_found()
+
         token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
         cart = (
             CustomerItineraryCart.objects.filter(
@@ -491,6 +500,15 @@ class PublicCustomerCartSessionConvertView(APIView):
             is_active=True,
         ).first()
         if organisation is None:
+            return _public_cart_not_found()
+
+        from ticketing.models import TicketingPublicSiteSettings
+
+        site_settings = TicketingPublicSiteSettings.objects.filter(
+            organisation=organisation,
+            is_published=True,
+        ).first()
+        if site_settings is None:
             return _public_cart_not_found()
 
         values = payload.validated_data

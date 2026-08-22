@@ -493,6 +493,21 @@ class ExperiencePackageSerializer(OrganisationScopedSerializerMixin, serializers
         return attrs
 
 
+class PublicExperiencePackageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExperiencePackage
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "deposit_amount",
+            "capacity",
+            "is_default",
+            "sort_order",
+        ]
+
+
 class ProductAvailabilitySerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     package_name = serializers.CharField(source="package.name", read_only=True)
@@ -589,6 +604,22 @@ class ProductAvailabilitySerializer(OrganisationScopedSerializerMixin, serialize
 
 
 
+class PublicProductAvailabilitySerializer(serializers.ModelSerializer):
+    remaining_capacity = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ProductAvailability
+        fields = [
+            "id",
+            "date",
+            "available_capacity",
+            "booked_quantity",
+            "remaining_capacity",
+            "price_override",
+            "deposit_override",
+        ]
+
+
 class PickupZoneSerializer(serializers.ModelSerializer):
     organisation_name = serializers.CharField(
         source="organisation.name",
@@ -667,6 +698,25 @@ class PickupLocationSerializer(OrganisationScopedSerializerMixin, serializers.Mo
             self.validate_same_organisation(zone, "zone_id")
 
         return attrs
+
+
+class PublicPickupLocationSerializer(serializers.ModelSerializer):
+    zone_name = serializers.CharField(source="zone.name", read_only=True)
+
+    class Meta:
+        model = PickupLocation
+        fields = [
+            "id",
+            "zone",
+            "zone_name",
+            "name",
+            "slug",
+            "location_type",
+            "address",
+            "default_pickup_point",
+            "default_instructions",
+            "google_maps_link",
+        ]
 
 
 class ProductPickupScheduleSerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
@@ -875,6 +925,70 @@ class TransferRouteSerializer(OrganisationScopedSerializerMixin, serializers.Mod
                 )
 
         return attrs
+
+
+class PublicTransferPriceBandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TransferPriceBand
+        fields = [
+            "id",
+            "name",
+            "min_passengers",
+            "max_passengers",
+            "vehicle_type",
+            "one_way_price",
+            "round_trip_price",
+            "sort_order",
+        ]
+
+
+class PublicTransferRouteSerializer(serializers.ModelSerializer):
+    price_bands = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TransferRoute
+        fields = [
+            "id",
+            "origin",
+            "destination",
+            "airport",
+            "vehicle_type",
+            "is_round_trip",
+            "base_passengers",
+            "max_passengers",
+            "price",
+            "round_trip_price",
+            "price_bands",
+        ]
+
+    def get_price_bands(self, obj):
+        queryset = obj.price_bands.filter(is_active=True).order_by(
+            "sort_order",
+            "min_passengers",
+        )
+        return PublicTransferPriceBandSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class PublicEventTicketTypeSerializer(serializers.ModelSerializer):
+    available_tickets = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = EventTicketType
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "deposit_amount",
+            "capacity",
+            "sold_quantity",
+            "available_tickets",
+            "sort_order",
+        ]
 
 
 class EventTicketTypeSerializer(OrganisationScopedSerializerMixin, serializers.ModelSerializer):
@@ -1404,6 +1518,25 @@ class ProductGalleryImageSerializer(
         return attrs
 
 
+class PublicProductGalleryImageSerializer(MediaURLMixin, serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductGalleryImage
+        fields = [
+            "id",
+            "image",
+            "image_url",
+            "alt_text",
+            "caption",
+            "sort_order",
+            "is_cover",
+        ]
+
+    def get_image_url(self, obj):
+        return self.build_file_url(obj.image)
+
+
 class ProductURLAliasSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductURLAlias
@@ -1772,6 +1905,89 @@ class ExperienceProductSerializer(
             pass
 
         return product
+
+
+class PublicExperienceProductSerializer(ExperienceProductSerializer):
+    packages = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
+    transfer_routes = serializers.SerializerMethodField()
+    event_ticket_types = serializers.SerializerMethodField()
+
+    class Meta(ExperienceProductSerializer.Meta):
+        fields = [
+            field
+            for field in ExperienceProductSerializer.Meta.fields
+            if field
+            not in {
+                "cost_price",
+                "adult_cost_price",
+                "child_cost_price",
+                "infant_cost_price",
+                "seller_margin_percent",
+                "seller_allowed_discount_percent",
+                "profit_per_unit",
+                "created_by",
+            }
+        ]
+
+    def get_packages(self, obj):
+        queryset = obj.packages.filter(is_active=True).order_by(
+            "sort_order",
+            "price",
+        )
+        return PublicExperiencePackageSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_gallery_images(self, obj):
+        queryset = obj.gallery_images.filter(is_active=True).order_by(
+            "sort_order",
+            "id",
+        )
+        return PublicProductGalleryImageSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_availability(self, obj):
+        queryset = obj.availability.filter(
+            is_available=True,
+            date__gte=timezone.localdate(),
+        ).order_by(
+            "date",
+            "id",
+        )
+        return PublicProductAvailabilitySerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_transfer_routes(self, obj):
+        queryset = obj.transfer_routes.filter(is_active=True).order_by(
+            "origin",
+            "destination",
+        )
+        return PublicTransferRouteSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_event_ticket_types(self, obj):
+        queryset = obj.event_ticket_types.filter(is_active=True).order_by(
+            "sort_order",
+            "price",
+        )
+        return PublicEventTicketTypeSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
 
 
 BLOG_SUPPORTED_LANGUAGES = {"en", "es", "fr", "pt", "de"}
@@ -3892,6 +4108,7 @@ class PublicBookingItemSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "product",
+            "product_name_display",
             "product_name",
             "product_type",
             "service_date",
