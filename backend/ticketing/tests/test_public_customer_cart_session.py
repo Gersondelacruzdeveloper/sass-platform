@@ -17,7 +17,10 @@ from ticketing.customer_ai_models import (
     CustomerItineraryCart,
     CustomerItineraryCartItem,
 )
-from ticketing.models import ExperienceProduct
+from ticketing.models import (
+    ExperienceProduct,
+    TicketingPublicSiteSettings,
+)
 
 
 class PublicCustomerCartSessionTests(TestCase):
@@ -35,6 +38,18 @@ class PublicCustomerCartSessionTests(TestCase):
             business_type="ticketing",
             is_active=True,
         )
+
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.organisation,
+            site_title="Public Cart Session Site",
+            is_published=True,
+        )
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.other_organisation,
+            site_title="Other Public Cart Session Site",
+            is_published=True,
+        )
+
         cls.product = ExperienceProduct.objects.create(
             organisation=cls.organisation,
             name="Saona Island",

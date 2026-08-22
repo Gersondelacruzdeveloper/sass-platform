@@ -16,6 +16,7 @@ from ticketing.customer_cart_conversion_service import (
     CustomerCartConversionRepositoryError,
     CustomerCartConversionValidationError,
 )
+from ticketing.models import TicketingPublicSiteSettings
 
 
 VIEW_MODULE = "ticketing.customer_ai_views"
@@ -37,6 +38,12 @@ class PublicCustomerCartConversionTests(APITestCase):
             slug="inactive-cart-conversion",
             business_type="ticketing",
             is_active=False,
+        )
+
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.organisation,
+            site_title="Public Cart Conversion Site",
+            is_published=True,
         )
 
     def setUp(self):

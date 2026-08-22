@@ -21,6 +21,7 @@ from ticketing.models import (
     Booking,
     BookingPayment,
     TicketingPaymentProviderSettings,
+    TicketingPublicSiteSettings,
     TicketingSettings,
 )
 
@@ -67,6 +68,17 @@ class PaymentProviderAPITests(APITestCase):
         TicketingSettings.objects.create(
             organisation=cls.other_organisation,
             default_currency="EUR",
+        )
+
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.organisation,
+            site_title="Payment API Site",
+            is_published=True,
+        )
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.other_organisation,
+            site_title="Other Payment API Site",
+            is_published=True,
         )
 
     def setUp(self):

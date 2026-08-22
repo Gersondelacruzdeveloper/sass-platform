@@ -26,7 +26,7 @@ from ticketing.customer_ai_models import (
     CustomerItineraryCart,
     CustomerItineraryCartItem,
 )
-from ticketing.models import Booking, ExperienceProduct
+from ticketing.models import Booking, ExperienceProduct, TicketingPublicSiteSettings
 
 
 class CustomerAIAPITests(APITestCase):
@@ -49,6 +49,17 @@ class CustomerAIAPITests(APITestCase):
             slug="customer-ai-inactive",
             business_type="ticketing",
             is_active=False,
+        )
+
+        cls.site_a = TicketingPublicSiteSettings.objects.create(
+            organisation=cls.org_a,
+            site_title="Customer AI Site A",
+            is_published=True,
+        )
+        cls.site_b = TicketingPublicSiteSettings.objects.create(
+            organisation=cls.org_b,
+            site_title="Customer AI Site B",
+            is_published=True,
         )
 
         User = get_user_model()

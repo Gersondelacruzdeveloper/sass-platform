@@ -1,493 +1,307 @@
-"""End-to-end public Customer AI cart conversion integration tests.
-
-Unlike the boundary/unit suites, these tests do not mock
-DjangoCustomerCartConversionService or DjangoCustomerCartValidator. They
-exercise the public endpoint through live tenant/product availability,
-promotion evaluation, BookingSerializer persistence, cart consumption, and
-idempotent replay.
-"""
+"""Tests for the public customer cart-session conversion endpoint."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from django.urls import reverse
-from django.utils import timezone
 from organisations.models import Organisation
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from ticketing.customer_ai_models import (
-    CustomerAIConversation,
-    CustomerAIMessage,
-    CustomerItineraryCart,
-    CustomerItineraryCartItem,
+from ticketing.customer_cart_conversion_service import (
+    CustomerCartConversionChangedError,
+    CustomerCartConversionNotFoundError,
+    CustomerCartConversionRepositoryError,
+    CustomerCartConversionValidationError,
 )
-from ticketing.models import (
-    Booking,
-    ExperienceProduct,
-    ProductAvailability,
-    TicketingPublicSiteSettings,
-)
+from ticketing.models import TicketingPublicSiteSettings
 
 
-class PublicCustomerCartConversionIntegrationTests(APITestCase):
+VIEW_MODULE = "ticketing.customer_ai_views"
+
+
+class PublicCustomerCartConversionTests(APITestCase):
+    """Verify the unauthenticated, tenant-scoped checkout boundary."""
+
     @classmethod
     def setUpTestData(cls):
-        cls.org_a = Organisation.objects.create(
-            name="Customer Cart Integration A",
-            slug="customer-cart-integration-a",
+        cls.organisation = Organisation.objects.create(
+            name="Punta Cana Discovery",
+            slug="public-cart-conversion",
             business_type="ticketing",
             is_active=True,
         )
-        cls.org_b = Organisation.objects.create(
-            name="Customer Cart Integration B",
-            slug="customer-cart-integration-b",
+        cls.inactive_organisation = Organisation.objects.create(
+            name="Inactive Tours",
+            slug="inactive-cart-conversion",
             business_type="ticketing",
-            is_active=True,
+            is_active=False,
         )
 
-        cls.site_a = TicketingPublicSiteSettings.objects.create(
-            organisation=cls.org_a,
-            site_title="Customer Cart Integration Site A",
-            custom_domain="customer-cart-integration-a.example.test",
+        TicketingPublicSiteSettings.objects.create(
+            organisation=cls.organisation,
+            site_title="Public Cart Conversion Site",
             is_published=True,
-        )
-        cls.site_b = TicketingPublicSiteSettings.objects.create(
-            organisation=cls.org_b,
-            site_title="Customer Cart Integration Site B",
-            custom_domain="customer-cart-integration-b.example.test",
-            is_published=True,
-        )
-
-        cls.service_date = date.today() + timedelta(days=10)
-
-        cls.product_a = ExperienceProduct.objects.create(
-            organisation=cls.org_a,
-            name="Integration Excursion A",
-            slug="integration-excursion-a",
-            sku="CART-INTEGRATION-A",
-            product_type="excursion",
-            status="active",
-            is_active=True,
-            public_enabled=True,
-            supports_pickup=False,
-            requires_pickup_location=False,
-            adult_price=Decimal("100.00"),
-            child_price=Decimal("50.00"),
-            infant_price=Decimal("0.00"),
-            base_price=Decimal("100.00"),
-            deposit_amount=Decimal("25.00"),
-        )
-        cls.product_b = ExperienceProduct.objects.create(
-            organisation=cls.org_b,
-            name="Foreign Integration Excursion",
-            slug="foreign-integration-excursion",
-            sku="CART-INTEGRATION-B",
-            product_type="excursion",
-            status="active",
-            is_active=True,
-            public_enabled=True,
-            supports_pickup=False,
-            adult_price=Decimal("200.00"),
-            base_price=Decimal("200.00"),
-        )
-
-        ProductAvailability.objects.create(
-            product=cls.product_a,
-            date=cls.service_date,
-            available_capacity=20,
-            booked_quantity=0,
-            price_override=Decimal("100.00"),
-            is_available=True,
-        )
-        ProductAvailability.objects.create(
-            product=cls.product_b,
-            date=cls.service_date,
-            available_capacity=20,
-            booked_quantity=0,
-            price_override=Decimal("200.00"),
-            is_available=True,
         )
 
     def setUp(self):
-        self.conversation_a = CustomerAIConversation.objects.create(
-            organisation=self.org_a,
-            channel=CustomerAIConversation.CHANNEL_WEBCHAT,
-            external_customer_id=f"integration-a-{timezone.now().timestamp()}",
-            status=CustomerAIConversation.STATUS_ACTIVE,
-            language="en",
-            customer_name="Integration Customer",
-            adults=1,
-        )
-        self.approval_a = CustomerAIMessage.objects.create(
-            conversation=self.conversation_a,
-            direction=CustomerAIMessage.DIRECTION_INBOUND,
-            role=CustomerAIMessage.ROLE_CUSTOMER,
-            external_message_id=f"approval-{self.conversation_a.pk}",
-            text="Yes, I approve this exact itinerary.",
-        )
-
-        self.token_a, token_hash = CustomerItineraryCart.generate_token()
-        now = timezone.now()
-        self.cart_a = CustomerItineraryCart.objects.create(
-            organisation=self.org_a,
-            conversation=self.conversation_a,
-            status=CustomerItineraryCart.STATUS_ACTIVE,
-            token_hash=token_hash,
-            idempotency_key=f"integration-cart-{self.conversation_a.pk}",
-            language="en",
-            currency="USD",
-            subtotal=Decimal("100.00"),
-            discount_total=Decimal("0.00"),
-            total=Decimal("100.00"),
-            promotion_snapshot=[],
-            customer_approved=True,
-            customer_approval_message=self.approval_a,
-            customer_approved_at=now,
-            itinerary_revalidated_at=now,
-            age_restrictions_validated_at=now,
-            expires_at=now + timedelta(hours=2),
-        )
-        self.item_a = CustomerItineraryCartItem.objects.create(
-            cart=self.cart_a,
-            position=1,
-            product=self.product_a,
-            service_date=self.service_date,
-            adults=1,
-            children=0,
-            infants=0,
-            product_name_snapshot=self.product_a.name,
-            unit_price_snapshot=Decimal("100.00"),
-            line_subtotal=Decimal("100.00"),
-            line_discount=Decimal("0.00"),
-            line_total=Decimal("100.00"),
-            currency="USD",
-            availability_snapshot={"status": "available"},
-        )
-
-        self.conversation_b = CustomerAIConversation.objects.create(
-            organisation=self.org_b,
-            channel=CustomerAIConversation.CHANNEL_WEBCHAT,
-            external_customer_id=f"integration-b-{timezone.now().timestamp()}",
-            status=CustomerAIConversation.STATUS_ACTIVE,
-            language="en",
-            customer_name="Foreign Integration Customer",
-            adults=1,
-        )
-        approval_b = CustomerAIMessage.objects.create(
-            conversation=self.conversation_b,
-            direction=CustomerAIMessage.DIRECTION_INBOUND,
-            role=CustomerAIMessage.ROLE_CUSTOMER,
-            external_message_id=f"approval-b-{self.conversation_b.pk}",
-            text="Yes.",
-        )
-        self.token_b, token_hash_b = CustomerItineraryCart.generate_token()
-        self.cart_b = CustomerItineraryCart.objects.create(
-            organisation=self.org_b,
-            conversation=self.conversation_b,
-            status=CustomerItineraryCart.STATUS_ACTIVE,
-            token_hash=token_hash_b,
-            idempotency_key=f"integration-cart-b-{self.conversation_b.pk}",
-            language="en",
-            currency="USD",
-            subtotal=Decimal("200.00"),
-            discount_total=Decimal("0.00"),
-            total=Decimal("200.00"),
-            promotion_snapshot=[],
-            customer_approved=True,
-            customer_approval_message=approval_b,
-            customer_approved_at=now,
-            itinerary_revalidated_at=now,
-            age_restrictions_validated_at=now,
-            expires_at=now + timedelta(hours=2),
-        )
-        CustomerItineraryCartItem.objects.create(
-            cart=self.cart_b,
-            position=1,
-            product=self.product_b,
-            service_date=self.service_date,
-            adults=1,
-            product_name_snapshot=self.product_b.name,
-            unit_price_snapshot=Decimal("200.00"),
-            line_subtotal=Decimal("200.00"),
-            line_discount=Decimal("0.00"),
-            line_total=Decimal("200.00"),
-            currency="USD",
-        )
-
-    def url(self, organisation=None):
-        organisation = organisation or self.org_a
-        return reverse(
+        self.url = reverse(
             "ticketing-public-customer-cart-session-convert",
-            kwargs={"organisation_slug": organisation.slug},
+            kwargs={"organisation_slug": self.organisation.slug},
         )
-
-    def payload(self, **overrides):
-        data = {
-            "token": self.token_a,
-            "full_name": "Jane Integration Customer",
+        self.payload = {
+            "token": "public-cart-token-that-is-long-enough",
+            "full_name": "Jane Customer",
             "whatsapp": "+18095553001",
-            "email": "integration@example.test",
-            "hotel_name": "Integration Hotel",
+            "email": "jane@example.com",
+            "hotel_name": "Test Hotel",
             "notes": "Vegetarian lunch",
-            "payment_choice": "pending",
+            "payment_choice": "deposit",
         }
-        data.update(overrides)
-        return data
 
-    def test_real_conversion_creates_one_booking_and_consumes_cart(self):
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
+    @staticmethod
+    def result(*, organisation, created=True):
+        return SimpleNamespace(
+            booking=SimpleNamespace(
+                pk=71,
+                organisation=organisation,
+                booking_code="PCD-PUBLIC71",
+            ),
+            cart=SimpleNamespace(pk=19),
+            created=created,
         )
+
+    def assert_private_response(self, response):
+        self.assertEqual(response["Cache-Control"], "no-store, private")
+        self.assertEqual(response["Pragma"], "no-cache")
+
+    def test_route_is_registered(self):
+        self.assertEqual(
+            self.url,
+            "/api/ticketing/public/public-cart-conversion/"
+            "customer-cart-session/convert/",
+        )
+
+    @patch(f"{VIEW_MODULE}._serialize_public_booking")
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_valid_request_creates_booking_from_server_controlled_service(
+        self,
+        service_class,
+        serialize_booking,
+    ):
+        result = self.result(organisation=self.organisation)
+        service_class.return_value.convert.return_value = result
+        serialize_booking.return_value = {
+            "id": 71,
+            "booking_code": "PCD-PUBLIC71",
+            "total_amount": "80.00",
+        }
+
+        response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(response.data["success"])
         self.assertTrue(response.data["created"])
+        self.assertEqual(response.data["booking"]["booking_code"], "PCD-PUBLIC71")
+        self.assert_private_response(response)
 
-        self.assertEqual(
-            Booking.objects.filter(organisation=self.org_a).count(),
-            1,
-        )
-        booking = Booking.objects.get(organisation=self.org_a)
-        self.assertEqual(booking.customer_name, "Jane Integration Customer")
-        self.assertEqual(booking.customer_email, "integration@example.test")
-        self.assertEqual(booking.customer_hotel, "Integration Hotel")
-        self.assertEqual(booking.service_date, self.service_date)
-        self.assertEqual(booking.subtotal_amount, Decimal("100.00"))
-        self.assertEqual(booking.discount_amount, Decimal("0.00"))
-        self.assertEqual(booking.total_amount, Decimal("100.00"))
-        self.assertEqual(booking.balance_due, Decimal("100.00"))
-        self.assertEqual(booking.items.count(), 1)
-        self.assertEqual(
-            booking.items.get().unit_price,
-            Decimal("100.00"),
-        )
+        call = service_class.return_value.convert.call_args.kwargs
+        self.assertEqual(call["organisation"], self.organisation)
+        self.assertEqual(call["raw_token"], self.payload["token"])
+        self.assertIsNotNone(call["request"])
+        checkout = call["checkout"]
+        self.assertEqual(checkout.customer_name, "Jane Customer")
+        self.assertEqual(checkout.customer_whatsapp, "+18095553001")
+        self.assertEqual(checkout.customer_email, "jane@example.com")
+        self.assertEqual(checkout.customer_hotel, "Test Hotel")
+        self.assertEqual(checkout.customer_notes, "Vegetarian lunch")
+        self.assertEqual(checkout.payment_choice, "deposit")
 
-        self.cart_a.refresh_from_db()
-        self.assertEqual(
-            self.cart_a.status,
-            CustomerItineraryCart.STATUS_CONVERTED,
+    @patch(f"{VIEW_MODULE}._serialize_public_booking")
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_duplicate_submission_returns_existing_booking_with_200(
+        self,
+        service_class,
+        serialize_booking,
+    ):
+        service_class.return_value.convert.return_value = self.result(
+            organisation=self.organisation,
+            created=False,
         )
-        self.assertEqual(self.cart_a.converted_booking_id, booking.pk)
-        self.assertIsNotNone(self.cart_a.converted_at)
+        serialize_booking.return_value = {"booking_code": "PCD-PUBLIC71"}
 
-    def test_real_conversion_replay_is_idempotent(self):
-        first = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
-        second = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
+        response = self.client.post(self.url, self.payload, format="json")
 
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(second.status_code, status.HTTP_200_OK)
-        self.assertTrue(first.data["created"])
-        self.assertFalse(second.data["created"])
-        self.assertEqual(
-            first.data["booking"]["id"],
-            second.data["booking"]["id"],
-        )
-        self.assertEqual(
-            Booking.objects.filter(organisation=self.org_a).count(),
-            1,
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertFalse(response.data["created"])
+        self.assert_private_response(response)
+
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_invalid_checkout_input_never_calls_conversion_service(self, service_class):
+        invalid_cases = (
+            {**self.payload, "token": "short"},
+            {**self.payload, "full_name": ""},
+            {**self.payload, "whatsapp": ""},
+            {**self.payload, "email": "not-an-email"},
+            {**self.payload, "payment_choice": "free"},
         )
 
-    def test_real_conversion_revalidates_current_backend_price(self):
-        self.product_a.adult_price = Decimal("125.00")
-        self.product_a.base_price = Decimal("125.00")
-        self.product_a.save(update_fields=["adult_price", "base_price"])
+        for payload in invalid_cases:
+            with self.subTest(payload=payload):
+                response = self.client.post(self.url, payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.data["code"], "invalid_request")
+                self.assertIn("errors", response.data)
+                self.assert_private_response(response)
 
-        availability = ProductAvailability.objects.get(
-            product=self.product_a,
-            date=self.service_date,
+        service_class.assert_not_called()
+
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_optional_fields_and_payment_choice_receive_safe_defaults(
+        self,
+        service_class,
+    ):
+        service_class.return_value.convert.return_value = self.result(
+            organisation=self.organisation
         )
-        availability.price_override = Decimal("125.00")
-        availability.save(update_fields=["price_override"])
+        payload = {
+            "token": self.payload["token"],
+            "full_name": self.payload["full_name"],
+            "whatsapp": self.payload["whatsapp"],
+            "email": self.payload["email"],
+        }
 
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
+        with patch(f"{VIEW_MODULE}._serialize_public_booking", return_value={}):
+            response = self.client.post(self.url, payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["code"], "cart_changed")
-        self.assertEqual(
-            Booking.objects.filter(organisation=self.org_a).count(),
-            0,
-        )
-        self.cart_a.refresh_from_db()
-        self.assertEqual(
-            self.cart_a.status,
-            CustomerItineraryCart.STATUS_ACTIVE,
-        )
-        self.assertIsNone(self.cart_a.converted_booking_id)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        checkout = service_class.return_value.convert.call_args.kwargs["checkout"]
+        self.assertEqual(checkout.customer_hotel, "")
+        self.assertEqual(checkout.customer_notes, "")
+        self.assertEqual(checkout.payment_choice, "pending")
 
-    def test_real_conversion_rejects_product_that_is_no_longer_public(self):
-        self.product_a.public_enabled = False
-        self.product_a.save(update_fields=["public_enabled"])
-
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["code"], "cart_changed")
-        self.assertEqual(Booking.objects.count(), 0)
-
-    def test_real_conversion_rejects_inactive_product(self):
-        self.product_a.is_active = False
-        self.product_a.save(update_fields=["is_active"])
-
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_unknown_and_inactive_organisations_are_not_enumerable(self, service_class):
+        urls = (
+            reverse(
+                "ticketing-public-customer-cart-session-convert",
+                kwargs={"organisation_slug": "unknown-cart-conversion"},
+            ),
+            reverse(
+                "ticketing-public-customer-cart-session-convert",
+                kwargs={"organisation_slug": self.inactive_organisation.slug},
+            ),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["code"], "cart_changed")
-        self.assertEqual(Booking.objects.count(), 0)
+        responses = [self.client.post(url, self.payload, format="json") for url in urls]
 
-    def test_real_conversion_rejects_sold_out_availability(self):
-        availability = ProductAvailability.objects.get(
-            product=self.product_a,
-            date=self.service_date,
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(response.data["code"], "invalid_token")
+            self.assertEqual(
+                response.data["message"],
+                "The cart session could not be found.",
+            )
+            self.assert_private_response(response)
+        self.assertEqual(responses[0].data, responses[1].data)
+        service_class.assert_not_called()
+
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_unknown_or_cross_tenant_token_is_hidden(self, service_class):
+        service_class.return_value.convert.side_effect = (
+            CustomerCartConversionNotFoundError("internal lookup detail")
         )
-        availability.booked_quantity = availability.available_capacity
-        availability.save(update_fields=["booked_quantity"])
 
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["code"], "cart_changed")
-        self.assertEqual(Booking.objects.count(), 0)
-
-    def test_real_conversion_token_cannot_cross_tenants(self):
-        response = self.client.post(
-            self.url(self.org_a),
-            self.payload(token=self.token_b),
-            format="json",
-        )
+        response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.data["code"], "invalid_token")
-        self.assertEqual(Booking.objects.count(), 0)
-        self.assertNotIn(self.org_b.name, str(response.data))
+        self.assertNotContains(response, "internal lookup detail", status_code=404)
+        self.assert_private_response(response)
 
-    def test_real_conversion_browser_cannot_override_cart_finance_or_product(self):
-        response = self.client.post(
-            self.url(),
-            self.payload(
-                subtotal_amount="0.01",
-                total_amount="0.01",
-                discount_amount="99.99",
-                owner_net_amount="0.00",
-                seller_margin_percent="99.00",
-                organisation=self.org_b.pk,
-                product_id=self.product_b.pk,
-                primary_product=self.product_b.pk,
-            ),
-            format="json",
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_changed_cart_returns_conflict(self, service_class):
+        service_class.return_value.convert.side_effect = (
+            CustomerCartConversionChangedError(
+                "Availability or pricing changed. Please review the itinerary."
+            )
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        booking = Booking.objects.get(organisation=self.org_a)
-        self.assertEqual(booking.primary_product_id, self.product_a.pk)
-        self.assertEqual(booking.subtotal_amount, Decimal("100.00"))
-        self.assertEqual(booking.discount_amount, Decimal("0.00"))
-        self.assertEqual(booking.total_amount, Decimal("100.00"))
-        self.assertNotEqual(booking.organisation_id, self.org_b.pk)
+        response = self.client.post(self.url, self.payload, format="json")
 
-    def test_real_deposit_choice_uses_backend_product_deposit(self):
-        response = self.client.post(
-            self.url(),
-            self.payload(payment_choice="deposit"),
-            format="json",
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "cart_changed")
+        self.assertIn("changed", response.data["message"].lower())
+        self.assert_private_response(response)
+
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_non_convertible_cart_returns_conflict(self, service_class):
+        service_class.return_value.convert.side_effect = (
+            CustomerCartConversionValidationError(
+                "The cart session is not ready for checkout."
+            )
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        booking = Booking.objects.get(organisation=self.org_a)
-        self.assertEqual(booking.deposit_required, Decimal("25.00"))
-        self.assertEqual(booking.total_amount, Decimal("100.00"))
+        response = self.client.post(self.url, self.payload, format="json")
 
-        payment = booking.payments.get()
-        self.assertEqual(payment.amount, Decimal("25.00"))
-        self.assertEqual(payment.status, "pending")
-        self.assertEqual(payment.payment_type, "deposit")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "cart_not_convertible")
+        self.assert_private_response(response)
 
-    def test_real_pending_choice_does_not_create_confirmed_payment(self):
-        response = self.client.post(
-            self.url(),
-            self.payload(payment_choice="pending"),
-            format="json",
+    @patch(f"{VIEW_MODULE}.DjangoCustomerCartConversionService")
+    def test_repository_failure_is_sanitized(self, service_class):
+        service_class.return_value.convert.side_effect = (
+            CustomerCartConversionRepositoryError(
+                "database host and provider credentials must stay private"
+            )
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        booking = Booking.objects.get(organisation=self.org_a)
-        self.assertEqual(booking.payment_status, "unpaid")
-        self.assertEqual(booking.status, "pending_payment")
-        self.assertFalse(
-            booking.payments.filter(status="confirmed").exists()
-        )
+        response = self.client.post(self.url, self.payload, format="json")
 
-    def test_real_conversion_response_is_public_whitelist(self):
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "cart_conversion_unavailable")
+        self.assertNotContains(response, "database host", status_code=503)
+        self.assertNotContains(response, "credentials", status_code=503)
+        self.assert_private_response(response)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        payload = str(response.data)
+    @patch(f"{VIEW_MODULE}.BookingSerializer")
+    def test_public_booking_serializer_whitelists_sensitive_internal_fields(
+        self,
+        serializer_class,
+    ):
+        serializer_class.return_value.data = {
+            "id": 71,
+            "booking_code": "PCD-PUBLIC71",
+            "status": "pending_payment",
+            "total_amount": "80.00",
+            "items": [{"product_name": "Saona Island"}],
+            "customer_whatsapp": "+18095553001",
+            "customer_notes": "private notes",
+            "external_raw_response": {"provider_secret": "never-return"},
+            "external_validation_response": {"private": True},
+            "seller_commission_amount": "10.00",
+            "owner_net_amount": "70.00",
+            "created_by": 99,
+        }
+        booking = SimpleNamespace(organisation=self.organisation)
 
-        for internal_field in (
-            "seller_margin_percent",
-            "seller_commission_amount",
-            "owner_net_amount",
-            "owner_received_amount",
-            "seller_collected_amount",
-            "seller_due_to_company",
+        from ticketing.customer_ai_views import _serialize_public_booking
+
+        result = _serialize_public_booking(booking, Mock())
+
+        self.assertEqual(result["booking_code"], "PCD-PUBLIC71")
+        self.assertEqual(result["total_amount"], "80.00")
+        self.assertIn("items", result)
+        sensitive = {
+            "customer_whatsapp",
+            "customer_notes",
             "external_raw_response",
             "external_validation_response",
-            "commissions",
-            "payments",
-            "cost_price",
-            "profit_per_unit",
-        ):
-            with self.subTest(internal_field=internal_field):
-                self.assertNotIn(internal_field, payload)
-
-    def test_unpublished_site_blocks_real_conversion_without_consuming_cart(self):
-        self.site_a.is_published = False
-        self.site_a.save(update_fields=["is_published"])
-
-        response = self.client.post(
-            self.url(),
-            self.payload(),
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(Booking.objects.count(), 0)
-
-        self.cart_a.refresh_from_db()
-        self.assertEqual(
-            self.cart_a.status,
-            CustomerItineraryCart.STATUS_ACTIVE,
-        )
-        self.assertIsNone(self.cart_a.converted_booking_id)
+            "seller_commission_amount",
+            "owner_net_amount",
+            "created_by",
+        }
+        self.assertTrue(sensitive.isdisjoint(result))
