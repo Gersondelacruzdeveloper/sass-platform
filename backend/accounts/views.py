@@ -29,6 +29,22 @@ def get_active_membership(user):
     )
 
 
+def get_active_ticketing_seller(user, membership):
+    if not membership:
+        return None
+
+    return (
+        user.ticketing_seller_profiles
+        .filter(
+            is_active=True,
+            organisation_id=membership.organisation_id,
+            organisation__is_active=True,
+        )
+        .select_related("organisation")
+        .first()
+    )
+
+
 def has_valid_tenant_access(user):
     if user.is_superuser:
         return True
@@ -148,6 +164,22 @@ def build_current_user_payload(user, request):
     if disco_employee_data and disco_employee_data.get("profile_image_url"):
         profile_image_url = disco_employee_data["profile_image_url"]
 
+    ticketing_seller_data = None
+    ticketing_seller = get_active_ticketing_seller(user, membership)
+
+    if ticketing_seller:
+        ticketing_seller_data = {
+            "id": ticketing_seller.id,
+            "full_name": ticketing_seller.full_name,
+            "role": ticketing_seller.role,
+            "organisation_id": ticketing_seller.organisation.id,
+            "organisation_slug": ticketing_seller.organisation.slug,
+            "organisation_name": ticketing_seller.organisation.name,
+            "organisation_is_active": ticketing_seller.organisation.is_active,
+            "can_access_dashboard": ticketing_seller.can_access_dashboard,
+            "is_active": ticketing_seller.is_active,
+        }
+
     return {
         "id": user.id,
         "email": user.email,
@@ -165,6 +197,7 @@ def build_current_user_payload(user, request):
         "organisation": organisation_data,
         "facilitator": facilitator_data,
         "disco_employee": disco_employee_data,
+        "ticketing_seller": ticketing_seller_data,
     }
 
 
@@ -250,128 +283,10 @@ class MeView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        def build_file_url(file_field):
-            if not file_field:
-                return None
-
-            try:
-                url = file_field.url
-            except Exception:
-                return None
-
-            return request.build_absolute_uri(url)
-
-        user_avatar_url = build_file_url(user.avatar)
-
-        membership = get_active_membership(user)
-
-        organisation_data = None
-        role = None
-
-        if membership:
-            organisation = membership.organisation
-
-            organisation_data = {
-                "id": organisation.id,
-                "name": organisation.name,
-                "slug": organisation.slug,
-                "business_type": organisation.business_type,
-                "plan": organisation.plan,
-                "is_active": organisation.is_active,
-            }
-
-            role = membership.role
-
-        facilitator_data = None
-
-        if membership and hasattr(user, "employee_profile"):
-            employee = user.employee_profile
-
-            if (
-                employee.organisation_id == membership.organisation_id
-                and hasattr(employee, "facilitator_profile")
-            ):
-                facilitator = employee.facilitator_profile
-
-                if facilitator.organisation_id in (
-                    None,
-                    membership.organisation_id,
-                ):
-                    facilitator_data = {
-                        "id": facilitator.id,
-                        "employee_id": employee.id,
-                        "employee_name": employee.name,
-                        "active": facilitator.active,
-                        "can_create_employees": facilitator.can_create_employees,
-                        "can_create_trainings": facilitator.can_create_trainings,
-                        "can_create_evaluations": facilitator.can_create_evaluations,
-                        "can_view_reports": facilitator.can_view_reports,
-                    }
-
-        disco_employee_data = None
-
-        disco_profile = None
-
-        if membership:
-            disco_profile = (
-                user.disco_employee_profiles
-                .filter(
-                    is_active=True,
-                    organisation_id=membership.organisation_id,
-                    organisation__is_active=True,
-                )
-                .select_related("organisation")
-                .first()
-            )
-
-        disco_employee_photo_url = None
-
-        if disco_profile:
-            disco_employee_photo_url = build_file_url(disco_profile.photo)
-
-            profile_image_url = user_avatar_url or disco_employee_photo_url
-
-            disco_employee_data = {
-                "id": disco_profile.id,
-                "full_name": disco_profile.full_name,
-                "role": disco_profile.role,
-                "phone": disco_profile.phone,
-                "organisation_id": disco_profile.organisation.id,
-                "organisation_slug": disco_profile.organisation.slug,
-                "organisation_name": disco_profile.organisation.name,
-                "organisation_is_active": disco_profile.organisation.is_active,
-
-                # Image fields
-                "photo": disco_employee_photo_url,
-                "photo_url": disco_employee_photo_url,
-                "employee_photo_url": disco_employee_photo_url,
-                "user_avatar_url": user_avatar_url,
-                "profile_image_url": profile_image_url,
-            }
-
-        profile_image_url = user_avatar_url or disco_employee_photo_url
-
-        return Response({
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "phone": user.phone,
-            "preferred_language": user.preferred_language,
-
-            # User image fields
-            "avatar": user_avatar_url,
-            "avatar_url": user_avatar_url,
-            "user_avatar_url": user_avatar_url,
-            "profile_image_url": profile_image_url,
-
-            "is_platform_owner": user.is_superuser,
-            "role": role,
-            "organisation": organisation_data,
-            "facilitator": facilitator_data,
-            "disco_employee": disco_employee_data,
-        })
+        return Response(
+            build_current_user_payload(user, request),
+            status=status.HTTP_200_OK,
+        )
 
     def patch(self, request):
         if not has_valid_tenant_access(request.user):

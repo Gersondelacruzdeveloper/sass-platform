@@ -6,6 +6,7 @@ from disco.models import DiscoEmployee
 from organisations.models import Membership, Organisation
 from rest_framework.test import APIClient
 from training.models import Employee, Facilitator
+from ticketing.models import Seller
 
 from .models import CustomUser
 
@@ -335,6 +336,94 @@ class MeAPITests(TestCase):
         self.assertIsNone(response.data["facilitator"])
         self.assertNotIn("Other Tenant Facilitator", repr(response.data))
         self.assertNotIn(self.other_organisation.slug, repr(response.data))
+
+    def test_ticketing_seller_from_current_tenant_is_returned(self):
+        seller = Seller.objects.create(
+            organisation=self.organisation,
+            user=self.user,
+            full_name="Current Ticketing Seller",
+            seller_slug="current-ticketing-seller",
+            role="seller",
+            email=self.user.email,
+            can_access_dashboard=True,
+            is_active=True,
+        )
+        self.authenticate()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ticketing_seller", response.data)
+
+        seller_data = response.data["ticketing_seller"]
+
+        self.assertIsNotNone(seller_data)
+        self.assertEqual(seller_data["id"], seller.pk)
+        self.assertEqual(
+            seller_data["full_name"],
+            "Current Ticketing Seller",
+        )
+        self.assertEqual(seller_data["role"], "seller")
+        self.assertEqual(
+            seller_data["organisation_id"],
+            self.organisation.pk,
+        )
+        self.assertEqual(
+            seller_data["organisation_slug"],
+            self.organisation.slug,
+        )
+        self.assertTrue(seller_data["can_access_dashboard"])
+
+    def test_inactive_ticketing_seller_is_not_returned(self):
+        Seller.objects.create(
+            organisation=self.organisation,
+            user=self.user,
+            full_name="Inactive Ticketing Seller",
+            seller_slug="inactive-ticketing-seller",
+            role="seller",
+            can_access_dashboard=True,
+            is_active=False,
+        )
+        self.authenticate()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ticketing_seller", response.data)
+        self.assertIsNone(response.data["ticketing_seller"])
+        self.assertNotIn(
+            "Inactive Ticketing Seller",
+            repr(response.data),
+        )
+
+    def test_ticketing_seller_from_another_tenant_is_not_exposed(self):
+        Seller.objects.create(
+            organisation=self.other_organisation,
+            user=self.user,
+            full_name="Other Tenant Ticketing Seller",
+            seller_slug="other-tenant-ticketing-seller",
+            role="seller",
+            can_access_dashboard=True,
+            is_active=True,
+        )
+        self.authenticate()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ticketing_seller", response.data)
+        self.assertIsNone(response.data["ticketing_seller"])
+
+        serialized = repr(response.data)
+
+        self.assertNotIn(
+            "Other Tenant Ticketing Seller",
+            serialized,
+        )
+        self.assertNotIn(
+            self.other_organisation.slug,
+            serialized,
+        )
 
     def test_put_and_delete_are_not_allowed(self):
         self.authenticate()
