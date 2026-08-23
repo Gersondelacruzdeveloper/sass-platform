@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
   ArrowRight,
@@ -72,7 +72,6 @@ function statusIcon(status: SellerApplication["status"]) {
 
 export default function SellerApplicationStatusPage() {
   const { organisationSlug = "" } = useParams<{ organisationSlug: string }>();
-  const navigate = useNavigate();
   const lang = "es";
 
   const [application, setApplication] = useState<SellerApplication | null>(null);
@@ -165,18 +164,6 @@ export default function SellerApplicationStatusPage() {
     application?.status === "approved" &&
     Boolean(application.permissions?.can_access_dashboard);
 
-  useEffect(() => {
-    if (!canAccessSellerDashboard || !organisationSlug) return;
-
-    const timer = window.setTimeout(() => {
-      navigate(`/ticketing/${organisationSlug}/seller/dashboard`, {
-        replace: true,
-      });
-    }, 2500);
-
-    return () => window.clearTimeout(timer);
-  }, [canAccessSellerDashboard, navigate, organisationSlug]);
-
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -258,23 +245,19 @@ export default function SellerApplicationStatusPage() {
                   Tu cuenta de vendedor fue aprobada
                 </h2>
 
-                {canAccessSellerDashboard ? (
-                  <>
-                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      Tu acceso al portal de vendedores está listo. Serás redirigido automáticamente en unos segundos.
-                    </p>
-                    <Link
-                      to={`/ticketing/${organisationSlug}/seller/dashboard`}
-                      className="mt-5 inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
-                    >
-                      Abrir portal de vendedores <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </>
-                ) : (
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    Tu solicitud fue aprobada, pero el acceso al portal de vendedores todavía no está habilitado. Comunícate con el administrador si entiendes que ya deberías tener acceso.
-                  </p>
-                )}
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                  {canAccessSellerDashboard
+                    ? "Tu cuenta está aprobada y tu acceso al portal de vendedores está habilitado. Inicia sesión para continuar."
+                    : "Tu cuenta de vendedor ya está aprobada. Puedes iniciar sesión ahora. Cuando la empresa habilite tus productos y permisos de venta, podrás comenzar a vender desde tu portal."}
+                </p>
+
+                <Link
+                  to={`/ticketing/${organisationSlug}/login`}
+                  className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white sm:w-auto"
+                >
+                  Iniciar sesión como vendedor
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
             </div>
           </section>

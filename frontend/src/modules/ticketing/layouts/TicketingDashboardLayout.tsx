@@ -1011,22 +1011,22 @@ export default function TicketingDashboardLayout() {
               id="ios-install-title"
               className="mt-4 text-center text-xl font-black text-slate-950"
             >
-              Add this app to your iPhone
+              Añade esta aplicación a tu iPhone
             </h2>
 
             <p className="mt-2 text-center text-sm font-semibold leading-6 text-slate-600">
-              Apple requires installation from Safari. It only takes a few taps:
+              Apple requiere que la instalación se haga desde Safari. Solo toma unos pocos pasos:
             </p>
 
             <ol className="mt-5 space-y-3 text-sm font-bold text-slate-800">
               <li className="rounded-2xl bg-slate-50 px-4 py-3">
-                1. Tap the Share button in Safari.
+                1. Toca el botón Compartir en Safari.
               </li>
               <li className="rounded-2xl bg-slate-50 px-4 py-3">
-                2. Choose <span className="font-black">Add to Home Screen</span>.
+                2. Selecciona <span className="font-black">Agregar a pantalla de inicio</span>.
               </li>
               <li className="rounded-2xl bg-slate-50 px-4 py-3">
-                3. Tap <span className="font-black">Add</span>.
+                3. Toca <span className="font-black">Agregar</span>.
               </li>
             </ol>
 
@@ -1035,7 +1035,7 @@ export default function TicketingDashboardLayout() {
               onClick={() => setShowIosInstallHelp(false)}
               className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
             >
-              Got it
+              Entendido
             </button>
           </section>
         </div>
