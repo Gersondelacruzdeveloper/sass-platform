@@ -824,14 +824,41 @@ Requirements:
         trusted_pickup_locations: list[dict[str, Any]],
     ) -> None:
         """
-        Reject IDs that were not supplied as trusted API data.
+        Reject identifiers that were not supplied as trusted API data.
+
+        The structured schema stores newly extracted booking values inside
+        ``interpretation["changes"]``. For compatibility, some callers also
+        read top-level fields. Validation therefore operates on the effective
+        value from either location and sanitizes BOTH locations whenever an
+        identifier is not trusted.
 
         Names and phrases may be approximate. Exact identifiers must already
-        exist in products, the selected state, or pending choices.
+        exist in products, trusted pickup locations, the selected state, or
+        pending choices.
         """
 
+        changes = interpretation.get("changes")
+        if not isinstance(changes, dict):
+            changes = {}
+            interpretation["changes"] = changes
+
+        def effective_value(field_name: str) -> Any:
+            top_level = interpretation.get(field_name)
+            if top_level not in (None, ""):
+                return top_level
+            return changes.get(field_name)
+
+        def clear_field(
+            field_name: str,
+            *,
+            empty_value: Any,
+        ) -> None:
+            interpretation[field_name] = empty_value
+            if field_name in changes:
+                changes[field_name] = empty_value
+
         product_id = self._optional_int(
-            interpretation.get("product_id")
+            effective_value("product_id")
         )
 
         if product_id is not None:
@@ -864,10 +891,13 @@ Requirements:
                         "product_id": product_id,
                     },
                 )
-                interpretation["product_id"] = None
+                clear_field(
+                    "product_id",
+                    empty_value=None,
+                )
 
         pickup_location_id = self._optional_int(
-            interpretation.get("pickup_location_id")
+            effective_value("pickup_location_id")
         )
 
         if pickup_location_id is not None:
@@ -904,7 +934,10 @@ Requirements:
                         "pickup_location_id": pickup_location_id,
                     },
                 )
-                interpretation["pickup_location_id"] = None
+                clear_field(
+                    "pickup_location_id",
+                    empty_value=None,
+                )
 
         trusted_external_ids = (
             self._trusted_external_ids(state)
@@ -917,7 +950,7 @@ Requirements:
             "selected_external_product_id",
         ):
             value = str(
-                interpretation.get(field_name) or ""
+                effective_value(field_name) or ""
             ).strip()
 
             if value and value not in trusted_external_ids:
@@ -929,7 +962,10 @@ Requirements:
                         "field_name": field_name,
                     },
                 )
-                interpretation[field_name] = ""
+                clear_field(
+                    field_name,
+                    empty_value="",
+                )
 
     @staticmethod
     def _pending_integer_ids(
