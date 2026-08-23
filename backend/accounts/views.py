@@ -30,19 +30,32 @@ def get_active_membership(user):
 
 
 def get_active_ticketing_seller(user, membership):
-    if not membership:
-        return None
-
-    return (
+    queryset = (
         user.ticketing_seller_profiles
         .filter(
             is_active=True,
-            organisation_id=membership.organisation_id,
             organisation__is_active=True,
         )
         .select_related("organisation")
-        .first()
+        .order_by("id")
     )
+
+    if membership:
+        return queryset.filter(
+            organisation_id=membership.organisation_id,
+        ).first()
+
+    # PWA/root recovery path:
+    # If the authenticated user has no active Membership, recover the
+    # organisation only when there is exactly one active Ticketing seller
+    # profile. Multiple active seller tenants are intentionally ambiguous
+    # and therefore fail closed instead of guessing.
+    candidates = list(queryset[:2])
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    return None
 
 
 def has_valid_tenant_access(user):

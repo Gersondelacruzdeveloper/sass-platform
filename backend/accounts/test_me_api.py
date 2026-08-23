@@ -425,6 +425,56 @@ class MeAPITests(TestCase):
             serialized,
         )
 
+    def test_seller_only_user_without_membership_can_recover_ticketing_tenant(self):
+        seller_only_user = CustomUser.objects.create_user(
+            username="seller-only-user",
+            email="seller-only@example.com",
+            password="Strong-test-password-456",
+            first_name="Seller",
+            last_name="Only",
+        )
+
+        seller = Seller.objects.create(
+            organisation=self.organisation,
+            user=seller_only_user,
+            full_name="Seller Only User",
+            seller_slug="seller-only-user",
+            role="seller",
+            email=seller_only_user.email,
+            can_access_dashboard=True,
+            is_active=True,
+        )
+
+        self.client.force_authenticate(seller_only_user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["organisation"])
+        self.assertIsNone(response.data["role"])
+
+        self.assertIn("ticketing_seller", response.data)
+        self.assertIsNotNone(response.data["ticketing_seller"])
+
+        seller_data = response.data["ticketing_seller"]
+
+        self.assertEqual(seller_data["id"], seller.pk)
+        self.assertEqual(
+            seller_data["organisation_id"],
+            self.organisation.pk,
+        )
+        self.assertEqual(
+            seller_data["organisation_slug"],
+            self.organisation.slug,
+        )
+        self.assertEqual(
+            seller_data["organisation_name"],
+            self.organisation.name,
+        )
+        self.assertEqual(seller_data["role"], "seller")
+        self.assertTrue(seller_data["is_active"])
+        self.assertTrue(seller_data["can_access_dashboard"])
+
     def test_put_and_delete_are_not_allowed(self):
         self.authenticate()
 
