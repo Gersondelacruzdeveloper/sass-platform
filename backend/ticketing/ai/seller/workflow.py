@@ -250,12 +250,17 @@ class SellerBookingWorkflow:
         if response is not None:
             return response
 
+        # Collect all ordinary missing booking fields together instead of
+        # forcing the seller through one question per turn. This is especially
+        # important for voice: one reply can provide date, option, hotel,
+        # customer/contact and payment details at once.
+        #
+        # Product/live-option/pickup ambiguity is still resolved explicitly;
+        # trusted IDs and the existing APIs remain authoritative.
         if not state.service_date:
-            self._update_progress(state)
-            return self._response(
-                state,
-                "What date is the booking for?",
-                status="collecting",
+            return self._missing_details_response(
+                state=state,
+                seller=seller,
             )
 
         if state.product and state.product.is_live_product:
@@ -275,13 +280,17 @@ class SellerBookingWorkflow:
         if response is not None:
             return response
 
-        response = self._ensure_customer(state)
-        if response is not None:
-            return response
+        # A single payment permission needs no seller interaction.
+        self._auto_select_single_payment_action(
+            state=state,
+            seller=seller,
+        )
 
-        response = self._ensure_payment(state, seller)
-        if response is not None:
-            return response
+        if not self._state_is_complete(state):
+            return self._missing_details_response(
+                state=state,
+                seller=seller,
+            )
 
         state.booking_preview = self._build_preview(
             state,
@@ -717,6 +726,16 @@ class SellerBookingWorkflow:
             return None
 
         if not state.pickup:
+            explicit_id = self._optional_int(
+                interpretation.get("pickup_location_id")
+            )
+
+            # No hotel/pickup was supplied yet. Do not dump the entire hotel
+            # catalogue into a choice step; let the grouped missing-fields
+            # response ask for it together with the other missing details.
+            if explicit_id is None and not state.pickup_phrase:
+                return None
+
             # Load the complete active pickup catalogue. OpenAI has already
             # received the trusted list and should return an exact trusted ID.
             # The workflow validates that ID; it does not rank or guess hotels.
@@ -731,10 +750,6 @@ class SellerBookingWorkflow:
                     "No active pickup locations are configured.",
                     status="error",
                 )
-
-            explicit_id = self._optional_int(
-                interpretation.get("pickup_location_id")
-            )
 
             if explicit_id is not None:
                 selected = next(
@@ -2112,6 +2127,133 @@ class SellerBookingWorkflow:
             ambiguous_fields=(
                 state.current_intent.ambiguous_fields
             ),
+        )
+
+    def _auto_select_single_payment_action(
+        self,
+        *,
+        state: BookingConversationState,
+        seller: Mapping[str, Any],
+    ) -> None:
+        """Select payment automatically only when exactly one action is allowed."""
+        if state.payment.action:
+            return
+
+        actions = self._allowed_payment_actions(seller)
+        if len(actions) == 1:
+            state.payment.action = actions[0]  # type: ignore[assignment]
+            state.mark_changed()
+
+    def _missing_details_response(
+        self,
+        *,
+        state: BookingConversationState,
+        seller: Mapping[str, Any],
+    ) -> AgentResponse:
+        """
+        Ask for every currently missing ordinary field in one response.
+
+        Ambiguous trusted selections are handled elsewhere. This method is for
+        information the seller can naturally provide together in one text or
+        voice message.
+        """
+        self._auto_select_single_payment_action(
+            state=state,
+            seller=seller,
+        )
+        self._update_progress(state)
+
+        missing = set(state.progress.missing_fields)
+        language = self._language_code(state.preferred_language)
+        items: list[str] = []
+
+        labels = (
+            {
+                "product": "experiencia",
+                "service_date": "fecha",
+                "live_option": "opción/tipo de entrada",
+                "pickup": "hotel o lugar de recogida",
+                "customer_name": "nombre del cliente",
+                "customer_contact": "WhatsApp o email del cliente",
+                "payment": "forma de pago",
+            }
+            if language == "es"
+            else {
+                "product": "experience",
+                "service_date": "date",
+                "live_option": "ticket/experience option",
+                "pickup": "hotel or pickup location",
+                "customer_name": "customer name",
+                "customer_contact": "customer WhatsApp or email",
+                "payment": "payment choice",
+            }
+        )
+
+        order = (
+            "product",
+            "service_date",
+            "live_option",
+            "pickup",
+            "customer_name",
+            "customer_contact",
+            "payment",
+        )
+        for field_name in order:
+            if field_name in missing:
+                items.append(labels[field_name])
+
+        if not items:
+            # Defensive fallback; normally the caller proceeds to preview.
+            return self._response(
+                state,
+                "Send the remaining booking details."
+                if language != "es"
+                else "Envíame los datos restantes de la reserva.",
+                status="collecting",
+            )
+
+        known: list[str] = []
+        if state.product:
+            known.append(state.product.name)
+        if state.live_option:
+            known.append(state.live_option.option_name)
+        if state.service_date:
+            known.append(state.service_date)
+        if state.guests.total:
+            if language == "es":
+                known.append(
+                    f"{state.guests.total} persona"
+                    f"{'' if state.guests.total == 1 else 's'}"
+                )
+            else:
+                known.append(
+                    f"{state.guests.total} guest"
+                    f"{'' if state.guests.total == 1 else 's'}"
+                )
+
+        if language == "es":
+            prefix = (
+                "Entendido"
+                + (f": {', '.join(known)}." if known else ".")
+                + "\nMe falta:"
+            )
+            suffix = "\nPuedes enviarme todo junto en un solo mensaje o nota de voz."
+        else:
+            prefix = (
+                "Got it"
+                + (f": {', '.join(known)}." if known else ".")
+                + "\nI still need:"
+            )
+            suffix = "\nSend everything together in one message or voice note."
+
+        message = prefix + "\n" + "\n".join(
+            f"• {item}" for item in items
+        ) + suffix
+
+        return self._response(
+            state,
+            message,
+            status="collecting",
         )
 
     def _state_is_complete(
