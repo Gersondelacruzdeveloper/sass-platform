@@ -35,6 +35,8 @@ import {
 import api from "../../../api/axios";
 import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import TicketingPageShell from "../components/TicketingPageShell";
+import SellerPermissionHelpModal from "../components/SellerPermissionHelpModal";
+import { getSellerPermissionHelp } from "../seller-permissions/sellerPermissionHelp";
 
 type SellerRole =
   | "owner"
@@ -2843,7 +2845,10 @@ function SellerFormModal({
                       {t("sellers.form.permissions")}
                     </h3>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      {t("sellers.form.permissionsHelp")}
+                      Configura exactamente lo que este vendedor podrá hacer.
+                      Pulsa el botón <span className="font-black text-amber-700">?</span>{" "}
+                      de cualquier permiso para ver una explicación en español,
+                      un ejemplo real, sus límites y el nivel de riesgo.
                     </p>
                   </div>
 
@@ -3154,7 +3159,13 @@ function PermissionGroupCard({
   ) => void;
 }) {
   const { t } = useTicketingAdminTranslation();
+  const [helpPermissionKey, setHelpPermissionKey] =
+    useState<PermissionKey | null>(null);
   const enabledCount = group.keys.filter((key) => form[key]).length;
+
+  const activeHelp = helpPermissionKey
+    ? getSellerPermissionHelp(helpPermissionKey)
+    : null;
 
   function setAll(value: boolean) {
     group.keys.forEach((key) => onChange(key, value));
@@ -3193,14 +3204,43 @@ function PermissionGroupCard({
 
       <div className="mt-4 grid gap-2 md:grid-cols-2">
         {group.keys.map((key) => (
-          <Toggle
+          <div
             key={key}
-            label={t(`sellers.permissions.${key}`, undefined, permissionLabels[key])}
-            checked={Boolean(form[key])}
-            onChange={(value) => onChange(key, value)}
-          />
+            className="grid grid-cols-[minmax(0,1fr)_48px] gap-2"
+          >
+            <Toggle
+              label={t(
+                `sellers.permissions.${key}`,
+                undefined,
+                permissionLabels[key]
+              )}
+              checked={Boolean(form[key])}
+              onChange={(value) => onChange(key, value)}
+            />
+
+            <button
+              type="button"
+              onClick={() => setHelpPermissionKey(key)}
+              className="flex min-h-12 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 text-lg font-black text-amber-800 transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              aria-label={`Explicar permiso: ${t(
+                `sellers.permissions.${key}`,
+                undefined,
+                permissionLabels[key]
+              )}`}
+              title="Ver explicación y ejemplo real"
+            >
+              ?
+            </button>
+          </div>
         ))}
       </div>
+
+      {activeHelp && (
+        <SellerPermissionHelpModal
+          permission={activeHelp}
+          onClose={() => setHelpPermissionKey(null)}
+        />
+      )}
     </div>
   );
 }
