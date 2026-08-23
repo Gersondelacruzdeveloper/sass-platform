@@ -1,5 +1,5 @@
 // src/modules/ticketing/pages/TicketingLandingPage.tsx
-// Landing version: fail-closed-routing-v2-2026-08-05
+// Landing version: fail-closed-routing-v3-ticketing-seller-recovery-2026-08-23
 
 import { Navigate, useParams } from "react-router-dom";
 
@@ -13,6 +13,8 @@ const RESERVED_SLUGS = new Set([
   "signup",
   "billing-locked",
   "subscription",
+  "launch",
+  "install",
 ]);
 
 function normalizeSlug(value: unknown): string {
@@ -38,6 +40,24 @@ function normalizeStatus(value: unknown): string {
 function getSellerState(
   user: any,
 ): "approved" | "pending" | "denied" | null {
+  /*
+   * /api/accounts/me/ now exposes the tenant-scoped Ticketing seller profile
+   * as `ticketing_seller`. Prefer that authoritative backend context when it
+   * is available. Older seller-shaped payloads remain supported below.
+   */
+  const ticketingSeller = user?.ticketing_seller;
+
+  if (ticketingSeller) {
+    if (
+      ticketingSeller.is_active !== false &&
+      ticketingSeller.can_access_dashboard !== false
+    ) {
+      return "approved";
+    }
+
+    return "denied";
+  }
+
   const seller = user?.seller;
 
   const isSellerAccount =
@@ -57,12 +77,17 @@ function getSellerState(
       user?.application_status,
   );
 
-  if (status === "approved" && seller?.is_active !== false) {
+  if (
+    status === "approved" &&
+    seller?.is_active !== false &&
+    seller?.can_access_dashboard !== false
+  ) {
     return "approved";
   }
 
   if (
     seller?.is_active === false ||
+    seller?.can_access_dashboard === false ||
     [
       "rejected",
       "suspended",
@@ -140,8 +165,19 @@ export default function TicketingLandingPage() {
         )
       : "";
 
+  /*
+   * Installed iOS web apps can reopen without the route that originally
+   * contained the tenant slug. The authenticated /accounts/me/ payload is
+   * therefore the authoritative recovery source for an approved Ticketing
+   * seller. localStorage remains only a final browser convenience fallback.
+   */
+  const ticketingSellerSlug = normalizeSlug(
+    (user as any)?.ticketing_seller?.organisation_slug,
+  );
+
   const resolvedSlug =
     urlSlug ||
+    ticketingSellerSlug ||
     normalizeSlug((user as any)?.organisation?.slug) ||
     normalizeSlug((user as any)?.organisation_slug) ||
     normalizeSlug(
@@ -158,7 +194,7 @@ export default function TicketingLandingPage() {
       return (
         <AccessMessage
           title="Organisation required"
-          message="Open the login link for your organisation. The application will not guess an organisation or use “dashboard” as an organisation slug."
+          message="Open the login link for your organisation. The application will not guess an organisation or use a reserved route word as an organisation slug."
         />
       );
     }
@@ -177,6 +213,18 @@ export default function TicketingLandingPage() {
         title="Unable to determine organisation"
         message="Your account is authenticated, but no valid organisation could be confirmed. For security, no dashboard has been displayed."
       />
+    );
+  }
+
+  /*
+   * Once the backend has recovered a valid tenant, persist it for ordinary
+   * browser navigation. Routing does not depend on this value on iOS because
+   * the authenticated backend payload already supplied the tenant.
+   */
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(
+      "last_ticketing_slug",
+      resolvedSlug,
     );
   }
 

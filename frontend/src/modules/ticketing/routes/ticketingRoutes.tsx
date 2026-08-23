@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import TicketingLandingPage from "../pages/TicketingLandingPage";
+import TicketingInstallPage from "../pages/TicketingInstallPage";
 import TicketingLoginPage from "../pages/TicketingLoginPage";
 import TicketingSignupPage from "../pages/TicketingSignupPage";
 import TicketingBillingLockedPage from "../pages/TicketingBillingLockedPage";
@@ -1165,6 +1166,11 @@ export const ticketingRoutes = (
     <Route
       path="/ticketing/:organisationSlug/launch"
       element={<TicketingTenantLauncher />}
+    />
+
+    <Route
+      path="/ticketing/:organisationSlug/install"
+      element={<TicketingInstallPage />}
     />
 
     {/* Custom-domain public website routes */}

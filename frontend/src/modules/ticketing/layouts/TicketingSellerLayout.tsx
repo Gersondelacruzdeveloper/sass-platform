@@ -374,6 +374,10 @@ export default function TicketingSellerLayout() {
     };
   }, []);
 
+  function closeIosInstallHelp() {
+    setShowIosInstallHelp(false);
+  }
+
   async function handleInstallApp() {
     if (isInstalled) return;
 
@@ -381,7 +385,7 @@ export default function TicketingSellerLayout() {
     // the user to confirm installation from Safari's Share menu.
     if (!installPrompt) {
       if (isIosDevice) {
-        setShowIosInstallHelp(true);
+        window.location.assign(`/ticketing/${slug}/install`);
       }
       return;
     }
@@ -520,7 +524,7 @@ export default function TicketingSellerLayout() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="ios-install-title"
-          onClick={() => setShowIosInstallHelp(false)}
+          onClick={closeIosInstallHelp}
         >
           <section
             className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl"
@@ -541,6 +545,15 @@ export default function TicketingSellerLayout() {
               Apple requiere que la instalación se haga desde Safari. Solo toma unos pocos pasos:
             </p>
 
+            <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-center">
+              <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+                Aplicación de {organisationName}
+              </p>
+              <p className="mt-1 break-all text-xs font-semibold text-amber-800">
+                /ticketing/{slug}/launch
+              </p>
+            </div>
+
             <ol className="mt-5 space-y-3 text-sm font-bold text-slate-800">
               <li className="rounded-2xl bg-slate-50 px-4 py-3">
                 1. Toca el botón Compartir en Safari.
@@ -555,7 +568,7 @@ export default function TicketingSellerLayout() {
 
             <button
               type="button"
-              onClick={() => setShowIosInstallHelp(false)}
+              onClick={closeIosInstallHelp}
               className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
             >
               Entendido
