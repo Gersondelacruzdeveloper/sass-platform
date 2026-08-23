@@ -361,16 +361,19 @@ class PublicOrganisationManifestView(APIView):
 
         # Build a tenant-specific launch URL.
         #
-        # Ticketing users open directly in their own organisation dashboard.
-        # Other modules keep their existing login launch route.
+        # Ticketing opens at the tenant login route instead of assuming the
+        # installed user is an owner. After authentication, the frontend
+        # resolves the account to the correct owner, seller, pending, or
+        # partner portal.
         if business_type == "ticketing":
-            start_path = f"/ticketing/{organisation.slug}/dashboard"
+            start_path = f"/ticketing/{organisation.slug}/login"
         else:
             start_path = f"/{business_type}/{organisation.slug}/login"
 
         scope_path = f"/{business_type}/{organisation.slug}/"
 
         manifest = {
+            "id": f"{frontend_url}{scope_path}",
             "name": app_name,
             "short_name": short_name,
             "description": description,

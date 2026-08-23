@@ -136,8 +136,7 @@ ticketing/
 organisations/
 └── ai/
     ├── constants.py                  # FEATURE_WHATSAPP already exists
-    ├── service.py                    # check WhatsApp-specific enable switch
-    └── providers.py                  # add tool-capable API without changing generate_text
+    ├── service.py                    # check WhatsApp-specific e                    # add tool-capable API without changing generate_text
 ```
 
 Splitting new customer code into focused modules is preferred over expanding the already-large `models.py`, `views.py`, `serializers.py` and `tasks.py`. Model imports may be re-exported if Django app-loading requires it.
@@ -590,3 +589,13 @@ The feature is complete only when:
 ## 20. Next implementation task
 
 Create the Phase 0 characterization-test matrix and inspect the existing project test structure. No production behavior should be modified until those baseline tests exist and pass.
+
+
+ticketing/tests/
+├── __init__.py
+├── test_customer_ai_models.py
+├── test_customer_cart_service.py
+├── test_customer_ai_views.py
+├── test_whatsapp_webhook.py
+├── test_customer_ai_tasks.py
+└── test_customer_ai_tenant_security.py

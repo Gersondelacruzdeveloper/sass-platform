@@ -3495,6 +3495,7 @@ class PublicSellerApplicationAPIView(APIView):
                 "id": application.id,
                 "status": application.status,
                 "organisation": application.organisation.name,
+                "organisation_slug": application.organisation.slug,
                 "message": "Your seller application was submitted for review.",
             },
             status=status.HTTP_201_CREATED,

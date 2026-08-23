@@ -52,7 +52,7 @@ class PublicOrganisationManifestAPITests(TestCase):
             ),
         )
 
-    def test_active_ticketing_manifest_has_safe_schema_and_dashboard_start(self):
+    def test_active_ticketing_manifest_has_safe_schema_and_tenant_login_start(self):
         response = self.client.get(self.url(self.ticketing))
 
         self.assertEqual(response.status_code, 200)
@@ -64,14 +64,23 @@ class PublicOrganisationManifestAPITests(TestCase):
             response["Cache-Control"],
             "no-cache, no-store, must-revalidate",
         )
+
         payload = response.json()
+
+        self.assertEqual(
+            payload["id"],
+            (
+                "https://app.example.test/ticketing/"
+                "manifest-ticketing-tenant/"
+            ),
+        )
         self.assertEqual(payload["name"], "Manifest Ticketing Tenant Platform")
         self.assertEqual(payload["short_name"], "Manifest Ticketing Tenant")
         self.assertEqual(
             payload["start_url"],
             (
                 "https://app.example.test/ticketing/"
-                "manifest-ticketing-tenant/dashboard"
+                "manifest-ticketing-tenant/login"
             ),
         )
         self.assertEqual(
@@ -84,6 +93,7 @@ class PublicOrganisationManifestAPITests(TestCase):
         self.assertEqual(payload["display"], "standalone")
         self.assertEqual(payload["orientation"], "portrait-primary")
         self.assertEqual(payload["icons"], [])
+
         for forbidden in (
             "provider_api_key",
             "api_key",
@@ -97,6 +107,11 @@ class PublicOrganisationManifestAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+
+        self.assertEqual(
+            payload["id"],
+            "https://app.example.test/hotel/manifest-hotel-tenant/",
+        )
         self.assertEqual(
             payload["start_url"],
             "https://app.example.test/hotel/manifest-hotel-tenant/login",
@@ -118,9 +133,11 @@ class PublicOrganisationManifestAPITests(TestCase):
             ).count(),
             1,
         )
+
         branding = OrganisationBranding.objects.get(
             organisation=self.ticketing
         )
+
         self.assertEqual(branding.company_name, self.ticketing.name)
         self.assertEqual(
             branding.platform_name,
@@ -168,6 +185,7 @@ class PublicOrganisationManifestAPITests(TestCase):
                 },
             )
         )
+
         wrong_type = self.client.get(
             reverse(
                 "public-organisation-manifest",
@@ -184,6 +202,7 @@ class PublicOrganisationManifestAPITests(TestCase):
 
     def test_inactive_tenant_is_indistinguishable_from_unknown_tenant(self):
         inactive = self.client.get(self.url(self.inactive))
+
         unknown = self.client.get(
             reverse(
                 "public-organisation-manifest",
@@ -197,6 +216,7 @@ class PublicOrganisationManifestAPITests(TestCase):
         self.assertEqual(inactive.status_code, 404)
         self.assertEqual(unknown.status_code, 404)
         self.assertEqual(inactive.data, unknown.data)
+
         self.assertFalse(
             OrganisationBranding.objects.filter(
                 organisation=self.inactive
@@ -208,6 +228,7 @@ class PublicOrganisationManifestAPITests(TestCase):
             organisation=self.ticketing,
             company_name="Storage Failure Manifest",
         )
+
         branding.logo.name = "branding/logos/broken.png"
 
         with patch.object(
