@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 
 import ticketingApi from "../api/ticketingApi";
-import { useTicketingAdminTranslation } from "../admin-i18n/useTicketingAdminTranslation";
 import { formatMoney, getApiError, humanize } from "../seller-onboarding/sellerOnboardingUi";
 import type {
   PublicSellerApplicationPayload,
@@ -45,7 +44,7 @@ const IDENTIFICATION_TYPES: SellerIdentificationType[] = [
   "other",
 ];
 
-const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "Portuguese", "German"];
+const LANGUAGE_OPTIONS = ["Inglés", "Español", "Francés", "Portugués", "Alemán"];
 
 const initialForm: PublicSellerApplicationPayload = {
   legal_name: "",
@@ -57,7 +56,7 @@ const initialForm: PublicSellerApplicationPayload = {
   country: "Dominican Republic",
   city: "",
   address: "",
-  preferred_language: "en",
+  preferred_language: "es",
   seller_type: "independent",
   business_name: "",
   experience_years: 0,
@@ -134,8 +133,7 @@ function Section({
 
 export default function PublicSellerApplicationPage() {
   const { token = "" } = useParams<{ token: string }>();
-  const { language } = useTicketingAdminTranslation();
-  const lang = language === "es" ? "es" : "en";
+  const lang = "es";
 
   const [invite, setInvite] = useState<PublicSellerSignupInvite | null>(null);
   const [form, setForm] = useState<PublicSellerApplicationPayload>(initialForm);
@@ -161,7 +159,7 @@ export default function PublicSellerApplicationPage() {
         if (active) setInvite(data);
       } catch (loadError) {
         if (active) {
-          setError(getApiError(loadError, "This seller signup link is not available."));
+          setError(getApiError(loadError, "Este enlace para solicitar acceso como vendedor no está disponible."));
         }
       } finally {
         if (active) setLoading(false);
@@ -179,8 +177,8 @@ export default function PublicSellerApplicationPage() {
     if (!invite || !invite.show_commission_offer) return "";
 
     return invite.default_commission_type === "percentage"
-      ? `${Number(invite.default_commission_rate || 0).toFixed(2)}% commission`
-      : `${formatMoney(invite.default_fixed_commission_amount, "USD", lang)} fixed commission`;
+      ? `${Number(invite.default_commission_rate || 0).toFixed(2)}% de comisión`
+      : `${formatMoney(invite.default_fixed_commission_amount, "USD", lang)} de comisión fija`;
   }, [invite, lang]);
 
   function toggleLanguage(value: string) {
@@ -211,7 +209,7 @@ export default function PublicSellerApplicationPage() {
     event.preventDefault();
 
     if (form.password !== form.password_confirm) {
-      setError("Passwords do not match.");
+      setError("Las contraseñas no coinciden.");
       return;
     }
 
@@ -222,7 +220,7 @@ export default function PublicSellerApplicationPage() {
       setSubmitted(response);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (submitError) {
-      setError(getApiError(submitError, "Could not submit your seller application."));
+      setError(getApiError(submitError, "No se pudo enviar tu solicitud de vendedor."));
       window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setSubmitting(false);
@@ -234,7 +232,7 @@ export default function PublicSellerApplicationPage() {
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
           <Loader2 className="mx-auto h-9 w-9 animate-spin text-slate-500" />
-          <p className="mt-4 text-sm font-black text-slate-600">Loading seller application…</p>
+          <p className="mt-4 text-sm font-black text-slate-600">Cargando solicitud de vendedor…</p>
         </div>
       </div>
     );
@@ -251,20 +249,20 @@ export default function PublicSellerApplicationPage() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
             <CheckCircle2 className="h-8 w-8" />
           </div>
-          <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Application submitted</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-950">Thank you for applying</h1>
+          <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Solicitud enviada</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-950">Gracias por solicitar ser vendedor</h1>
           <p className="mx-auto mt-4 max-w-md text-sm font-semibold leading-7 text-slate-600">
-            Your application for {submitted.organisation} is now pending review. Your account was created using the email and password you entered.
+            Tu solicitud para {submitted.organisation} está pendiente de revisión. Tu cuenta fue creada con el correo electrónico y la contraseña que ingresaste.
           </p>
           <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-left">
-            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Application reference</p>
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">Número de solicitud</p>
             <p className="mt-1 text-lg font-black text-slate-900">#{submitted.id}</p>
           </div>
           <Link
             to={loginPath}
             className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white"
           >
-            Sign in to check status <ArrowRight className="h-4 w-4" />
+            Iniciar sesión para ver el estado <ArrowRight className="h-4 w-4" />
           </Link>
         </section>
       </div>
@@ -276,9 +274,9 @@ export default function PublicSellerApplicationPage() {
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <section className="w-full max-w-lg rounded-[2rem] border border-red-200 bg-white p-7 text-center shadow-sm">
           <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
-          <h1 className="mt-4 text-2xl font-black text-slate-950">Signup link unavailable</h1>
+          <h1 className="mt-4 text-2xl font-black text-slate-950">Enlace de solicitud no disponible</h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-            {error || "This seller application link has expired or reached its maximum number of uses."}
+            {error || "Este enlace para solicitar ser vendedor ha vencido o alcanzó el número máximo de usos."}
           </p>
         </section>
       </div>
@@ -290,7 +288,7 @@ export default function PublicSellerApplicationPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-600">Seller opportunity</p>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-600">Oportunidad para vendedores</p>
             <h1 className="mt-1 text-xl font-black text-slate-950">{invite.organisation_name}</h1>
           </div>
           <ShieldCheck className="h-7 w-7 text-slate-950" />
@@ -301,9 +299,9 @@ export default function PublicSellerApplicationPage() {
         <section className="rounded-[2.5rem] bg-slate-950 p-7 text-white shadow-2xl sm:p-10">
           <div className="max-w-3xl">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-300">{invite.name}</p>
-            <h2 className="mt-3 text-3xl font-black sm:text-5xl">Apply to become an approved seller</h2>
+            <h2 className="mt-3 text-3xl font-black sm:text-5xl">Solicita ser vendedor autorizado</h2>
             <p className="mt-5 max-w-2xl text-sm font-semibold leading-7 text-white/70 sm:text-base">
-              {invite.description || "Create your seller account and submit your information for approval."}
+              {invite.description || "Crea tu cuenta de vendedor y envía tus datos para que sean revisados y aprobados."}
             </p>
           </div>
 
@@ -316,11 +314,11 @@ export default function PublicSellerApplicationPage() {
             ) : null}
             <div className="rounded-3xl bg-white/10 p-4">
               <ShieldCheck className="h-5 w-5 text-amber-300" />
-              <p className="mt-3 text-sm font-black">Approval required</p>
+              <p className="mt-3 text-sm font-black">Requiere aprobación</p>
             </div>
             <div className="rounded-3xl bg-white/10 p-4">
               <BriefcaseBusiness className="h-5 w-5 text-amber-300" />
-              <p className="mt-3 text-sm font-black">Seller portal access after approval</p>
+              <p className="mt-3 text-sm font-black">Acceso al portal de vendedores después de ser aprobado</p>
             </div>
           </div>
         </section>
@@ -335,50 +333,50 @@ export default function PublicSellerApplicationPage() {
         <form onSubmit={submitApplication} className="mt-6 space-y-5">
           <Section
             icon={UserRoundPlus}
-            title="Account and personal information"
-            description="Use your real information so the organisation can verify your application."
+            title="Cuenta e información personal"
+            description="Usa tus datos reales para que la empresa pueda verificar tu solicitud."
           >
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Full legal name" required>
+              <Field label="Nombre completo" required>
                 <input value={form.legal_name} onChange={(event) => setForm((current) => ({ ...current, legal_name: event.target.value }))} className={inputClass} required />
               </Field>
-              <Field label="Public display name">
+              <Field label="Nombre para mostrar">
                 <input value={form.display_name || ""} onChange={(event) => setForm((current) => ({ ...current, display_name: event.target.value }))} className={inputClass} />
               </Field>
               <Field label="Email" required>
                 <input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} className={inputClass} required />
               </Field>
-              <Field label="Phone number" required>
+              <Field label="Número de teléfono" required>
                 <input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} className={inputClass} required />
               </Field>
-              <Field label="WhatsApp number">
+              <Field label="Número de WhatsApp">
                 <input value={form.whatsapp || ""} onChange={(event) => setForm((current) => ({ ...current, whatsapp: event.target.value }))} className={inputClass} />
               </Field>
-              <Field label="Preferred language">
+              <Field label="Idioma preferido">
                 <select value={form.preferred_language || "en"} onChange={(event) => setForm((current) => ({ ...current, preferred_language: event.target.value }))} className={inputClass}>
-                  <option value="en">English</option>
-                  <option value="es">Spanish</option>
-                  <option value="fr">French</option>
-                  <option value="pt">Portuguese</option>
-                  <option value="de">German</option>
+                  <option value="en">Inglés</option>
+                  <option value="es">Español</option>
+                  <option value="fr">Francés</option>
+                  <option value="pt">Portugués</option>
+                  <option value="de">Alemán</option>
                 </select>
               </Field>
-              <Field label="Create password" required>
+              <Field label="Crear contraseña" required>
                 <input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} className={inputClass} required minLength={8} />
               </Field>
-              <Field label="Confirm password" required>
+              <Field label="Confirmar contraseña" required>
                 <input type="password" value={form.password_confirm} onChange={(event) => setForm((current) => ({ ...current, password_confirm: event.target.value }))} className={inputClass} required minLength={8} />
               </Field>
             </div>
 
             <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <Field label="Country"><input value={form.country || ""} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} className={inputClass} /></Field>
-              <Field label="City"><input value={form.city || ""} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} className={inputClass} /></Field>
-              <Field label="Address"><input value={form.address || ""} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} className={inputClass} /></Field>
+              <Field label="País"><input value={form.country || ""} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} className={inputClass} /></Field>
+              <Field label="Ciudad"><input value={form.city || ""} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} className={inputClass} /></Field>
+              <Field label="Dirección"><input value={form.address || ""} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} className={inputClass} /></Field>
             </div>
 
             <div className="mt-4">
-              <Field label="Profile photo" required={invite.require_profile_photo} helper="A clear photo helps the organisation identify your seller profile.">
+              <Field label="Foto de perfil" required={invite.require_profile_photo} helper="Sube una foto clara para que la empresa pueda identificar tu perfil de vendedor.">
                 <input type="file" accept="image/*" onChange={(event) => setForm((current) => ({ ...current, profile_photo: event.target.files?.[0] || null }))} className={`${inputClass} py-2`} required={invite.require_profile_photo} />
               </Field>
             </div>
@@ -386,19 +384,32 @@ export default function PublicSellerApplicationPage() {
 
           <Section
             icon={BriefcaseBusiness}
-            title="Seller experience"
-            description="Tell the organisation how and where you plan to sell its products."
+            title="Experiencia como vendedor"
+            description="Cuéntanos cómo y dónde piensas vender los productos de la empresa."
           >
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Seller type" required>
+              <Field label="Tipo de vendedor" required>
                 <select value={form.seller_type} onChange={(event) => setForm((current) => ({ ...current, seller_type: event.target.value as SellerType }))} className={inputClass}>
-                  {SELLER_TYPES.map((sellerType) => <option key={sellerType} value={sellerType}>{humanize(sellerType)}</option>)}
+                  {SELLER_TYPES.map((sellerType) => {
+                    const labels: Record<SellerType, string> = {
+                      independent: "Vendedor independiente",
+                      hotel_representative: "Representante de hotel",
+                      travel_agency: "Agencia de viajes",
+                      tour_operator: "Turoperador",
+                      concierge: "Concierge",
+                      taxi_transport: "Taxi o transporte",
+                      influencer: "Influencer o creador de contenido",
+                      external_vendor: "Vendedor externo",
+                      other: "Otro",
+                    };
+                    return <option key={sellerType} value={sellerType}>{labels[sellerType]}</option>;
+                  })}
                 </select>
               </Field>
-              <Field label="Business or agency name">
+              <Field label="Nombre del negocio o agencia">
                 <input value={form.business_name || ""} onChange={(event) => setForm((current) => ({ ...current, business_name: event.target.value }))} className={inputClass} />
               </Field>
-              <Field label="Years of sales experience">
+              <Field label="Años de experiencia en ventas">
                 <input type="number" min="0" max="80" value={form.experience_years || 0} onChange={(event) => setForm((current) => ({ ...current, experience_years: Number(event.target.value || 0) }))} className={inputClass} />
               </Field>
               <Field label="Website">
@@ -409,14 +420,14 @@ export default function PublicSellerApplicationPage() {
             </div>
 
             <div className="mt-4">
-              <Field label="About you and your sales experience">
+              <Field label="Sobre ti y tu experiencia en ventas">
                 <textarea value={form.biography || ""} onChange={(event) => setForm((current) => ({ ...current, biography: event.target.value }))} className={textareaClass} />
               </Field>
             </div>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-2">
               <div>
-                <p className="text-sm font-black text-slate-700">Languages spoken</p>
+                <p className="text-sm font-black text-slate-700">Idiomas que hablas</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {LANGUAGE_OPTIONS.map((item) => {
                     const checked = (form.languages || []).includes(item);
@@ -427,7 +438,7 @@ export default function PublicSellerApplicationPage() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-black text-slate-700">Products you are interested in</p>
+                <p className="text-sm font-black text-slate-700">Productos que te interesa vender</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(invite.allowed_products.length ? invite.allowed_products.map((item) => item.name) : invite.allowed_product_types.map(humanize)).map((item) => {
                     const checked = (form.product_interests || []).includes(item);
@@ -442,26 +453,34 @@ export default function PublicSellerApplicationPage() {
 
           <Section
             icon={FileText}
-            title="Identity verification"
-            description="Identification documents are used to review the application and should be stored privately by the platform."
+            title="Verificación de identidad"
+            description="Los documentos de identidad se utilizan para verificar tu solicitud y se mantienen de forma privada en la plataforma."
           >
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Identification type" required={invite.require_identification}>
+              <Field label="Tipo de identificación" required={invite.require_identification}>
                 <select value={form.identification_type || ""} onChange={(event) => setForm((current) => ({ ...current, identification_type: event.target.value as SellerIdentificationType | "" }))} className={inputClass} required={invite.require_identification}>
-                  <option value="">Select identification</option>
-                  {IDENTIFICATION_TYPES.map((item) => <option key={item} value={item}>{humanize(item)}</option>)}
+                  <option value="">Selecciona una identificación</option>
+                  {IDENTIFICATION_TYPES.map((item) => {
+                    const labels: Record<SellerIdentificationType, string> = {
+                      national_id: "Cédula de identidad",
+                      passport: "Pasaporte",
+                      driver_license: "Licencia de conducir",
+                      other: "Otro",
+                    };
+                    return <option key={item} value={item}>{labels[item]}</option>;
+                  })}
                 </select>
               </Field>
-              <Field label="Identification number" required={invite.require_identification}>
+              <Field label="Número de identificación" required={invite.require_identification}>
                 <input value={form.identification_number || ""} onChange={(event) => setForm((current) => ({ ...current, identification_number: event.target.value }))} className={inputClass} required={invite.require_identification} />
               </Field>
-              <Field label="Identification front" required={invite.require_identification}>
+              <Field label="Foto frontal de la identificación" required={invite.require_identification}>
                 <input type="file" accept="image/*,.pdf" onChange={(event) => setForm((current) => ({ ...current, identification_front: event.target.files?.[0] || null }))} className={`${inputClass} py-2`} required={invite.require_identification} />
               </Field>
-              <Field label="Identification back">
+              <Field label="Foto trasera de la identificación">
                 <input type="file" accept="image/*,.pdf" onChange={(event) => setForm((current) => ({ ...current, identification_back: event.target.files?.[0] || null }))} className={`${inputClass} py-2`} />
               </Field>
-              <Field label="Verification selfie">
+              <Field label="Selfie de verificación">
                 <input type="file" accept="image/*" onChange={(event) => setForm((current) => ({ ...current, verification_selfie: event.target.files?.[0] || null }))} className={`${inputClass} py-2`} />
               </Field>
             </div>
@@ -469,17 +488,17 @@ export default function PublicSellerApplicationPage() {
 
           <Section
             icon={MapPin}
-            title="Final message and agreement"
-            description="Add anything the reviewer should know before submitting your application."
+            title="Mensaje final y aceptación"
+            description="Agrega cualquier información que consideres importante antes de enviar tu solicitud."
           >
-            <Field label="Message to the reviewer">
+            <Field label="Mensaje para la empresa">
               <textarea value={form.applicant_message || ""} onChange={(event) => setForm((current) => ({ ...current, applicant_message: event.target.value }))} className={textareaClass} />
             </Field>
 
             <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <input type="checkbox" checked={form.terms_accepted} onChange={(event) => setForm((current) => ({ ...current, terms_accepted: event.target.checked }))} className="mt-1 h-5 w-5 rounded border-slate-300" required />
               <span className="text-sm font-semibold leading-6 text-slate-600">
-                I confirm that the information is accurate and I accept the seller terms ({invite.terms_version}). I understand that approval is required before I can create bookings or request payouts.
+                Confirmo que la información proporcionada es correcta y acepto los términos para vendedores ({invite.terms_version}). Entiendo que debo ser aprobado antes de poder crear reservaciones o solicitar pagos.
               </span>
             </label>
           </Section>
@@ -487,7 +506,7 @@ export default function PublicSellerApplicationPage() {
           <div className="flex justify-end">
             <button type="submit" disabled={submitting} className="inline-flex h-14 items-center justify-center gap-3 rounded-2xl bg-slate-950 px-8 text-base font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60">
               {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
-              Submit seller application
+              Enviar solicitud de vendedor
             </button>
           </div>
         </form>

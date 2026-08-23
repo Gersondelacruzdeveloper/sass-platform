@@ -135,6 +135,14 @@ export default function TicketingLoginPage() {
 
         if (!organisationSlug) return;
 
+        // Remember the tenant as soon as this tenant-specific login page opens.
+        // This lets the installed PWA recover the organisation if it later
+        // launches at /ticketing without a slug in the URL.
+        window.localStorage.setItem(
+          "last_ticketing_slug",
+          organisationSlug
+        );
+
         const response = await api.get<Branding>(
           `/organisations/public-branding/ticketing/${organisationSlug}/`
         );
