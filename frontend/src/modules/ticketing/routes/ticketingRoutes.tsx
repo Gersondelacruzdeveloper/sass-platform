@@ -946,6 +946,115 @@ function PartnerPortalIndex() {
   );
 }
 
+function TicketingTenantLauncher() {
+  const { organisationSlug = "" } = useParams<{
+    organisationSlug: string;
+  }>();
+
+  const { user, initialized, loading } = useAppSelector(
+    (state) => state.auth,
+  );
+
+  const safeOrganisationSlug = organisationSlug.trim().toLowerCase();
+
+  useEffect(() => {
+    if (!safeOrganisationSlug || typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "last_ticketing_slug",
+      safeOrganisationSlug,
+    );
+  }, [safeOrganisationSlug]);
+
+  const access = usePortalAccess(
+    user && safeOrganisationSlug
+      ? safeOrganisationSlug
+      : undefined,
+  );
+
+  if (!safeOrganisationSlug) {
+    return <Navigate to="/ticketing" replace />;
+  }
+
+  if (!initialized || loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (!user) {
+    return (
+      <Navigate
+        to={`/ticketing/${safeOrganisationSlug}/login`}
+        replace
+      />
+    );
+  }
+
+  if (access.loading) {
+    return <RouteLoadingScreen />;
+  }
+
+  if (access.portalType === "owner") {
+    return (
+      <Navigate
+        to={`/ticketing/${safeOrganisationSlug}/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "seller") {
+    return (
+      <Navigate
+        to={`/ticketing/${safeOrganisationSlug}/seller/dashboard`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "pending") {
+    return (
+      <Navigate
+        to={`/ticketing/${safeOrganisationSlug}/seller-application`}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "partner" && access.partner) {
+    return (
+      <Navigate
+        to={getPartnerDestination(
+          safeOrganisationSlug,
+          access.partner.permissions,
+        )}
+        replace
+      />
+    );
+  }
+
+  if (access.portalType === "unavailable") {
+    return (
+      <PortalAccessMessage
+        title="Unable to verify access"
+        message="The server could not confirm which portal this account may use. For security, no dashboard has been displayed."
+        organisationSlug={safeOrganisationSlug}
+        allowRetry
+      />
+    );
+  }
+
+  return (
+    <PortalAccessMessage
+      title="Access denied"
+      message="This account does not have access to an owner, seller, or partner portal for this organisation."
+      organisationSlug={safeOrganisationSlug}
+    />
+  );
+}
+
+
 function TicketingAppLauncher() {
   const user = useAppSelector((state) => state.auth.user) as any;
 
@@ -1050,9 +1159,13 @@ function SellerDashboardFallback() {
 
 export const ticketingRoutes = (
   <>
-    {/* Dynamic PWA / platform launcher */}
+    {/* Dynamic PWA / platform launchers */}
     <Route path="/ticketing" element={<TicketingAppLauncher />} />
     <Route path="/ticketing/" element={<TicketingAppLauncher />} />
+    <Route
+      path="/ticketing/:organisationSlug/launch"
+      element={<TicketingTenantLauncher />}
+    />
 
     {/* Custom-domain public website routes */}
     <Route
