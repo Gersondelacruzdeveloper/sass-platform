@@ -52,7 +52,7 @@ class PublicOrganisationManifestAPITests(TestCase):
             ),
         )
 
-    def test_active_ticketing_manifest_has_safe_schema_and_tenant_login_start(self):
+    def test_active_ticketing_manifest_has_safe_schema_and_tenant_launch_start(self):
         response = self.client.get(self.url(self.ticketing))
 
         self.assertEqual(response.status_code, 200)
@@ -80,7 +80,7 @@ class PublicOrganisationManifestAPITests(TestCase):
             payload["start_url"],
             (
                 "https://app.example.test/ticketing/"
-                "manifest-ticketing-tenant/login"
+                "manifest-ticketing-tenant/launch"
             ),
         )
         self.assertEqual(

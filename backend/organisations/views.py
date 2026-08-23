@@ -361,12 +361,14 @@ class PublicOrganisationManifestView(APIView):
 
         # Build a tenant-specific launch URL.
         #
-        # Ticketing opens at the tenant login route instead of assuming the
-        # installed user is an owner. After authentication, the frontend
-        # resolves the account to the correct owner, seller, pending, or
-        # partner portal.
+        # Ticketing PWAs always start on a tenant-aware launcher. The tenant
+        # slug is encoded directly in the installed app's launch URL, so the
+        # app never needs to guess the organisation from localStorage.
+        #
+        # The frontend launcher resolves the current session to the correct
+        # owner, seller, pending, partner, or login destination.
         if business_type == "ticketing":
-            start_path = f"/ticketing/{organisation.slug}/login"
+            start_path = f"/ticketing/{organisation.slug}/launch"
         else:
             start_path = f"/{business_type}/{organisation.slug}/login"
 
