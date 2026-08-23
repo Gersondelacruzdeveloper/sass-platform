@@ -73,19 +73,271 @@ def _decimal_percent(value, field_name="discount_percent"):
     return percent
 
 
-def _seller_offer_allowed_discount(seller, product):
-    if not getattr(seller, "can_apply_discounts", False):
-        return Decimal("0.00")
+def _seller_offer_discount_limit(
+    seller,
+    product,
+    *,
+    offer=None,
+    quantity=1,
+):
+    """Return the effective seller-funded discount limit for one offer.
 
-    seller_limit = _decimal_percent(
+    Exact active commission rules take priority in the same order used by the
+    seller pricing quote: external option, package, event ticket type, product.
+    The customer discount consumes the seller's allowance first.
+
+    Positive seller/product discount percentages remain optional safety caps.
+    A stored zero means "no extra cap"; it must not erase a real commission
+    allowance.
+    """
+
+    zero = Decimal("0.00")
+    one_hundred = Decimal("100.00")
+    offer = offer if isinstance(offer, dict) else {}
+
+    try:
+        quantity = max(int(offer.get("quantity") or quantity or 1), 1)
+    except (TypeError, ValueError):
+        quantity = 1
+
+    can_apply_discounts = bool(
+        getattr(seller, "can_apply_customer_discount", False)
+        or getattr(seller, "can_apply_discounts", False)
+    )
+
+    token_original_price = Decimal(
+        str(offer.get("original_price") or "0.00")
+    ).quantize(Decimal("0.01"))
+    unit_price = Decimal(
+        str(
+            offer.get("unit_price")
+            or getattr(product, "adult_price", None)
+            or getattr(product, "base_price", None)
+            or "0.00"
+        )
+    ).quantize(Decimal("0.01"))
+    original_price = (
+        token_original_price
+        if token_original_price > zero
+        else (unit_price * Decimal(quantity)).quantize(Decimal("0.01"))
+    )
+
+    if not can_apply_discounts or original_price <= zero:
+        return {
+            "amount": zero,
+            "percent": zero,
+            "minimum_selling_price": max(original_price, zero),
+        }
+
+    queryset = (
+        SellerProductCommissionRule.objects
+        .filter(
+            organisation_id=getattr(seller, "organisation_id", None),
+            seller_id=getattr(seller, "id", None),
+            product_id=getattr(product, "id", None),
+            is_active=True,
+        )
+    )
+
+    rule = None
+
+    external_ids = []
+    for field_name in (
+        "external_option_id",
+        "external_product_id",
+        "external_variant_id",
+        "external_availability_id",
+    ):
+        value = str(offer.get(field_name) or "").strip()
+        if value and value not in external_ids:
+            external_ids.append(value)
+
+    for value in offer.get("external_option_ids") or []:
+        value = str(value or "").strip()
+        if value and value not in external_ids:
+            external_ids.append(value)
+
+    if external_ids:
+        rule = (
+            queryset
+            .filter(external_option_id__in=external_ids)
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+
+    package_id = offer.get("package_id")
+    if not rule and package_id:
+        rule = (
+            queryset
+            .filter(
+                package_id=package_id,
+                event_ticket_type__isnull=True,
+            )
+            .filter(
+                Q(external_option_id="")
+                | Q(external_option_id__isnull=True)
+            )
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+
+    event_ticket_type_id = offer.get("event_ticket_type_id")
+    if not rule and event_ticket_type_id:
+        rule = (
+            queryset
+            .filter(
+                event_ticket_type_id=event_ticket_type_id,
+                package__isnull=True,
+            )
+            .filter(
+                Q(external_option_id="")
+                | Q(external_option_id__isnull=True)
+            )
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+
+    if not rule:
+        rule = (
+            queryset
+            .filter(
+                package__isnull=True,
+                event_ticket_type__isnull=True,
+            )
+            .filter(
+                Q(external_option_id="")
+                | Q(external_option_id__isnull=True)
+            )
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+
+    allowance_amount = zero
+
+    if rule:
+        if rule.rule_type == "fixed_amount":
+            allowance_amount = calculate_fixed_seller_margin_total(
+                fixed_amount=rule.fixed_amount,
+                quantity=quantity,
+                is_per_unit=rule.is_per_unit,
+            )
+        else:
+            allowance_percent = _decimal_percent(
+                rule.percentage or "0.00",
+                "rule_percentage",
+            )
+            allowance_amount = (
+                original_price
+                * allowance_percent
+                / one_hundred
+            ).quantize(Decimal("0.01"))
+    else:
+        # Keep the same fallback order used by the seller pricing quote:
+        # product percentage -> seller global fixed -> seller percentage.
+        product_percentage = Decimal(
+            str(
+                getattr(product, "seller_margin_percent", None)
+                or getattr(product, "seller_allowed_discount_percent", None)
+                or "0.00"
+            )
+        )
+        global_fixed = Decimal(
+            str(getattr(seller, "fixed_commission_amount", 0) or "0.00")
+        )
+        seller_percentage = Decimal(
+            str(
+                getattr(seller, "default_margin_percent", None)
+                or getattr(seller, "commission_rate", None)
+                or "0.00"
+            )
+        )
+
+        if product_percentage > zero:
+            allowance_amount = (
+                original_price
+                * product_percentage
+                / one_hundred
+            ).quantize(Decimal("0.01"))
+        elif global_fixed > zero:
+            allowance_amount = global_fixed.quantize(Decimal("0.01"))
+        elif seller_percentage > zero:
+            allowance_amount = (
+                original_price
+                * seller_percentage
+                / one_hundred
+            ).quantize(Decimal("0.01"))
+
+    allowance_amount = min(
+        max(allowance_amount, zero),
+        original_price,
+    )
+    maximum_discount_amount = allowance_amount
+
+    seller_cap_percent = _decimal_percent(
         getattr(seller, "max_customer_discount_percent", 0),
         "seller_limit",
     )
-    product_limit = _decimal_percent(
+    if seller_cap_percent > zero:
+        seller_cap_amount = (
+            original_price
+            * seller_cap_percent
+            / one_hundred
+        ).quantize(Decimal("0.01"))
+        maximum_discount_amount = min(
+            maximum_discount_amount,
+            seller_cap_amount,
+        )
+
+    product_cap_percent = _decimal_percent(
         getattr(product, "seller_allowed_discount_percent", 0),
         "product_limit",
     )
-    return min(seller_limit, product_limit)
+    if product_cap_percent > zero:
+        product_cap_amount = (
+            original_price
+            * product_cap_percent
+            / one_hundred
+        ).quantize(Decimal("0.01"))
+        maximum_discount_amount = min(
+            maximum_discount_amount,
+            product_cap_amount,
+        )
+
+    maximum_discount_amount = min(
+        max(maximum_discount_amount, zero),
+        allowance_amount,
+        original_price,
+    )
+    maximum_discount_percent = (
+        maximum_discount_amount
+        / original_price
+        * one_hundred
+    ).quantize(Decimal("0.01"))
+
+    return {
+        "amount": maximum_discount_amount,
+        "percent": maximum_discount_percent,
+        "minimum_selling_price": (
+            original_price - maximum_discount_amount
+        ).quantize(Decimal("0.01")),
+    }
+
+
+def _seller_offer_allowed_discount(
+    seller,
+    product,
+    *,
+    offer=None,
+    quantity=1,
+):
+    """Backward-compatible percentage helper for signed offers."""
+
+    return _seller_offer_discount_limit(
+        seller,
+        product,
+        offer=offer,
+        quantity=quantity,
+    )["percent"]
 
 
 def _build_seller_offer_token(
@@ -8886,14 +9138,18 @@ class PublicProductResolveAPIView(PublicOrganisationMixin, APIView):
             "discount_percent",
         )
 
-        maximum_discount_percent = _seller_offer_allowed_discount(
+        discount_limit = _seller_offer_discount_limit(
             seller,
             product,
+            offer=payload,
+            quantity=payload.get("quantity") or 1,
         )
+        maximum_discount_percent = discount_limit["percent"]
 
         if discount_percent > maximum_discount_percent:
             raise ValueError(
-                "This seller offer exceeds the currently allowed discount."
+                f"Puedes dar hasta US${discount_limit['amount']:.2f} "
+                "de descuento en esta venta."
             )
 
         unit_price = Decimal(
@@ -10939,17 +11195,34 @@ class PublicBookingViewSet(PublicOrganisationMixin, viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
-                    allowed_discount = _seller_offer_allowed_discount(
+                    offer_quantity = offer.get("quantity") or 1
+                    if not offer.get("quantity"):
+                        offer_items = mutable_data.get("items_payload") or []
+                        if (
+                            isinstance(offer_items, list)
+                            and offer_items
+                            and isinstance(offer_items[0], dict)
+                        ):
+                            offer_quantity = (
+                                offer_items[0].get("quantity")
+                                or offer_quantity
+                            )
+
+                    discount_limit = _seller_offer_discount_limit(
                         seller,
                         product,
+                        offer=offer,
+                        quantity=offer_quantity,
                     )
+                    allowed_discount = discount_limit["percent"]
 
                     if signed_discount > allowed_discount:
                         return Response(
                             {
                                 "offer_token": (
-                                    "This seller offer is no longer allowed. "
-                                    "The seller or product discount limit changed."
+                                    f"Puedes dar hasta US$"
+                                    f"{discount_limit['amount']:.2f} "
+                                    "de descuento en esta venta."
                                 )
                             },
                             status=status.HTTP_400_BAD_REQUEST,

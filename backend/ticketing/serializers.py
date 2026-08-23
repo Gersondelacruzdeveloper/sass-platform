@@ -5446,12 +5446,16 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             )
 
     def validate_and_apply_seller_discount(self, booking, subtotal):
-        """
-        Validate seller-entered customer discounts after booking items have been
-        priced. The authenticated seller and the selected product both limit the
-        maximum percentage that may be applied.
+        """Validate a seller-funded customer discount against real allowance.
 
-        Public bookings are unchanged because they do not have a seller attached.
+        The effective commission allowance is resolved by the finance engine,
+        including exact fixed/percentage seller-product rules. A customer
+        discount consumes that allowance first, so the owner's protected net is
+        not reduced.
+
+        Positive seller/product discount percentages remain optional safety
+        caps. A stored zero means "no extra cap" and must not erase a real
+        commission allowance.
         """
 
         requested_discount_percent = Decimal(
@@ -5478,16 +5482,17 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         seller = booking.seller
 
-        # The discount allowance is only enforced for seller-created bookings.
-        # Public checkout and owner-created bookings without a seller remain unchanged.
+        # Public checkout and owner-created bookings without a seller remain
+        # unchanged.
         if not seller:
             return
 
-        if requested_discount_percent > Decimal("0.00") and not getattr(
-            seller,
-            "can_apply_discounts",
-            False,
-        ):
+        can_apply_discounts = bool(
+            getattr(seller, "can_apply_customer_discount", False)
+            or getattr(seller, "can_apply_discounts", False)
+        )
+
+        if requested_discount_percent > Decimal("0.00") and not can_apply_discounts:
             raise serializers.ValidationError(
                 {
                     "customer_discount_percent": (
@@ -5496,9 +5501,47 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 }
             )
 
+        subtotal = Decimal(str(subtotal or "0.00")).quantize(Decimal("0.01"))
+
+        if subtotal <= Decimal("0.00"):
+            maximum_discount_amount = Decimal("0.00")
+        else:
+            # Ask the existing finance calculator for the maximum amount that
+            # can be consumed from the seller's allowance. The calculator
+            # already resolves exact seller/product/package/external-option
+            # commission rules and clamps a 100% request to that allowance.
+            from .finance.calculator import calculate_booking_pricing
+
+            original_discount_percent = booking.customer_discount_percent
+            try:
+                booking.customer_discount_percent = Decimal("100.00")
+                allowance_pricing = calculate_booking_pricing(booking)
+            finally:
+                booking.customer_discount_percent = original_discount_percent
+
+            maximum_discount_amount = Decimal(
+                str(
+                    allowance_pricing.get(
+                        "customer_discount_amount",
+                        "0.00",
+                    )
+                    or "0.00"
+                )
+            ).quantize(Decimal("0.01"))
+
+        # Preserve explicit positive percentage caps as additional safety
+        # limits. Zero means that no extra cap was configured.
         seller_limit = Decimal(
             str(getattr(seller, "max_customer_discount_percent", 0) or 0)
         )
+        if seller_limit > Decimal("0.00"):
+            seller_cap_amount = (
+                subtotal * seller_limit / Decimal("100.00")
+            ).quantize(Decimal("0.01"))
+            maximum_discount_amount = min(
+                maximum_discount_amount,
+                seller_cap_amount,
+            )
 
         product_limits = [
             Decimal(
@@ -5529,20 +5572,48 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                 )
             )
 
-        # A multi-item booking must respect the most restrictive product limit.
+        positive_product_limits = [
+            value
+            for value in product_limits
+            if value > Decimal("0.00")
+        ]
         product_limit = (
-            min(product_limits)
-            if product_limits
+            min(positive_product_limits)
+            if positive_product_limits
             else Decimal("0.00")
         )
-        allowed_discount_percent = min(seller_limit, product_limit)
 
-        subtotal = Decimal(str(subtotal or "0.00")).quantize(Decimal("0.01"))
-        maximum_discount_amount = (
-            subtotal * allowed_discount_percent / Decimal("100.00")
+        if product_limit > Decimal("0.00"):
+            product_cap_amount = (
+                subtotal * product_limit / Decimal("100.00")
+            ).quantize(Decimal("0.01"))
+            maximum_discount_amount = min(
+                maximum_discount_amount,
+                product_cap_amount,
+            )
+
+        maximum_discount_amount = min(
+            max(maximum_discount_amount, Decimal("0.00")),
+            subtotal,
         ).quantize(Decimal("0.01"))
+
+        allowed_discount_percent = (
+            (
+                maximum_discount_amount
+                / subtotal
+                * Decimal("100.00")
+            ).quantize(Decimal("0.01"))
+            if subtotal > Decimal("0.00")
+            else Decimal("0.00")
+        )
         minimum_selling_price = (
             subtotal - maximum_discount_amount
+        ).quantize(Decimal("0.01"))
+
+        requested_discount_amount = (
+            subtotal
+            * requested_discount_percent
+            / Decimal("100.00")
         ).quantize(Decimal("0.01"))
 
         self._debug_booking_financial_state(
@@ -5552,6 +5623,9 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             extra={
                 "requested_discount_percent": str(
                     requested_discount_percent
+                ),
+                "requested_discount_amount": str(
+                    requested_discount_amount
                 ),
                 "seller_limit": str(seller_limit),
                 "product_limits": [
@@ -5571,26 +5645,20 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             refresh=True,
         )
 
-        if requested_discount_percent > allowed_discount_percent:
+        if requested_discount_amount > maximum_discount_amount:
             raise serializers.ValidationError(
                 {
                     "customer_discount_percent": (
-                        f"Maximum discount allowed for this booking is "
-                        f"{allowed_discount_percent.normalize()}% "
-                        f"({maximum_discount_amount:.2f}). "
-                        f"Minimum selling price is {minimum_selling_price:.2f}."
+                        f"Puedes dar hasta US${maximum_discount_amount:.2f} "
+                        "de descuento en esta venta."
                     )
                 }
             )
 
-        customer_discount_amount = (
-            subtotal * requested_discount_percent / Decimal("100.00")
-        ).quantize(Decimal("0.01"))
-
         booking.customer_discount_percent = requested_discount_percent.quantize(
             Decimal("0.01")
         )
-        booking.customer_discount_amount = customer_discount_amount
+        booking.customer_discount_amount = requested_discount_amount
         booking.save(
             update_fields=[
                 "customer_discount_percent",
@@ -5608,7 +5676,7 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
                     requested_discount_percent
                 ),
                 "customer_discount_amount_calculated": str(
-                    customer_discount_amount
+                    requested_discount_amount
                 ),
             },
             refresh=True,
