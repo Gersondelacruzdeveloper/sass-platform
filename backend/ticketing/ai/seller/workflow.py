@@ -1733,52 +1733,176 @@ class SellerBookingWorkflow:
         phrase: str,
         options: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
+        """
+        Resolve a seller's option wording without confusing secondary
+        inclusions (for example "open bar premium") with the ticket tier.
+
+        Strategy:
+        1. Match distinctive ticket-tier phrases first.
+        2. Treat generic "VIP" as ambiguous when multiple VIP options exist.
+        3. Fall back to conservative fuzzy matching for misspellings.
+        """
+
         normalised_phrase = self._normalise_phrase(phrase)
         if not normalised_phrase:
             return None
 
-        alias_groups = {
-            "premium": {"premium", "premiun", "vip", "entrada premium", "premium open bar"},
-            "regular": {"regular", "general", "entrada general", "standard", "estandar", "open bar regular"},
-            "front row": {"front row", "primera fila", "first row", "fila frontal"},
-        }
-        expanded_terms = {normalised_phrase}
-        for canonical, terms in alias_groups.items():
-            normalised_terms = {self._normalise_phrase(term) for term in terms}
-            if normalised_phrase == canonical or any(
-                term in normalised_phrase or normalised_phrase in term
-                for term in normalised_terms
-            ):
-                expanded_terms.add(canonical)
-                expanded_terms.update(normalised_terms)
+        def option_text(option: Mapping[str, Any]) -> str:
+            return self._normalise_phrase(
+                " ".join(
+                    part
+                    for part in (
+                        self._text(option.get("option_name")),
+                        self._text(option.get("name")),
+                    )
+                    if part
+                )
+            )
 
-        ranked = []
+        tier_aliases: dict[str, set[str]] = {
+            "premium": {
+                "premium",
+                "premiun",
+                "entrada premium",
+                "ticket premium",
+            },
+            "regular": {
+                "regular",
+                "general",
+                "entrada general",
+                "standard",
+                "estandar",
+            },
+            "gold": {
+                "gold",
+                "gold member",
+                "gold member vip",
+            },
+            "front_row": {
+                "front row",
+                "primera fila",
+                "first row",
+                "fila frontal",
+                "front row vip",
+            },
+        }
+
+        def phrase_matches_aliases(aliases: set[str]) -> bool:
+            normalised_aliases = {
+                self._normalise_phrase(alias)
+                for alias in aliases
+            }
+            return any(
+                normalised_phrase == alias
+                or normalised_phrase in alias
+                or alias in normalised_phrase
+                for alias in normalised_aliases
+            )
+
+        requested_tier = None
+        for tier_name, aliases in tier_aliases.items():
+            if phrase_matches_aliases(aliases):
+                requested_tier = tier_name
+                break
+
+        # Generic VIP is not enough to distinguish Gold Member VIP from
+        # Front Row VIP (or any future VIP tiers).
+        if normalised_phrase == "vip":
+            vip_options = [
+                option
+                for option in options
+                if (
+                    " vip " in f" {option_text(option)} "
+                    or option_text(option).endswith(" vip")
+                    or option_text(option).startswith("vip ")
+                )
+            ]
+            return vip_options[0] if len(vip_options) == 1 else None
+
+        if requested_tier:
+            matches: list[dict[str, Any]] = []
+
+            for option in options:
+                text = option_text(option)
+
+                if requested_tier == "premium":
+                    # Premium must describe the admission/ticket tier itself,
+                    # not merely a secondary inclusion such as OPEN BAR PREMIUM.
+                    if (
+                        "entrada premium" in text
+                        or text.startswith("premium ")
+                        or text == "premium"
+                    ):
+                        matches.append(option)
+
+                elif requested_tier == "regular":
+                    if (
+                        "entrada general" in text
+                        or "entrada regular" in text
+                        or text.startswith("general ")
+                        or text.startswith("regular ")
+                    ):
+                        matches.append(option)
+
+                elif requested_tier == "gold":
+                    if (
+                        "gold member" in text
+                        or text.startswith("gold ")
+                    ):
+                        matches.append(option)
+
+                elif requested_tier == "front_row":
+                    if (
+                        "front row" in text
+                        or "primera fila" in text
+                        or "first row" in text
+                    ):
+                        matches.append(option)
+
+            if len(matches) == 1:
+                return matches[0]
+
+            if len(matches) > 1:
+                return None
+
+        # Conservative fuzzy fallback for genuine misspellings/variants.
+        ranked: list[tuple[float, dict[str, Any]]] = []
+
         for option in options:
             candidates = [
                 self._text(option.get("option_name")),
                 self._text(option.get("name")),
-                self._text(option.get("description")),
-                " ".join(str(x) for x in option.get("features", []) if x)
-                if isinstance(option.get("features"), list) else "",
             ]
+
             score = max(
-                (self._similarity(term, candidate)
-                 for term in expanded_terms
-                 for candidate in candidates
-                 if candidate),
+                (
+                    self._similarity(normalised_phrase, candidate)
+                    for candidate in candidates
+                    if candidate
+                ),
                 default=0.0,
             )
+
             if score > 0:
                 ranked.append((score, option))
+
         ranked.sort(key=lambda pair: pair[0], reverse=True)
+
         if not ranked:
             return None
+
         best_score, best_option = ranked[0]
         second_score = ranked[1][0] if len(ranked) > 1 else 0.0
-        if best_score >= 0.90 or (
-            best_score >= 0.72 and best_score - second_score >= 0.08
+
+        if best_score >= 0.92:
+            return best_option
+
+        if (
+            best_score >= 0.78
+            and best_score - second_score >= 0.12
         ):
             return best_option
+
         return None
 
     @classmethod
