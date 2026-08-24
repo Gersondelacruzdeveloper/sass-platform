@@ -905,7 +905,12 @@ export default function TicketingSellerNewBookingPage() {
 
   useEffect(() => {
     loadPage();
-  }, [slug, productIdFromUrl, t]);
+    // Page data depends on the tenant/product route, not on the identity of
+    // the translation function. Some i18n hooks may return a new function
+    // reference after render; including it here can cause a reload loop that
+    // resets the booking form while the seller is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, productIdFromUrl]);
 
   const selectedProduct = useMemo(
     () =>
@@ -1231,13 +1236,7 @@ export default function TicketingSellerNewBookingPage() {
     form.serviceDate,
   ]);
 
-  const maximumDiscountPercent =
-    seller?.can_apply_discounts && pricingQuote
-      ? Math.max(
-          0,
-          numberValue(pricingQuote.maximum_discount_percent),
-        )
-      : 0;
+
   const maximumDiscountAmount =
     seller?.can_apply_discounts && pricingQuote
       ? Math.max(
@@ -1261,6 +1260,15 @@ export default function TicketingSellerNewBookingPage() {
         numberValue(pricingQuote.minimum_selling_price),
       )
     : subtotal;
+  const sellerAllowanceAmount = pricingQuote
+    ? Math.max(0, numberValue(pricingQuote.seller_allowance_amount))
+    : 0;
+  const sellerEarnings = pricingQuote
+    ? Math.max(
+        0,
+        numberValue(pricingQuote.seller_commission_amount) - discountAmount,
+      )
+    : 0;
   const taxAmount = 0;
   const totalAmount = Math.max(subtotal - discountAmount + taxAmount, 0);
   const depositRequired = calculateDepositRequired(selectedProduct, subtotal);
@@ -1281,7 +1289,7 @@ export default function TicketingSellerNewBookingPage() {
   useEffect(() => {
     if (
       !seller?.can_apply_discounts ||
-      (!loadingPricingQuote && maximumDiscountPercent <= 0)
+      (!loadingPricingQuote && maximumDiscountAmount <= 0)
     ) {
       setForm((current) =>
         numberValue(current.discountAmount) === 0
@@ -1292,7 +1300,7 @@ export default function TicketingSellerNewBookingPage() {
   }, [
     seller?.can_apply_discounts,
     loadingPricingQuote,
-    maximumDiscountPercent,
+    maximumDiscountAmount,
   ]);
 
   const pickupTime =
@@ -1396,7 +1404,7 @@ export default function TicketingSellerNewBookingPage() {
   }
 
   function changeDiscountAmount(value: string) {
-    if (!seller?.can_apply_discounts || maximumDiscountPercent <= 0) return;
+    if (!seller?.can_apply_discounts || maximumDiscountAmount <= 0) return;
 
     const normalized = value.replace(",", ".");
 
@@ -1419,10 +1427,9 @@ export default function TicketingSellerNewBookingPage() {
     updateForm("discountAmount", moneyString(nextValue));
   }
 
-  function applyDiscountPercent(percent: number) {
-    const safePercent = Math.min(Math.max(percent, 0), maximumDiscountPercent);
-    const amount = subtotal > 0 ? (subtotal * safePercent) / 100 : 0;
-    updateForm("discountAmount", moneyString(amount));
+  function applyDiscountAmount(amount: number) {
+    const safeAmount = clampMoney(amount, 0, maximumDiscountAmount);
+    updateForm("discountAmount", moneyString(safeAmount));
   }
 
   async function saveBooking() {
@@ -1487,9 +1494,7 @@ export default function TicketingSellerNewBookingPage() {
       return setErrorMessage(t("sellerNewBooking.errors.selectPayment"));
     if (requestedDiscountAmount > maximumDiscountAmount + 0.005) {
       return setErrorMessage(
-        `Maximum discount allowed is ${maximumDiscountPercent.toFixed(
-          2,
-        )}% (${formatMoney(maximumDiscountAmount)}).`,
+        `Maximum discount allowed is ${formatMoney(maximumDiscountAmount)}.`,
       );
     }
 
@@ -2127,59 +2132,93 @@ export default function TicketingSellerNewBookingPage() {
                 </AlertBox>
               )}
 
-            {seller?.can_apply_discounts && maximumDiscountPercent > 0 && (
+            {seller?.can_apply_discounts && maximumDiscountAmount > 0 && (
               <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
-                <Input
-                  label={t("sellerNewBooking.fields.discount")}
-                  type="text"
-                  inputMode="decimal"
-                  value={form.discountAmount}
-                  onChange={changeDiscountAmount}
-                  onBlur={finishDiscountAmount}
-                  placeholder="0.00"
-                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-white p-4 ring-1 ring-amber-200">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Normal price
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">
+                      {formatMoney(subtotal)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white p-4 ring-1 ring-amber-200">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      You can give up to
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-amber-700">
+                      {formatMoney(maximumDiscountAmount)}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
+                      of your seller allowance
+                    </p>
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => applyDiscountPercent(maximumDiscountPercent)}
-                  className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300"
-                >
-                  Apply maximum discount ({maximumDiscountPercent.toFixed(2)}%)
-                </button>
+                <div className="mt-4">
+                  <Input
+                    label="Customer discount"
+                    type="text"
+                    inputMode="decimal"
+                    value={form.discountAmount}
+                    onChange={changeDiscountAmount}
+                    onBlur={finishDiscountAmount}
+                    placeholder="0.00"
+                  />
+                </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <button
                     type="button"
-                    onClick={() => applyDiscountPercent(0)}
+                    onClick={() => applyDiscountAmount(0)}
                     className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50"
                   >
-                    Clear
+                    No discount
                   </button>
-                  {[5, 10, 15]
-                    .filter((percent) => percent <= maximumDiscountPercent)
-                    .map((percent) => (
+                  {[0.25, 0.5, 1].map((fraction) => {
+                    const amount = maximumDiscountAmount * fraction;
+                    const label =
+                      fraction === 1
+                        ? `Max ${formatMoney(maximumDiscountAmount)}`
+                        : formatMoney(amount);
+
+                    return (
                       <button
-                        key={percent}
+                        key={fraction}
                         type="button"
-                        onClick={() => applyDiscountPercent(percent)}
+                        onClick={() => applyDiscountAmount(amount)}
                         className="h-10 rounded-xl border border-amber-300 bg-white px-3 text-xs font-black text-amber-700 hover:bg-amber-100"
                       >
-                        Apply {percent}%
+                        {label}
                       </button>
-                    ))}
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-950 p-4 text-white">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Customer pays
+                    </p>
+                    <p className="mt-1 text-2xl font-black">
+                      {formatMoney(totalAmount)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-200">
+                    <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                      Your earnings
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-emerald-700">
+                      {formatMoney(sellerEarnings)}
+                    </p>
+                  </div>
                 </div>
 
                 <p className="mt-3 text-xs font-semibold leading-5 text-slate-600">
-                  Maximum {maximumDiscountPercent.toFixed(2)}% ·{" "}
-                  {formatMoney(maximumDiscountAmount)}. Minimum customer price:{" "}
-                  {formatMoney(minimumSellingPrice)}.
-                  {pricingQuote?.allowance_type
-                    ? ` Allowance: ${
-                        pricingQuote.allowance_type === "fixed_amount"
-                          ? "fixed amount"
-                          : "percentage"
-                      }.`
-                    : ""}
+                  Your available allowance is {formatMoney(sellerAllowanceAmount)}.
+                  Giving a discount reduces your earnings by the same amount.
+                  The minimum customer price is {formatMoney(minimumSellingPrice)}.
                 </p>
               </div>
             )}
@@ -2381,20 +2420,23 @@ export default function TicketingSellerNewBookingPage() {
                 label={t("sellerNewBooking.summary.subtotal")}
                 value={formatMoney(subtotal)}
               />
-              {seller?.can_apply_discounts && maximumDiscountPercent > 0 && (
+              {seller?.can_apply_discounts && maximumDiscountAmount > 0 && (
                 <SummaryLine
                   label="Maximum discount"
-                  value={`${maximumDiscountPercent.toFixed(2)}% · ${formatMoney(
-                    maximumDiscountAmount,
-                  )}`}
+                  value={formatMoney(maximumDiscountAmount)}
                 />
               )}
               {seller?.can_apply_discounts && discountAmount > 0 && (
                 <SummaryLine
                   label={t("sellerNewBooking.fields.discount")}
-                  value={`-${formatMoney(discountAmount)} (${customerDiscountPercent.toFixed(
-                    2,
-                  )}%)`}
+                  value={`-${formatMoney(discountAmount)}`}
+                />
+              )}
+              {seller?.can_apply_discounts && pricingQuote && (
+                <SummaryLine
+                  label="Your earnings"
+                  value={formatMoney(sellerEarnings)}
+                  strong
                 />
               )}
               <BigMoney
