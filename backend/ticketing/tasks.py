@@ -6,6 +6,7 @@ from typing import Any
 from celery import shared_task
 from django.db import close_old_connections
 
+from ticketing.customer_ai_tasks import process_customer_ai_message_task  # noqa: F401
 from ticketing.models import Booking, NotificationLog
 from ticketing.notifications.service import BookingNotificationService
 
