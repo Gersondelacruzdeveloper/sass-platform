@@ -132,11 +132,17 @@ def process_customer_ai_message_task(self, inbound_message_id: int) -> Mapping[s
         if not runtime.enabled:
             _mark_skipped(message.pk, reason="disabled")
             return {"action": "skipped", "reason": "disabled"}
-        if not conversation.ai_may_reply:
+
+        # A generated reply may already exist when a previous delivery attempt
+        # failed. In particular, a handoff acknowledgement is generated after
+        # the agent changes the conversation to HANDOFF_REQUESTED. Allow that
+        # one checkpointed reply to resume; new inbound messages are still
+        # rejected by _claim_message while the handoff remains open.
+        outbound = _existing_generated_reply(message)
+        if outbound is None and not conversation.ai_may_reply:
             _mark_skipped(message.pk, reason="human_owned")
             return {"action": "skipped", "reason": "human_owned"}
 
-        outbound = _existing_generated_reply(message)
         if outbound is None:
             result = runtime.agent.run_turn(
                 CustomerAgentTurnContext(
@@ -172,7 +178,7 @@ def process_customer_ai_message_task(self, inbound_message_id: int) -> Mapping[s
         # Recheck ownership immediately before external delivery. The sender's
         # idempotency contract closes the send/ack retry window.
         conversation.refresh_from_db(fields=("status",))
-        if not conversation.ai_may_reply:
+        if not _may_deliver_checkpointed_reply(conversation):
             _mark_skipped(message.pk, reason="human_owned_before_send")
             return {"action": "skipped", "reason": "human_owned_before_send"}
 
@@ -274,6 +280,14 @@ def _existing_generated_reply(inbound: CustomerAIMessage) -> CustomerAIMessage |
         return None
 
 
+def _may_deliver_checkpointed_reply(conversation: CustomerAIConversation) -> bool:
+    """Allow an active reply or the single acknowledgement that opened a handoff."""
+    return conversation.status in {
+        CustomerAIConversation.STATUS_ACTIVE,
+        CustomerAIConversation.STATUS_HANDOFF_REQUESTED,
+    }
+
+
 @transaction.atomic
 def _store_generated_reply(
     *,
@@ -287,7 +301,7 @@ def _store_generated_reply(
     existing = _existing_generated_reply(inbound)
     if existing is not None:
         return existing
-    if not inbound.conversation.ai_may_reply:
+    if not _may_deliver_checkpointed_reply(inbound.conversation):
         raise CustomerAITaskError("Human ownership began during AI generation.")
 
     outbound = CustomerAIMessage.objects.create(

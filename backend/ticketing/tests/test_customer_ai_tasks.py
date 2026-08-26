@@ -358,6 +358,60 @@ class CustomerAIMessageTaskTests(TestCase):
         self.assertEqual(CustomerAIMessage.objects.filter(direction="outbound").count(), 0)
         self.assertEqual(self.state()["status"], STATE_FAILED)
 
+    def test_handoff_requested_during_generation_sends_one_final_notice(self):
+        def request_handoff(_context):
+            CustomerAIConversation.objects.filter(pk=self.conversation.pk).update(
+                status=CustomerAIConversation.STATUS_HANDOFF_REQUESTED,
+                handoff_category="missing_information",
+                handoff_reason="Pickup time requires confirmation.",
+                handoff_requested_at=timezone.now(),
+            )
+
+        self.agent.result = CustomerAgentTurnResult(
+            reply_text=(
+                "I need our team to confirm the exact pickup time. "
+                "We will reply shortly."
+            ),
+            response_id="response-handoff-123",
+            executed_tools=("request_handoff",),
+        )
+        self.agent.before_return = request_handoff
+
+        first = self.run_task()
+        second = self.run_task()
+
+        self.assertEqual(first["action"], "sent")
+        self.assertEqual(second, {"action": "finished", "status": STATE_SENT})
+        self.assertEqual(len(self.agent.calls), 1)
+        self.assertEqual(len(self.sender.calls), 1)
+        self.conversation.refresh_from_db()
+        self.assertEqual(
+            self.conversation.status,
+            CustomerAIConversation.STATUS_HANDOFF_REQUESTED,
+        )
+
+        later_inbound = CustomerAIMessage.objects.create(
+            conversation=self.conversation,
+            direction=CustomerAIMessage.DIRECTION_INBOUND,
+            role=CustomerAIMessage.ROLE_CUSTOMER,
+            external_message_id="wamid.inbound.after-handoff",
+            message_type="text",
+            text="Any update?",
+            metadata={"source": "meta_whatsapp"},
+        )
+        later_result = self.run_task(message_id=later_inbound.pk)
+        later_inbound.refresh_from_db()
+
+        self.assertEqual(
+            later_result,
+            {"action": "skipped", "reason": "human_owned"},
+        )
+        self.assertEqual(
+            later_inbound.metadata[AI_STATE_KEY]["status"],
+            STATE_SKIPPED,
+        )
+        self.assertEqual(len(self.sender.calls), 1)
+
     def test_provider_message_id_is_bounded_to_model_limit(self):
         self.sender.provider_message_id = "m" * 700
         result = self.run_task()
