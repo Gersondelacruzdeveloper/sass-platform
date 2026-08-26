@@ -5785,6 +5785,7 @@ from ticketing.customer_ai_models import (  # noqa: E402, F401
     CustomerAIMessage,
     CustomerItineraryCart,
     CustomerItineraryCartItem,
+    TicketingCustomerAISettings,
 )
 
 from ticketing.customer_promotion_models import (  # noqa: E402, F401

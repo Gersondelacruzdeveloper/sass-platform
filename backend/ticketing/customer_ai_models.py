@@ -21,6 +21,35 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+class TicketingCustomerAISettings(models.Model):
+    """Tenant-scoped controls for automated customer AI replies."""
+
+    organisation = models.OneToOneField(
+        "organisations.Organisation",
+        on_delete=models.CASCADE,
+        related_name="ticketing_customer_ai_settings",
+    )
+    shadow_mode = models.BooleanField(
+        default=True,
+        help_text=(
+            "Generate and store AI replies without sending them to the customer."
+        ),
+    )
+    max_tool_calls = models.PositiveSmallIntegerField(
+        default=6,
+        validators=(MinValueValidator(1), MaxValueValidator(12)),
+    )
+    max_reply_characters = models.PositiveSmallIntegerField(
+        default=600,
+        validators=(MinValueValidator(80), MaxValueValidator(1200)),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Customer AI Settings - {self.organisation.name}"
+
+
 class CustomerAIConversation(models.Model):
     CHANNEL_WHATSAPP = "whatsapp"
     CHANNEL_WEBCHAT = "webchat"
@@ -563,6 +592,7 @@ class CustomerItineraryCartItem(models.Model):
 
 
 __all__ = [
+    "TicketingCustomerAISettings",
     "CustomerAIConversation",
     "CustomerAIHandoff",
     "CustomerAIMessage",
