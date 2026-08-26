@@ -84,15 +84,24 @@ class CustomerCartComponents:
 
 
 def _tenant_domain(organisation: Any) -> str:
+    raw = ""
     try:
-        domain = organisation.domains.filter(is_primary=True).first()
-        if domain is None:
-            domain = organisation.domains.order_by("pk").first()
-    except Exception as exc:
-        raise CustomerCartRepositoryError(
-            "The organisation's public domain could not be resolved."
-        ) from exc
-    raw = str(getattr(domain, "domain", "") or "").strip()
+        public_settings = organisation.ticketing_public_site_settings
+        raw = str(getattr(public_settings, "custom_domain", "") or "").strip()
+    except Exception:
+        pass
+
+    if not raw:
+        try:
+            domain = organisation.domains.filter(is_primary=True).first()
+            if domain is None:
+                domain = organisation.domains.order_by("pk").first()
+        except Exception as exc:
+            raise CustomerCartRepositoryError(
+                "The organisation's public domain could not be resolved."
+            ) from exc
+        raw = str(getattr(domain, "domain", "") or "").strip()
+
     if not raw:
         raise CustomerCartRepositoryError(
             "The organisation has no public checkout domain."

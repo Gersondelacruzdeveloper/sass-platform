@@ -114,19 +114,30 @@ def _currency(organisation: Any) -> str:
 
 def _public_url(organisation: Any, product: ExperienceProduct) -> str | None:
     """Build a URL only from the current tenant's configured domain."""
+    raw_domain = ""
     try:
-        domain_record = organisation.domains.filter(is_primary=True).first()
-        if domain_record is None:
-            domain_record = organisation.domains.order_by("pk").first()
-    except (AttributeError, Exception):
-        domain_record = None
+        public_settings = organisation.ticketing_public_site_settings
+        raw_domain = str(
+            getattr(public_settings, "custom_domain", "") or ""
+        ).strip()
+    except Exception:
+        pass
 
-    raw_domain = str(getattr(domain_record, "domain", "") or "").strip()
+    if not raw_domain:
+        try:
+            domain_record = organisation.domains.filter(is_primary=True).first()
+            if domain_record is None:
+                domain_record = organisation.domains.order_by("pk").first()
+        except Exception:
+            domain_record = None
+        raw_domain = str(getattr(domain_record, "domain", "") or "").strip()
+
     if not raw_domain:
         return None
 
-    # OrganisationDomain normally stores only the hostname, but safely accept
-    # an existing http(s) scheme for backward-compatible tenant data.
+    # Public-site settings and OrganisationDomain normally store only the
+    # hostname, but safely accept an existing http(s) scheme for compatible
+    # tenant data.
     base = raw_domain if "://" in raw_domain else f"https://{raw_domain}"
     parsed = urlparse(base)
     if (
