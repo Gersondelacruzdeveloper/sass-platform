@@ -358,7 +358,7 @@ class CustomerAIMessageTaskTests(TestCase):
         self.assertEqual(CustomerAIMessage.objects.filter(direction="outbound").count(), 0)
         self.assertEqual(self.state()["status"], STATE_FAILED)
 
-    def test_handoff_requested_during_generation_sends_one_final_notice(self):
+    def test_handoff_requested_keeps_ai_active_until_human_claims_chat(self):
         def request_handoff(_context):
             CustomerAIConversation.objects.filter(pk=self.conversation.pk).update(
                 status=CustomerAIConversation.STATUS_HANDOFF_REQUESTED,
@@ -402,15 +402,13 @@ class CustomerAIMessageTaskTests(TestCase):
         later_result = self.run_task(message_id=later_inbound.pk)
         later_inbound.refresh_from_db()
 
-        self.assertEqual(
-            later_result,
-            {"action": "skipped", "reason": "human_owned"},
-        )
+        self.assertEqual(later_result["action"], "sent")
         self.assertEqual(
             later_inbound.metadata[AI_STATE_KEY]["status"],
-            STATE_SKIPPED,
+            STATE_SENT,
         )
-        self.assertEqual(len(self.sender.calls), 1)
+        self.assertEqual(len(self.agent.calls), 2)
+        self.assertEqual(len(self.sender.calls), 2)
 
     def test_provider_message_id_is_bounded_to_model_limit(self):
         self.sender.provider_message_id = "m" * 700

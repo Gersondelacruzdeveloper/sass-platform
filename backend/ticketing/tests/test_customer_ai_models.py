@@ -148,7 +148,7 @@ class CustomerAIModelTests(TestCase):
         self.assertTrue(conversation.ai_may_reply)
 
         conversation.status = CustomerAIConversation.STATUS_HANDOFF_REQUESTED
-        self.assertFalse(conversation.ai_may_reply)
+        self.assertTrue(conversation.ai_may_reply)
         conversation.status = CustomerAIConversation.STATUS_HUMAN_OWNED
         self.assertFalse(conversation.ai_may_reply)
         conversation.status = CustomerAIConversation.STATUS_CLOSED

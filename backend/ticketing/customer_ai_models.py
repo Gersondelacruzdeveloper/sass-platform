@@ -154,7 +154,12 @@ class CustomerAIConversation(models.Model):
 
     @property
     def ai_may_reply(self) -> bool:
-        return self.status == self.STATUS_ACTIVE
+        # A requested handoff is an alert/queue state. The AI may keep helping
+        # until a staff member explicitly claims the conversation.
+        return self.status in {
+            self.STATUS_ACTIVE,
+            self.STATUS_HANDOFF_REQUESTED,
+        }
 
     def clean(self) -> None:
         super().clean()
