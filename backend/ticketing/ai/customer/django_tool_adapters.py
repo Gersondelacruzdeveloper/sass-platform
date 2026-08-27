@@ -468,7 +468,8 @@ class DjangoCustomerItineraryRepository:
             ),
         )
         pickup_required = bool(product.requires_pickup_location)
-        pickup_confirmed = not pickup_required
+        pickup_location_confirmed = not pickup_required
+        pickup_time_confirmed = not pickup_required
         pickup_name = ""
         pickup_time: time | None = None
         if item.pickup_location_id:
@@ -477,6 +478,7 @@ class DjangoCustomerItineraryRepository:
                 pickup_location_id=item.pickup_location_id,
             )
             if location:
+                pickup_location_confirmed = True
                 pickup_name = location.name
                 schedule = self.pickup.resolve_pickup_schedule(
                     organisation=organisation,
@@ -488,17 +490,22 @@ class DjangoCustomerItineraryRepository:
                         service_date=item.service_date,
                     ),
                 )
-                pickup_confirmed = schedule is not None
                 pickup_time = schedule.get("pickup_time") if schedule else None
+                pickup_time_confirmed = pickup_time is not None
 
         status = "valid"
         issues: list[str] = []
         if checked["status"] not in {"available", "limited"}:
             status = checked["status"]
             issues.append("Availability could not be confirmed." if status == "unknown" else "The requested date is unavailable.")
-        if pickup_required and not pickup_confirmed:
+        warnings: list[str] = []
+        if pickup_required and not pickup_location_confirmed:
             status = "invalid"
-            issues.append("A configured pickup location and time are required.")
+            issues.append("A configured pickup location is required.")
+        elif pickup_required and not pickup_time_confirmed:
+            warnings.append(
+                "The exact pickup time is pending manual confirmation."
+            )
         total = checked.get("price_total")
         if total is None and not item.selected_external_option_id:
             total = (
@@ -515,12 +522,16 @@ class DjangoCustomerItineraryRepository:
             "service_date": item.service_date,
             "status": status,
             "issues": issues,
-            "warnings": [],
+            "warnings": warnings,
             "price_total": total,
             "currency": product.currency if total is not None else None,
             "availability_status": checked["status"],
             "pickup_required": pickup_required,
-            "pickup_confirmed": pickup_confirmed,
+            # Backward-compatible meaning: the required pickup location is
+            # valid for this tenant. Exact time confirmation is reported
+            # separately and may remain pending at cart creation.
+            "pickup_confirmed": pickup_location_confirmed,
+            "pickup_time_confirmed": pickup_time_confirmed,
             "pickup_location_name": pickup_name,
             "pickup_time": pickup_time,
             "start_at": start_at,

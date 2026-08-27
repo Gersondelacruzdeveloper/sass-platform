@@ -43,6 +43,21 @@ class TicketingCustomerAISettings(models.Model):
         default=600,
         validators=(MinValueValidator(80), MaxValueValidator(1200)),
     )
+    agent_display_name = models.CharField(
+        max_length=80,
+        default="Travel Assistant",
+    )
+    company_description = models.TextField(blank=True)
+    selling_points = models.JSONField(default=list, blank=True)
+    sales_instructions = models.TextField(blank=True)
+    tone = models.CharField(
+        max_length=200,
+        default="warm, helpful, concise, and professional",
+    )
+    supported_languages = models.JSONField(default=list, blank=True)
+    human_handoff_enabled = models.BooleanField(default=True)
+    allow_itinerary_recommendations = models.BooleanField(default=True)
+    allow_cart_session_creation = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

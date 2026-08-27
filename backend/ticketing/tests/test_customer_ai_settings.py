@@ -15,6 +15,17 @@ class TicketingCustomerAISettingsTests(SimpleTestCase):
         self.assertTrue(
             TicketingCustomerAISettings._meta.get_field("shadow_mode").default
         )
+        self.assertEqual(
+            TicketingCustomerAISettings._meta.get_field(
+                "agent_display_name"
+            ).default,
+            "Travel Assistant",
+        )
+        self.assertTrue(
+            TicketingCustomerAISettings._meta.get_field(
+                "allow_cart_session_creation"
+            ).default
+        )
 
     def test_shadow_mode_is_resolved_independently_per_tenant(self):
         enabled_tenant = SimpleNamespace(
