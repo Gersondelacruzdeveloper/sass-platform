@@ -66,6 +66,8 @@ class CustomerAIPromptTests(SimpleTestCase):
         self.assertIn("call the cart tool immediately in that same turn", prompt)
         self.assertIn("Never promise to send a checkout link later", prompt)
         self.assertIn("include its exact secure checkout URL", prompt)
+        self.assertIn("exact configured name", prompt)
+        self.assertIn("`DD/MM/YYYY`", prompt)
 
     def test_pending_pickup_time_does_not_block_cart(self):
         prompt = DefaultCustomerAgentPromptBuilder().build_instructions(
@@ -81,6 +83,10 @@ class CustomerAIPromptTests(SimpleTestCase):
         )
         self.assertIn(
             "do not delay cart creation solely because the precise pickup time is pending",
+            prompt,
+        )
+        self.assertIn(
+            "Do not request human assistance solely because an exact pickup time",
             prompt,
         )
 

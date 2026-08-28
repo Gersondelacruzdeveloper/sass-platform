@@ -47,6 +47,34 @@ from ticketing.models import ExperienceProduct
 
 
 MONEY = Decimal("0.01")
+SPANISH_MONTHS = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+SPANISH_MONTH_ABBREVIATIONS = (
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+)
 AFFIRMATIVE_PATTERNS = (
     r"\byes\b",
     r"\byep\b",
@@ -210,19 +238,34 @@ class ExplicitCustomerCartApprovalPolicy:
         if set(products) != product_ids:
             return False
         for item in request.items:
-            date_variants = {
-                item.service_date.isoformat().casefold(),
-                item.service_date.strftime("%B %d, %Y").casefold(),
-                item.service_date.strftime("%B %-d, %Y").casefold(),
-                item.service_date.strftime("%b %d, %Y").casefold(),
-                item.service_date.strftime("%d/%m/%Y").casefold(),
-            }
+            date_variants = self._date_variants(item.service_date)
             if not any(value in proposal_text for value in date_variants):
                 return False
             product_name = self._normalise(products[item.product_id])
             if product_name not in proposal_text:
                 return False
         return True
+
+    @staticmethod
+    def _date_variants(value: date) -> set[str]:
+        """Return unambiguous customer-visible English and Spanish dates."""
+        day = value.day
+        month_name = SPANISH_MONTHS[value.month - 1]
+        month_abbreviation = SPANISH_MONTH_ABBREVIATIONS[value.month - 1]
+        return {
+            value.isoformat().casefold(),
+            value.strftime("%B %d, %Y").casefold(),
+            value.strftime("%B %d, %Y").replace(" 0", " ").casefold(),
+            value.strftime("%b %d, %Y").casefold(),
+            value.strftime("%b %d, %Y").replace(" 0", " ").casefold(),
+            value.strftime("%d/%m/%Y").casefold(),
+            value.strftime("%d-%m-%Y").casefold(),
+            f"{day} de {month_name} de {value.year}".casefold(),
+            f"{day} de {month_name}".casefold(),
+            f"{day} {month_name} {value.year}".casefold(),
+            f"{day} {month_abbreviation} {value.year}".casefold(),
+            f"{day} {month_abbreviation}".casefold(),
+        }
 
     @staticmethod
     def _normalise(value: Any) -> str:
