@@ -5,6 +5,7 @@ type TicketingPaymentProviderSettings = {
   id?: number;
   organisation_name?: string;
   default_provider: "stripe" | "paypal" | "none";
+  default_customer_payment_choice?: "full" | "deposit" | "pending" | "cash";
   stripe_enabled: boolean;
   stripe_publishable_key: string;
   stripe_secret_key?: string;
@@ -148,6 +149,24 @@ export default function PaymentProvidersSettings({
             { value: "stripe", label: "Stripe" },
             { value: "paypal", label: "PayPal" },
           ]}
+        />
+
+        <Select
+          label="Default customer payment option"
+          value={paymentProviders.default_customer_payment_choice || "full"}
+          onChange={(value) =>
+            onChange(
+              "default_customer_payment_choice",
+              value as TicketingPaymentProviderSettings["default_customer_payment_choice"],
+            )
+          }
+          options={[
+            { value: "full", label: "Pay total online" },
+            { value: "deposit", label: "Pay deposit online" },
+            { value: "pending", label: "Reserve now and pay later" },
+            { value: "cash", label: "Pay in person" },
+          ]}
+          help="Public checkout shows only this option. Online choices use only the default gateway selected above."
         />
 
         <Toggle

@@ -441,26 +441,33 @@ class PublicCustomerCartSessionResolveView(APIView):
                 organisation=organisation,
                 token_hash=token_hash,
             )
-            .select_related("organisation")
+            .select_related("organisation", "conversation", "converted_booking")
             .prefetch_related("items__product")
             .first()
         )
         if cart is None:
             return _public_cart_not_found()
 
-        if cart.is_expired or cart.status == CustomerItineraryCart.STATUS_EXPIRED:
+        can_resume_payment = _can_resume_converted_cart(cart)
+        if (
+            (cart.is_expired or cart.status == CustomerItineraryCart.STATUS_EXPIRED)
+            and not can_resume_payment
+        ):
             return _public_cart_error(
                 code="cart_expired",
                 message="This cart session has expired. Please request a new link.",
                 http_status=status.HTTP_410_GONE,
             )
-        if cart.status != CustomerItineraryCart.STATUS_ACTIVE:
+        if (
+            cart.status != CustomerItineraryCart.STATUS_ACTIVE
+            and not can_resume_payment
+        ):
             return _public_cart_error(
                 code="cart_unavailable",
                 message="This cart session is no longer available.",
                 http_status=status.HTTP_409_CONFLICT,
             )
-        if not cart.can_checkout:
+        if not cart.can_checkout and not can_resume_payment:
             return _public_cart_error(
                 code="cart_not_ready",
                 message="This cart session is not ready for checkout.",
@@ -512,6 +519,15 @@ class PublicCustomerCartSessionConvertView(APIView):
             return _public_cart_not_found()
 
         values = payload.validated_data
+        configured_payment_choice = _configured_customer_payment_choice(
+            organisation
+        )
+        if values["payment_choice"] != configured_payment_choice:
+            return _public_cart_error(
+                code="invalid_payment_choice",
+                message="The selected payment option is not available.",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
         checkout = CustomerCartCheckoutDetails(
             customer_name=values["full_name"],
             customer_whatsapp=values["whatsapp"],
@@ -603,6 +619,32 @@ def _serialize_public_booking(booking, request) -> dict[str, Any]:
 
 def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
     organisation = cart.organisation
+    conversation = cart.conversation
+    converted_booking = cart.converted_booking
+    first_item = next(iter(cart.items.all()), None)
+    trusted_hotel = str(
+        getattr(first_item, "pickup_name_snapshot", "") or ""
+    ).strip()
+    customer = {
+        "full_name": str(
+            getattr(converted_booking, "customer_name", "")
+            or getattr(conversation, "customer_name", "")
+            or ""
+        ).strip(),
+        "whatsapp": str(
+            getattr(converted_booking, "customer_whatsapp", "")
+            or getattr(conversation, "external_customer_id", "")
+            or ""
+        ).strip(),
+        "email": str(
+            getattr(converted_booking, "customer_email", "") or ""
+        ).strip(),
+        "hotel_name": trusted_hotel or str(
+            getattr(converted_booking, "customer_hotel", "")
+            or getattr(conversation, "hotel_name", "")
+            or ""
+        ).strip(),
+    }
     return {
         "cart_id": cart.pk,
         "status": cart.status,
@@ -612,8 +654,15 @@ def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
         "discount_total": cart.discount_total,
         "total": cart.total,
         "expires_at": cart.expires_at,
-        "is_expired": cart.is_expired,
-        "can_checkout": cart.can_checkout,
+        "is_expired": cart.is_expired and not _can_resume_converted_cart(cart),
+        "can_checkout": cart.can_checkout or _can_resume_converted_cart(cart),
+        "can_resume_payment": _can_resume_converted_cart(cart),
+        "customer": customer,
+        "converted_booking": (
+            _serialize_public_booking(converted_booking, None)
+            if converted_booking is not None
+            else None
+        ),
         "organisation": {
             "id": organisation.pk,
             "slug": organisation.slug,
@@ -623,6 +672,32 @@ def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
         "validation_notices": [],
         "items": [_serialize_public_cart_item(item) for item in cart.items.all()],
     }
+
+
+def _can_resume_converted_cart(cart: CustomerItineraryCart) -> bool:
+    booking = getattr(cart, "converted_booking", None)
+    if booking is None:
+        return False
+    return bool(
+        cart.status == CustomerItineraryCart.STATUS_CONVERTED
+        and str(getattr(booking, "status", "")) == "pending_payment"
+        and str(getattr(booking, "payment_status", "")) in {"unpaid", "pending"}
+    )
+
+
+def _configured_customer_payment_choice(organisation: Organisation) -> str:
+    from ticketing.models import TicketingPaymentProviderSettings
+
+    provider_settings = TicketingPaymentProviderSettings.objects.filter(
+        organisation=organisation,
+        is_active=True,
+    ).first()
+    if provider_settings is None:
+        return "pending"
+    choice = str(
+        provider_settings.default_customer_payment_choice or "pending"
+    ).strip().lower()
+    return choice if choice in PAYMENT_CHOICES else "pending"
 
 
 def _serialize_public_cart_item(item) -> dict[str, Any]:

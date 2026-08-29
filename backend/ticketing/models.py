@@ -2934,6 +2934,13 @@ class TicketingPaymentProviderSettings(models.Model):
         ("none", "None"),
     )
 
+    DEFAULT_CUSTOMER_PAYMENT_CHOICE_CHOICES = (
+        ("full", "Pay in full online"),
+        ("deposit", "Pay deposit online"),
+        ("pending", "Reserve now and pay later"),
+        ("cash", "Pay in person"),
+    )
+
     STRIPE_CONNECT_STATUS_CHOICES = (
         ("not_connected", "Not Connected"),
         ("pending", "Pending"),
@@ -2956,6 +2963,16 @@ class TicketingPaymentProviderSettings(models.Model):
         max_length=20,
         choices=DEFAULT_PROVIDER_CHOICES,
         default="none",
+    )
+
+    default_customer_payment_choice = models.CharField(
+        max_length=20,
+        choices=DEFAULT_CUSTOMER_PAYMENT_CHOICE_CHOICES,
+        default="full",
+        help_text=(
+            "The only payment choice presented to public checkout customers "
+            "for this organisation."
+        ),
     )
 
     stripe_enabled = models.BooleanField(default=False)

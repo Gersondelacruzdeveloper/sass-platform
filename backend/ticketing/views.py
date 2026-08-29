@@ -11567,6 +11567,7 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
             return Response(
                 {
                     "default_provider": "none",
+                    "default_customer_payment_choice": "pending",
                     "stripe_enabled": False,
                     "paypal_enabled": False,
                     "stripe_publishable_key": "",
@@ -11576,14 +11577,28 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
                 }
             )
 
+        default_provider = provider_settings.default_provider
+        stripe_available = bool(
+            default_provider == "stripe"
+            and provider_settings.stripe_enabled
+            and provider_settings.stripe_secret_key
+        )
+        paypal_available = bool(
+            default_provider == "paypal"
+            and provider_settings.has_paypal_credentials
+        )
+
         return Response(
             {
-                "default_provider": provider_settings.default_provider,
-                "stripe_enabled": bool(
-                    provider_settings.stripe_enabled
-                    and provider_settings.stripe_secret_key
+                "default_provider": default_provider,
+                "default_customer_payment_choice": (
+                    provider_settings.default_customer_payment_choice
                 ),
-                "paypal_enabled": bool(provider_settings.has_paypal_credentials),
+                # Fail closed: the public checkout receives only the tenant's
+                # selected default gateway, even if another gateway is also
+                # configured for administrative use.
+                "stripe_enabled": stripe_available,
+                "paypal_enabled": paypal_available,
                 "stripe_publishable_key": provider_settings.stripe_publishable_key,
                 "paypal_mode": provider_settings.paypal_mode,
                 "payment_success_message": provider_settings.payment_success_message,
@@ -11617,6 +11632,7 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
             organisation=organisation,
             is_active=True,
             stripe_enabled=True,
+            default_provider="stripe",
         ).first()
 
         if not provider_settings or not provider_settings.stripe_secret_key:
@@ -11628,6 +11644,14 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
         booking_id = request.data.get("booking_id")
         booking_code = request.data.get("booking_code")
         payment_type = request.data.get("payment_type", "full")
+        if provider_settings.default_customer_payment_choice not in {
+            "full",
+            "deposit",
+        } or payment_type != provider_settings.default_customer_payment_choice:
+            return Response(
+                {"detail": "The selected payment option is not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         booking = Booking.objects.filter(organisation=organisation).filter(
             Q(id=booking_id) | Q(booking_code=booking_code)
@@ -12401,6 +12425,7 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
             organisation=organisation,
             is_active=True,
             paypal_enabled=True,
+            default_provider="paypal",
         ).first()
 
         if not provider_settings or not provider_settings.has_paypal_credentials:
@@ -12412,6 +12437,14 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
         booking_id = request.data.get("booking_id")
         booking_code = request.data.get("booking_code")
         payment_type = request.data.get("payment_type", "full")
+        if provider_settings.default_customer_payment_choice not in {
+            "full",
+            "deposit",
+        } or payment_type != provider_settings.default_customer_payment_choice:
+            return Response(
+                {"detail": "The selected payment option is not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         booking = Booking.objects.filter(organisation=organisation).filter(
             Q(id=booking_id) | Q(booking_code=booking_code)
@@ -14597,4 +14630,3 @@ class TicketingLedgerEntryViewSet(
             self.get_serializer(reversals, many=True).data,
             status=status.HTTP_201_CREATED,
         )
-

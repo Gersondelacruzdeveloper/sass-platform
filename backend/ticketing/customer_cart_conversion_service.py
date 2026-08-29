@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
@@ -196,12 +197,16 @@ class DjangoCustomerCartConversionService:
         cart.status = CustomerItineraryCart.STATUS_CONVERTED
         cart.converted_booking = booking
         cart.converted_at = checked_at
+        # A customer may leave Stripe/PayPal and return to the original link.
+        # Keep the recovery token useful for a full day after conversion.
+        cart.expires_at = max(cart.expires_at, checked_at + timedelta(hours=24))
         cart.itinerary_revalidated_at = checked_at
         cart.save(
             update_fields=(
                 "status",
                 "converted_booking",
                 "converted_at",
+                "expires_at",
                 "itinerary_revalidated_at",
                 "updated_at",
             )
@@ -387,7 +392,13 @@ class DjangoCustomerCartConversionService:
             "customer_name": checkout.customer_name.strip(),
             "customer_whatsapp": checkout.customer_whatsapp.strip(),
             "customer_email": checkout.customer_email.strip(),
-            "customer_hotel": checkout.customer_hotel.strip(),
+            # Pickup is server-validated cart data. Prefer it over a stale or
+            # browser-edited hotel field while retaining the latter as a safe
+            # fallback for products that do not use a configured pickup.
+            "customer_hotel": (
+                str(first.pickup_name or "").strip()
+                or checkout.customer_hotel.strip()
+            ),
             "customer_notes": checkout.customer_notes.strip(),
             "adults": first.adults,
             "children": first.children,

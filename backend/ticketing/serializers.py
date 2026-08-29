@@ -1070,6 +1070,7 @@ class TicketingPaymentProviderSettingsSerializer(serializers.ModelSerializer):
             "organisation",
             "organisation_name",
             "default_provider",
+            "default_customer_payment_choice",
             "stripe_enabled",
             "stripe_publishable_key",
             "stripe_secret_key",
@@ -7223,4 +7224,3 @@ class SettlementPaymentCreateSerializer(serializers.Serializer):
                 {"payee_type": "Payer and payee must be different parties."}
             )
         return attrs
-

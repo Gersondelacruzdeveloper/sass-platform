@@ -890,12 +890,14 @@ export interface PublicBrandingResponse {
 
 
 export type TicketingPaymentProvider = "stripe" | "paypal" | "none";
+export type CustomerPaymentChoice = "full" | "deposit" | "pending" | "cash";
 
 export interface TicketingPaymentProviderSettings {
   id: ID;
   organisation: ID;
   organisation_name?: string;
   default_provider: TicketingPaymentProvider;
+  default_customer_payment_choice?: CustomerPaymentChoice;
   stripe_enabled: boolean;
   stripe_publishable_key: string;
   stripe_connect_account_id: string;
@@ -915,6 +917,7 @@ export interface TicketingPaymentProviderSettings {
 
 export interface PublicPaymentOptions {
   default_provider: TicketingPaymentProvider;
+  default_customer_payment_choice?: CustomerPaymentChoice;
   stripe_enabled: boolean;
   paypal_enabled: boolean;
   stripe_publishable_key?: string;
@@ -2227,6 +2230,14 @@ export interface PublicCustomerCartSession {
   expires_at: string;
   is_expired: boolean;
   can_checkout: boolean;
+  can_resume_payment?: boolean;
+  customer?: {
+    full_name: string;
+    whatsapp: string;
+    email: string;
+    hotel_name: string;
+  };
+  converted_booking?: Booking | null;
   organisation: PublicCustomerCartOrganisation;
   promotions: PublicCustomerCartPromotion[];
   validation_notices: unknown[];

@@ -35,7 +35,7 @@ from ticketing.customer_ai_models import (
 )
 
 
-DEFAULT_CART_LIFETIME = timedelta(hours=2)
+DEFAULT_CART_LIFETIME = timedelta(hours=24)
 MAX_CART_LIFETIME = timedelta(hours=24)
 MAX_ITEMS = 12
 MONEY_PLACES = Decimal("0.01")
