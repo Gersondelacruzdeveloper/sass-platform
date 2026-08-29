@@ -103,6 +103,7 @@ type TicketingPaymentProviderSettings = {
   id?: number;
   organisation_name?: string;
   default_provider: "stripe" | "paypal" | "none";
+  default_customer_payment_choice?: "full" | "deposit" | "pending" | "cash";
   stripe_enabled: boolean;
   stripe_publishable_key: string;
   stripe_secret_key?: string;
