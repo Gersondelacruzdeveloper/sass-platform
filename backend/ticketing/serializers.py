@@ -2765,6 +2765,7 @@ class SellerSerializer(MediaURLMixin, serializers.ModelSerializer):
             "can_manage_integrations",
             "permissions",
             "is_active",
+            "seller_ai_enabled",
             "total_sales_amount",
             "total_commission_amount",
             "total_collected_amount",

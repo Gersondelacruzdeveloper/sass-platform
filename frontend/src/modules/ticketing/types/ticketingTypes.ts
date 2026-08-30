@@ -578,6 +578,7 @@ export interface Seller extends SellerPermissions {
   total_paid_commission_amount?: Money;
   permissions?: SellerPermissions;
   is_active: boolean;
+  seller_ai_enabled?: boolean;
   total_sales_amount: Money;
   total_commission_amount: Money;
   total_collected_amount: Money;

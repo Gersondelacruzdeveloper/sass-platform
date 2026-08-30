@@ -36,6 +36,7 @@ type NavItem = {
   icon: LucideIcon;
   permissions?: TicketingPermissionKey[];
   alwaysShow?: boolean;
+  requiresSellerAI?: boolean;
 };
 
 function buildPath(slug: string, path: string) {
@@ -45,7 +46,7 @@ function buildPath(slug: string, path: string) {
 
 function getPermissionValue(
   seller: Seller | null | undefined,
-  permission: TicketingPermissionKey
+  permission: TicketingPermissionKey,
 ) {
   if (!seller) return false;
 
@@ -62,13 +63,13 @@ function getPermissionValue(
 
 function hasAnyPermission(
   seller: Seller | null | undefined,
-  permissions?: TicketingPermissionKey[]
+  permissions?: TicketingPermissionKey[],
 ) {
   if (!permissions || permissions.length === 0) return true;
   if (!seller) return false;
 
   return permissions.some((permission) =>
-    getPermissionValue(seller, permission)
+    getPermissionValue(seller, permission),
   );
 }
 
@@ -111,6 +112,7 @@ export default function TicketingSellerSidebar({
       path: buildPath(safeSlug, "/ai-booking"),
       icon: Bot,
       permissions: ["can_create_bookings"],
+      requiresSellerAI: true,
     },
     {
       label: t("sellerSidebar.navigation.newBooking"),
@@ -147,8 +149,10 @@ export default function TicketingSellerSidebar({
   const visibleItems = currentSeller
     ? navItems.filter(
         (item) =>
-          item.alwaysShow ||
-          hasAnyPermission(currentSeller, item.permissions)
+          (item.alwaysShow ||
+            hasAnyPermission(currentSeller, item.permissions)) &&
+          (!item.requiresSellerAI ||
+            currentSeller.seller_ai_enabled !== false),
       )
     : [];
 

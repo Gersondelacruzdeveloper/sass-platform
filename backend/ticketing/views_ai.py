@@ -172,6 +172,14 @@ class SellerAITranscriptionView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        seller_ai_denied = chat_view._seller_ai_denied_response(
+            request=request,
+            organisation=organisation,
+        )
+
+        if seller_ai_denied is not None:
+            return seller_ai_denied
+
         vocabulary_hint = self._build_vocabulary_hint(
             organisation=organisation,
         )
@@ -518,6 +526,14 @@ class SellerAIChatView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        seller_ai_denied = self._seller_ai_denied_response(
+            request=request,
+            organisation=organisation,
+        )
+
+        if seller_ai_denied is not None:
+            return seller_ai_denied
 
         ai_settings = self._resolve_ai_settings(
             organisation=organisation,
@@ -983,6 +999,64 @@ class SellerAIChatView(APIView):
     # ------------------------------------------------------------------
     # Access control
     # ------------------------------------------------------------------
+
+    def _resolve_request_seller(
+        self,
+        *,
+        request: Request,
+        organisation: Any,
+    ) -> Any:
+        """Return only the active seller owned by this user and tenant."""
+
+        user_id = getattr(request.user, "id", None)
+        organisation_id = getattr(organisation, "id", None)
+
+        if not user_id or not organisation_id:
+            return None
+
+        try:
+            seller_model = apps.get_model("ticketing", "Seller")
+        except LookupError:
+            return None
+
+        return (
+            seller_model.objects.filter(
+                user_id=user_id,
+                organisation_id=organisation_id,
+                is_active=True,
+            )
+            .only("id", "seller_ai_enabled")
+            .order_by("id")
+            .first()
+        )
+
+    def _seller_ai_denied_response(
+        self,
+        *,
+        request: Request,
+        organisation: Any,
+    ) -> Response | None:
+        seller = self._resolve_request_seller(
+            request=request,
+            organisation=organisation,
+        )
+
+        if seller is None or getattr(
+            seller,
+            "seller_ai_enabled",
+            True,
+        ):
+            return None
+
+        return Response(
+            {
+                "detail": (
+                    "The AI Booking Assistant is disabled for this seller."
+                ),
+                "code": "seller_ai_disabled",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     def _user_can_access_organisation(
         self,

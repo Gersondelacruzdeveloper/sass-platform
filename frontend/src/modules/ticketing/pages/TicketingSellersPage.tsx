@@ -120,6 +120,7 @@ type Seller = {
   pending_settlement_amount?: string | number;
   permissions?: Partial<Record<PermissionKey, boolean>>;
   is_active: boolean;
+  seller_ai_enabled?: boolean;
   total_sales_amount?: string | number;
   total_commission_amount?: string | number;
   total_collected_amount?: string | number;
@@ -234,6 +235,7 @@ type SellerFormState = {
   fixed_commission_amount: string;
   max_customer_discount_percent: string;
   is_active: boolean;
+  seller_ai_enabled: boolean;
   create_login: boolean;
   login_username: string;
   login_email: string;
@@ -443,6 +445,7 @@ const blankForm: SellerFormState = {
   fixed_commission_amount: "0.00",
   max_customer_discount_percent: "0.00",
   is_active: true,
+  seller_ai_enabled: true,
   create_login: false,
   login_username: "",
   login_email: "",
@@ -741,7 +744,7 @@ function appendBoolean(formData: FormData, key: string, value: boolean) {
   formData.append(key, value ? "true" : "false");
 }
 
-function sellerToForm(seller: Seller): SellerFormState {
+export function sellerToForm(seller: Seller): SellerFormState {
   const nextForm: SellerFormState = {
     ...blankForm,
     id: seller.id,
@@ -759,6 +762,7 @@ function sellerToForm(seller: Seller): SellerFormState {
         "0.00"
     ),
     is_active: Boolean(seller.is_active),
+    seller_ai_enabled: seller.seller_ai_enabled !== false,
     create_login: false,
     login_username: "",
     login_email: seller.user_email || seller.email || "",
@@ -776,7 +780,7 @@ function sellerToForm(seller: Seller): SellerFormState {
   return nextForm;
 }
 
-function formToFormData(form: SellerFormState, photoFile: File | null) {
+export function formToFormData(form: SellerFormState, photoFile: File | null) {
   const formData = new FormData();
 
   appendText(formData, "full_name", form.full_name);
@@ -796,6 +800,7 @@ function formToFormData(form: SellerFormState, photoFile: File | null) {
   );
 
   appendBoolean(formData, "is_active", form.is_active);
+  appendBoolean(formData, "seller_ai_enabled", form.seller_ai_enabled);
   appendBoolean(formData, "create_login", form.create_login);
   appendBoolean(formData, "apply_role_defaults", form.apply_role_defaults);
 
@@ -2708,6 +2713,27 @@ function SellerFormModal({
                     checked={form.is_active}
                     onChange={(value) => onChange("is_active", value)}
                   />
+
+                  <div>
+                    <Toggle
+                      label={t(
+                        "sellers.form.sellerAIEnabled",
+                        undefined,
+                        "AI Booking Assistant enabled"
+                      )}
+                      checked={form.seller_ai_enabled}
+                      onChange={(value) =>
+                        onChange("seller_ai_enabled", value)
+                      }
+                    />
+                    <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                      {t(
+                        "sellers.form.sellerAIEnabledHelp",
+                        undefined,
+                        "Disable this only when this seller must not use the AI booking chat or voice transcription. Other sellers are not affected."
+                      )}
+                    </p>
+                  </div>
 
                   <Input
                     label={t("sellers.form.email")}

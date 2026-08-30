@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../../api/axios";
+import type { Seller } from "../../types/ticketingTypes";
 
 type ChatRole = "seller" | "assistant" | "system";
 
@@ -240,6 +241,8 @@ export default function TicketingSellerAIBookingPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const [sellerAccessLoading, setSellerAccessLoading] = useState(true);
+  const [sellerAIEnabled, setSellerAIEnabled] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -256,6 +259,38 @@ export default function TicketingSellerAIBookingPage() {
   useEffect(() => {
     setConversationId(window.localStorage.getItem(storageKey) || "");
   }, [storageKey]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSellerAIAccess() {
+      setSellerAccessLoading(true);
+
+      try {
+        const response = await api.get<Seller>("/ticketing/sellers/me/", {
+          params: { organisation_slug: organisationSlug },
+        });
+
+        if (active) {
+          setSellerAIEnabled(response.data?.seller_ai_enabled !== false);
+        }
+      } catch (requestError: any) {
+        const code = requestError?.response?.data?.code;
+
+        if (active && code === "seller_ai_disabled") {
+          setSellerAIEnabled(false);
+        }
+      } finally {
+        if (active) setSellerAccessLoading(false);
+      }
+    }
+
+    void loadSellerAIAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [organisationSlug]);
 
   useEffect(() => {
     if (conversationId) {
@@ -372,6 +407,11 @@ export default function TicketingSellerAIBookingPage() {
       appendMessage("assistant", data.message || "I received the booking details.");
     } catch (requestError: any) {
       const responseData = requestError?.response?.data;
+
+      if (responseData?.code === "seller_ai_disabled") {
+        setSellerAIEnabled(false);
+      }
+
       const message =
         responseData?.detail ||
         responseData?.error ||
@@ -464,6 +504,11 @@ export default function TicketingSellerAIBookingPage() {
       });
     } catch (requestError: any) {
       const responseData = requestError?.response?.data;
+
+      if (responseData?.code === "seller_ai_disabled") {
+        setSellerAIEnabled(false);
+      }
+
       const message =
         responseData?.detail ||
         responseData?.error ||
@@ -636,6 +681,41 @@ export default function TicketingSellerAIBookingPage() {
   const customerContact =
     bookingPreview.customer?.whatsapp || bookingPreview.customer?.email || "";
   const canConfirm = requiresConfirmation && !loading && !bookingCreated;
+
+  if (sellerAccessLoading) {
+    return (
+      <div className="flex min-h-[420px] items-center justify-center">
+        <div className="flex items-center gap-3 text-sm font-black text-slate-600">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Checking AI assistant access...
+        </div>
+      </div>
+    );
+  }
+
+  if (!sellerAIEnabled) {
+    return (
+      <div className="mx-auto flex min-h-[520px] w-full max-w-3xl items-center justify-center px-4">
+        <section className="w-full rounded-[2rem] border border-amber-200 bg-amber-50 p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <Bot className="h-8 w-8" />
+          </div>
+          <h1 className="mt-5 text-2xl font-black text-slate-950">
+            AI Booking Assistant unavailable
+          </h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-600">
+            The AI Booking Assistant has been disabled for your seller account.
+          </p>
+          <Link
+            to={`/ticketing/${organisationSlug}/seller/new-booking`}
+            className="mt-6 inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white"
+          >
+            Continue with manual booking
+          </Link>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">

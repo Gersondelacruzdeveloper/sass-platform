@@ -1904,6 +1904,12 @@ class Seller(models.Model):
     suspension_reason = models.TextField(blank=True)
 
     is_active = models.BooleanField(default=True, db_index=True)
+    seller_ai_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Allow this individual seller to use the AI Booking Assistant."
+        ),
+    )
 
     total_sales_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     total_commission_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
