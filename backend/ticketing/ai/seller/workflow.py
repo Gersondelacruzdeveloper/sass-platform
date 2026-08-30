@@ -736,13 +736,24 @@ class SellerBookingWorkflow:
             if explicit_id is None and not state.pickup_phrase:
                 return None
 
-            # Load the complete active pickup catalogue. OpenAI has already
-            # received the trusted list and should return an exact trusted ID.
-            # The workflow validates that ID; it does not rank or guess hotels.
-            locations = api_client.get_pickup_locations(
-                is_active=True,
-                page_size=1000,
+            # Only locations linked to this product by active schedules may
+            # participate in selection. The fallback exists for legacy test
+            # doubles; the production SellerBookingApiClient always exposes
+            # the product-scoped loader.
+            scoped_loader = getattr(
+                api_client,
+                "get_pickup_locations_for_product",
+                None,
             )
+            if callable(scoped_loader):
+                locations = scoped_loader(
+                    product_id=state.product.product_id,
+                )
+            else:
+                locations = api_client.get_pickup_locations(
+                    is_active=True,
+                    page_size=1000,
+                )
 
             if not locations:
                 return self._response(
@@ -777,25 +788,38 @@ class SellerBookingWorkflow:
                 )
                 state.pending_selection = None
             else:
-                choices = self._pickup_choices(locations)
-                state.pending_selection = PendingSelection(
-                    selection_type="pickup_location",
-                    choices=choices,
-                    original_phrase=state.pickup_phrase,
+                matched_locations = self._matching_pickup_locations(
+                    phrase=state.pickup_phrase,
+                    locations=locations,
                 )
 
-                prompt = (
-                    "Which hotel or pickup location do you mean?"
-                    if state.pickup_phrase
-                    else "Which hotel or pickup location should I use?"
-                )
+                if len(matched_locations) == 1:
+                    state.pickup = TrustedPickupSelection.from_api_location(
+                        matched_locations[0]
+                    )
+                    state.pending_selection = None
+                else:
+                    choices = self._pickup_choices(
+                        matched_locations or locations[:12]
+                    )
+                    state.pending_selection = PendingSelection(
+                        selection_type="pickup_location",
+                        choices=choices,
+                        original_phrase=state.pickup_phrase,
+                    )
 
-                return self._response(
-                    state,
-                    prompt,
-                    status="awaiting_selection",
-                    choices=choices,
-                )
+                    prompt = (
+                        "Which hotel or pickup location do you mean?"
+                        if state.pickup_phrase
+                        else "Which hotel or pickup location should I use?"
+                    )
+
+                    return self._response(
+                        state,
+                        prompt,
+                        status="awaiting_selection",
+                        choices=choices,
+                    )
 
         if state.pickup and not state.pickup.resolved_pickup_time:
             result = api_client.resolve_pickup(
@@ -1981,6 +2005,46 @@ class SellerBookingWorkflow:
             for item in locations
             if item.get("id") is not None
         ]
+
+    def _matching_pickup_locations(
+        self,
+        *,
+        phrase: str,
+        locations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return a small, relevant subset without guessing a trusted ID."""
+
+        normalised_phrase = self._normalise_phrase(phrase)
+        if not normalised_phrase:
+            return []
+
+        direct_matches: list[dict[str, Any]] = []
+        for location in locations:
+            searchable = self._normalise_phrase(
+                " ".join(
+                    str(location.get(field) or "")
+                    for field in ("name", "zone_name", "address")
+                )
+            )
+            if normalised_phrase in searchable:
+                direct_matches.append(location)
+        if direct_matches:
+            return direct_matches[:8]
+
+        ranked = self._rank_items(
+            phrase,
+            locations,
+            fields=("name", "zone_name", "address"),
+        )
+        if not ranked or ranked[0][0] < 0.72:
+            return []
+
+        best_score = ranked[0][0]
+        return [
+            location
+            for score, location in ranked
+            if score >= 0.72 and score >= best_score - 0.12
+        ][:8]
 
     # ------------------------------------------------------------------
     # Conversational routing

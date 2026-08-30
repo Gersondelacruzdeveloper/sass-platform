@@ -292,6 +292,71 @@ class SellerBookingApiClient:
         )
         return self._normalise_list(response)
 
+    def get_pickup_locations_for_product(
+        self,
+        *,
+        product_id: int,
+    ) -> list[dict[str, Any]]:
+        """Return active pickup locations scheduled for one trusted product.
+
+        Both API responses are checked locally as a defence in depth measure:
+        the seller AI never relies on the list endpoint honoring its filters
+        and never exposes a location merely because it belongs to the tenant.
+        """
+
+        trusted_product_id = self._required_positive_int(
+            product_id,
+            "product_id",
+        )
+        schedules = self.get_pickup_schedules(
+            product=trusted_product_id,
+            is_active=True,
+            page_size=1000,
+        )
+
+        scheduled_location_ids: set[int] = set()
+        for schedule in schedules:
+            if not isinstance(schedule, Mapping):
+                continue
+            if not self._schedule_is_active(schedule):
+                continue
+            if self._schedule_product_id(schedule) != trusted_product_id:
+                continue
+            location_id = self._schedule_pickup_location_id(schedule)
+            if location_id is not None:
+                scheduled_location_ids.add(location_id)
+
+        if not scheduled_location_ids:
+            return []
+
+        locations = self.get_pickup_locations(
+            is_active=True,
+            page_size=1000,
+        )
+        result: list[dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        for location in locations:
+            if not isinstance(location, dict):
+                continue
+            location_id = self._safe_int(location.get("id"))
+            if (
+                location_id is None
+                or location_id not in scheduled_location_ids
+                or location_id in seen_ids
+                or not self._location_is_active(location)
+            ):
+                continue
+            seen_ids.add(location_id)
+            result.append(location)
+        return result
+
+    @staticmethod
+    def _location_is_active(location: Mapping[str, Any]) -> bool:
+        value = location.get("is_active", True)
+        if isinstance(value, str):
+            return value.strip().lower() not in {"false", "0", "no", "off"}
+        return value is not False
+
     def resolve_public_pickup(
         self,
         *,

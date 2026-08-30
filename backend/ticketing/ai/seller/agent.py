@@ -173,18 +173,27 @@ class SellerBookingAgent:
                 page_size=1000,
             )
 
-            # Load the complete active hotel/pickup-location catalogue.
-            #
-            # Do not pre-filter this list by pickup schedules here. OpenAI must
-            # see every trusted hotel so it can understand the seller's actual
-            # wording and return the exact trusted pickup_location_id.
-            #
-            # The workflow remains responsible for validating whether the
-            # selected hotel has a schedule for the selected excursion/date.
-            pickup_locations = self.api_client.get_pickup_locations(
-                is_active=True,
-                page_size=1000,
-            )
+            # A hotel ID is trusted only after a product has been selected and
+            # the hotel is linked to that product by an active pickup schedule.
+            # On the first turn the interpreter may still extract a hotel
+            # phrase; workflow.py resolves that phrase after selecting the
+            # product. The global tenant hotel catalogue is never sent to AI.
+            pickup_locations: list[dict[str, Any]] = []
+            if state.product and state.product.product_id:
+                scoped_loader = getattr(
+                    self.api_client,
+                    "get_pickup_locations_for_product",
+                    None,
+                )
+                if callable(scoped_loader):
+                    pickup_locations = scoped_loader(
+                        product_id=state.product.product_id,
+                    )
+                else:  # Compatibility for legacy test/client doubles only.
+                    pickup_locations = self.api_client.get_pickup_locations(
+                        is_active=True,
+                        page_size=1000,
+                    )
 
             trusted_pickup_locations = self._trusted_pickup_locations(
                 pickup_locations,
