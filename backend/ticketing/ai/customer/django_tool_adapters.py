@@ -354,11 +354,18 @@ class DjangoCustomerPickupRepository:
     product_repository = DjangoCustomerProductRepository()
 
     def search_active_pickup_locations(
-        self, *, organisation: Any, search: PickupLocationSearch
+        self,
+        *,
+        organisation: Any,
+        product: PublicProduct,
+        search: PickupLocationSearch,
     ):
         return PickupLocation.objects.filter(
             organisation=organisation,
             is_active=True,
+            product_schedules__product=product.model,
+            product_schedules__product__organisation=organisation,
+            product_schedules__is_active=True,
         ).filter(
             Q(name__icontains=search.query)
             | Q(address__icontains=search.query)

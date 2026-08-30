@@ -217,10 +217,13 @@ FIND_ALTERNATIVES_TOOL = _function_tool(
 SEARCH_PICKUP_LOCATIONS_TOOL = _function_tool(
     name="search_pickup_locations",
     description=(
-        "Search this organisation's active pickup locations by the customer's "
-        "hotel, resort, villa, or area. Never guess when multiple locations match."
+        "Search the selected product's active pickup locations by the customer's "
+        "hotel, resort, villa, or area. Only locations with an active pickup "
+        "schedule for that product are returned. Never guess when multiple "
+        "locations match."
     ),
     properties={
+        "product_id": deepcopy(POSITIVE_PRODUCT_ID_SCHEMA),
         "query": {
             "type": "string",
             "minLength": 2,

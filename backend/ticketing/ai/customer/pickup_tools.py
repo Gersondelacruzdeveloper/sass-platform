@@ -71,9 +71,10 @@ class CustomerPickupRepository(Protocol):
         self,
         *,
         organisation: Any,
+        product: Any,
         search: PickupLocationSearch,
     ) -> Sequence[Any]:
-        """Return active locations matching hotel/resort/villa/area text."""
+        """Return active locations configured for the selected product."""
 
     def get_public_product(
         self,
@@ -138,6 +139,8 @@ class CustomerPickupTools:
         """Search configured locations without silently choosing one."""
         self._require_context(organisation, conversation)
         args = self._mapping(arguments)
+        product_id = self._positive_int(args.get("product_id"), "product_id")
+        product = self._load_product(organisation, product_id)
         query = self._text(args.get("query"), MAX_QUERY_LENGTH)
         if len(query) < 2:
             raise CustomerPickupInputError(
@@ -153,6 +156,7 @@ class CustomerPickupTools:
         try:
             raw_locations = self.repository.search_active_pickup_locations(
                 organisation=organisation,
+                product=product,
                 search=search,
             )
         except CustomerPickupToolError:
@@ -188,6 +192,7 @@ class CustomerPickupTools:
         requires_customer_selection = len(locations) != 1
         return {
             "ok": True,
+            "product_id": product_id,
             "query": query,
             "count": len(locations),
             "locations": locations,
