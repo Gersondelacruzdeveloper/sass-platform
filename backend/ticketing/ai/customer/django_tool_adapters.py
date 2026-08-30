@@ -254,6 +254,7 @@ class DjangoCustomerAvailabilityRepository:
         else:
             status = "unavailable"
         price_total = self._price_total(available or selected, request)
+        public_options = self._public_options(available or selected)
         return {
             "product_id": product.pk,
             "service_date": request.service_date,
@@ -264,6 +265,7 @@ class DjangoCustomerAvailabilityRepository:
             "source": str(result.get("provider") or "local"),
             "checked_at": timezone.now(),
             "notes": str(result.get("error") or ""),
+            "options": public_options,
         }
 
     def find_available_alternatives(
@@ -317,13 +319,73 @@ class DjangoCustomerAvailabilityRepository:
         return [
             item
             for item in valid
-            if target
-            in {
-                str(item.get("external_option_id") or ""),
-                str(item.get("option_id") or ""),
-                str(item.get("id") or ""),
-            }
+            if DjangoCustomerAvailabilityRepository._option_matches(item, target)
         ]
+
+    @staticmethod
+    def _option_matches(item: Mapping[str, Any], target: str) -> bool:
+        identifiers = {
+            str(item.get(key) or "").strip()
+            for key in (
+                "external_option_id",
+                "external_availability_id",
+                "external_product_id",
+                "external_variant_id",
+                "option_id",
+                "id",
+            )
+        }
+        identifiers.discard("")
+        if target in identifiers:
+            return True
+
+        # Wellet's stable selection value can be ``venue-id:product-id``.
+        # Accept its product suffix only when it exactly matches a provider ID.
+        target_suffix = target.rsplit(":", 1)[-1]
+        return any(
+            identifier.rsplit(":", 1)[-1] == target_suffix
+            for identifier in identifiers
+        )
+
+    @staticmethod
+    def _public_options(options: list[Any]) -> list[dict[str, Any]]:
+        public: list[dict[str, Any]] = []
+        for item in options[:12]:
+            if not isinstance(item, Mapping):
+                continue
+            external_option_id = str(
+                item.get("external_availability_id")
+                or item.get("external_option_id")
+                or item.get("external_product_id")
+                or item.get("external_variant_id")
+                or ""
+            ).strip()
+            if not external_option_id:
+                continue
+            public.append(
+                {
+                    "external_option_id": external_option_id[:255],
+                    "external_product_id": str(
+                        item.get("external_product_id") or ""
+                    )[:255],
+                    "external_variant_id": str(
+                        item.get("external_variant_id") or ""
+                    )[:255],
+                    "option_name": str(item.get("option_name") or "Ticket option")[
+                        :300
+                    ],
+                    "description": str(item.get("description") or "")[:500],
+                    "price": str(item.get("price") or ""),
+                    "currency": str(item.get("currency") or "").upper()[:3],
+                    "available": item.get("available") is True,
+                    "available_quantity": item.get("available_quantity"),
+                    "start_time": str(item.get("start_time") or "")[:50],
+                    "checkin_time": str(item.get("checkin_time") or "")[:50],
+                    "age_restriction": item.get("age_restriction"),
+                    "product_group": str(item.get("product_group") or "")[:100],
+                }
+            )
+        return public
 
     @staticmethod
     def _price_total(options: list[Any], request: AvailabilityRequest) -> Decimal | None:

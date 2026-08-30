@@ -1755,6 +1755,12 @@ def normalize_wellet_availability(data, service_date=None, product=None):
         )
 
         for group_name in current_group_names:
+            # Coco Bongo table packages are not customer ticket options. They
+            # are handled operationally and must not be exposed in public or
+            # AI-assisted ticket selection.
+            if group_name == "mesas":
+                continue
+
             items = response_data.get(group_name) or []
 
             if not isinstance(items, list):
@@ -1779,6 +1785,12 @@ def normalize_wellet_availability(data, service_date=None, product=None):
                     or product_item.get("name")
                     or product_code
                 )
+
+                # Drink Pack is no longer offered. Filter it at the shared
+                # normalization boundary so every consumer receives the same
+                # supported Wellet options.
+                if "drink pack" in option_name.casefold():
+                    continue
 
                 localized_headline, features = localized_content(product_item)
                 description = clean_text(product_item.get("description"))
@@ -3306,4 +3318,3 @@ def check_ticketing_custom_domain(site_settings):
     )
 
     return site_settings
-

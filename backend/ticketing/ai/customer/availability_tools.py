@@ -30,6 +30,7 @@ MAX_ALTERNATIVE_LIMIT = 6
 MAX_QUERY_LENGTH = 200
 MAX_OPTION_ID_LENGTH = 255
 MAX_MESSAGE_LENGTH = 500
+MAX_LIVE_OPTIONS = 12
 
 
 class CustomerAvailabilityToolError(RuntimeError):
@@ -354,6 +355,7 @@ class CustomerAvailabilityTools:
         remaining = self._nullable_nonnegative_int(raw.get("remaining_capacity"))
         if status == STATUS_LIMITED and remaining is None:
             status = STATUS_UNKNOWN
+        options = self._normalize_live_options(raw.get("options"))
         return {
             "product_id": request.product_id,
             "product_name": self._text(
@@ -374,7 +376,63 @@ class CustomerAvailabilityTools:
             "checked_at": self._checked_at(raw.get("checked_at")),
             "expires_at": self._nullable_datetime(raw.get("expires_at")),
             "notes": self._text(raw.get("notes"), MAX_MESSAGE_LENGTH),
+            "options": options,
+            "requires_option_selection": bool(
+                len(options) > 1 and not request.selected_external_option_id
+            ),
         }
+
+    def _normalize_live_options(self, value: Any) -> list[dict[str, Any]]:
+        if value in (None, ""):
+            return []
+        if not isinstance(value, (list, tuple)):
+            raise CustomerAvailabilityRepositoryError(
+                "The availability options result is invalid."
+            )
+
+        options: list[dict[str, Any]] = []
+        for raw_option in value[:MAX_LIVE_OPTIONS]:
+            if not isinstance(raw_option, Mapping):
+                continue
+            external_option_id = self._text(
+                raw_option.get("external_option_id"), MAX_OPTION_ID_LENGTH
+            )
+            if not external_option_id:
+                continue
+            options.append(
+                {
+                    "external_option_id": external_option_id,
+                    "external_product_id": self._text(
+                        raw_option.get("external_product_id"), MAX_OPTION_ID_LENGTH
+                    ),
+                    "external_variant_id": self._text(
+                        raw_option.get("external_variant_id"), MAX_OPTION_ID_LENGTH
+                    ),
+                    "option_name": self._text(
+                        raw_option.get("option_name") or "Ticket option", 300
+                    ),
+                    "description": self._text(
+                        raw_option.get("description"), MAX_MESSAGE_LENGTH
+                    ),
+                    "price": self._money(raw_option.get("price")),
+                    "currency": self._currency(raw_option.get("currency")),
+                    "available": raw_option.get("available") is True,
+                    "available_quantity": self._nullable_nonnegative_int(
+                        raw_option.get("available_quantity")
+                    ),
+                    "start_time": self._text(raw_option.get("start_time"), 50),
+                    "checkin_time": self._text(
+                        raw_option.get("checkin_time"), 50
+                    ),
+                    "age_restriction": self._nullable_nonnegative_int(
+                        raw_option.get("age_restriction")
+                    ),
+                    "product_group": self._text(
+                        raw_option.get("product_group"), 100
+                    ),
+                }
+            )
+        return options
 
     def _normalize_alternative(
         self,
