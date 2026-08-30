@@ -103,6 +103,7 @@ type Seller = {
   seller_margin_percent?: string | number;
   seller_allowed_discount_percent?: string | number;
   max_customer_discount_percent?: string | number;
+  assigned_products?: number[];
   default_margin_percent?: string | number;
   owner_net_amount?: string | number;
   owner_received_amount?: string | number;
@@ -238,6 +239,7 @@ type SellerFormState = {
   login_email: string;
   login_password: string;
   apply_role_defaults: boolean;
+  assigned_products: number[];
 } & Record<PermissionKey, boolean>;
 
 type RoleOption = {
@@ -446,6 +448,7 @@ const blankForm: SellerFormState = {
   login_email: "",
   login_password: "",
   apply_role_defaults: true,
+  assigned_products: [],
 
   can_access_dashboard: true,
   can_sell_cocobongo: false,
@@ -761,6 +764,9 @@ function sellerToForm(seller: Seller): SellerFormState {
     login_email: seller.user_email || seller.email || "",
     login_password: "",
     apply_role_defaults: false,
+    assigned_products: Array.isArray(seller.assigned_products)
+      ? seller.assigned_products.map(Number).filter(Number.isFinite)
+      : [],
   };
 
   permissionKeys.forEach((key) => {
@@ -803,6 +809,10 @@ function formToFormData(form: SellerFormState, photoFile: File | null) {
     appendBoolean(formData, key, Boolean(form[key]));
   });
 
+  form.assigned_products.forEach((productId) => {
+    formData.append("assigned_products", String(productId));
+  });
+
   if (photoFile) {
     formData.append("photo", photoFile);
   }
@@ -816,6 +826,7 @@ export default function TicketingSellersPage() {
   const organisationSlug = params.organisationSlug || params.slug || "";
 
   const [sellers, setSellers] = useState<Seller[]>([]);
+  const [sellerProducts, setSellerProducts] = useState<CommissionProduct[]>([]);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -844,11 +855,22 @@ export default function TicketingSellersPage() {
       setLoading(true);
       setError("");
 
-      const response = await api.get("/ticketing/sellers/", {
-        params: requestParams,
-      });
+      const [response, productsResponse] = await Promise.all([
+        api.get("/ticketing/sellers/", { params: requestParams }),
+        api.get("/ticketing/products/", {
+          params: { ...requestParams, is_active: true, page_size: 1000 },
+        }),
+      ]);
 
       setSellers(normalizeList<Seller>(response.data));
+      setSellerProducts(
+        normalizeList<CommissionProduct>(productsResponse.data)
+          .filter(
+            (product) =>
+              product.is_active !== false && product.seller_enabled !== false
+          )
+          .sort((left, right) => left.name.localeCompare(right.name))
+      );
     } catch (err: any) {
       console.error("Could not load sellers:", err);
       setError(getErrorMessage(err, t("sellers.errors.load")));
@@ -1039,14 +1061,34 @@ export default function TicketingSellersPage() {
       setSavedMessage("");
 
       const formData = formToFormData(form, photoFile);
+      const requestBody = photoFile
+        ? formData
+        : {
+            ...Object.fromEntries(formData.entries()),
+            assigned_products: form.assigned_products,
+          };
 
-      const response = editingSeller
-        ? await api.patch(`/ticketing/sellers/${editingSeller.id}/`, formData, {
+      let response = editingSeller
+        ? await api.patch(`/ticketing/sellers/${editingSeller.id}/`, requestBody, {
             params: requestParams,
           })
-        : await api.post("/ticketing/sellers/", formData, {
+        : await api.post("/ticketing/sellers/", requestBody, {
             params: requestParams,
           });
+
+      // An empty many-to-many field cannot be represented by multipart data.
+      // Confirm the clear with JSON when the same edit also uploads a photo.
+      if (
+        editingSeller &&
+        photoFile &&
+        form.assigned_products.length === 0
+      ) {
+        response = await api.patch(
+          `/ticketing/sellers/${editingSeller.id}/`,
+          { assigned_products: [] },
+          { params: requestParams }
+        );
+      }
 
       const savedSeller = response.data as Seller;
 
@@ -1421,6 +1463,7 @@ export default function TicketingSellersPage() {
           form={form}
           editingSeller={editingSeller}
           organisationSlug={organisationSlug}
+          products={sellerProducts}
           photoFile={photoFile}
           saving={saving}
           onClose={() => {
@@ -2560,6 +2603,7 @@ function SellerFormModal({
   form,
   editingSeller,
   organisationSlug,
+  products,
   photoFile,
   saving,
   onClose,
@@ -2570,6 +2614,7 @@ function SellerFormModal({
   form: SellerFormState;
   editingSeller: Seller | null;
   organisationSlug: string;
+  products: CommissionProduct[];
   photoFile: File | null;
   saving: boolean;
   onClose: () => void;
@@ -2763,6 +2808,63 @@ function SellerFormModal({
                 <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
                   {t("sellers.form.marginHelp")}
                 </p>
+              </section>
+
+              <section className="rounded-3xl border border-slate-200 p-4">
+                <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">
+                  {t(
+                    "sellers.form.assignedProducts",
+                    undefined,
+                    "Assigned products"
+                  )}
+                </h3>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  {t(
+                    "sellers.form.assignedProductsHelp",
+                    undefined,
+                    "No selection means all products permitted by the seller's sales permissions."
+                  )}
+                </p>
+
+                <div className="mt-4 grid max-h-64 gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-3">
+                  {products.map((product) => {
+                    const checked = form.assigned_products.includes(product.id);
+
+                    return (
+                      <label
+                        key={product.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-xl bg-white px-3 py-3 text-sm font-bold text-slate-700 shadow-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            onChange(
+                              "assigned_products",
+                              checked
+                                ? form.assigned_products.filter(
+                                    (productId) => productId !== product.id
+                                  )
+                                : [...form.assigned_products, product.id]
+                            )
+                          }
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        <span className="min-w-0 truncate">{product.name}</span>
+                      </label>
+                    );
+                  })}
+
+                  {products.length === 0 && (
+                    <p className="px-2 py-3 text-sm font-semibold text-slate-500 md:col-span-2 xl:col-span-3">
+                      {t(
+                        "sellers.form.noAssignableProducts",
+                        undefined,
+                        "No active seller products are available."
+                      )}
+                    </p>
+                  )}
+                </div>
               </section>
 
               {editingSeller ? (
