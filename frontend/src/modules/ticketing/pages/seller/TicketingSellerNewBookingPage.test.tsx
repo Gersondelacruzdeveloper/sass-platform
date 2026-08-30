@@ -337,6 +337,21 @@ describe("TicketingSellerNewBookingPage simple seller discount UI", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("requests pickup schedules for the exact selected product ID", async () => {
+    renderPage();
+    await waitForPricing();
+
+    await waitFor(() => {
+      expect(ticketingApiMocks.getPickupSchedules).toHaveBeenCalledWith(
+        ORGANISATION_SLUG,
+        {
+          product: product.id,
+          is_active: true,
+        },
+      );
+    });
+  });
 });
 
 describe("TicketingSellerNewBookingPage product-scoped pickup hotels", () => {
@@ -468,6 +483,28 @@ describe("TicketingSellerNewBookingPage product-scoped pickup hotels", () => {
     );
 
     expect(visible.map((location) => Number(location.id))).toEqual([501]);
+  });
+
+  it("ignores embedded schedules without a hotel ID and uses exact fallback IDs", () => {
+    const visible = getVisiblePickupLocationsForProduct(
+      {
+        id: 101,
+        name: "Saona Island",
+        pickup_schedules: [
+          {
+            id: 20,
+            pickup_location_name: "Name without a trusted ID",
+            pickup_time: "07:10",
+            is_active: true,
+          },
+        ],
+      } as never,
+      pickupLocations as never,
+      pickupSchedules as never,
+    );
+
+    expect(visible.map((location) => Number(location.id))).toEqual([501]);
+    expect(visible.map((location) => Number(location.id))).not.toContain(601);
   });
 
   it("resolves pickup time by the same product, hotel and service date", () => {

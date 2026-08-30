@@ -320,7 +320,11 @@ function getProductPickupSchedules(
   const schedules = Array.isArray((product as any).pickup_schedules)
     ? ((product as any).pickup_schedules as PickupScheduleRule[])
     : [];
-  return schedules.filter((schedule) => schedule.is_active !== false);
+  return schedules.filter(
+    (schedule) =>
+      schedule.is_active !== false &&
+      Boolean(getPickupLocationIdFromSchedule(schedule)),
+  );
 }
 
 function getProductSchedules(
@@ -816,12 +820,10 @@ export default function TicketingSellerNewBookingPage() {
         sellerData,
         productsData,
         pickupLocationsResponse,
-        pickupSchedulesResponse,
       ] = await Promise.all([
         ticketingApi.getSellerMe(slug),
         ticketingApi.getSellerProducts(slug, { is_active: true }),
         ticketingApi.getPickupLocations(slug, { is_active: true }),
-        ticketingApi.getPickupSchedules(slug),
       ]);
 
       const normalizedProductsData =
@@ -871,10 +873,6 @@ export default function TicketingSellerNewBookingPage() {
           (location) => location.is_active !== false,
         ),
       );
-      setPickupSchedules(
-        normalizeList<ProductPickupSchedule>(pickupSchedulesResponse),
-      );
-
       const initialProductId =
         productIdFromUrl &&
         availableProducts.some(
@@ -911,6 +909,43 @@ export default function TicketingSellerNewBookingPage() {
     // resets the booking form while the seller is typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, productIdFromUrl]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProductPickupSchedules() {
+      if (!slug || !form.productId) {
+        setPickupSchedules([]);
+        return;
+      }
+
+      try {
+        const response = await ticketingApi.getPickupSchedules(slug, {
+          product: Number(form.productId),
+          is_active: true,
+        });
+
+        if (!active) return;
+
+        setPickupSchedules(
+          getProductSchedules(
+            normalizeList<ProductPickupSchedule>(response),
+            form.productId,
+          ),
+        );
+      } catch (error) {
+        if (!active) return;
+        console.warn("Could not load product pickup schedules:", error);
+        setPickupSchedules([]);
+      }
+    }
+
+    void loadProductPickupSchedules();
+
+    return () => {
+      active = false;
+    };
+  }, [slug, form.productId]);
 
   const selectedProduct = useMemo(
     () =>
