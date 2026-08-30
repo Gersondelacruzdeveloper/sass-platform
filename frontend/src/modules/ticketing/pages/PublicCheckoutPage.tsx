@@ -563,10 +563,10 @@ export default function PublicCheckoutPage() {
   const children = Math.max(0, parseNumber(searchParams.get("children"), 0));
   const infants = Math.max(0, parseNumber(searchParams.get("infants"), 0));
   const guests = adults + children + infants;
-  const paymentChoice = (searchParams.get("payment") || "pending") as PaymentChoice;
+  const requestedPaymentChoice = (searchParams.get("payment") || "pending") as PaymentChoice;
   const [cartPaymentChoice, setCartPaymentChoice] = useState<PaymentChoice>(
-    ["full", "deposit", "pending", "cash"].includes(paymentChoice)
-      ? paymentChoice
+    ["full", "deposit", "pending", "cash"].includes(requestedPaymentChoice)
+      ? requestedPaymentChoice
       : "pending"
   );
   const pickupLocationId = searchParams.get("pickup_location_id") || "";
@@ -746,6 +746,15 @@ export default function PublicCheckoutPage() {
 
       setBranding(brandingResponse);
       setPaymentOptions(paymentOptionsResponse);
+      const cartChoices = cartSessionResponse?.available_payment_choices || [];
+      const preferredCartChoice =
+        cartSessionResponse?.default_payment_choice ||
+        paymentOptionsResponse.default_customer_payment_choice;
+      setCartPaymentChoice(
+        (preferredCartChoice && cartChoices.includes(preferredCartChoice)
+          ? preferredCartChoice
+          : cartChoices[0]) || "pending"
+      );
       setSelectedGateway(
         paymentOptionsResponse.default_provider === "paypal"
           ? "paypal"
@@ -754,6 +763,19 @@ export default function PublicCheckoutPage() {
       setProducts(productList);
       setSellerOffer(validatedOffer);
       setCustomerCartSession(cartSessionResponse);
+      if (cartSessionResponse?.customer) {
+        const customer = cartSessionResponse.customer;
+        const trustedPickup =
+          cartSessionResponse.items?.[0]?.pickup_name_snapshot || "";
+        setForm((current) => ({
+          ...current,
+          full_name: customer.full_name || current.full_name,
+          whatsapp: customer.whatsapp || current.whatsapp,
+          email: customer.email || current.email,
+          hotel_name:
+            trustedPickup || customer.hotel_name || current.hotel_name,
+        }));
+      }
     } catch (err: any) {
       console.error("Could not load checkout:", err);
       setSellerOffer(null);
@@ -802,6 +824,25 @@ export default function PublicCheckoutPage() {
       null
     );
   }, [products, productId, productSlug]);
+
+  const availablePaymentChoices = (
+    paymentOptions?.available_payment_choices || []
+  ).filter((choice) => {
+    if (!product) return false;
+    if (choice === "full") return product.allow_full_payment;
+    if (choice === "deposit") return product.allow_deposit_payment;
+    if (choice === "pending") return product.allow_pending_payment;
+    return product.allow_cash_payment;
+  });
+  const paymentChoice = (
+    availablePaymentChoices.includes(requestedPaymentChoice)
+      ? requestedPaymentChoice
+      : availablePaymentChoices.includes(
+          paymentOptions?.default_customer_payment_choice as PaymentChoice
+        )
+        ? paymentOptions?.default_customer_payment_choice
+        : availablePaymentChoices[0] || "pending"
+  ) as PaymentChoice;
 
   const sellerOfferActive = Boolean(
     offerToken && sellerOffer?.valid === true
@@ -1073,8 +1114,14 @@ export default function PublicCheckoutPage() {
   const payNow = Math.min(totalFull, Math.max(0, totalDeposit));
   const payLater = Math.max(0, totalFull - payNow);
   const onlinePaymentSelected = shouldCreatePendingPayment(paymentChoice);
-  const stripeAvailable = Boolean(paymentOptions?.stripe_enabled);
-  const paypalAvailable = Boolean(paymentOptions?.paypal_enabled);
+  const stripeAvailable = Boolean(
+    paymentOptions?.default_provider === "stripe"
+    && paymentOptions?.stripe_enabled
+  );
+  const paypalAvailable = Boolean(
+    paymentOptions?.default_provider === "paypal"
+    && paymentOptions?.paypal_enabled
+  );
   const hasOnlineGateway = stripeAvailable || paypalAvailable;
 
   function getPaymentTypeForGateway(): "full" | "deposit" | "balance" {
@@ -1728,30 +1775,28 @@ export default function PublicCheckoutPage() {
                 <p className="text-sm font-black" style={{ color: theme.text }}>
                   {t("checkout.payment_option", "Payment option")}
                 </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {(["full", "deposit", "pending", "cash"] as PaymentChoice[]).map(
-                    (choice) => (
-                      <button
-                        key={choice}
-                        type="button"
-                        onClick={() => setCartPaymentChoice(choice)}
-                        className="rounded-xl border px-3 py-3 text-left text-sm font-bold"
-                        style={{
-                          color: theme.text,
-                          borderColor:
-                            cartPaymentChoice === choice
-                              ? theme.accent
-                              : hexToRgba(theme.primary, 0.15),
-                          backgroundColor:
-                            cartPaymentChoice === choice
-                              ? hexToRgba(theme.accent, 0.1)
-                              : theme.card,
-                        }}
-                      >
-                        {paymentLabel(choice, t)}
-                      </button>
-                    )
-                  )}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {(customerCartSession.available_payment_choices || []).map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setCartPaymentChoice(choice)}
+                      className="rounded-xl border px-3 py-3 text-left text-sm font-bold"
+                      style={{
+                        color: theme.text,
+                        borderColor:
+                          choice === cartPaymentChoice
+                            ? theme.accent
+                            : hexToRgba(theme.primary, 0.12),
+                        backgroundColor:
+                          choice === cartPaymentChoice
+                            ? hexToRgba(theme.accent, 0.1)
+                            : "transparent",
+                      }}
+                    >
+                      {paymentLabel(choice, t)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1766,39 +1811,11 @@ export default function PublicCheckoutPage() {
                   <p className="text-sm font-black" style={{ color: theme.text }}>
                     {t("checkout.online_method", "Online payment method")}
                   </p>
-                  <div className="mt-3 flex gap-2">
-                    {stripeAvailable && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedGateway("stripe")}
-                        className="rounded-xl border px-4 py-2 text-sm font-bold"
-                        style={{
-                          borderColor:
-                            selectedGateway === "stripe"
-                              ? theme.accent
-                              : hexToRgba(theme.primary, 0.15),
-                          color: theme.text,
-                        }}
-                      >
-                        Stripe
-                      </button>
-                    )}
-                    {paypalAvailable && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedGateway("paypal")}
-                        className="rounded-xl border px-4 py-2 text-sm font-bold"
-                        style={{
-                          borderColor:
-                            selectedGateway === "paypal"
-                              ? theme.accent
-                              : hexToRgba(theme.primary, 0.15),
-                          color: theme.text,
-                        }}
-                      >
-                        PayPal
-                      </button>
-                    )}
+                  <div
+                    className="mt-3 rounded-xl border px-4 py-2 text-sm font-bold"
+                    style={{ borderColor: theme.accent, color: theme.text }}
+                  >
+                    {selectedGateway === "paypal" ? "PayPal" : "Stripe"}
                   </div>
                 </div>
               )}

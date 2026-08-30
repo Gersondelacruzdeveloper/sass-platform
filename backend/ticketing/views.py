@@ -11542,6 +11542,10 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
     authentication_classes = []
 
     def get(self, request, organisation_slug=None):
+        from ticketing.payment_choices import (
+            organisation_payment_choices,
+            preferred_payment_choice,
+        )
         organisation = self.get_public_organisation()
 
         if not organisation:
@@ -11568,6 +11572,7 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
                 {
                     "default_provider": "none",
                     "default_customer_payment_choice": "pending",
+                    "available_payment_choices": [],
                     "stripe_enabled": False,
                     "paypal_enabled": False,
                     "stripe_publishable_key": "",
@@ -11578,6 +11583,7 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
             )
 
         default_provider = provider_settings.default_provider
+        available_payment_choices = organisation_payment_choices(organisation)
         stripe_available = bool(
             default_provider == "stripe"
             and provider_settings.stripe_enabled
@@ -11592,8 +11598,12 @@ class PublicPaymentOptionsAPIView(PublicOrganisationMixin, APIView):
             {
                 "default_provider": default_provider,
                 "default_customer_payment_choice": (
-                    provider_settings.default_customer_payment_choice
+                    preferred_payment_choice(
+                        provider_settings=provider_settings,
+                        allowed=available_payment_choices,
+                    )
                 ),
+                "available_payment_choices": available_payment_choices,
                 # Fail closed: the public checkout receives only the tenant's
                 # selected default gateway, even if another gateway is also
                 # configured for administrative use.
@@ -11644,15 +11654,6 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
         booking_id = request.data.get("booking_id")
         booking_code = request.data.get("booking_code")
         payment_type = request.data.get("payment_type", "full")
-        if provider_settings.default_customer_payment_choice not in {
-            "full",
-            "deposit",
-        } or payment_type != provider_settings.default_customer_payment_choice:
-            return Response(
-                {"detail": "The selected payment option is not available."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         booking = Booking.objects.filter(organisation=organisation).filter(
             Q(id=booking_id) | Q(booking_code=booking_code)
         ).select_related("primary_product").first()
@@ -11661,6 +11662,19 @@ class PublicStripeCheckoutSessionAPIView(PublicOrganisationMixin, APIView):
             return Response(
                 {"detail": "Booking not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        from ticketing.payment_choices import allowed_payment_choices
+        products = [item.product for item in booking.items.select_related("product")]
+        if not products and booking.primary_product:
+            products = [booking.primary_product]
+        required_choice = "full" if payment_type == "balance" else payment_type
+        if required_choice not in allowed_payment_choices(
+            organisation=organisation,
+            products=products,
+        ) or payment_type not in {"full", "deposit", "balance"}:
+            return Response(
+                {"detail": "The selected payment option is not available."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         amount = get_booking_payment_amount(booking, payment_type)
@@ -12437,15 +12451,6 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
         booking_id = request.data.get("booking_id")
         booking_code = request.data.get("booking_code")
         payment_type = request.data.get("payment_type", "full")
-        if provider_settings.default_customer_payment_choice not in {
-            "full",
-            "deposit",
-        } or payment_type != provider_settings.default_customer_payment_choice:
-            return Response(
-                {"detail": "The selected payment option is not available."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         booking = Booking.objects.filter(organisation=organisation).filter(
             Q(id=booking_id) | Q(booking_code=booking_code)
         ).select_related("primary_product").first()
@@ -12454,6 +12459,19 @@ class PublicPayPalCreateOrderAPIView(PublicOrganisationMixin, APIView):
             return Response(
                 {"detail": "Booking not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        from ticketing.payment_choices import allowed_payment_choices
+        products = [item.product for item in booking.items.select_related("product")]
+        if not products and booking.primary_product:
+            products = [booking.primary_product]
+        required_choice = "full" if payment_type == "balance" else payment_type
+        if required_choice not in allowed_payment_choices(
+            organisation=organisation,
+            products=products,
+        ) or payment_type not in {"full", "deposit", "balance"}:
+            return Response(
+                {"detail": "The selected payment option is not available."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         amount = get_booking_payment_amount(booking, payment_type)

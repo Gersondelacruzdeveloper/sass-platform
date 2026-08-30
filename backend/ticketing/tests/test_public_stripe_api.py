@@ -106,6 +106,7 @@ class PublicStripeAPITests(APITestCase):
             public_enabled=True,
             base_price=Decimal("120.00"),
             adult_price=Decimal("120.00"),
+            deposit_amount=Decimal("30.00"),
         )
         cls.product_b = ExperienceProduct.objects.create(
             organisation=cls.org_b,
@@ -118,6 +119,7 @@ class PublicStripeAPITests(APITestCase):
             public_enabled=True,
             base_price=Decimal("220.00"),
             adult_price=Decimal("220.00"),
+            deposit_amount=Decimal("40.00"),
         )
 
         service_date = date.today() + timedelta(days=7)

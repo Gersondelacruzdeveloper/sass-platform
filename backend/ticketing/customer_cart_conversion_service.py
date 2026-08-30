@@ -18,6 +18,7 @@ from ticketing.ai.customer.cart_tools import (
     SaveCartRequest,
 )
 from ticketing.customer_ai_models import CustomerItineraryCart
+from ticketing.payment_choices import allowed_payment_choices
 from ticketing.serializers import BookingSerializer
 
 
@@ -156,9 +157,18 @@ class DjangoCustomerCartConversionService:
 
         self._assert_unchanged(cart, items, validated)
         payment_choice = checkout.payment_choice.strip().lower()
+        allowed_choices = allowed_payment_choices(
+            organisation=organisation,
+            products=[line.product for line in validated.lines],
+        )
+        if payment_choice not in allowed_choices:
+            raise CustomerCartConversionValidationError(
+                "The selected payment option is not available."
+            )
         deposit_required = self._deposit_required(
             payment_choice=payment_choice,
             lines=validated.lines,
+            organisation=organisation,
         )
         payload = self._booking_payload(
             cart=cart,
@@ -451,7 +461,7 @@ class DjangoCustomerCartConversionService:
             "event_ticket_type_id": line.event_ticket_type_id,
         }
 
-    def _deposit_required(self, *, payment_choice, lines) -> Decimal:
+    def _deposit_required(self, *, payment_choice, lines, organisation) -> Decimal:
         if payment_choice == "full":
             return self._money(sum((line.total for line in lines), Decimal("0")))
         if payment_choice != "deposit":
@@ -464,6 +474,10 @@ class DjangoCustomerCartConversionService:
             percentage = self._money(
                 getattr(product, "deposit_percentage", 0)
             )
+            if percentage <= 0:
+                percentage = self._money(
+                    getattr(organisation.ticketing_settings, "default_deposit_percentage", 0)
+                )
             passengers = line.adults + line.children + line.infants
             if amount > 0:
                 line_required = amount * passengers

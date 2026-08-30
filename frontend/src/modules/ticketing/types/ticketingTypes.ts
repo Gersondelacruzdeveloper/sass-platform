@@ -918,6 +918,7 @@ export interface TicketingPaymentProviderSettings {
 export interface PublicPaymentOptions {
   default_provider: TicketingPaymentProvider;
   default_customer_payment_choice?: CustomerPaymentChoice;
+  available_payment_choices?: CustomerPaymentChoice[];
   stripe_enabled: boolean;
   paypal_enabled: boolean;
   stripe_publishable_key?: string;
@@ -2231,6 +2232,8 @@ export interface PublicCustomerCartSession {
   is_expired: boolean;
   can_checkout: boolean;
   can_resume_payment?: boolean;
+  available_payment_choices: CustomerPaymentChoice[];
+  default_payment_choice: CustomerPaymentChoice;
   customer?: {
     full_name: string;
     whatsapp: string;

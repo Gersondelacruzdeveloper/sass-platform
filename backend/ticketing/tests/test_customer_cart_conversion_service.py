@@ -24,7 +24,7 @@ from ticketing.customer_cart_conversion_service import (
     DjangoCustomerCartConversionService,
 )
 from ticketing.customer_cart_service import ValidatedCart, ValidatedCartLine
-from ticketing.models import Booking, ExperienceProduct
+from ticketing.models import Booking, ExperienceProduct, TicketingSettings
 
 
 class FakeCartValidator:
@@ -54,6 +54,17 @@ class CustomerCartConversionServiceTests(TestCase):
             slug="cart-conversion-other-org",
             business_type="ticketing",
             is_active=True,
+        )
+        TicketingSettings.objects.update_or_create(
+            organisation=cls.organisation,
+            defaults={
+                "is_active": True,
+                "allow_full_payment": True,
+                "allow_deposit_payment": True,
+                "allow_pending_payment": True,
+                "allow_cash_to_seller": True,
+                "default_deposit_percentage": Decimal("20.00"),
+            },
         )
         cls.product = ExperienceProduct.objects.create(
             organisation=cls.organisation,

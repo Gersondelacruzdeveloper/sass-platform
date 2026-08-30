@@ -57,6 +57,10 @@ from ticketing.customer_cart_conversion_service import (
     CustomerCartConversionValidationError,
     DjangoCustomerCartConversionService,
 )
+from ticketing.payment_choices import (
+    allowed_payment_choices,
+    preferred_payment_choice,
+)
 from ticketing.serializers import BookingSerializer
 
 
@@ -519,15 +523,6 @@ class PublicCustomerCartSessionConvertView(APIView):
             return _public_cart_not_found()
 
         values = payload.validated_data
-        configured_payment_choice = _configured_customer_payment_choice(
-            organisation
-        )
-        if values["payment_choice"] != configured_payment_choice:
-            return _public_cart_error(
-                code="invalid_payment_choice",
-                message="The selected payment option is not available.",
-                http_status=status.HTTP_400_BAD_REQUEST,
-            )
         checkout = CustomerCartCheckoutDetails(
             customer_name=values["full_name"],
             customer_whatsapp=values["whatsapp"],
@@ -622,6 +617,16 @@ def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
     conversation = cart.conversation
     converted_booking = cart.converted_booking
     first_item = next(iter(cart.items.all()), None)
+    products = [item.product for item in cart.items.all()]
+    available_payment_choices = allowed_payment_choices(
+        organisation=organisation,
+        products=products,
+    )
+    from ticketing.models import TicketingPaymentProviderSettings
+    provider_settings = TicketingPaymentProviderSettings.objects.filter(
+        organisation=organisation,
+        is_active=True,
+    ).first()
     trusted_hotel = str(
         getattr(first_item, "pickup_name_snapshot", "") or ""
     ).strip()
@@ -657,6 +662,11 @@ def _serialize_public_cart(cart: CustomerItineraryCart) -> dict[str, Any]:
         "is_expired": cart.is_expired and not _can_resume_converted_cart(cart),
         "can_checkout": cart.can_checkout or _can_resume_converted_cart(cart),
         "can_resume_payment": _can_resume_converted_cart(cart),
+        "available_payment_choices": available_payment_choices,
+        "default_payment_choice": preferred_payment_choice(
+            provider_settings=provider_settings,
+            allowed=available_payment_choices,
+        ),
         "customer": customer,
         "converted_booking": (
             _serialize_public_booking(converted_booking, None)
@@ -683,21 +693,6 @@ def _can_resume_converted_cart(cart: CustomerItineraryCart) -> bool:
         and str(getattr(booking, "status", "")) == "pending_payment"
         and str(getattr(booking, "payment_status", "")) in {"unpaid", "pending"}
     )
-
-
-def _configured_customer_payment_choice(organisation: Organisation) -> str:
-    from ticketing.models import TicketingPaymentProviderSettings
-
-    provider_settings = TicketingPaymentProviderSettings.objects.filter(
-        organisation=organisation,
-        is_active=True,
-    ).first()
-    if provider_settings is None:
-        return "pending"
-    choice = str(
-        provider_settings.default_customer_payment_choice or "pending"
-    ).strip().lower()
-    return choice if choice in PAYMENT_CHOICES else "pending"
 
 
 def _serialize_public_cart_item(item) -> dict[str, Any]:

@@ -6,13 +6,16 @@ from django.test import TestCase
 from organisations.models import Organisation
 from ticketing.customer_ai_views import (
     _can_resume_converted_cart,
-    _configured_customer_payment_choice,
 )
 from ticketing.customer_cart_service import (
     DEFAULT_CART_LIFETIME,
     MAX_CART_LIFETIME,
 )
-from ticketing.models import TicketingPaymentProviderSettings
+from ticketing.models import TicketingPaymentProviderSettings, TicketingSettings
+from ticketing.payment_choices import (
+    allowed_payment_choices,
+    preferred_payment_choice,
+)
 
 
 class CustomerCheckoutDefaultsTests(TestCase):
@@ -21,6 +24,16 @@ class CustomerCheckoutDefaultsTests(TestCase):
             name="Checkout defaults tenant",
             slug="checkout-defaults-tenant",
             is_active=True,
+        )
+        self.ticketing_settings, _ = TicketingSettings.objects.update_or_create(
+            organisation=self.organisation,
+            defaults={
+                "allow_full_payment": True,
+                "allow_deposit_payment": True,
+                "allow_pending_payment": False,
+                "allow_cash_to_seller": False,
+                "default_deposit_percentage": "20.00",
+            },
         )
 
     def test_new_provider_settings_default_to_full_payment(self):
@@ -47,15 +60,30 @@ class CustomerCheckoutDefaultsTests(TestCase):
             default_customer_payment_choice="cash",
         )
 
+        allowed = ["full", "deposit"]
+        provider = TicketingPaymentProviderSettings.objects.get(
+            organisation=self.organisation
+        )
         self.assertEqual(
-            _configured_customer_payment_choice(self.organisation),
+            preferred_payment_choice(provider_settings=provider, allowed=allowed),
             "deposit",
         )
 
-    def test_missing_active_settings_fail_closed_to_pending(self):
+    def test_product_and_tenant_flags_are_intersected(self):
+        product = SimpleNamespace(
+            allow_full_payment=True,
+            allow_deposit_payment=False,
+            allow_pending_payment=True,
+            allow_cash_payment=True,
+            deposit_amount=0,
+            deposit_percentage=0,
+        )
         self.assertEqual(
-            _configured_customer_payment_choice(self.organisation),
-            "pending",
+            allowed_payment_choices(
+                organisation=self.organisation,
+                products=[product],
+            ),
+            ["full"],
         )
 
     def test_cart_lifetime_is_exactly_twenty_four_hours(self):
@@ -74,4 +102,3 @@ class CustomerCheckoutDefaultsTests(TestCase):
 
         cart.converted_booking.payment_status = "paid"
         self.assertFalse(_can_resume_converted_cart(cart))
-

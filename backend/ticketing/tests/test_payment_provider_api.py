@@ -20,6 +20,7 @@ from rest_framework.test import APITestCase
 from ticketing.models import (
     Booking,
     BookingPayment,
+    ExperienceProduct,
     TicketingPaymentProviderSettings,
     TicketingPublicSiteSettings,
     TicketingSettings,
@@ -70,6 +71,37 @@ class PaymentProviderAPITests(APITestCase):
             default_currency="EUR",
         )
 
+        cls.product = ExperienceProduct.objects.create(
+            organisation=cls.organisation,
+            name="Payment API Product",
+            slug="payment-api-product",
+            product_type="excursion",
+            adult_price=Decimal("100.00"),
+            deposit_amount=Decimal("25.00"),
+            allow_full_payment=True,
+            allow_deposit_payment=True,
+            allow_pending_payment=True,
+            allow_cash_payment=True,
+            status="active",
+            is_active=True,
+            public_enabled=True,
+        )
+        cls.other_product = ExperienceProduct.objects.create(
+            organisation=cls.other_organisation,
+            name="Other Payment API Product",
+            slug="other-payment-api-product",
+            product_type="excursion",
+            adult_price=Decimal("100.00"),
+            deposit_amount=Decimal("25.00"),
+            allow_full_payment=True,
+            allow_deposit_payment=True,
+            allow_pending_payment=True,
+            allow_cash_payment=True,
+            status="active",
+            is_active=True,
+            public_enabled=True,
+        )
+
         TicketingPublicSiteSettings.objects.create(
             organisation=cls.organisation,
             site_title="Payment API Site",
@@ -117,8 +149,14 @@ class PaymentProviderAPITests(APITestCase):
         self.addCleanup(self.notification_patcher.stop)
 
     def make_booking(self, organisation=None, **overrides):
+        organisation = organisation or self.organisation
         values = {
-            "organisation": organisation or self.organisation,
+            "organisation": organisation,
+            "primary_product": (
+                self.product
+                if organisation.pk == self.organisation.pk
+                else self.other_product
+            ),
             "customer_name": "Payment API Customer",
             "subtotal_amount": Decimal("100.00"),
             "total_amount": Decimal("100.00"),
@@ -187,7 +225,7 @@ class PaymentProviderAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["stripe_enabled"])
-        self.assertTrue(response.data["paypal_enabled"])
+        self.assertFalse(response.data["paypal_enabled"])
         self.assertEqual(response.data["stripe_publishable_key"], "pk_test_public_value")
         serialized = json.dumps(response.data)
         self.assertNotIn("sk_test_private_value", serialized)
@@ -464,7 +502,7 @@ class PaymentProviderAPITests(APITestCase):
         self.requests_post.assert_not_called()
 
     def test_paypal_create_cannot_use_foreign_tenant_booking(self):
-        self.make_provider_settings()
+        self.make_provider_settings(default_provider="paypal")
         foreign_booking = self.make_booking(organisation=self.other_organisation)
 
         with patch("ticketing.views.get_paypal_access_token") as token:
@@ -479,7 +517,7 @@ class PaymentProviderAPITests(APITestCase):
         self.requests_post.assert_not_called()
 
     def test_paypal_create_uses_decimal_string_and_persists_pending_payment(self):
-        self.make_provider_settings()
+        self.make_provider_settings(default_provider="paypal")
         booking = self.make_booking(total_amount=Decimal("19.99"), balance_due=Decimal("19.99"))
         self.requests_post.side_effect = None
         self.requests_post.return_value = FakeHTTPResponse(
@@ -507,7 +545,7 @@ class PaymentProviderAPITests(APITestCase):
         self.assertEqual(response.data["approve_url"], "https://paypal.test/approve/1")
 
     def test_duplicate_paypal_order_is_idempotently_updated_not_duplicated(self):
-        self.make_provider_settings()
+        self.make_provider_settings(default_provider="paypal")
         booking = self.make_booking()
         self.requests_post.side_effect = None
         self.requests_post.return_value = FakeHTTPResponse(
@@ -527,7 +565,7 @@ class PaymentProviderAPITests(APITestCase):
         )
 
     def test_paypal_create_provider_error_is_sanitized(self):
-        self.make_provider_settings()
+        self.make_provider_settings(default_provider="paypal")
         booking = self.make_booking()
         secret = "paypal-client-secret-must-not-leak"
 

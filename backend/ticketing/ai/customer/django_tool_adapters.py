@@ -64,6 +64,7 @@ class PublicProduct:
     model: ExperienceProduct
     public_url: str | None
     currency: str
+    allowed_payment_options: tuple[str, ...] = ()
 
     def __getattr__(self, name: str) -> Any:
         aliases = {
@@ -80,12 +81,8 @@ class PublicProduct:
             "pickup_notes": "pickup_instructions",
         }
         if name == "payment_options":
-            values: list[str] = []
-            if self.model.allow_full_payment:
-                values.append("full_payment")
-            if self.model.allow_deposit_payment:
-                values.append("deposit")
-            return values
+            aliases = {"full": "full_payment"}
+            return [aliases.get(value, value) for value in self.allowed_payment_options]
         return getattr(self.model, aliases.get(name, name))
 
 
@@ -162,10 +159,18 @@ def _public_queryset(organisation: Any):
 
 
 def _wrap(organisation: Any, product: ExperienceProduct) -> PublicProduct:
+    from ticketing.payment_choices import allowed_payment_choices
+
     return PublicProduct(
         model=product,
         public_url=_public_url(organisation, product),
         currency=_currency(organisation),
+        allowed_payment_options=tuple(
+            allowed_payment_choices(
+                organisation=organisation,
+                products=[product],
+            )
+        ),
     )
 
 
@@ -394,6 +399,11 @@ class DjangoCustomerPickupRepository:
             schedule = queryset.filter(
                 specific_date__isnull=True,
                 day_of_week=request.service_date.weekday(),
+            ).first()
+        if schedule is None:
+            schedule = queryset.filter(
+                specific_date__isnull=True,
+                day_of_week__isnull=True,
             ).first()
         if schedule is None:
             return None

@@ -134,6 +134,9 @@ class PublicPaymentOptionsAPITests(APITestCase):
         self.assertFalse(response.data["stripe_enabled"])
 
     def test_paypal_is_enabled_only_with_client_id_and_secret(self):
+        self.provider_a.default_provider = "paypal"
+        self.provider_a.save(update_fields=["default_provider"])
+
         response = self.client.get(self.url(self.org_a))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -177,6 +180,8 @@ class PublicPaymentOptionsAPITests(APITestCase):
             response.data,
             {
                 "default_provider": "none",
+                "default_customer_payment_choice": "pending",
+                "available_payment_choices": [],
                 "stripe_enabled": False,
                 "paypal_enabled": False,
                 "stripe_publishable_key": "",
@@ -258,6 +263,8 @@ class PublicPaymentOptionsAPITests(APITestCase):
             set(response.data.keys()),
             {
                 "default_provider",
+                "default_customer_payment_choice",
+                "available_payment_choices",
                 "stripe_enabled",
                 "paypal_enabled",
                 "stripe_publishable_key",
