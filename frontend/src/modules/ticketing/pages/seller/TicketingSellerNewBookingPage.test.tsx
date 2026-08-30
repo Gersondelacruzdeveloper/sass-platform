@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import TicketingSellerNewBookingPage from "./TicketingSellerNewBookingPage";
+import TicketingSellerNewBookingPage, {
+  findSchedule,
+  getVisiblePickupLocationsForProduct,
+} from "./TicketingSellerNewBookingPage";
 
 const axiosMocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -333,5 +336,173 @@ describe("TicketingSellerNewBookingPage simple seller discount UI", () => {
         /The minimum customer price is US\$ 90\.00\./,
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("TicketingSellerNewBookingPage product-scoped pickup hotels", () => {
+  const pickupLocations = [
+    {
+      id: 501,
+      name: "Saona Hotel",
+      is_active: true,
+      default_pickup_point: "Lobby",
+    },
+    {
+      id: 601,
+      name: "Coco Bongo Hotel",
+      is_active: true,
+      default_pickup_point: "Main entrance",
+    },
+    {
+      id: 701,
+      name: "Inactive Schedule Hotel",
+      is_active: true,
+      default_pickup_point: "Lobby",
+    },
+  ];
+
+  const pickupSchedules = [
+    {
+      id: 1,
+      product: 101,
+      pickup_location: 501,
+      pickup_time: "07:10",
+      pickup_point: "Lobby",
+      day_of_week: null,
+      specific_date: null,
+      is_active: true,
+    },
+    {
+      id: 2,
+      product: 202,
+      pickup_location: 601,
+      pickup_time: "19:10",
+      pickup_point: "Main entrance",
+      day_of_week: null,
+      specific_date: null,
+      is_active: true,
+    },
+    {
+      id: 3,
+      product: 101,
+      pickup_location: 701,
+      pickup_time: "08:00",
+      pickup_point: "Lobby",
+      day_of_week: null,
+      specific_date: null,
+      is_active: false,
+    },
+  ];
+
+  const saonaProduct = {
+    id: 101,
+    name: "Saona Island",
+    pickup_schedules: [],
+  };
+
+  const cocoBongoProduct = {
+    id: 202,
+    name: "Coco Bongo",
+    pickup_schedules: [],
+  };
+
+  it("returns only active hotels scheduled for the selected product", () => {
+    const visible = getVisiblePickupLocationsForProduct(
+      saonaProduct as never,
+      pickupLocations as never,
+      pickupSchedules as never,
+    );
+
+    expect(visible.map((location) => Number(location.id))).toEqual([501]);
+  });
+
+  it("never includes a hotel scheduled for a different product", () => {
+    const visible = getVisiblePickupLocationsForProduct(
+      cocoBongoProduct as never,
+      pickupLocations as never,
+      pickupSchedules as never,
+    );
+
+    expect(visible.map((location) => Number(location.id))).toEqual([601]);
+    expect(visible.map((location) => Number(location.id))).not.toContain(501);
+  });
+
+  it("fails closed instead of showing the global catalogue when no schedule exists", () => {
+    const visible = getVisiblePickupLocationsForProduct(
+      {
+        id: 303,
+        name: "Catalina Island",
+        pickup_schedules: [],
+      } as never,
+      pickupLocations as never,
+      pickupSchedules as never,
+    );
+
+    expect(visible).toEqual([]);
+  });
+
+  it("uses embedded product schedules without leaking fallback schedules", () => {
+    const visible = getVisiblePickupLocationsForProduct(
+      {
+        id: 101,
+        name: "Saona Island",
+        pickup_schedules: [
+          {
+            id: 9,
+            product: 101,
+            pickup_location: 501,
+            is_active: true,
+          },
+        ],
+      } as never,
+      pickupLocations as never,
+      [
+        ...pickupSchedules,
+        {
+          id: 10,
+          product: 101,
+          pickup_location: 601,
+          is_active: true,
+        },
+      ] as never,
+    );
+
+    expect(visible.map((location) => Number(location.id))).toEqual([501]);
+  });
+
+  it("resolves pickup time by the same product, hotel and service date", () => {
+    const schedules = [
+      ...pickupSchedules,
+      {
+        id: 11,
+        product: 101,
+        pickup_location: 501,
+        pickup_time: "06:45",
+        pickup_point: "Reception",
+        day_of_week: null,
+        specific_date: "2026-09-05",
+        is_active: true,
+      },
+      {
+        id: 12,
+        product: 202,
+        pickup_location: 501,
+        pickup_time: "21:30",
+        pickup_point: "Wrong product",
+        day_of_week: null,
+        specific_date: "2026-09-05",
+        is_active: true,
+      },
+    ];
+
+    const resolved = findSchedule(
+      schedules as never,
+      "101",
+      "501",
+      "2026-09-05",
+    );
+
+    expect(resolved?.pickup_time).toBe("06:45");
+    expect(resolved?.pickup_point).toBe("Reception");
   });
 });
