@@ -181,9 +181,72 @@ class SellerBookingWorkflow:
                 )
 
         if intent == "question":
+            # A seller can ask a question while providing a complete booking
+            # in the same message. Apply and validate those trusted values
+            # before answering; otherwise a pickup-time question is answered
+            # from the old draft and is incorrectly treated as service_time.
+            self._apply_interpretation(state, interpretation)
+
+            if self._question_has_booking_updates(interpretation):
+                response = self._ensure_product(
+                    state,
+                    interpretation,
+                    products,
+                )
+                if response is not None:
+                    return response
+
+                if state.service_date:
+                    if state.product and state.product.is_live_product:
+                        response = self._ensure_live_option(
+                            state,
+                            interpretation,
+                            api_client,
+                        )
+                        if response is not None:
+                            return response
+
+                    response = self._ensure_pickup(
+                        state,
+                        interpretation,
+                        api_client,
+                    )
+                    if response is not None:
+                        return response
+
+                self._auto_select_single_payment_action(
+                    state=state,
+                    seller=seller,
+                )
+
+                if self._state_is_complete(state):
+                    state.booking_preview = self._build_preview(
+                        state,
+                        seller=seller,
+                        products=products,
+                    )
+                    state.awaiting_confirmation = True
+                    state.status = "awaiting_confirmation"
+                    self._update_progress(state)
+                    return self._response(
+                        state,
+                        self._confirmation_message(state),
+                        status="awaiting_confirmation",
+                        requires_confirmation=True,
+                        booking_preview=state.booking_preview,
+                    )
+
             return self._answer_booking_question(
                 state=state,
-                topic=question_topic,
+                topic=(
+                    "pickup"
+                    if self._is_pickup_time_question(
+                        state=state,
+                        topic=question_topic,
+                        interpretation=interpretation,
+                    )
+                    else question_topic
+                ),
                 seller=seller,
                 products=products,
             )
@@ -2049,6 +2112,59 @@ class SellerBookingWorkflow:
     # ------------------------------------------------------------------
     # Conversational routing
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _question_has_booking_updates(
+        interpretation: Mapping[str, Any],
+    ) -> bool:
+        fields = (
+            "product_phrase",
+            "product_id",
+            "service_date",
+            "service_time",
+            "option_phrase",
+            "pickup_phrase",
+            "pickup_location_id",
+            "guests",
+            "customer",
+            "payment_action",
+            "discount_amount",
+            "discount_percent",
+        )
+        return any(
+            interpretation.get(field) not in (None, "", [], {})
+            for field in fields
+        )
+
+    @classmethod
+    def _is_pickup_time_question(
+        cls,
+        *,
+        state: BookingConversationState,
+        topic: str,
+        interpretation: Mapping[str, Any],
+    ) -> bool:
+        if topic == "pickup":
+            return True
+        if topic != "time":
+            return False
+
+        pickup_value_present = any(
+            interpretation.get(field) not in (None, "")
+            for field in ("pickup_phrase", "pickup_location_id")
+        )
+        message = cls._normalise_phrase(state.last_user_message)
+        return pickup_value_present or any(
+            term in message
+            for term in (
+                "pickup",
+                "pick up",
+                "recogida",
+                "recoger",
+                "ramassage",
+                "ritiro",
+            )
+        )
 
     def _answer_booking_question(
         self,

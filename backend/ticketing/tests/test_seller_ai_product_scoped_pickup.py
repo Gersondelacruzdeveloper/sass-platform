@@ -59,9 +59,11 @@ class ProductScopedPickupApi:
         self.resolve_calls.append(dict(kwargs))
         return {
             "found": True,
-            "pickup_time": "19:10",
-            "resolved_pickup_point": "Main lobby",
-            "instructions": "Be ready 10 minutes early.",
+            "schedule": {
+                "pickup_time": "19:10",
+                "resolved_pickup_point": "Main lobby",
+                "instructions": "Be ready 10 minutes early.",
+            },
         }
 
 
