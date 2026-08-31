@@ -363,6 +363,13 @@ function usePublicTicketingOrganisation(
   };
 }
 
+export function isPublicProductVisible(product: ExperienceProduct) {
+  return (
+    product.public_enabled !== false &&
+    (!product.status || product.status === "active")
+  );
+}
+
 export default function PublicExperienceHomePage() {
   const { language, setLanguage, t } = useTicketingTranslation();
 
@@ -661,9 +668,7 @@ export default function PublicExperienceHomePage() {
   }, [brandName, organisationSlug, publicSite]);
 
   const publicProducts = useMemo(() => {
-    return products.filter(
-      (product) => product.public_enabled && product.status === "active"
-    );
+    return products.filter(isPublicProductVisible);
   }, [products]);
 
   const filteredProducts = useMemo(() => {
