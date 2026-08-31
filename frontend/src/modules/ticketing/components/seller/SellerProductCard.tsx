@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import api from "../../../../api/axios";
+import { useTicketingAdminTranslation } from "../../admin-i18n/useTicketingAdminTranslation";
 import ticketingApi from "../../api/ticketingApi";
 import type { ExperienceProduct } from "../../types/ticketingTypes";
 
@@ -518,13 +519,31 @@ export default function SellerProductCard({
     organisationSlug?: string;
     slug?: string;
   }>();
+  const { t } = useTicketingAdminTranslation();
+  const liveOptionsErrorText = t("sellerProducts.card.errors.liveOptions");
+  const pricingErrorText = t("sellerProducts.card.errors.pricing");
 
   const organisationSlug = params.organisationSlug || params.slug || "";
   const externalProduct = useMemo(
     () => isExternalOptionProduct(product),
     [product],
   );
-  const localOptions = useMemo(() => getLocalOfferOptions(product), [product]);
+  const localOptions = useMemo(
+    () =>
+      getLocalOfferOptions(product).map((option) => ({
+        ...option,
+        name: /^Package \d+$/.test(option.name)
+          ? t("sellerProducts.card.packageFallback", {
+              id: option.packageId,
+            })
+          : /^Ticket \d+$/.test(option.name)
+            ? t("sellerProducts.card.ticketFallback", {
+                id: option.eventTicketTypeId,
+              })
+            : option.name,
+      })),
+    [product, t],
+  );
   const requiresLocalOption = localOptions.length > 0;
 
   const [serviceDate, setServiceDate] = useState(localDateInputValue());
@@ -576,7 +595,7 @@ export default function SellerProductCard({
         console.error("Could not load live ticket options:", error);
         setLiveAvailability(null);
         setLiveAvailabilityError(
-          getErrorMessage(error, "Could not load live ticket options."),
+          getErrorMessage(error, liveOptionsErrorText),
         );
       } finally {
         if (!cancelled) setLoadingLiveAvailability(false);
@@ -588,7 +607,13 @@ export default function SellerProductCard({
     return () => {
       cancelled = true;
     };
-  }, [externalProduct, organisationSlug, product.slug, serviceDate]);
+  }, [
+    externalProduct,
+    organisationSlug,
+    product.slug,
+    serviceDate,
+    liveOptionsErrorText,
+  ]);
 
   const externalOptions = useMemo(
     () =>
@@ -712,7 +737,7 @@ export default function SellerProductCard({
         setPricingQuoteError(
           getErrorMessage(
             error,
-            "Could not load the seller's exact price allowance.",
+            pricingErrorText,
           ),
         );
       } finally {
@@ -742,6 +767,7 @@ export default function SellerProductCard({
     selectedUnitPrice,
     externalProduct,
     serviceDate,
+    pricingErrorText,
   ]);
 
   const originalPrice = numberValue(pricingQuote?.original_price);
@@ -812,7 +838,7 @@ export default function SellerProductCard({
     if (!pricingQuote || !selectedOption) {
       setMessage(
         pricingQuoteError ||
-          "Select the exact option and wait for its pricing to load.",
+          t("sellerProducts.card.selectValidOption"),
       );
       return;
     }
@@ -828,9 +854,10 @@ export default function SellerProductCard({
       finalCustomerPrice > originalPrice + 0.005
     ) {
       setMessage(
-        `Customer price must be between ${money(
-          minimumSellingPrice,
-        )} and ${money(originalPrice)}.`,
+        t("sellerProducts.card.errors.priceRange", {
+          minimum: money(minimumSellingPrice),
+          maximum: money(originalPrice),
+        }),
       );
       return;
     }
@@ -868,7 +895,7 @@ export default function SellerProductCard({
       const secureLink = buildSignedPublicLink(response.data);
 
       if (!secureLink) {
-        throw new Error("Could not build the secure public offer link.");
+        throw new Error(t("sellerProducts.card.errors.buildLink"));
       }
 
       setGeneratedLink(secureLink);
@@ -882,20 +909,23 @@ export default function SellerProductCard({
         await navigator.clipboard.writeText(secureLink);
         setCopied(true);
         setMessage(
-          `Offer created. Customer pays ${money(
-            response.data.customer_final_price || finalCustomerPrice,
-          )}; seller earns ${money(
-            response.data.seller_commission_amount || sellerEarnings,
-          )}. Link copied.`,
+          t("sellerProducts.card.messages.offerCreatedAndCopied", {
+            customerTotal: money(
+              response.data.customer_final_price || finalCustomerPrice,
+            ),
+            sellerEarnings: money(
+              response.data.seller_commission_amount || sellerEarnings,
+            ),
+          }),
         );
       } catch {
-        setMessage("Secure customer offer created.");
+        setMessage(t("sellerProducts.card.messages.offerCreated"));
       }
     } catch (error: any) {
       console.error("Could not generate seller offer link:", error);
       setGeneratedLink("");
       setMessage(
-        getErrorMessage(error, "Could not generate the secure offer link."),
+        getErrorMessage(error, t("sellerProducts.card.errors.generateLink")),
       );
     } finally {
       setGeneratingLink(false);
@@ -908,9 +938,9 @@ export default function SellerProductCard({
     try {
       await navigator.clipboard.writeText(generatedLink);
       setCopied(true);
-      setMessage("Secure offer link copied.");
+      setMessage(t("sellerProducts.card.messages.linkCopied"));
     } catch {
-      setMessage("Could not copy the link automatically.");
+      setMessage(t("sellerProducts.card.errors.copyLink"));
     }
   }
 
@@ -918,7 +948,7 @@ export default function SellerProductCard({
     selectedUnitPrice > 0
       ? money(selectedUnitPrice)
       : externalProduct
-        ? "Live price"
+        ? t("sellerProducts.card.livePrice")
         : money(product.base_price);
 
   return (
@@ -932,7 +962,7 @@ export default function SellerProductCard({
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm font-bold text-slate-400">
-            No image
+            {t("sellerProducts.card.noImage")}
           </div>
         )}
       </div>
@@ -941,7 +971,15 @@ export default function SellerProductCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-amber-600">
-              {product.product_type}
+              {t(
+                `sellerProducts.card.productTypes.${String(
+                  product.product_type || "",
+                )
+                  .toLowerCase()
+                  .replace("custom_tour", "custom")}`,
+                undefined,
+                product.product_type,
+              )}
             </p>
             <h3 className="mt-1 line-clamp-2 text-lg font-black text-slate-950">
               {product.name}
@@ -979,17 +1017,16 @@ export default function SellerProductCard({
 
             <div className="min-w-0 flex-1">
               <p className="text-sm font-black text-slate-950">
-                Secure customer offer
+                {t("sellerProducts.card.offer.title")}
               </p>
               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                Select the exact product option, choose the customer price, and
-                see the seller earnings before generating the link.
+                {t("sellerProducts.card.offer.description")}
               </p>
 
               {externalProduct && (
                 <div className="mt-3">
                   <label className="text-xs font-black text-slate-700">
-                    Service date
+                    {t("sellerProducts.card.serviceDate")}
                   </label>
                   <input
                     type="date"
@@ -1003,13 +1040,13 @@ export default function SellerProductCard({
               {(externalProduct || requiresLocalOption) && (
                 <div className="mt-3">
                   <label className="text-xs font-black text-slate-700">
-                    Exact option
+                    {t("sellerProducts.card.exactOption")}
                   </label>
 
                   {externalProduct && loadingLiveAvailability ? (
                     <div className="mt-2 flex items-center gap-2 rounded-2xl bg-white p-3 text-xs font-bold text-slate-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading live ticket options...
+                      {t("sellerProducts.card.loadingLiveOptions")}
                     </div>
                   ) : externalProduct && liveAvailabilityError ? (
                     <div className="mt-2 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-bold leading-5 text-red-700">
@@ -1031,13 +1068,15 @@ export default function SellerProductCard({
                           disabled={option.available === false}
                         >
                           {option.name} · {money(option.unitPrice)}
-                          {option.available === false ? " · Sold out" : ""}
+                          {option.available === false
+                            ? ` · ${t("sellerProducts.card.soldOut")}`
+                            : ""}
                         </option>
                       ))}
                     </select>
                   ) : (
                     <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
-                      No available options were found for this selection.
+                      {t("sellerProducts.card.noAvailableOptions")}
                     </div>
                   )}
                 </div>
@@ -1045,7 +1084,7 @@ export default function SellerProductCard({
 
               <div className="mt-3">
                 <label className="text-xs font-black text-slate-700">
-                  Quantity
+                  {t("sellerProducts.card.quantity")}
                 </label>
                 <input
                   type="number"
@@ -1061,7 +1100,7 @@ export default function SellerProductCard({
               {loadingPricingQuote ? (
                 <div className="mt-3 flex items-center gap-2 text-xs font-bold text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading exact seller pricing...
+                  {t("sellerProducts.card.loadingPricing")}
                 </div>
               ) : pricingQuoteError ? (
                 <div className="mt-3 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-bold leading-5 text-red-700">
@@ -1071,32 +1110,40 @@ export default function SellerProductCard({
               ) : pricingQuote ? (
                 <>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <PriceBox label="Retail total" value={money(originalPrice)} />
                     <PriceBox
-                      label="Your assigned allowance"
+                      label={t("sellerProducts.card.retailTotal")}
+                      value={money(originalPrice)}
+                    />
+                    <PriceBox
+                      label={t("sellerProducts.card.assignedAllowance")}
                       value={money(sellerAllowance)}
                     />
                     <PriceBox
-                      label="Lowest customer total"
+                      label={t("sellerProducts.card.lowestCustomerTotal")}
                       value={money(minimumSellingPrice)}
                     />
                     <PriceBox
-                      label="Rule"
+                      label={t("sellerProducts.card.rule")}
                       value={
                         pricingQuote.allowance_type === "fixed_amount"
                           ? pricingQuote.is_per_unit
-                            ? "Fixed per ticket"
-                            : "Fixed amount"
-                          : `${percent(
-                              pricingQuote.allowance_percentage,
-                            )}% allowance`
+                            ? t("sellerProducts.card.rule.fixedPerTicket")
+                            : t("sellerProducts.card.rule.fixedAmount")
+                          : t(
+                              "sellerProducts.card.rule.percentageAllowance",
+                              {
+                                percentage: percent(
+                                  pricingQuote.allowance_percentage,
+                                ),
+                              },
+                            )
                       }
                     />
                   </div>
 
                   <div className="mt-3">
                     <label className="text-xs font-black text-slate-700">
-                      Customer total price
+                      {t("sellerProducts.card.customerTotalPrice")}
                     </label>
                     <div className="relative mt-1">
                       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">
@@ -1112,7 +1159,7 @@ export default function SellerProductCard({
                         onBlur={finishCustomerPrice}
                         disabled={!canDiscount || generatingLink}
                         className="h-11 w-full rounded-2xl border border-slate-300 bg-white pl-7 pr-3 text-sm font-black text-slate-950 outline-none focus:border-slate-950 disabled:cursor-not-allowed disabled:bg-slate-100"
-                        aria-label="Customer total price"
+                        aria-label={t("sellerProducts.card.customerTotalPrice")}
                       />
                     </div>
 
@@ -1125,7 +1172,7 @@ export default function SellerProductCard({
                           }
                           className="flex-1 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-black text-slate-700 hover:bg-slate-100"
                         >
-                          Full price
+                          {t("sellerProducts.card.fullPrice")}
                         </button>
                         <button
                           type="button"
@@ -1134,30 +1181,28 @@ export default function SellerProductCard({
                           }
                           className="flex-1 rounded-xl border border-amber-300 bg-amber-50 px-2 py-2 text-xs font-black text-amber-800 hover:bg-amber-100"
                         >
-                          Lowest price
+                          {t("sellerProducts.card.lowestPrice")}
                         </button>
                       </div>
                     ) : (
                       <p className="mt-2 text-xs font-bold text-slate-500">
-                        Customer discount is disabled. The seller can still
-                        create the link at full price and keep the assigned
-                        commission.
+                        {t("sellerProducts.card.discountDisabled")}
                       </p>
                     )}
                   </div>
 
                   <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
                     <SummaryRow
-                      label="Customer discount"
+                      label={t("sellerProducts.card.customerDiscount")}
                       value={money(customerDiscount)}
                     />
                     <SummaryRow
-                      label="Seller earns"
+                      label={t("sellerProducts.card.sellerEarns")}
                       value={money(sellerEarnings)}
                       strong
                     />
                     <SummaryRow
-                      label="Customer pays"
+                      label={t("sellerProducts.card.customerPays")}
                       value={money(safeCustomerPrice)}
                       strong
                     />
@@ -1174,12 +1219,12 @@ export default function SellerProductCard({
                     ) : (
                       <Link2 className="h-4 w-4" />
                     )}
-                    Generate customer link
+                    {t("sellerProducts.card.generateCustomerLink")}
                   </button>
                 </>
               ) : (
                 <p className="mt-3 text-xs font-bold text-slate-500">
-                  Select a valid option to load its exact seller price.
+                  {t("sellerProducts.card.selectValidOption")}
                 </p>
               )}
 
@@ -1190,14 +1235,14 @@ export default function SellerProductCard({
                     readOnly
                     value={generatedLink}
                     className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 outline-none"
-                    aria-label="Generated secure offer link"
+                    aria-label={t("sellerProducts.card.generatedLinkLabel")}
                   />
 
                   <button
                     type="button"
                     onClick={copyGeneratedLink}
                     className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100"
-                    aria-label="Copy secure offer link"
+                    aria-label={t("sellerProducts.card.copyLinkLabel")}
                   >
                     {copied ? (
                       <Check className="h-4 w-4 text-emerald-600" />
@@ -1221,7 +1266,7 @@ export default function SellerProductCard({
           to={`${bookingPath}?product=${product.id}`}
           className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800"
         >
-          Create Booking
+          {t("sellerProducts.card.createBooking")}
         </Link>
       </div>
     </div>
