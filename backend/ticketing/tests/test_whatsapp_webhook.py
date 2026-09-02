@@ -299,6 +299,21 @@ class WhatsAppWebhookTests(TestCase):
         self.assertNotIn("payload", message.metadata)
         delay.assert_called_once_with(message.pk)
 
+    @patch("ticketing.whatsapp_webhook_views.queue_telegram_monitor_message")
+    @patch("ticketing.whatsapp_webhook_views.process_customer_ai_message_task.delay")
+    def test_inbound_telegram_observer_runs_after_storage_commit(
+        self, ai_delay, telegram_queue
+    ):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post_payload(
+                self.message_payload(message_id="wamid.webhook.telegram")
+            )
+
+        message = CustomerAIMessage.objects.get()
+        self.assertEqual(response.status_code, 200)
+        ai_delay.assert_called_once_with(message.pk)
+        telegram_queue.assert_called_once_with(message.pk)
+
     @patch("ticketing.whatsapp_webhook_views.process_customer_ai_message_task.delay")
     def test_duplicate_message_is_idempotent_and_not_queued_twice(self, delay):
         payload = self.message_payload(message_id="wamid.webhook.duplicate")

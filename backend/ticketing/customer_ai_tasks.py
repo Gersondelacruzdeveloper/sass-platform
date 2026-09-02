@@ -25,6 +25,7 @@ from ticketing.ai.customer.agent import (
     CustomerSalesAgent,
 )
 from ticketing.customer_ai_models import CustomerAIConversation, CustomerAIMessage
+from ticketing.telegram_monitor import queue_telegram_monitor_message
 
 
 logger = logging.getLogger(__name__)
@@ -365,6 +366,12 @@ def _mark_sent(
     inbound.save(update_fields=("metadata",))
     CustomerAIConversation.objects.filter(pk=inbound.conversation_id).update(
         last_outbound_at=timezone.now()
+    )
+    # Telegram mirrors only a reply that was accepted by Meta. Its enqueue path
+    # is robust and independent, so monitoring can never make WhatsApp retry.
+    transaction.on_commit(
+        lambda message_id=outbound.pk: queue_telegram_monitor_message(message_id),
+        robust=True,
     )
 
 

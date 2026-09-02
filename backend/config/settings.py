@@ -289,3 +289,17 @@ CUSTOMER_AI_MESSAGE_SENDER_FACTORY = (
     "ticketing.ai.customer.whatsapp_sender."
     "TenantWhatsAppCustomerSenderFactory"
 )
+
+# Optional, read-only Telegram mirror for one organisation's customer-AI
+# conversations. Keep disabled unless all four deployment values are set.
+TELEGRAM_MONITOR_ENABLED = env.bool("TELEGRAM_MONITOR_ENABLED", default=False)
+TELEGRAM_MONITOR_ORGANISATION_SLUG = env.str(
+    "TELEGRAM_MONITOR_ORGANISATION_SLUG",
+    default="",
+)
+TELEGRAM_MONITOR_BOT_TOKEN = env.str("TELEGRAM_MONITOR_BOT_TOKEN", default="")
+TELEGRAM_MONITOR_CHAT_ID = env.str("TELEGRAM_MONITOR_CHAT_ID", default="")
+TELEGRAM_MONITOR_TIMEOUT_SECONDS = env.int(
+    "TELEGRAM_MONITOR_TIMEOUT_SECONDS",
+    default=10,
+)

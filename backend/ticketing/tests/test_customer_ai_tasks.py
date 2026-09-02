@@ -193,6 +193,14 @@ class CustomerAIMessageTaskTests(TestCase):
             f"customer-ai-reply:{self.inbound.pk}",
         )
 
+    @patch("ticketing.customer_ai_tasks.queue_telegram_monitor_message")
+    def test_sent_reply_queues_telegram_observer_after_commit(self, telegram_queue):
+        with self.captureOnCommitCallbacks(execute=True):
+            result = self.run_task()
+
+        self.assertEqual(result["action"], "sent")
+        telegram_queue.assert_called_once_with(result["outbound_message_id"])
+
     def test_repeated_finished_task_does_not_generate_or_send_twice(self):
         first = self.run_task()
         second = self.run_task()
