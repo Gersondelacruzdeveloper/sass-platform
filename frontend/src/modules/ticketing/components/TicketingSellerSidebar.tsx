@@ -8,10 +8,8 @@ import {
   Bot,
   LogOut,
   Package,
-  Receipt,
   Ticket,
   UserCircle,
-  Users,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -119,18 +117,6 @@ export default function TicketingSellerSidebar({
       path: buildPath(safeSlug, "/new-booking"),
       icon: Ticket,
       permissions: ["can_create_bookings"],
-    },
-    {
-      label: t("sellerSidebar.navigation.bookings"),
-      path: buildPath(safeSlug, "/bookings"),
-      icon: Receipt,
-      permissions: ["can_view_own_sales", "can_create_bookings"],
-    },
-    {
-      label: t("sellerSidebar.navigation.customers"),
-      path: buildPath(safeSlug, "/customers"),
-      icon: Users,
-      permissions: ["can_view_own_sales", "can_create_bookings"],
     },
     {
       label: t("sellerSidebar.navigation.commissions"),
