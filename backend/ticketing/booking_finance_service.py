@@ -101,9 +101,33 @@ def _queue_payment_confirmed_notification_if_transitioned(
     Queue customer notifications only on the first transition into a confirmed
     payment state.
 
+    The additive Partner Network commission state is also synchronized here.
+    Direct/seller bookings have no referral commissions, so this is a no-op for
+    all existing flows. Keeping it in the central finance compatibility layer
+    ensures Stripe, PayPal, cash, manual recalculation, completion, cancellation,
+    and refund paths share one status transition hook.
+
     transaction.on_commit prevents Celery from reading the booking before the
     surrounding database transaction has committed.
     """
+    # Some existing finance unit tests deliberately pass lightweight booking
+    # facades (for example SimpleNamespace) instead of persisted Django models.
+    # Partner Network side effects must only run for real persisted Booking
+    # instances; the existing notification behavior must continue to work for
+    # those facades unchanged.
+    from django.db.models import Model
+
+    if isinstance(booking, Model) and getattr(booking, "pk", None) is not None:
+        from partner_network.services.commission_service import (
+            sync_referral_commissions_for_booking,
+        )
+        from partner_network.services.review_service import (
+            schedule_feedback_for_booking,
+        )
+
+        sync_referral_commissions_for_booking(booking)
+        schedule_feedback_for_booking(booking)
+
     current_payment_status = str(
         getattr(booking, "payment_status", "") or ""
     )

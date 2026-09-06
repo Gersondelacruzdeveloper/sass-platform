@@ -13,4 +13,5 @@ urlpatterns = [
     path("api/disco/", include("disco.urls")),
     path("api/training/", include("training.urls")),
     path("api/ticketing/", include("ticketing.urls")),
+    path("api/partner-network/", include("partner_network.urls")),
 ]

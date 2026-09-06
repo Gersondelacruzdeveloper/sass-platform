@@ -230,6 +230,11 @@ class SellerAIChatEndpointFastFlowTests(SimpleTestCase):
             ),
             patch.object(
                 SellerAIChatView,
+                "_resolve_request_seller",
+                return_value=None,
+            ),
+            patch.object(
+                SellerAIChatView,
                 "_resolve_ai_settings",
                 return_value=self.ai_settings,
             ),

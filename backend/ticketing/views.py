@@ -4731,6 +4731,17 @@ class BookingViewSet(TicketingPrivateViewSet):
 
         booking = booking_finance.recalculate_booking_payment_totals(booking)
 
+        # Additive Partner Network follow-up. Ordinary bookings are a no-op.
+        try:
+            from partner_network.services.review_service import schedule_feedback_for_booking
+
+            schedule_feedback_for_booking(booking)
+        except Exception:
+            logger.exception(
+                "Partner Network feedback scheduling failed for booking_id=%s.",
+                booking.pk,
+            )
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
 

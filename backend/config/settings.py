@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "disco",
     'training',
     "ticketing.apps.TicketingConfig",
+    "partner_network.apps.PartnerNetworkConfig",
 ]
 
 MIDDLEWARE = [
@@ -275,9 +276,14 @@ CUSTOMER_AI_TOOL_DEPENDENCIES_FACTORY = (
     "DjangoCustomerAIToolDependenciesFactory"
 )
 
+CUSTOMER_AI_DOMAIN_ADAPTER_FACTORY = (
+    "partner_network.ai_adapter_factory."
+    "PartnerAwareCustomerAIDomainAdapterFactory"
+)
+
 CUSTOMER_AI_CART_COMPONENT_FACTORY = (
-    "ticketing.ai.customer.cart_components."
-    "DjangoCustomerCartComponentFactory"
+    "partner_network.cart_components."
+    "PartnerAwareCustomerCartComponentFactory"
 )
 
 CUSTOMER_AI_PROMOTION_REPOSITORY = (

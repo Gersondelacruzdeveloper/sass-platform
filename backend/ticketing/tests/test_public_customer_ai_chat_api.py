@@ -361,7 +361,7 @@ class PublicCustomerAIChatAPITests(APITestCase):
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
             response = self.signed_post(payload)
 
-        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(len(callbacks), 2)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertTrue(body["success"])
@@ -397,7 +397,7 @@ class PublicCustomerAIChatAPITests(APITestCase):
         with self.captureOnCommitCallbacks(execute=True) as second_callbacks:
             second = self.signed_post(payload)
 
-        self.assertEqual(len(first_callbacks), 1)
+        self.assertEqual(len(first_callbacks), 2)
         self.assertEqual(len(second_callbacks), 0)
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertEqual(second.status_code, status.HTTP_200_OK)
@@ -648,7 +648,7 @@ class PublicCustomerAIChatAPITests(APITestCase):
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
             response = self.signed_post(payload)
 
-        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(len(callbacks), 2)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["queued"], 1)
         delay.assert_called_once()

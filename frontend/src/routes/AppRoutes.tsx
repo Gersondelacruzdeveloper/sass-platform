@@ -10,6 +10,7 @@ import OrganisationsPage from "../pages/OrganisationsPage";
 import AuditLogsPage from "../pages/AuditLogsPage";
 import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
 import { ticketingRoutes } from "../modules/ticketing/routes/ticketingRoutes";
+import { partnerNetworkRoutes } from "../modules/partner-network/routes/partnerNetworkRoutes";
 export default function AppRoutes() {
   return (
     <Routes>
@@ -24,6 +25,7 @@ export default function AppRoutes() {
       {trainingRoutes}
       {discoRoutes}
       {ticketingRoutes}
+      {partnerNetworkRoutes}
     </Routes>
   );
 }

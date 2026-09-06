@@ -156,6 +156,26 @@ class DjangoCustomerCartConversionService:
             ) from exc
 
         self._assert_unchanged(cart, items, validated)
+
+        # Additive Partner Network guard. Direct carts have no referral session
+        # and therefore follow the exact pre-existing path. For referral carts,
+        # enforce the property/product/pickup relationship again at checkout.
+        referral_session = None
+        try:
+            from partner_network.services.attribution_service import (
+                get_referral_session_for_cart,
+                validate_cart_for_referral,
+            )
+
+            referral_session = get_referral_session_for_cart(cart)
+            if referral_session is not None:
+                validate_cart_for_referral(
+                    cart=cart,
+                    referral_session=referral_session,
+                )
+        except ValueError as exc:
+            raise CustomerCartConversionValidationError(str(exc)) from exc
+
         payment_choice = checkout.payment_choice.strip().lower()
         allowed_choices = allowed_payment_choices(
             organisation=organisation,
@@ -203,6 +223,24 @@ class DjangoCustomerCartConversionService:
             raise CustomerCartConversionRepositoryError(
                 "The booking total did not reconcile with the cart."
             )
+
+        if referral_session is not None:
+            try:
+                from partner_network.services.attribution_service import (
+                    attribute_booking_from_cart,
+                )
+                from partner_network.services.commission_service import (
+                    create_pending_commissions_for_booking,
+                )
+
+                attribution, _created = attribute_booking_from_cart(
+                    cart=cart,
+                    booking=booking,
+                )
+                if attribution is not None:
+                    create_pending_commissions_for_booking(booking)
+            except ValueError as exc:
+                raise CustomerCartConversionValidationError(str(exc)) from exc
 
         cart.status = CustomerItineraryCart.STATUS_CONVERTED
         cart.converted_booking = booking

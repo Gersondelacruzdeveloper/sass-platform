@@ -183,6 +183,30 @@ def _store_inbound_message(
     message_type, text, ai_eligible = _extract_text(message)
     occurred_at = _parse_timestamp(message.get("timestamp"))
 
+    # Referral QR markers are parsed by the additive Partner Network module.
+    # Keep the original message text until the token has been validated.
+    # Forged/revoked/invalid markers must remain ordinary customer text.
+    referral_source_text = text
+    try:
+        from partner_network.services.attribution_service import (
+            extract_referral_token,
+        )
+        from partner_network.services.settings_service import (
+            get_partner_network_settings,
+        )
+
+        # Hard feature gate: when Partner Network is disabled, the existing
+        # WhatsApp webhook must behave exactly as it did before this module was
+        # installed. In particular, do not strip or interpret PCDREF markers.
+        partner_network_enabled = (
+            get_partner_network_settings(settings_obj.organisation) is not None
+        )
+        has_referral_marker = (
+            partner_network_enabled and bool(extract_referral_token(text))
+        )
+    except Exception:
+        has_referral_marker = False
+
     with transaction.atomic():
         conversation = _get_or_create_conversation(
             organisation=settings_obj.organisation,
@@ -205,6 +229,29 @@ def _store_inbound_message(
         )
         if not created:
             return False, False
+
+        if has_referral_marker:
+            try:
+                from partner_network.services.attribution_service import (
+                    claim_referral_from_message,
+                )
+
+                referral_session, referral_text = claim_referral_from_message(
+                    conversation=conversation,
+                    text=referral_source_text,
+                )
+
+                # Strip the internal marker only after a valid active QR has
+                # successfully created a referral session. Invalid or revoked
+                # QR markers stay in the stored customer message unchanged.
+                if referral_session is not None and referral_text != inbound.text:
+                    inbound.text = referral_text
+                    inbound.save(update_fields=["text"])
+            except Exception:
+                logger.exception(
+                    "Partner Network referral attribution failed for conversation_id=%s.",
+                    conversation.pk,
+                )
 
         update_fields = ["last_inbound_at", "updated_at"]
         conversation.last_inbound_at = occurred_at
