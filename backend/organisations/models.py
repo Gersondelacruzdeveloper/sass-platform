@@ -128,6 +128,7 @@ class Membership(models.Model):
         ("owner", "Owner"),
         ("admin", "Admin"),
         ("manager", "Manager"),
+        ("facilitator", "Facilitator"),
         ("cashier", "Cashier"),
         ("bartender", "Bartender"),
         ("door_staff", "Door Staff"),

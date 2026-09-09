@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.utils import timezone
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied
@@ -71,6 +71,58 @@ def get_user_organisation(user):
     return membership.organisation
 
 
+def _active_facilitator_for(user):
+    if not is_facilitator(user):
+        return None
+
+    facilitator = get_facilitator_profile(user)
+    if facilitator is None or not facilitator.active:
+        return None
+
+    return facilitator
+
+
+def _require_management(user, message="Management access is required."):
+    if not is_management(user):
+        raise PermissionDenied(message)
+
+
+def _failed_answer_count(organisation, employee, standard, threshold=3):
+    return (
+        EvaluationAnswer.objects
+        .filter(
+            organisation=organisation,
+            evaluation__employee=employee,
+            question__standard=standard,
+        )
+        .filter(
+            Q(question__score_type="score", score__lt=threshold)
+            | Q(question__score_type="yes_no", yes_no_answer=False)
+        )
+        .count()
+    )
+
+
+class ManagementWriteMixin:
+    """Keep standards/configuration writable only by management."""
+
+    def create(self, request, *args, **kwargs):
+        _require_management(request.user)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _require_management(request.user)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _require_management(request.user)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _require_management(request.user)
+        return super().destroy(request, *args, **kwargs)
+
+
 class TenantModelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
@@ -103,54 +155,142 @@ class EmployeeViewSet(TenantModelViewSet):
                 organisation=organisation
             ).order_by("-created_at")
 
-        if is_facilitator(self.request.user):
-            facilitator = get_facilitator_profile(self.request.user)
-
-            if facilitator:
-                return facilitator.assigned_employees.filter(
-                    organisation=organisation
-                ).order_by("name")
+        facilitator = _active_facilitator_for(self.request.user)
+        if facilitator:
+            return facilitator.assigned_employees.filter(
+                organisation=organisation
+            ).order_by("name")
 
         return Employee.objects.none()
+
+    def perform_create(self, serializer):
+        organisation = self.get_organisation()
+
+        if is_management(self.request.user):
+            serializer.save(organisation=organisation)
+            return
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if not facilitator or not facilitator.can_create_employees:
+            raise PermissionDenied("You cannot create employees.")
+
+        outlet = serializer.validated_data.get("outlet")
+        if outlet and not facilitator.assigned_outlets.filter(pk=outlet.pk).exists():
+            raise PermissionDenied(
+                "You can only create employees in outlets assigned to you."
+            )
+
+        employee = serializer.save(organisation=organisation)
+        facilitator.assigned_employees.add(employee)
 
     def destroy(self, request, *args, **kwargs):
         if not is_management(request.user):
             raise PermissionDenied("You cannot delete employees.")
 
         return super().destroy(request, *args, **kwargs)
-    
-
 
 class TrainingSessionViewSet(TenantModelViewSet):
     serializer_class = TrainingSessionSerializer
 
     def get_queryset(self):
-        return (
+        organisation = self.get_organisation()
+        queryset = (
             TrainingSession.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related("facilitator", "outlet")
             .prefetch_related("attendees")
             .order_by("start_datetime")
         )
 
+        if is_management(self.request.user):
+            return queryset
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if facilitator:
+            return queryset.filter(
+                outlet__in=facilitator.assigned_outlets.all()
+            ).distinct()
+
+        return queryset.none()
+
+    def perform_create(self, serializer):
+        organisation = self.get_organisation()
+
+        if is_management(self.request.user):
+            serializer.save(organisation=organisation)
+            return
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if not facilitator or not facilitator.can_create_trainings:
+            raise PermissionDenied("You cannot create training sessions.")
+
+        requested_facilitator = serializer.validated_data.get("facilitator")
+        if requested_facilitator and requested_facilitator.pk != facilitator.pk:
+            raise PermissionDenied(
+                "You can only create training sessions for your facilitator profile."
+            )
+
+        outlet = serializer.validated_data.get("outlet")
+        if outlet and not facilitator.assigned_outlets.filter(pk=outlet.pk).exists():
+            raise PermissionDenied(
+                "You can only create training sessions in outlets assigned to you."
+            )
+
+        attendees = serializer.validated_data.get("attendees", [])
+        allowed_employee_ids = set(
+            facilitator.assigned_employees.values_list("id", flat=True)
+        )
+        if any(attendee.id not in allowed_employee_ids for attendee in attendees):
+            raise PermissionDenied(
+                "A training session can only include employees assigned to you."
+            )
+
+        serializer.save(
+            organisation=organisation,
+            facilitator=facilitator,
+        )
 
 class EvaluationViewSet(TenantModelViewSet):
     serializer_class = EvaluationSerializer
 
     def get_queryset(self):
-        return (
+        organisation = self.get_organisation()
+        queryset = (
             Evaluation.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related("employee", "evaluator", "standard")
             .order_by("-created_at")
         )
 
+        if is_management(self.request.user):
+            return queryset
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if facilitator:
+            return queryset.filter(
+                employee__in=facilitator.assigned_employees.all()
+            )
+
+        return queryset.none()
+
     def perform_create(self, serializer):
+        organisation = self.get_organisation()
+
+        if not is_management(self.request.user):
+            facilitator = _active_facilitator_for(self.request.user)
+            if not facilitator or not facilitator.can_create_evaluations:
+                raise PermissionDenied("You cannot create evaluations.")
+
+            employee = serializer.validated_data.get("employee")
+            if not facilitator.assigned_employees.filter(pk=employee.pk).exists():
+                raise PermissionDenied(
+                    "You can only evaluate employees assigned to you."
+                )
+
         serializer.save(
-            organisation=self.get_organisation(),
+            organisation=organisation,
             evaluator=self.request.user,
         )
-
 
 class RoadmapItemViewSet(TenantModelViewSet):
     serializer_class = RoadmapItemSerializer
@@ -170,9 +310,10 @@ class FacilitatorViewSet(TenantModelViewSet):
     serializer_class = FacilitatorSerializer
 
     def get_queryset(self):
-        return (
+        organisation = self.get_organisation()
+        queryset = (
             Facilitator.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related("employee")
             .prefetch_related(
                 "assigned_employees",
@@ -180,13 +321,33 @@ class FacilitatorViewSet(TenantModelViewSet):
             )
         )
 
+        if is_management(self.request.user):
+            return queryset
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if facilitator:
+            return queryset.filter(pk=facilitator.pk)
+
+        return queryset.none()
+
     def perform_create(self, serializer):
-        serializer.save(
-            organisation=self.get_organisation()
-        )
+        _require_management(self.request.user)
+        serializer.save(organisation=self.get_organisation())
+
+    def perform_update(self, serializer):
+        _require_management(self.request.user)
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        _require_management(request.user)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=["post"])
     def create_account(self, request):
+        _require_management(
+            request.user,
+            "Only management can create facilitator accounts.",
+        )
         organisation = self.get_organisation()
 
         employee_id = request.data.get("employee")
@@ -200,19 +361,46 @@ class FacilitatorViewSet(TenantModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        employee = Employee.objects.get(
+        employee = Employee.objects.filter(
             id=employee_id,
             organisation=organisation,
+        ).first()
+        if employee is None:
+            return Response(
+                {"detail": "Employee was not found in your organisation."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        assigned_employee_ids = request.data.get("assigned_employees", [])
+        assigned_outlet_ids = request.data.get("assigned_outlets", [])
+
+        assigned_employees = Employee.objects.filter(
+            organisation=organisation,
+            id__in=assigned_employee_ids,
         )
+        assigned_outlets = Outlet.objects.filter(
+            organisation=organisation,
+            id__in=assigned_outlet_ids,
+        )
+
+        if assigned_employees.count() != len(set(assigned_employee_ids)):
+            return Response(
+                {"assigned_employees": "One or more employees are invalid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if assigned_outlets.count() != len(set(assigned_outlet_ids)):
+            return Response(
+                {"assigned_outlets": "One or more outlets are invalid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if employee.user:
             user = employee.user
         else:
             if not username or not email or not password:
                 return Response(
-                    {
-                        "detail": "Username, email and password are required."
-                    },
+                    {"detail": "Username, email and password are required."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -223,7 +411,7 @@ class FacilitatorViewSet(TenantModelViewSet):
             )
 
             employee.user = user
-            employee.save()
+            employee.save(update_fields=["user"])
 
         Membership.objects.update_or_create(
             user=user,
@@ -240,20 +428,16 @@ class FacilitatorViewSet(TenantModelViewSet):
             defaults={
                 "specialties": request.data.get("specialties", []),
                 "can_create_employees": request.data.get(
-                    "can_create_employees",
-                    True,
+                    "can_create_employees", True
                 ),
                 "can_create_trainings": request.data.get(
-                    "can_create_trainings",
-                    True,
+                    "can_create_trainings", True
                 ),
                 "can_create_evaluations": request.data.get(
-                    "can_create_evaluations",
-                    True,
+                    "can_create_evaluations", True
                 ),
                 "can_view_reports": request.data.get(
-                    "can_view_reports",
-                    False,
+                    "can_view_reports", False
                 ),
                 "active": request.data.get("active", True),
             },
@@ -261,44 +445,39 @@ class FacilitatorViewSet(TenantModelViewSet):
 
         if not created:
             facilitator.specialties = request.data.get(
-                "specialties",
-                facilitator.specialties,
+                "specialties", facilitator.specialties
             )
             facilitator.can_create_employees = request.data.get(
-                "can_create_employees",
-                facilitator.can_create_employees,
+                "can_create_employees", facilitator.can_create_employees
             )
             facilitator.can_create_trainings = request.data.get(
-                "can_create_trainings",
-                facilitator.can_create_trainings,
+                "can_create_trainings", facilitator.can_create_trainings
             )
             facilitator.can_create_evaluations = request.data.get(
-                "can_create_evaluations",
-                facilitator.can_create_evaluations,
+                "can_create_evaluations", facilitator.can_create_evaluations
             )
             facilitator.can_view_reports = request.data.get(
-                "can_view_reports",
-                facilitator.can_view_reports,
+                "can_view_reports", facilitator.can_view_reports
             )
-            facilitator.active = request.data.get(
-                "active",
-                facilitator.active,
-            )
+            facilitator.active = request.data.get("active", facilitator.active)
             facilitator.save()
 
-        facilitator.assigned_employees.set(
-            request.data.get("assigned_employees", [])
-        )
-
-        facilitator.assigned_outlets.set(
-            request.data.get("assigned_outlets", [])
-        )
+        facilitator.assigned_employees.set(assigned_employees)
+        facilitator.assigned_outlets.set(assigned_outlets)
 
         return Response(
-            FacilitatorSerializer(facilitator).data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            FacilitatorSerializer(
+                facilitator,
+                context={"request": request},
+            ).data,
+            status=(
+                status.HTTP_201_CREATED
+                if created
+                else status.HTTP_200_OK
+            ),
         )
-class StandardViewSet(TenantModelViewSet):
+
+class StandardViewSet(ManagementWriteMixin, TenantModelViewSet):
     serializer_class = StandardSerializer
 
     def get_queryset(self):
@@ -319,7 +498,7 @@ class GuestFeedbackViewSet(TenantModelViewSet):
         )
 
 
-class EvaluationTemplateViewSet(TenantModelViewSet):
+class EvaluationTemplateViewSet(ManagementWriteMixin, TenantModelViewSet):
     serializer_class = EvaluationTemplateSerializer
 
     def get_queryset(self):
@@ -331,7 +510,7 @@ class EvaluationTemplateViewSet(TenantModelViewSet):
         )
 
 
-class EvaluationQuestionViewSet(TenantModelViewSet):
+class EvaluationQuestionViewSet(ManagementWriteMixin, TenantModelViewSet):
     serializer_class = EvaluationQuestionSerializer
 
     def get_queryset(self):
@@ -349,9 +528,10 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
     FAIL_SCORE_THRESHOLD = 3
 
     def get_queryset(self):
+        organisation = self.get_organisation()
         queryset = (
             EmployeeEvaluation.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related("employee", "template", "evaluator")
             .prefetch_related(
                 "answers",
@@ -361,8 +541,18 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
             .order_by("-created_at")
         )
 
-        employee_id = self.request.query_params.get("employee")
+        if is_management(self.request.user):
+            pass
+        else:
+            facilitator = _active_facilitator_for(self.request.user)
+            if facilitator:
+                queryset = queryset.filter(
+                    employee__in=facilitator.assigned_employees.all()
+                )
+            else:
+                return queryset.none()
 
+        employee_id = self.request.query_params.get("employee")
         if employee_id:
             queryset = queryset.filter(employee_id=employee_id)
 
@@ -370,6 +560,17 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
 
     def perform_create(self, serializer):
         organisation = self.get_organisation()
+        employee = serializer.validated_data.get("employee")
+
+        if not is_management(self.request.user):
+            facilitator = _active_facilitator_for(self.request.user)
+            if not facilitator or not facilitator.can_create_evaluations:
+                raise PermissionDenied("You cannot create evaluations.")
+
+            if not facilitator.assigned_employees.filter(pk=employee.pk).exists():
+                raise PermissionDenied(
+                    "You can only evaluate employees assigned to you."
+                )
 
         evaluation = serializer.save(
             organisation=organisation,
@@ -401,10 +602,8 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
                 continue
 
             failed = False
-
             if question.score_type == "score":
                 failed = answer.score < self.FAIL_SCORE_THRESHOLD
-
             elif question.score_type == "yes_no":
                 failed = answer.yes_no_answer is False
 
@@ -421,8 +620,16 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
                 .select_related("resource")
                 .first()
             )
-
             if not recovery_plan:
+                continue
+
+            failure_count = _failed_answer_count(
+                organisation,
+                evaluation.employee,
+                standard,
+                self.FAIL_SCORE_THRESHOLD,
+            )
+            if failure_count < recovery_plan.trigger_fail_count:
                 continue
 
             existing_training = EmployeeAssignedTraining.objects.filter(
@@ -435,7 +642,6 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
                     "reevaluation_pending",
                 ],
             ).first()
-
             if existing_training:
                 continue
 
@@ -456,20 +662,19 @@ class EmployeeEvaluationViewSet(TenantModelViewSet):
                     + timedelta(days=recovery_plan.reevaluation_after_days)
                 ),
             )
-
             created_count += 1
 
         return created_count
-
 
 class EvaluationAnswerViewSet(TenantModelViewSet):
     serializer_class = EvaluationAnswerSerializer
     FAIL_SCORE_THRESHOLD = 3
 
     def get_queryset(self):
-        return (
+        organisation = self.get_organisation()
+        queryset = (
             EvaluationAnswer.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related(
                 "evaluation",
                 "evaluation__employee",
@@ -479,13 +684,34 @@ class EvaluationAnswerViewSet(TenantModelViewSet):
             )
         )
 
+        if is_management(self.request.user):
+            return queryset
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if facilitator:
+            return queryset.filter(
+                evaluation__employee__in=facilitator.assigned_employees.all()
+            )
+
+        return queryset.none()
+
     def perform_create(self, serializer):
         organisation = self.get_organisation()
+        evaluation = serializer.validated_data.get("evaluation")
 
-        answer = serializer.save(
-            organisation=organisation,
-        )
+        if not is_management(self.request.user):
+            facilitator = _active_facilitator_for(self.request.user)
+            if not facilitator or not facilitator.can_create_evaluations:
+                raise PermissionDenied("You cannot record evaluation answers.")
 
+            if not facilitator.assigned_employees.filter(
+                pk=evaluation.employee_id
+            ).exists():
+                raise PermissionDenied(
+                    "You can only evaluate employees assigned to you."
+                )
+
+        answer = serializer.save(organisation=organisation)
         self.create_recovery_training_from_answer(answer, organisation)
 
     def create_recovery_training_from_answer(self, answer, organisation):
@@ -496,10 +722,8 @@ class EvaluationAnswerViewSet(TenantModelViewSet):
             return None
 
         failed = False
-
         if question.score_type == "score":
             failed = answer.score < self.FAIL_SCORE_THRESHOLD
-
         elif question.score_type == "yes_no":
             failed = answer.yes_no_answer is False
 
@@ -516,8 +740,16 @@ class EvaluationAnswerViewSet(TenantModelViewSet):
             .select_related("resource")
             .first()
         )
-
         if not recovery_plan:
+            return None
+
+        failure_count = _failed_answer_count(
+            organisation,
+            answer.evaluation.employee,
+            standard,
+            self.FAIL_SCORE_THRESHOLD,
+        )
+        if failure_count < recovery_plan.trigger_fail_count:
             return None
 
         existing_training = EmployeeAssignedTraining.objects.filter(
@@ -530,7 +762,6 @@ class EvaluationAnswerViewSet(TenantModelViewSet):
                 "reevaluation_pending",
             ],
         ).first()
-
         if existing_training:
             return existing_training
 
@@ -760,7 +991,7 @@ def analytics_dashboard(request):
 
 
 # ------------------------------------------------TrainingResourceViewSet
-class TrainingResourceViewSet(TenantModelViewSet):
+class TrainingResourceViewSet(ManagementWriteMixin, TenantModelViewSet):
     serializer_class = TrainingResourceSerializer
 
     def get_queryset(self):
@@ -787,7 +1018,7 @@ class TrainingResourceViewSet(TenantModelViewSet):
         return queryset
 
 
-class StandardRecoveryPlanViewSet(TenantModelViewSet):
+class StandardRecoveryPlanViewSet(ManagementWriteMixin, TenantModelViewSet):
     serializer_class = StandardRecoveryPlanSerializer
 
     def get_queryset(self):
@@ -814,9 +1045,10 @@ class EmployeeAssignedTrainingViewSet(TenantModelViewSet):
     serializer_class = EmployeeAssignedTrainingSerializer
 
     def get_queryset(self):
+        organisation = self.get_organisation()
         queryset = (
             EmployeeAssignedTraining.objects
-            .filter(organisation=self.get_organisation())
+            .filter(organisation=organisation)
             .select_related(
                 "employee",
                 "standard",
@@ -826,38 +1058,116 @@ class EmployeeAssignedTrainingViewSet(TenantModelViewSet):
             .order_by("-assigned_at")
         )
 
+        if is_management(self.request.user):
+            pass
+        else:
+            facilitator = _active_facilitator_for(self.request.user)
+            if facilitator:
+                queryset = queryset.filter(
+                    employee__in=facilitator.assigned_employees.all()
+                )
+            else:
+                return queryset.none()
+
         employee_id = self.request.query_params.get("employee")
         standard_id = self.request.query_params.get("standard")
         status_filter = self.request.query_params.get("status")
 
         if employee_id:
             queryset = queryset.filter(employee_id=employee_id)
-
         if standard_id:
             queryset = queryset.filter(standard_id=standard_id)
-
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
         return queryset
 
+    def _require_training_actor(self, assigned_training=None):
+        if is_management(self.request.user):
+            return None
+
+        facilitator = _active_facilitator_for(self.request.user)
+        if not facilitator or not facilitator.can_create_trainings:
+            raise PermissionDenied("You cannot manage assigned training.")
+
+        if assigned_training is not None and not facilitator.assigned_employees.filter(
+            pk=assigned_training.employee_id
+        ).exists():
+            raise PermissionDenied(
+                "You can only manage training for employees assigned to you."
+            )
+
+        return facilitator
+
     def perform_create(self, serializer):
+        organisation = self.get_organisation()
+        facilitator = self._require_training_actor()
+        employee = serializer.validated_data.get("employee")
+
+        if facilitator and not facilitator.assigned_employees.filter(
+            pk=employee.pk
+        ).exists():
+            raise PermissionDenied(
+                "You can only assign training to employees assigned to you."
+            )
+
         serializer.save(
-            organisation=self.get_organisation(),
+            organisation=organisation,
             assigned_by=self.request.user,
         )
 
     @action(detail=True, methods=["post"])
     def mark_completed(self, request, pk=None):
+        facilitator = self._require_training_actor()
         assigned_training = self.get_object()
+
+        if facilitator and not facilitator.assigned_employees.filter(
+            pk=assigned_training.employee_id
+        ).exists():
+            raise PermissionDenied(
+                "You can only manage training for employees assigned to you."
+            )
+
+        if assigned_training.status not in {
+            "assigned",
+            "in_progress",
+            "completed",
+        }:
+            return Response(
+                {"detail": "Only active microtraining can be marked completed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         assigned_training.status = "reevaluation_pending"
         assigned_training.completed_at = timezone.now()
 
         if not assigned_training.reevaluation_due_date:
-            assigned_training.reevaluation_due_date = timezone.now().date() + timedelta(days=3)
+            recovery_plan = (
+                StandardRecoveryPlan.objects
+                .filter(
+                    organisation=self.get_organisation(),
+                    standard=assigned_training.standard,
+                    active=True,
+                )
+                .first()
+            )
+            reevaluation_days = (
+                recovery_plan.reevaluation_after_days
+                if recovery_plan
+                else 3
+            )
+            assigned_training.reevaluation_due_date = (
+                timezone.now().date()
+                + timedelta(days=reevaluation_days)
+            )
 
-        assigned_training.save()
+        assigned_training.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "reevaluation_due_date",
+            ]
+        )
 
         return Response(
             self.get_serializer(assigned_training).data,
@@ -868,14 +1178,43 @@ class EmployeeAssignedTrainingViewSet(TenantModelViewSet):
     def close(self, request, pk=None):
         assigned_training = self.get_object()
 
+        if is_management(request.user):
+            pass
+        else:
+            facilitator = _active_facilitator_for(request.user)
+            if not facilitator or not facilitator.can_create_evaluations:
+                raise PermissionDenied("You cannot close re-evaluation cases.")
+            if not facilitator.assigned_employees.filter(
+                pk=assigned_training.employee_id
+            ).exists():
+                raise PermissionDenied(
+                    "You can only close cases for employees assigned to you."
+                )
+
+        if assigned_training.status != "reevaluation_pending":
+            return Response(
+                {
+                    "detail": (
+                        "Microtraining must be completed before this case can be closed."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         assigned_training.status = "closed"
         assigned_training.reevaluated_at = timezone.now()
 
         supervisor_notes = request.data.get("supervisor_notes")
-        if supervisor_notes:
+        if supervisor_notes is not None:
             assigned_training.supervisor_notes = supervisor_notes
 
-        assigned_training.save()
+        assigned_training.save(
+            update_fields=[
+                "status",
+                "reevaluated_at",
+                "supervisor_notes",
+            ]
+        )
 
         return Response(
             self.get_serializer(assigned_training).data,
