@@ -4808,6 +4808,18 @@ class BookingViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The seller-credit helper has now changed the customer-facing booking
+        # state to paid. Send a refreshed customer ticket so the PDF shows PAID,
+        # the paid amount, and a zero customer balance. The notification service
+        # forces only the customer copy, avoiding duplicate internal deliveries.
+        try:
+            BookingNotificationService.ticket_generated(booking)
+        except Exception:
+            logger.exception(
+                "Failed sending generated paid ticket for booking %s",
+                booking.booking_code,
+            )
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
 
@@ -7065,6 +7077,14 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            BookingNotificationService.ticket_generated(booking)
+        except Exception:
+            logger.exception(
+                "Failed sending generated paid ticket for booking %s",
+                booking.booking_code,
+            )
+
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=["post"], url_path="cancel")
@@ -8032,6 +8052,14 @@ class SellerBookingsViewSet(
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            BookingNotificationService.ticket_generated(booking)
+        except Exception:
+            logger.exception(
+                "Failed sending generated paid ticket for booking %s",
+                booking.booking_code,
             )
 
         return Response(

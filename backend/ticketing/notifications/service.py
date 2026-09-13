@@ -47,9 +47,10 @@ class BookingNotificationService:
     Events
     ------
     - booking_created:
-        Immediately issues the ticket only for a direct seller-dashboard
-        booking. Public bookings, including seller-link/token bookings, wait
-        for a confirmed payment or deposit.
+        For a direct seller-dashboard booking, internal recipients may receive
+        the booking immediately, but the customer does not receive an unpaid
+        PDF. Public bookings, including seller-link/token bookings, wait for a
+        confirmed payment or deposit.
     - payment_confirmed:
         Issues the complete ticket package after payment/deposit confirmation.
     - ticket_generated:
@@ -1147,23 +1148,35 @@ class BookingNotificationService:
         *,
         require_payment=True,
         force=False,
+        force_customer=False,
+        send_customer=True,
         event="ticket_delivery",
     ):
         """
         Send the complete ticket package.
+
+        ``send_customer=False`` is used for an initial seller-dashboard booking:
+        internal recipients may receive the booking immediately, but the customer
+        must not receive an unpaid PDF before the seller explicitly generates the
+        paid seller-credit ticket.
+
+        ``force_customer=True`` allows an updated customer ticket to be sent after
+        payment state changes without forcing duplicate owner, seller, or supplier
+        notifications.
 
         One failed recipient does not block customer, owner, seller, or supplier
         delivery to the remaining recipients.
         """
         logs = []
 
-        customer_logs = cls.send_customer_confirmation(
-            booking,
-            require_payment=require_payment,
-            force=force,
-            event=event,
-        )
-        logs.extend(customer_logs)
+        if send_customer:
+            customer_logs = cls.send_customer_confirmation(
+                booking,
+                require_payment=require_payment,
+                force=(force or force_customer),
+                event=event,
+            )
+            logs.extend(customer_logs)
 
         owner_log = cls._safe_dispatch(
             booking=booking,
@@ -1233,9 +1246,14 @@ class BookingNotificationService:
             getattr(booking, "seller_id", None)
             and source in cls.DIRECT_SELLER_SOURCES
         ):
+            # Keep the immediate internal ticket workflow, but do not send the
+            # customer an unpaid PDF. The customer receives the ticket after the
+            # seller explicitly generates it and the customer-facing payment
+            # status has been changed to paid.
             return cls.send_ticket_notifications(
                 booking,
                 require_payment=False,
+                send_customer=False,
                 event="seller_booking_created",
             )
 
@@ -1260,11 +1278,18 @@ class BookingNotificationService:
     @classmethod
     def ticket_generated(cls, booking):
         """
-        Called when a seller/admin generates a ticket without online payment.
+        Called after a seller/admin explicitly generates the customer-paid
+        seller-credit ticket.
+
+        The customer copy is forced so a previously sent confirmation cannot
+        suppress the refreshed PDF. Internal recipients are not forced, which
+        avoids duplicate owner/seller/supplier notifications.
         """
         return cls.send_ticket_notifications(
             booking,
-            require_payment=False,
+            require_payment=True,
+            force_customer=True,
+            send_customer=True,
             event="ticket_generated",
         )
 
