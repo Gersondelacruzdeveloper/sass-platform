@@ -23,6 +23,7 @@ import {
   CameraOff,
   CheckCircle2,
   CircleAlert,
+  DollarSign,
   Keyboard,
   Loader2,
   QrCode,
@@ -47,6 +48,8 @@ type ScannerStatus =
   | "resolving"
   | "valid"
   | "invalid"
+  | "collecting_payment"
+  | "payment_collected"
   | "admitting"
   | "admitted";
 
@@ -143,6 +146,48 @@ function getDaysUntilService(value?: string | null): number | null {
   );
 }
 
+function toMoneyNumber(
+  value?: string | number | null,
+): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(
+  value?: string | number | null,
+  language: "en" | "es" = "en",
+): string {
+  return new Intl.NumberFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  ).format(toMoneyNumber(value));
+}
+
+function formatPaymentDate(
+  value?: string | null,
+  language: "en" | "es" = "en",
+): string {
+  if (!value) {
+    return language === "es" ? "No disponible" : "Not available";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat(
+    language === "es" ? "es-DO" : "en-US",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+    },
+  ).format(date);
+}
+
 function getResultPresentation(
   result: string | undefined,
   serviceDate: string | null | undefined,
@@ -162,6 +207,26 @@ function getResultPresentation(
         heading: t("scanner.results.valid.heading"),
         description: t("scanner.results.valid.description"),
         actionLabel: t("scanner.actions.scanNext"),
+      };
+
+    case "payment_required":
+      return {
+        wrapper: "border-amber-300 bg-amber-50",
+        icon: "bg-amber-100 text-amber-700",
+        title: "text-amber-950",
+        body: "text-amber-800",
+        badge: "bg-amber-100 text-amber-700",
+        heading: t(
+          "scanner.results.paymentRequired.heading",
+          undefined,
+          "PAGO PENDIENTE",
+        ),
+        description: t(
+          "scanner.results.paymentRequired.description",
+          undefined,
+          "El ticket requiere pago antes de permitir la entrada.",
+        ),
+        actionLabel: t("scanner.actions.scanAnother"),
       };
 
     case "wrong_date":
@@ -571,7 +636,7 @@ export default function TicketingScannerPage() {
     if (
       !resolution &&
       !error &&
-      !["resolving", "admitting"].includes(status)
+      !["resolving", "collecting_payment", "admitting"].includes(status)
     ) {
       return;
     }
@@ -604,6 +669,57 @@ export default function TicketingScannerPage() {
     await resolveToken(manualValue);
   }
 
+  async function handleCollectPayment() {
+    if (!resolution?.token || !selectedEntityId) return;
+
+    setStatus("collecting_payment");
+    setError("");
+
+    try {
+      const paid = await ticketingApi.collectTicketPayment(
+        {
+          token: resolution.token,
+          business_entity_id: Number(selectedEntityId),
+          requested_quantity: requestedQuantity,
+          scanner_device_id: deviceId,
+          scanner_name: scannerName,
+          location_name: selectedEntity?.name || "",
+          method: "cash",
+          reference: `SCANNER:${resolution.booking_code || resolution.token}`,
+          note:
+            resolution.payment_required_reason === "seller_credit_blocked"
+              ? "Payment collected at entrance to release blocked seller-credit ticket."
+              : "Customer balance collected at entrance before admission.",
+        },
+        slug,
+      );
+
+      setResolution(paid);
+      setStatus("payment_collected");
+
+      if ("vibrate" in navigator) {
+        navigator.vibrate([100, 60, 100]);
+      }
+    } catch (requestError) {
+      const structuredResolution =
+        getScanResolutionFromError(requestError);
+
+      if (structuredResolution) {
+        setResolution(structuredResolution);
+      }
+
+      setError(
+        getErrorMessage(
+          requestError,
+          language === "es"
+            ? "No se pudo registrar el pago."
+            : "The payment could not be recorded.",
+        ),
+      );
+      setStatus("invalid");
+    }
+  }
+
   async function handleAdmit() {
     if (!resolution?.token || !selectedEntityId) return;
 
@@ -624,7 +740,10 @@ export default function TicketingScannerPage() {
         slug,
       );
 
-      setResolution(admitted);
+      setResolution((current) => ({
+        ...(current ?? {}),
+        ...admitted,
+      }) as TicketScanResolution);
       setStatus("admitted");
 
       if ("vibrate" in navigator) {
@@ -653,8 +772,29 @@ export default function TicketingScannerPage() {
     );
   }, [resolution]);
 
+  const paymentRequired = Boolean(
+    resolution?.payment_required,
+  );
+
+  const paymentRequiredAmount =
+    resolution?.payment_required_amount ??
+    resolution?.balance_due ??
+    0;
+
+  const isSellerCreditBlocked =
+    resolution?.payment_required_reason ===
+    "seller_credit_blocked";
+
+  const ticketShowsPaid =
+    !paymentRequired &&
+    resolution?.payment_status === "paid";
+
+  const effectiveResult = paymentRequired
+    ? "payment_required"
+    : resolution?.result;
+
   const presentation = getResultPresentation(
-    resolution?.result,
+    effectiveResult,
     resolution?.service_date,
     t,
   );
@@ -952,11 +1092,19 @@ export default function TicketingScannerPage() {
                 >
                   {status === "admitted"
                     ? t("scanner.statuses.admitted")
-                    : t(
-                        `scanner.resultLabels.${String(resolution.result)}`,
-                        undefined,
-                        String(resolution.result).replaceAll("_", " "),
-                      )}
+                    : status === "payment_collected"
+                      ? language === "es"
+                        ? "PAGO RECIBIDO"
+                        : "PAYMENT RECEIVED"
+                      : paymentRequired
+                        ? language === "es"
+                          ? "PAGO REQUERIDO"
+                          : "PAYMENT REQUIRED"
+                        : t(
+                            `scanner.resultLabels.${String(resolution.result)}`,
+                            undefined,
+                            String(resolution.result).replaceAll("_", " "),
+                          )}
                 </span>
               </div>
 
@@ -965,7 +1113,11 @@ export default function TicketingScannerPage() {
               >
                 {status === "admitted"
                   ? t("scanner.admitted.title")
-                  : presentation.heading}
+                  : status === "payment_collected"
+                    ? language === "es"
+                      ? "PAGO RECIBIDO ✓"
+                      : "PAYMENT RECEIVED ✓"
+                    : presentation.heading}
               </h2>
 
               <p
@@ -973,10 +1125,23 @@ export default function TicketingScannerPage() {
               >
                 {status === "admitted"
                   ? t("scanner.admitted.description")
-                  : presentation.description}
+                  : status === "payment_collected"
+                    ? language === "es"
+                      ? "El pago fue registrado correctamente. Ahora puede aceptar la entrada."
+                      : "The payment was recorded successfully. You can now accept entry."
+                    : paymentRequired
+                      ? isSellerCreditBlocked
+                        ? language === "es"
+                          ? "Este ticket está retenido. Debe recibirse el pago antes de permitir la entrada."
+                          : "This ticket is on hold. Payment must be received before entry is allowed."
+                        : language === "es"
+                          ? "Esta reserva tiene un saldo pendiente. Cobre el monto indicado antes de permitir la entrada."
+                          : "This booking has an outstanding balance. Collect the amount shown before allowing entry."
+                      : presentation.description}
               </p>
 
               {status !== "admitted" &&
+                !paymentRequired &&
                 resolution.message &&
                 resolution.message !==
                   presentation.description && (
@@ -1102,7 +1267,134 @@ export default function TicketingScannerPage() {
                 </div>
               </div>
 
-              {resolution.ok && status !== "admitted" && (
+              {paymentRequired && (
+                <div className="mt-5 rounded-3xl border-2 border-amber-300 bg-white p-5 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                      <DollarSign className="h-6 w-6" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-600">
+                        {language === "es"
+                          ? "DEBE PAGAR"
+                          : "AMOUNT DUE"}
+                      </p>
+                      <p className="mt-1 text-3xl font-black text-amber-950">
+                        {formatMoney(
+                          paymentRequiredAmount,
+                          language,
+                        )}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
+                        {isSellerCreditBlocked
+                          ? language === "es"
+                            ? "El ticket fue retenido porque la liquidación del vendedor con la empresa está pendiente. Confirme el pago recibido para liberar la entrada."
+                            : "The ticket was placed on hold because the seller has not settled with the company. Confirm payment received to release entry."
+                          : language === "es"
+                            ? "La reserva tiene este saldo pendiente. La entrada permanecerá bloqueada hasta registrar el pago."
+                            : "This booking has this outstanding balance. Entry stays blocked until payment is recorded."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleCollectPayment()}
+                    disabled={status === "collecting_payment"}
+                    className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-600 px-5 text-sm font-black text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {status === "collecting_payment" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <DollarSign className="h-4 w-4" />
+                    )}
+                    {status === "collecting_payment"
+                      ? language === "es"
+                        ? "Registrando pago..."
+                        : "Recording payment..."
+                      : language === "es"
+                        ? "Confirmar pago recibido"
+                        : "Confirm payment received"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={resetScan}
+                    disabled={status === "collecting_payment"}
+                    className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-white px-4 text-sm font-black text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    {t("scanner.actions.scanAnother")}
+                  </button>
+                </div>
+              )}
+
+              {!paymentRequired &&
+                (status === "payment_collected" ||
+                  ticketShowsPaid) && (
+                  <div className="mt-5 rounded-3xl border border-emerald-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                        <CheckCircle2 className="h-6 w-6" />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-600">
+                          {status === "payment_collected"
+                            ? language === "es"
+                              ? "PAGO RECIBIDO"
+                              : "PAYMENT RECEIVED"
+                            : language === "es"
+                              ? "PAGADO"
+                              : "PAID"}
+                        </p>
+
+                        <p className="mt-1 text-2xl font-black text-emerald-950">
+                          {formatMoney(
+                            resolution.payment_collected_amount ??
+                              resolution.total_amount ??
+                              0,
+                            language,
+                          )}
+                        </p>
+
+                        {resolution.payment_collected_by && (
+                          <p className="mt-2 text-sm font-bold text-emerald-800">
+                            {language === "es"
+                              ? "Cobrado por:"
+                              : "Collected by:"}{" "}
+                            <span className="font-black">
+                              {resolution.payment_collected_by}
+                            </span>
+                          </p>
+                        )}
+
+                        {resolution.payment_collected_at && (
+                          <p className="mt-1 text-xs font-semibold text-emerald-700">
+                            {formatPaymentDate(
+                              resolution.payment_collected_at,
+                              language,
+                            )}
+                          </p>
+                        )}
+
+                        {resolution.seller_credit_status ===
+                          "pending_collection" && (
+                          <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                            {language === "es"
+                              ? "El cliente está pagado. La liquidación del vendedor con la empresa sigue pendiente y no bloquea esta entrada."
+                              : "The customer is paid. Seller settlement with the company is still pending and does not block this entry."}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              {resolution.ok &&
+                !paymentRequired &&
+                status !== "admitted" && (
                 <div className="mt-5">
                   {remainingAdmissions > 1 && (
                     <label className="mb-4 block">
@@ -1145,7 +1437,8 @@ export default function TicketingScannerPage() {
                 </div>
               )}
 
-              {(status === "admitted" || !resolution.ok) && (
+              {(status === "admitted" ||
+                (!resolution.ok && !paymentRequired)) && (
                 <button
                   type="button"
                   onClick={resetScan}

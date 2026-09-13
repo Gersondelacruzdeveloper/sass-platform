@@ -2000,6 +2000,24 @@ export const ticketingApi = {
     return response.data;
   },
 
+  collectTicketPayment: async (
+    payload: TicketScanResolvePayload & {
+      method?: string;
+      note?: string;
+      reference?: string;
+    },
+    slug?: string
+  ): Promise<TicketScanResolution> => {
+    const response = await api.post<TicketScanResolution>(
+      "/ticketing/scanner/collect-payment/",
+      payload,
+      {
+        params: withSlug(undefined, slug),
+      }
+    );
+    return response.data;
+  },
+
   syncOfflineScans: async (
     businessEntityId: number,
     events: OfflineScanEvent[],

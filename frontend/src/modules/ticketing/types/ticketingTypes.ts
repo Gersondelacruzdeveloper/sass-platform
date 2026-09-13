@@ -1308,6 +1308,7 @@ export type ScanResult =
   | "revoked"
   | "unauthorised"
   | "not_found"
+  | "payment_required"
   | "invalid";
 
 export type AdmissionStatus = "admitted" | "reversed";
@@ -1743,6 +1744,38 @@ export interface TicketScanResolution {
   booking_id?: ID | null;
   booking_code?: string;
   booking_status?: BookingStatus | string;
+
+  // Customer payment state shown by the scanner.
+  payment_status?: PaymentStatus | string;
+  payment_method?: PaymentMethod | string;
+  total_amount?: Money;
+  deposit_paid?: Money;
+  balance_due?: Money;
+
+  // Seller-credit state is separate from whether the customer already paid.
+  seller_credit_status?:
+    | "not_applicable"
+    | "pending_collection"
+    | "settled"
+    | "blocked";
+  seller_due_to_company?: Money;
+
+  // When true, the scanner must collect/confirm payment before admission.
+  payment_required?: boolean;
+  payment_required_amount?: Money;
+  payment_required_reason?:
+    | ""
+    | "customer_balance"
+    | "seller_credit_blocked"
+    | string;
+
+  // Last confirmed payment/collection information for the scanner audit view.
+  payment_collected_amount?: Money;
+  payment_collected_by?: string;
+  payment_collected_at?: string | null;
+  payment_payer_type?: string;
+  payment_type?: string;
+
   booking_item_id?: ID | null;
   product_name?: string;
   product_type?: ProductType | string;

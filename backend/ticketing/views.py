@@ -61,6 +61,79 @@ SELLER_OFFER_SIGNING_SALT = "ticketing.seller-offer.v1"
 SELLER_OFFER_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 
+def _issue_seller_credit_ticket(booking, *, seller, user):
+    """
+    Mark a seller-generated ticket as paid from the customer's perspective while
+    keeping the seller-to-company settlement separate.
+
+    The customer payment is recorded as cash collected by the seller. That makes
+    payment_status become paid and moves the corresponding owner amount into
+    seller_due_to_company. The seller-credit workflow then remains
+    pending_collection until the company receives the money, or blocked if an
+    administrator decides to hold the QR.
+
+    This helper is idempotent: calling Generate Ticket again does not create a
+    duplicate customer payment after the booking is already paid.
+    """
+    if not seller:
+        raise ValueError(
+            "A seller is required to generate a seller-credit paid ticket."
+        )
+
+    booking = booking_finance.recalculate_booking_payment_totals(booking)
+
+    outstanding = Decimal(
+        str(getattr(booking, "balance_due", 0) or 0)
+    ).quantize(Decimal("0.01"))
+
+    if (
+        str(getattr(booking, "payment_status", "") or "") != "paid"
+        and outstanding > Decimal("0.00")
+    ):
+        payment_type = (
+            "balance"
+            if Decimal(
+                str(getattr(booking, "deposit_paid", 0) or 0)
+            ) > Decimal("0.00")
+            else "full"
+        )
+
+        _payment, booking = booking_finance.record_customer_cash_to_seller(
+            booking=booking,
+            amount=outstanding,
+            payment_type=payment_type,
+            seller=seller,
+            collected_by=user,
+            reference=f"SELLER-CREDIT:{booking.booking_code}",
+            note=(
+                "Seller-authorised paid ticket. Customer payment was collected "
+                "by the seller and remains pending settlement to the company."
+            ),
+        )
+
+    booking.status = "ticket_generated"
+    booking.seller_credit_status = "pending_collection"
+    booking.seller_credit_updated_at = timezone.now()
+    booking.seller_credit_updated_by = user
+    booking.seller_credit_note = (
+        "Customer paid the seller. Seller settlement to company is pending."
+    )
+    booking.save(
+        update_fields=[
+            "status",
+            "seller_credit_status",
+            "seller_credit_updated_at",
+            "seller_credit_updated_by",
+            "seller_credit_note",
+            "updated_at",
+        ]
+    )
+
+    booking = booking_finance.recalculate_booking_payment_totals(booking)
+    booking_finance.sync_seller_commission_for_booking(booking)
+    return booking
+
+
 def _decimal_percent(value, field_name="discount_percent"):
     try:
         percent = Decimal(str(value or "0")).quantize(Decimal("0.01"))
@@ -560,6 +633,7 @@ from .permissions import (
 from .operations.tokens import (
     AdmissionTokenValidationError,
     build_qr_payload,
+    extract_token_uuid,
     issue_admission_token,
     resolve_admission_token,
     revoke_admission_token,
@@ -4721,19 +4795,18 @@ class BookingViewSet(TicketingPrivateViewSet):
     @action(detail=True, methods=["post"], url_path="mark-ticket-generated")
     def mark_ticket_generated(self, request, pk=None):
         booking = self.get_object()
-        booking.status = "ticket_generated"
-        booking.seller_credit_status = "pending_collection"
-        booking.seller_credit_updated_at = timezone.now()
-        booking.seller_credit_updated_by = request.user
-        booking.save(update_fields=[
-            "status",
-            "seller_credit_status",
-            "seller_credit_updated_at",
-            "seller_credit_updated_by",
-            "updated_at",
-        ])
 
-        booking = booking_finance.recalculate_booking_payment_totals(booking)
+        try:
+            booking = _issue_seller_credit_ticket(
+                booking,
+                seller=booking.seller,
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
@@ -4764,10 +4837,29 @@ class BookingViewSet(TicketingPrivateViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        note = str(request.data.get("note") or "").strip()
+
+        if requested_status == "settled":
+            try:
+                _payment, booking = booking_finance.settle_seller_booking_balance(
+                    booking=booking,
+                    collected_by=request.user,
+                    method=str(request.data.get("method") or "bank_transfer"),
+                    reference=str(
+                        request.data.get("reference")
+                        or f"SELLER-CREDIT-SETTLED:{booking.booking_code}"
+                    ),
+                )
+            except ValueError as exc:
+                return Response(
+                    {"detail": str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         booking.seller_credit_status = requested_status
         booking.seller_credit_updated_at = timezone.now()
         booking.seller_credit_updated_by = request.user
-        booking.seller_credit_note = str(request.data.get("note") or "").strip()
+        booking.seller_credit_note = note
         booking.save(
             update_fields=[
                 "seller_credit_status",
@@ -6961,20 +7053,17 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        booking.status = "ticket_generated"
-        booking.seller_credit_status = "pending_collection"
-        booking.seller_credit_updated_at = timezone.now()
-        booking.seller_credit_updated_by = request.user
-        booking.save(update_fields=[
-            "status",
-            "seller_credit_status",
-            "seller_credit_updated_at",
-            "seller_credit_updated_by",
-            "updated_at",
-        ])
-
-        booking = booking_finance.recalculate_booking_payment_totals(booking)
-        booking_finance.sync_seller_commission_for_booking(booking)
+        try:
+            booking = _issue_seller_credit_ticket(
+                booking,
+                seller=seller,
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(self.get_serializer(booking).data)
 
@@ -7933,27 +8022,17 @@ class SellerBookingsViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        booking.status = "ticket_generated"
-        booking.seller_credit_status = "pending_collection"
-        booking.seller_credit_updated_at = timezone.now()
-        booking.seller_credit_updated_by = request.user
-
-        booking.save(
-            update_fields=[
-                "status",
-                "seller_credit_status",
-                "seller_credit_updated_at",
-                "seller_credit_updated_by",
-                "updated_at",
-            ]
-        )
-
-        booking = (
-            booking_finance
-            .recalculate_booking_payment_totals(
-                booking
+        try:
+            booking = _issue_seller_credit_ticket(
+                booking,
+                seller=seller,
+                user=request.user,
             )
-        )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(
             self.get_serializer(booking).data
@@ -13923,12 +14002,256 @@ class TicketScannerViewSet(
             record_attempt=True,
         )
 
+        response_data = resolution.as_dict()
         response_status = (
             status.HTTP_200_OK
-            if resolution.ok
+            if resolution.ok or response_data.get("payment_required")
             else status.HTTP_400_BAD_REQUEST
         )
-        return Response(resolution.as_dict(), status=response_status)
+        return Response(response_data, status=response_status)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="collect-payment",
+        permission_classes=[CanAdmitGuests],
+    )
+    def collect_payment(self, request):
+        """
+        Collect the amount currently required by a scanned ticket without
+        changing its QR code.
+
+        Normal pending-payment tickets collect the customer's outstanding
+        balance directly to the company. A blocked seller-credit ticket records
+        a seller/company settlement instead, because the customer-facing ticket
+        was already paid when the seller generated it.
+        """
+        organisation = self.require_organisation()
+        entity = self._entity_from_request()
+        raw_token = request.data.get("token")
+
+        if not raw_token:
+            return Response(
+                {"token": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token_uuid = extract_token_uuid(raw_token)
+        except AdmissionTokenValidationError as exc:
+            return Response(
+                {"detail": str(exc), "result": "invalid"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        method = str(request.data.get("method") or "cash").strip() or "cash"
+        note = str(request.data.get("note") or "").strip()
+
+        with transaction.atomic():
+            # Lock only the AdmissionToken row. Some related fields are nullable,
+            # so select_related() here can make PostgreSQL reject FOR UPDATE on
+            # the nullable side of an outer join.
+            token = (
+                AdmissionToken.objects
+                .select_for_update()
+                .filter(
+                    token=token_uuid,
+                    organisation=organisation,
+                )
+                .first()
+            )
+
+            if not token:
+                return Response(
+                    {"detail": "Ticket not found.", "result": "not_found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if (
+                entity
+                and token.business_entity_id
+                and token.business_entity_id != entity.id
+            ):
+                return Response(
+                    {
+                        "detail": "This ticket belongs to another business entity.",
+                        "result": "wrong_partner",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if token.status in {"revoked", "expired", "consumed"}:
+                messages = {
+                    "revoked": "This ticket was revoked.",
+                    "expired": "This ticket has expired.",
+                    "consumed": "This ticket has already been fully used.",
+                }
+                return Response(
+                    {
+                        "detail": messages[token.status],
+                        "result": token.status,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            booking = Booking.objects.select_for_update().get(pk=token.booking_id)
+            seller_credit_status = str(
+                getattr(booking, "seller_credit_status", "not_applicable")
+                or "not_applicable"
+            )
+
+            payment = None
+            collection_kind = ""
+
+            if seller_credit_status == "blocked":
+                amount_due = Decimal(
+                    str(getattr(booking, "seller_due_to_company", 0) or 0)
+                ).quantize(Decimal("0.01"))
+
+                if amount_due <= Decimal("0.00"):
+                    booking.seller_credit_status = "settled"
+                    booking.seller_credit_updated_at = timezone.now()
+                    booking.seller_credit_updated_by = request.user
+                    booking.seller_credit_note = (
+                        note or "Blocked seller-credit ticket had no remaining company balance."
+                    )
+                    booking.save(
+                        update_fields=[
+                            "seller_credit_status",
+                            "seller_credit_updated_at",
+                            "seller_credit_updated_by",
+                            "seller_credit_note",
+                            "updated_at",
+                        ]
+                    )
+                else:
+                    try:
+                        payment, booking = booking_finance.record_seller_company_settlement(
+                            booking=booking,
+                            amount=amount_due,
+                            collected_by=request.user,
+                            method=method,
+                            reference=(
+                                str(request.data.get("reference") or "").strip()
+                                or f"SCANNER-SELLER-CREDIT:{booking.booking_code}"
+                            ),
+                            note=(
+                                note
+                                or "Blocked seller-credit ticket payment collected at scanner."
+                            ),
+                        )
+                    except ValueError as exc:
+                        return Response(
+                            {"detail": str(exc), "result": "payment_error"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    booking.seller_credit_status = "settled"
+                    booking.seller_credit_updated_at = timezone.now()
+                    booking.seller_credit_updated_by = request.user
+                    booking.seller_credit_note = (
+                        note or "Payment collected at scanner; seller-credit ticket released."
+                    )
+                    booking.save(
+                        update_fields=[
+                            "seller_credit_status",
+                            "seller_credit_updated_at",
+                            "seller_credit_updated_by",
+                            "seller_credit_note",
+                            "updated_at",
+                        ]
+                    )
+
+                collection_kind = "seller_credit_settlement"
+
+            else:
+                booking = booking_finance.recalculate_booking_payment_totals(booking)
+                amount_due = Decimal(
+                    str(getattr(booking, "balance_due", 0) or 0)
+                ).quantize(Decimal("0.01"))
+
+                if amount_due <= Decimal("0.00"):
+                    return Response(
+                        {
+                            "detail": "This ticket does not have an outstanding customer balance.",
+                            "result": "no_payment_required",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                payment_type = (
+                    "balance"
+                    if Decimal(str(getattr(booking, "deposit_paid", 0) or 0))
+                    > Decimal("0.00")
+                    else "full"
+                )
+
+                try:
+                    payment, booking = booking_finance.record_payment(
+                        booking=booking,
+                        amount=amount_due,
+                        payment_type=payment_type,
+                        payer_type="customer",
+                        method=method,
+                        status="confirmed",
+                        seller=None,
+                        collected_by=request.user,
+                        reference=(
+                            str(request.data.get("reference") or "").strip()
+                            or f"SCANNER-PAYMENT:{booking.booking_code}"
+                        ),
+                        note=(
+                            note
+                            or "Customer outstanding balance collected at scanner before admission."
+                        ),
+                        collected_by_party="owner",
+                    )
+                except ValueError as exc:
+                    return Response(
+                        {"detail": str(exc), "result": "payment_error"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                collection_kind = "customer_balance"
+
+        resolution = resolve_admission_token(
+            raw_token,
+            organisation=organisation,
+            business_entity=entity,
+            scanned_by=request.user,
+            requested_quantity=1,
+            scanner_device_id=str(request.data.get("scanner_device_id") or ""),
+            scanner_name=str(request.data.get("scanner_name") or ""),
+            location_name=str(request.data.get("location_name") or ""),
+            metadata={
+                "payment_collected_at_scanner": True,
+                "collection_kind": collection_kind,
+            },
+            request=request,
+            record_attempt=False,
+        )
+
+        response_data = resolution.as_dict()
+        response_data.update(
+            {
+                "payment_collected": True,
+                "payment_collection_kind": collection_kind,
+                "payment": (
+                    BookingPaymentSerializer(
+                        payment,
+                        context=self.get_serializer_context(),
+                    ).data
+                    if payment
+                    else None
+                ),
+                "booking": BookingSerializer(
+                    booking,
+                    context=self.get_serializer_context(),
+                ).data,
+            }
+        )
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     @action(
         detail=False,

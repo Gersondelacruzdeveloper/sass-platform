@@ -85,6 +85,89 @@ class TokenResolution:
         item = self.token.booking_item if self.token else None
         entity = self.token.business_entity if self.token else None
 
+        payment_status = ""
+        payment_method = ""
+        total_amount = 0
+        deposit_paid = 0
+        balance_due = 0
+
+        seller_credit_status = "not_applicable"
+        seller_due_to_company = 0
+
+        payment_required = False
+        payment_required_amount = 0
+        payment_required_reason = ""
+
+        payment_collected_amount = 0
+        payment_collected_by = ""
+        payment_collected_at = None
+        payment_payer_type = ""
+        payment_type = ""
+
+        if booking:
+            payment_status = str(
+                getattr(booking, "payment_status", "") or ""
+            )
+            payment_method = str(
+                getattr(booking, "payment_method", "") or ""
+            )
+            total_amount = getattr(booking, "total_amount", 0) or 0
+            deposit_paid = getattr(booking, "deposit_paid", 0) or 0
+            balance_due = getattr(booking, "balance_due", 0) or 0
+
+            seller_credit_status = str(
+                getattr(
+                    booking,
+                    "seller_credit_status",
+                    "not_applicable",
+                )
+                or "not_applicable"
+            )
+            seller_due_to_company = (
+                getattr(booking, "seller_due_to_company", 0) or 0
+            )
+
+            # A normal pending-payment ticket still belongs to the customer
+            # balance flow. A seller-credit ticket is different: the customer
+            # may already have paid the seller while the seller still owes the
+            # company. Only an explicit seller-credit block stops admission.
+            if seller_credit_status == "blocked":
+                payment_required = True
+                payment_required_amount = seller_due_to_company
+                payment_required_reason = "seller_credit_blocked"
+            elif payment_status != "paid" and balance_due > 0:
+                payment_required = True
+                payment_required_amount = balance_due
+                payment_required_reason = "customer_balance"
+
+            # Expose the most recent confirmed payment/settlement so the
+            # scanner can show who collected it and when.
+            latest_payment = (
+                booking.payments
+                .filter(status="confirmed")
+                .select_related("collected_by")
+                .order_by("-paid_at", "-id")
+                .first()
+            )
+
+            if latest_payment:
+                payment_collected_amount = latest_payment.amount or 0
+                payment_payer_type = str(
+                    getattr(latest_payment, "payer_type", "") or ""
+                )
+                payment_type = str(
+                    getattr(latest_payment, "payment_type", "") or ""
+                )
+
+                if latest_payment.paid_at:
+                    payment_collected_at = latest_payment.paid_at.isoformat()
+
+                if latest_payment.collected_by:
+                    payment_collected_by = (
+                        latest_payment.collected_by.get_full_name()
+                        or latest_payment.collected_by.username
+                    )
+
         return {
             "ok": self.ok,
             "result": self.result,
@@ -94,6 +177,21 @@ class TokenResolution:
             "booking_id": booking.id if booking else None,
             "booking_code": booking.booking_code if booking else "",
             "booking_status": booking.status if booking else "",
+            "payment_status": payment_status,
+            "payment_method": payment_method,
+            "total_amount": str(total_amount),
+            "deposit_paid": str(deposit_paid),
+            "balance_due": str(balance_due),
+            "seller_credit_status": seller_credit_status,
+            "seller_due_to_company": str(seller_due_to_company),
+            "payment_required": payment_required,
+            "payment_required_amount": str(payment_required_amount),
+            "payment_required_reason": payment_required_reason,
+            "payment_collected_amount": str(payment_collected_amount),
+            "payment_collected_by": payment_collected_by,
+            "payment_collected_at": payment_collected_at,
+            "payment_payer_type": payment_payer_type,
+            "payment_type": payment_type,
             "booking_item_id": item.id if item else None,
             "product_name": item.product_name if item else "",
             "product_type": item.product_type if item else "",
@@ -668,6 +766,29 @@ def resolve_admission_token(
 
     if booking_status not in ACTIVE_BOOKING_STATUSES:
         return finish(False, "invalid", "This booking is not ready for admission.")
+
+    # Seller-credit tickets are customer-paid tickets whose money may still
+    # be owed by the seller to the company. pending_collection and settled
+    # remain valid for admission. Only an explicit owner/admin block stops
+    # the same QR and asks for payment at the door.
+    seller_credit_status = str(
+        getattr(
+            token.booking,
+            "seller_credit_status",
+            "not_applicable",
+        )
+        or "not_applicable"
+    )
+
+    if seller_credit_status == "blocked":
+        return finish(
+            False,
+            "payment_required",
+            (
+                "Payment is required. "
+                "This seller-issued ticket has not been paid to the company."
+            ),
+        )
 
     now = timezone.now()
 
