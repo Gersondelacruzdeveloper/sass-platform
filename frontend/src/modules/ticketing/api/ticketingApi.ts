@@ -1274,6 +1274,20 @@ export const ticketingApi = {
     return response.data;
   },
 
+  updateSellerCreditStatus: async (
+    id: number,
+    status: "pending_collection" | "settled" | "blocked",
+    slug?: string,
+    note = "",
+  ): Promise<Booking> => {
+    const response = await api.post<Booking>(
+      `/ticketing/bookings/${id}/seller-credit-status/`,
+      { status, note },
+      { params: withSlug(undefined, slug) },
+    );
+    return response.data;
+  },
+
   confirmBooking: async (id: number, slug?: string): Promise<Booking> => {
     const response = await api.post<Booking>(`/ticketing/bookings/${id}/confirm/`, {}, {
       params: withSlug(undefined, slug),

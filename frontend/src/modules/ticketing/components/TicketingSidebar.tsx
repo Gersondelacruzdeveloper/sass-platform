@@ -264,6 +264,15 @@ export default function TicketingSidebar({
       ownerOnly: true,
     },
     {
+      labelKey: "navigation.items.sellerCreditTickets",
+      fallbackLabel: "Seller credit tickets",
+      path: buildPath(safeSlug, "/seller-credit-tickets"),
+      icon: WalletCards,
+      permissions: ["can_manage_sellers"],
+      section: "main",
+      ownerOnly: true,
+    },
+    {
       labelKey: "navigation.items.sellerOnboarding",
       fallbackLabel: "Seller onboarding",
       path: buildPath(safeSlug, "/seller-onboarding"),

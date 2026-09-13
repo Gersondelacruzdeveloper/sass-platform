@@ -38,6 +38,7 @@ import TicketingExcursionsPage from "../pages/TicketingExcursionsPage";
 import TicketingTransfersPage from "../pages/TicketingTransfersPage";
 import TicketingEventsPage from "../pages/TicketingEventsPage";
 import TicketingSellersPage from "../pages/TicketingSellersPage";
+import TicketingSellerCreditTicketsPage from "../pages/TicketingSellerCreditTicketsPage";
 import TicketingCommissionsPage from "../pages/TicketingCommissionsPage";
 import TicketingReportsPage from "../pages/TicketingReportsPage";
 import TicketingPickupSchedulesPage from "../pages/TicketingPickupSchedulesPage";
@@ -1500,6 +1501,7 @@ export const ticketingRoutes = (
         <Route path="transfers" element={<TicketingTransfersPage />} />
         <Route path="events" element={<TicketingEventsPage />} />
         <Route path="sellers" element={<TicketingSellersPage />} />
+        <Route path="seller-credit-tickets" element={<TicketingSellerCreditTicketsPage />} />
         <Route
           path="seller-onboarding"
           element={<TicketingSellerOnboardingPage />}

@@ -955,6 +955,10 @@ export default function TicketingSellerNewBookingPage() {
     [products, form.productId],
   );
 
+  const isAdultsOnlyEvent = ["event", "nightlife"].includes(
+    String(selectedProduct?.product_type || "").toLowerCase(),
+  );
+
   const isLiveCocoBongoProduct = useMemo(
     () => isCocoBongoProduct(selectedProduct),
     [selectedProduct],
@@ -1627,8 +1631,8 @@ export default function TicketingSellerNewBookingPage() {
           form.customerHotel.trim() || selectedPickupLocation?.name || "",
         customer_notes: form.customerNotes.trim(),
         adults: Number(form.adults || 0),
-        children: Number(form.children || 0),
-        infants: Number(form.infants || 0),
+        children: isAdultsOnlyEvent ? 0 : Number(form.children || 0),
+        infants: isAdultsOnlyEvent ? 0 : Number(form.infants || 0),
         subtotal_amount: moneyString(subtotal),
         customer_discount_percent: moneyString(customerDiscountPercent),
         discount_amount: moneyString(discountAmount),
@@ -2121,26 +2125,33 @@ export default function TicketingSellerNewBookingPage() {
               />
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className={`mt-4 grid gap-3 ${isAdultsOnlyEvent ? "md:grid-cols-1" : "md:grid-cols-3"}`}>
               <GuestCounter
                 label={t("sellerNewBooking.guests.adults")}
                 value={form.adults}
                 onMinus={() => changeGuest("adults", -1)}
                 onPlus={() => changeGuest("adults", 1)}
               />
-              <GuestCounter
-                label={t("sellerNewBooking.guests.children")}
-                value={form.children}
-                onMinus={() => changeGuest("children", -1)}
-                onPlus={() => changeGuest("children", 1)}
-              />
-              <GuestCounter
-                label={t("sellerNewBooking.guests.infants")}
-                value={form.infants}
-                onMinus={() => changeGuest("infants", -1)}
-                onPlus={() => changeGuest("infants", 1)}
-              />
+              {!isAdultsOnlyEvent && (
+                <>
+                  <GuestCounter
+                    label={t("sellerNewBooking.guests.children")}
+                    value={form.children}
+                    onMinus={() => changeGuest("children", -1)}
+                    onPlus={() => changeGuest("children", 1)}
+                  />
+                  <GuestCounter
+                    label={t("sellerNewBooking.guests.infants")}
+                    value={form.infants}
+                    onMinus={() => changeGuest("infants", -1)}
+                    onPlus={() => changeGuest("infants", 1)}
+                  />
+                </>
+              )}
             </div>
+            {isAdultsOnlyEvent && (
+              <p className="mt-2 text-xs font-bold text-slate-500">Events and nightlife are adult-only. Children and infants are not selectable.</p>
+            )}
 
             {seller?.can_apply_discounts &&
               selectedProduct &&

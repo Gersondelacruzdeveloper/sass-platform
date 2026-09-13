@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   FileCheck2,
+  Info,
   Search,
   Users,
 } from "lucide-react";
@@ -12,6 +15,7 @@ import type {
   EmployeeEvaluation,
   EvaluationQuestion,
   EvaluationTemplate,
+  Standard,
 } from "../types/training";
 
 type AnswerValue = number | boolean | string;
@@ -19,6 +23,7 @@ type AnswerValue = number | boolean | string;
 export default function EvaluationsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [templates, setTemplates] = useState<EvaluationTemplate[]>([]);
+  const [standards, setStandards] = useState<Standard[]>([]);
   const [evaluations, setEvaluations] = useState<EmployeeEvaluation[]>([]);
 
   const [selectedEmployee, setSelectedEmployee] = useState("");
@@ -34,14 +39,16 @@ export default function EvaluationsPage() {
     try {
       setLoading(true);
 
-      const [employeesRes, templatesRes, evaluationsRes] = await Promise.all([
+      const [employeesRes, templatesRes, standardsRes, evaluationsRes] = await Promise.all([
         api.get("/training/employees/"),
         api.get("/training/evaluation-templates/"),
+        api.get("/training/standards/"),
         api.get("/training/employee-evaluations/"),
       ]);
 
       setEmployees(employeesRes.data);
       setTemplates(templatesRes.data);
+      setStandards(standardsRes.data);
       setEvaluations(evaluationsRes.data);
     } catch (error) {
       console.error("Error loading evaluations:", error);
@@ -59,6 +66,10 @@ export default function EvaluationsPage() {
   }, [templates, selectedTemplate]);
 
   const questions = selectedTemplateData?.questions || [];
+
+  const standardsById = useMemo(() => {
+    return new Map(standards.map((standard) => [standard.id, standard]));
+  }, [standards]);
 
   const answeredCount = questions.filter((question) => {
     const value = answers[question.id];
@@ -312,6 +323,11 @@ export default function EvaluationsPage() {
                   question={question}
                   index={index}
                   value={answers[question.id]}
+                  standardDescription={
+                    question.standard
+                      ? standardsById.get(question.standard)?.description
+                      : undefined
+                  }
                   onChange={(value) => updateAnswer(question.id, value)}
                 />
               ))
@@ -449,18 +465,24 @@ function QuestionInput({
   question,
   index,
   value,
+  standardDescription,
   onChange,
 }: {
   question: EvaluationQuestion;
   index: number;
   value: AnswerValue | undefined;
+  standardDescription?: string;
   onChange: (value: AnswerValue) => void;
 }) {
+  const [showGuide, setShowGuide] = useState(false);
+  const guide = parseEvaluatorGuide(standardDescription);
+  const hasGuide = Boolean(guide.observe || guide.pass || guide.fail || guide.source);
+
   return (
     <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4">
         <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-          Question {index + 1}
+          Pregunta {index + 1}
           {question.standard_title ? ` · ${question.standard_title}` : ""}
         </p>
 
@@ -469,10 +491,65 @@ function QuestionInput({
         </h3>
       </div>
 
+      {guide.pass && (
+        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-start gap-3">
+            <BadgeCheck className="mt-0.5 shrink-0 text-emerald-700" size={20} />
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-emerald-800">
+                Debe cumplir
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-6 text-emerald-950">
+                {guide.pass}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasGuide && (guide.observe || guide.fail || guide.source) && (
+        <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+          <button
+            type="button"
+            onClick={() => setShowGuide((current) => !current)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-100"
+            aria-expanded={showGuide}
+          >
+            <span className="flex items-center gap-2 text-sm font-black text-slate-700">
+              <Info size={17} />
+              Guía rápida del evaluador
+            </span>
+            {showGuide ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+
+          {showGuide && (
+            <div className="space-y-3 border-t border-slate-200 px-4 py-4 text-sm">
+              {guide.observe && (
+                <div>
+                  <p className="font-black text-slate-700">Qué observar</p>
+                  <p className="mt-1 leading-6 text-slate-600">{guide.observe}</p>
+                </div>
+              )}
+
+              {guide.fail && (
+                <div className="rounded-xl bg-red-50 p-3">
+                  <p className="font-black text-red-800">No cumple cuando</p>
+                  <p className="mt-1 leading-6 text-red-900">{guide.fail}</p>
+                </div>
+              )}
+
+              {guide.source && (
+                <p className="text-xs font-bold text-slate-400">{guide.source}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {question.score_type === "score" && (
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-bold text-slate-500">Score</span>
+            <span className="text-sm font-bold text-slate-500">Puntuación</span>
             <span className="rounded-full bg-slate-950 px-3 py-1 text-sm font-black text-white">
               {Number(value || 5)}/10
             </span>
@@ -500,7 +577,7 @@ function QuestionInput({
                 : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
             }`}
           >
-            Yes
+            Cumple
           </button>
 
           <button
@@ -512,7 +589,7 @@ function QuestionInput({
                 : "bg-red-50 text-red-700 hover:bg-red-100"
             }`}
           >
-            No
+            No cumple
           </button>
         </div>
       )}
@@ -520,7 +597,7 @@ function QuestionInput({
       {question.score_type === "text" && (
         <textarea
           className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-          placeholder="Write answer..."
+          placeholder="Escribe la respuesta..."
           rows={3}
           value={String(value || "")}
           onChange={(e) => onChange(e.target.value)}
@@ -528,6 +605,36 @@ function QuestionInput({
       )}
     </div>
   );
+}
+
+type EvaluatorGuide = {
+  source?: string;
+  observe?: string;
+  pass?: string;
+  fail?: string;
+};
+
+function parseEvaluatorGuide(description?: string): EvaluatorGuide {
+  if (!description) return {};
+
+  const normalized = description.replace(/\r\n/g, "\n").trim();
+  const sourceMatch = normalized.match(/^Fuente:\s*(.+)$/im);
+  const observeMatch = normalized.match(
+    /QUÉ OBSERVAR\s*\n([\s\S]*?)(?=\n\s*CUMPLE CUANDO|$)/i
+  );
+  const passMatch = normalized.match(
+    /CUMPLE CUANDO\s*\n([\s\S]*?)(?=\n\s*NO CUMPLE CUANDO|$)/i
+  );
+  const failMatch = normalized.match(
+    /NO CUMPLE CUANDO\s*\n([\s\S]*?)$/i
+  );
+
+  return {
+    source: sourceMatch?.[1]?.trim(),
+    observe: observeMatch?.[1]?.trim(),
+    pass: passMatch?.[1]?.trim(),
+    fail: failMatch?.[1]?.trim(),
+  };
 }
 
 function StatCard({

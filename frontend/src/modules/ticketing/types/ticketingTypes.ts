@@ -732,6 +732,10 @@ export interface Booking {
   supervisor_approved_at?: string | null;
   supervisor_notes: string;
   receipt_sent_before_full_payment: boolean;
+  seller_credit_status?: "not_applicable" | "pending_collection" | "settled" | "blocked";
+  seller_credit_updated_at?: string | null;
+  seller_credit_updated_by?: ID | null;
+  seller_credit_note?: string;
   transfer_origin: string;
   transfer_destination: string;
   transfer_airport: string;

@@ -619,6 +619,10 @@ export default function TicketingNewBookingPage() {
     return products.find((product) => String(product.id) === form.productId) || null;
   }, [products, form.productId]);
 
+  const isAdultsOnlyEvent = ["event", "nightlife"].includes(
+    String(selectedProduct?.product_type || "").toLowerCase(),
+  );
+
   const selectedSeller = useMemo(() => {
     return sellers.find((seller) => String(seller.id) === form.sellerId) || null;
   }, [sellers, form.sellerId]);
@@ -877,8 +881,8 @@ export default function TicketingNewBookingPage() {
         customer_notes: form.customerNotes.trim(),
 
         adults: Number(form.adults || 0),
-        children: Number(form.children || 0),
-        infants: Number(form.infants || 0),
+        children: isAdultsOnlyEvent ? 0 : Number(form.children || 0),
+        infants: isAdultsOnlyEvent ? 0 : Number(form.infants || 0),
 
         subtotal_amount: moneyString(subtotal),
         discount_amount: moneyString(discountAmount),
@@ -1119,7 +1123,7 @@ export default function TicketingNewBookingPage() {
                 />
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div className={`mt-4 grid gap-4 ${isAdultsOnlyEvent ? "md:grid-cols-1" : "md:grid-cols-3"}`}>
                 <Input
                   label={t("newBooking.fields.adults")}
                   type="number"
@@ -1127,20 +1131,26 @@ export default function TicketingNewBookingPage() {
                   onChange={(value) => updateForm("adults", Number(value || 0))}
                 />
 
-                <Input
-                  label={t("newBooking.fields.children")}
-                  type="number"
-                  value={String(form.children)}
-                  onChange={(value) => updateForm("children", Number(value || 0))}
-                />
-
-                <Input
-                  label={t("newBooking.fields.infants")}
-                  type="number"
-                  value={String(form.infants)}
-                  onChange={(value) => updateForm("infants", Number(value || 0))}
-                />
+                {!isAdultsOnlyEvent && (
+                  <>
+                    <Input
+                      label={t("newBooking.fields.children")}
+                      type="number"
+                      value={String(form.children)}
+                      onChange={(value) => updateForm("children", Number(value || 0))}
+                    />
+                    <Input
+                      label={t("newBooking.fields.infants")}
+                      type="number"
+                      value={String(form.infants)}
+                      onChange={(value) => updateForm("infants", Number(value || 0))}
+                    />
+                  </>
+                )}
               </div>
+              {isAdultsOnlyEvent && (
+                <p className="mt-2 text-xs font-bold text-slate-500">Events and nightlife are adult-only. Children and infants are not selectable.</p>
+              )}
 
               <Textarea
                 label={t("newBooking.fields.customerNotes")}

@@ -312,13 +312,13 @@ const permissionLabels: Record<PermissionKey, string> = {
   can_take_full_payments: "Take full payments",
   can_collect_cash_payment: "Collect cash payment",
   can_generate_ticket_without_customer_online_payment:
-    "Generate ticket without online customer payment",
+    "Create paid seller-credit ticket",
   can_mark_customer_deposit_paid: "Mark customer deposit paid",
   can_mark_customer_full_paid: "Mark customer full paid",
   can_pay_full_amount_as_seller: "Seller can pay full amount",
   can_pay_deposit_as_seller: "Seller can pay deposit",
   can_pay_commission_only: "Seller can pay commission only",
-  can_create_pending_payment_booking: "Create pending payment booking",
+  can_create_pending_payment_booking: "Create pending-payment ticket",
   can_request_supervisor_approval: "Request supervisor approval",
   can_send_receipt_before_full_payment: "Send receipt before full payment",
   can_view_own_sales: "View own sales",
@@ -327,7 +327,7 @@ const permissionLabels: Record<PermissionKey, string> = {
   can_cancel_bookings: "Cancel bookings",
   can_send_whatsapp: "Send WhatsApp",
   can_send_email: "Send email",
-  can_send_payment_links: "Generate customer offer links",
+  can_send_payment_links: "Create link to send to customer",
   can_override_pickup_time: "Override pickup time",
   can_view_reports: "View reports",
   can_manage_products: "Manage products",
@@ -338,64 +338,26 @@ const permissionLabels: Record<PermissionKey, string> = {
 
 const permissionGroups: PermissionGroup[] = [
   {
-    title: "Sales access",
-    description: "What this seller can sell and access.",
-    keys: [
-      "can_access_dashboard",
-      "can_sell_excursions",
-      "can_sell_transfers",
-      "can_sell_events",
-      "can_sell_custom_tours",
-      "can_sell_cocobongo",
-      "can_create_bookings",
-    ],
+    title: "Customer links",
+    description: "Lets the seller create a link and send it to the customer to complete the booking or payment.",
+    keys: ["can_send_payment_links"],
   },
   {
-    title: "Payment flexibility",
-    description: "Controls how this seller can generate bookings and collect money.",
-    keys: [
-      "can_take_deposits",
-      "can_take_full_payments",
-      "can_collect_cash_payment",
-      "can_generate_ticket_without_customer_online_payment",
-      "can_mark_customer_deposit_paid",
-      "can_mark_customer_full_paid",
-      "can_pay_full_amount_as_seller",
-      "can_pay_deposit_as_seller",
-      "can_pay_commission_only",
-      "can_create_pending_payment_booking",
-      "can_request_supervisor_approval",
-      "can_send_receipt_before_full_payment",
-    ],
+    title: "Pending tickets",
+    description: "Lets the seller create a booking that is still waiting for payment.",
+    keys: ["can_create_pending_payment_booking"],
   },
   {
-    title: "Visibility & communication",
-    description: "Sales visibility, commission visibility and customer contact tools.",
-    keys: [
-      "can_view_own_sales",
-      "can_view_own_commissions",
-      "can_send_whatsapp",
-      "can_send_email",
-      "can_send_payment_links",
-      "can_apply_discounts",
-      "can_cancel_bookings",
-      "can_override_pickup_time",
-    ],
-  },
-  {
-    title: "Management",
-    description: "Administrative access for trusted managers.",
-    keys: [
-      "can_view_reports",
-      "can_manage_products",
-      "can_manage_sellers",
-      "can_manage_settings",
-      "can_manage_integrations",
-    ],
+    title: "Paid / seller-credit tickets",
+    description: "Trusted sellers can issue the customer QR before handing the collected money to the company. These tickets are tracked separately.",
+    keys: ["can_generate_ticket_without_customer_online_payment"],
   },
 ];
 
-const permissionKeys = permissionGroups.flatMap((group) => group.keys);
+// Keep all legacy permission fields in the payload for backwards compatibility,
+// but only expose the three simple business permissions above to administrators.
+const permissionKeys = Object.keys(permissionLabels) as PermissionKey[];
+const visiblePermissionKeys = permissionGroups.flatMap((group) => group.keys);
 
 
 function localDateInputValue(date = new Date()) {
@@ -2973,18 +2935,10 @@ function SellerFormModal({
                       {t("sellers.form.permissions")}
                     </h3>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Configura exactamente lo que este vendedor podrá hacer.
-                      Pulsa el botón <span className="font-black text-amber-700">?</span>{" "}
-                      de cualquier permiso para ver una explicación en español,
-                      un ejemplo real, sus límites y el nivel de riesgo.
+                      Solo tres permisos operativos: link para el cliente, ticket pendiente y ticket pagado a crédito del vendedor.
+                      Los permisos técnicos internos se mantienen automáticamente.
                     </p>
                   </div>
-
-                  <Toggle
-                    label={t("sellers.form.applyRoleDefaults")}
-                    checked={form.apply_role_defaults}
-                    onChange={(value) => onChange("apply_role_defaults", value)}
-                  />
                 </div>
 
                 <div className="mt-5 space-y-5">
@@ -3097,7 +3051,7 @@ function SellerDetailModal({
   saving: boolean;
 }) {
   const { language, t } = useTicketingAdminTranslation();
-  const activePermissions = permissionKeys.filter(
+  const activePermissions = visiblePermissionKeys.filter(
     (key) => Boolean(seller[key] ?? seller.permissions?.[key])
   );
 

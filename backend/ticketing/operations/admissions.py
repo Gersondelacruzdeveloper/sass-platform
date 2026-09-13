@@ -78,6 +78,7 @@ class AdmissionResult:
             "booking_id": booking.id,
             "booking_code": booking.booking_code,
             "booking_status": booking.status,
+            "seller_credit_status": getattr(booking, "seller_credit_status", "not_applicable"),
             "booking_item_id": item.id,
             "product_name": item.product_name,
             "product_type": item.product_type,
@@ -195,6 +196,11 @@ def _validate_locked_token_for_admission(
 
     if booking.status in blocked_statuses:
         raise AdmissionValidationError(blocked_statuses[booking.status])
+
+    if getattr(booking, "seller_credit_status", "not_applicable") == "blocked":
+        raise AdmissionValidationError(
+            "Payment is required. This seller-issued ticket has not been paid to the company."
+        )
 
     if token.status == "revoked":
         raise AdmissionValidationError("This ticket was revoked.")

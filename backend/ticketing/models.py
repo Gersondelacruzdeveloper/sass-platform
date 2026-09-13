@@ -3618,6 +3618,31 @@ class Booking(models.Model):
 
     receipt_sent_before_full_payment = models.BooleanField(default=False)
 
+    # Seller-credit tickets are tickets issued to a customer before the seller
+    # has handed the collected money to the company. The QR remains the same;
+    # an administrator can later settle or block the ticket centrally.
+    SELLER_CREDIT_STATUS_CHOICES = (
+        ("not_applicable", "Not Applicable"),
+        ("pending_collection", "Pending Collection"),
+        ("settled", "Paid To Company"),
+        ("blocked", "Not Paid / Blocked"),
+    )
+    seller_credit_status = models.CharField(
+        max_length=30,
+        choices=SELLER_CREDIT_STATUS_CHOICES,
+        default="not_applicable",
+        db_index=True,
+    )
+    seller_credit_updated_at = models.DateTimeField(null=True, blank=True)
+    seller_credit_updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticketing_seller_credit_updates",
+    )
+    seller_credit_note = models.TextField(blank=True)
+
     transfer_origin = models.CharField(max_length=255, blank=True)
     transfer_destination = models.CharField(max_length=255, blank=True)
     transfer_airport = models.CharField(max_length=120, blank=True)

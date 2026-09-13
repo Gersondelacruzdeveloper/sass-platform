@@ -4363,6 +4363,10 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "supervisor_approved_at",
             "supervisor_notes",
             "receipt_sent_before_full_payment",
+            "seller_credit_status",
+            "seller_credit_updated_at",
+            "seller_credit_updated_by",
+            "seller_credit_note",
             "transfer_origin",
             "transfer_destination",
             "transfer_airport",
@@ -4416,6 +4420,9 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
             "seller_due_to_company",
             "seller_commission_amount",
             "settlement_status",
+            "seller_credit_status",
+            "seller_credit_updated_at",
+            "seller_credit_updated_by",
             "commission_pending_amount",
             "is_fully_paid",
             "created_by",
@@ -4613,6 +4620,19 @@ class BookingSerializer(OrganisationScopedSerializerMixin, serializers.ModelSeri
 
         if primary_product:
             self.validate_same_organisation(primary_product, "primary_product")
+
+            if primary_product.product_type in {"event", "nightlife"}:
+                children = int(attrs.get("children", getattr(self.instance, "children", 0)) or 0)
+                infants = int(attrs.get("infants", getattr(self.instance, "infants", 0)) or 0)
+                if children > 0 or infants > 0:
+                    raise serializers.ValidationError(
+                        {
+                            "children": (
+                                "Children and infants cannot be added to event or nightlife tickets."
+                            )
+                        }
+                    )
+
             if public_checkout and (
                 not primary_product.public_enabled
                 or not primary_product.is_active

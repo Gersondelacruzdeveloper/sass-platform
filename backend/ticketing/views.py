@@ -4525,6 +4525,7 @@ class BookingViewSet(TicketingPrivateViewSet):
         "add_payment": "can_create_bookings",
         "settle": "can_create_bookings",
         "mark_ticket_generated": "can_generate_ticket_without_customer_online_payment",
+        "seller_credit_status": "can_manage_sellers",
         "cancel": "can_cancel_bookings",
         "override_pickup": "can_override_pickup_time",
     }
@@ -4564,6 +4565,8 @@ class BookingViewSet(TicketingPrivateViewSet):
 
         status_filter = self.request.query_params.get("status")
         payment_status = self.request.query_params.get("payment_status")
+        seller_credit_status = self.request.query_params.get("seller_credit_status")
+        seller_credit = self.request.query_params.get("seller_credit")
         settlement_status = self.request.query_params.get("settlement_status")
         payment_receiver = self.request.query_params.get("payment_receiver")
         source = self.request.query_params.get("source")
@@ -4581,6 +4584,10 @@ class BookingViewSet(TicketingPrivateViewSet):
 
         if payment_status:
             queryset = queryset.filter(payment_status=payment_status)
+        if seller_credit_status:
+            queryset = queryset.filter(seller_credit_status=seller_credit_status)
+        if str(seller_credit or "").lower() in {"1", "true", "yes"}:
+            queryset = queryset.exclude(seller_credit_status="not_applicable")
 
         if settlement_status:
             queryset = queryset.filter(settlement_status=settlement_status)
@@ -4715,12 +4722,63 @@ class BookingViewSet(TicketingPrivateViewSet):
     def mark_ticket_generated(self, request, pk=None):
         booking = self.get_object()
         booking.status = "ticket_generated"
-        booking.save(update_fields=["status", "updated_at"])
+        booking.seller_credit_status = "pending_collection"
+        booking.seller_credit_updated_at = timezone.now()
+        booking.seller_credit_updated_by = request.user
+        booking.save(update_fields=[
+            "status",
+            "seller_credit_status",
+            "seller_credit_updated_at",
+            "seller_credit_updated_by",
+            "updated_at",
+        ])
 
         booking = booking_finance.recalculate_booking_payment_totals(booking)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="seller-credit-status")
+    def seller_credit_status(self, request, pk=None):
+        if not self.is_admin_user():
+            return Response(
+                {"detail": "Only an administrator can update seller credit ticket status."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        booking = self.get_object()
+        if (
+            booking.status != "ticket_generated"
+            and booking.seller_credit_status == "not_applicable"
+        ):
+            return Response(
+                {"detail": "This booking is not a seller-credit ticket."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        requested_status = str(request.data.get("status") or "").strip().lower()
+        allowed = {"pending_collection", "settled", "blocked"}
+        if requested_status not in allowed:
+            return Response(
+                {"status": "Use pending_collection, settled, or blocked."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.seller_credit_status = requested_status
+        booking.seller_credit_updated_at = timezone.now()
+        booking.seller_credit_updated_by = request.user
+        booking.seller_credit_note = str(request.data.get("note") or "").strip()
+        booking.save(
+            update_fields=[
+                "seller_credit_status",
+                "seller_credit_updated_at",
+                "seller_credit_updated_by",
+                "seller_credit_note",
+                "updated_at",
+            ]
+        )
+
+        return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=["post"], url_path="complete")
     def complete(self, request, pk=None):
@@ -6904,7 +6962,16 @@ class SellerBookingsViewSet(SellerOnlyMixin, viewsets.ModelViewSet):
             )
 
         booking.status = "ticket_generated"
-        booking.save(update_fields=["status", "updated_at"])
+        booking.seller_credit_status = "pending_collection"
+        booking.seller_credit_updated_at = timezone.now()
+        booking.seller_credit_updated_by = request.user
+        booking.save(update_fields=[
+            "status",
+            "seller_credit_status",
+            "seller_credit_updated_at",
+            "seller_credit_updated_by",
+            "updated_at",
+        ])
 
         booking = booking_finance.recalculate_booking_payment_totals(booking)
         booking_finance.sync_seller_commission_for_booking(booking)
@@ -7867,10 +7934,16 @@ class SellerBookingsViewSet(
             )
 
         booking.status = "ticket_generated"
+        booking.seller_credit_status = "pending_collection"
+        booking.seller_credit_updated_at = timezone.now()
+        booking.seller_credit_updated_by = request.user
 
         booking.save(
             update_fields=[
                 "status",
+                "seller_credit_status",
+                "seller_credit_updated_at",
+                "seller_credit_updated_by",
                 "updated_at",
             ]
         )

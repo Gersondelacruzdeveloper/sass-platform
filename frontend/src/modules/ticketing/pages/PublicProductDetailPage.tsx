@@ -5240,7 +5240,9 @@ function GuestSelector({
       </div>
 
       <div className="mt-3 space-y-2">
-        {(["adult", "child", "infant"] as QtyKey[]).map((key) => {
+        {((["event", "nightlife"].includes(String(product.product_type || "").toLowerCase())
+          ? ["adult"]
+          : ["adult", "child", "infant"]) as QtyKey[]).map((key) => {
           const label =
             key === "adult" ? "Adults" : key === "child" ? "Children" : "Infants";
 
