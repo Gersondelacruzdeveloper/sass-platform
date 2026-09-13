@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
-PDF_TICKET_GENERATOR_VERSION = "seller-credit-paid-display-v7-2026-09-13"
+PDF_TICKET_GENERATOR_VERSION = "ticket-logo-125mm-qr-down-48mm-v6.1-paid-fix-2026-09-13"
 
 
 def _safe_text(value: Any, fallback: str = "") -> str:
@@ -504,35 +504,16 @@ def _get_guest_summary(booking: Any) -> str:
     return "To be confirmed"
 
 
-def _is_customer_facing_paid(booking: Any) -> bool:
-    """
-    Return True when the customer should see the ticket as fully paid.
-
-    Seller-credit states are intentionally customer-facing PAID states. The
-    customer already paid the seller; any remaining seller-to-company balance is
-    an internal settlement matter and must not appear as customer debt on the PDF.
-    Even a blocked seller-credit ticket remains customer-paid; blocking only
-    affects admission validation.
-    """
-    payment_status = _safe_text(
-        getattr(booking, "payment_status", "")
-    ).strip().lower()
-    if payment_status == "paid":
-        return True
-
+def _get_payment_status(booking: Any) -> str:
     seller_credit_status = _safe_text(
         getattr(booking, "seller_credit_status", "")
-    ).strip().lower()
+    ).lower()
 
-    return seller_credit_status in {
+    if seller_credit_status in {
         "pending_collection",
         "settled",
         "blocked",
-    }
-
-
-def _get_payment_status(booking: Any) -> str:
-    if _is_customer_facing_paid(booking):
+    }:
         return "Paid"
 
     return _first_attr(
@@ -540,32 +521,6 @@ def _get_payment_status(booking: Any) -> str:
         ["payment_status", "status", "payment_state"],
         "Confirmed",
     ).replace("_", " ").title()
-
-
-def _get_customer_payment_amounts(
-    booking: Any,
-) -> tuple[Decimal, Decimal, Decimal]:
-    """
-    Return Total, Paid and Balance exactly as the customer should see them.
-
-    For seller-credit tickets the customer has paid the seller in full, so the
-    PDF must show the full ticket total as paid and a zero customer balance.
-    Internal seller settlement remains available elsewhere in the system.
-    """
-    total_amount = _money_decimal(
-        getattr(booking, "total_amount", 0)
-    )
-    deposit_paid = _money_decimal(
-        getattr(booking, "deposit_paid", 0)
-    )
-    balance_due = _money_decimal(
-        getattr(booking, "balance_due", 0)
-    )
-
-    if _is_customer_facing_paid(booking):
-        return total_amount, total_amount, Decimal("0.00")
-
-    return total_amount, deposit_paid, balance_due
 
 
 def _get_branding(booking: Any) -> dict[str, Any]:
@@ -1299,15 +1254,40 @@ def generate_ticket_pdf(booking: Any) -> bytes:
     pdf.drawString(content_x, y, "Payment summary")
     y -= 8 * mm
 
-    total_amount, paid_amount, balance_due = _get_customer_payment_amounts(
-        booking
+    total_amount = getattr(booking, "total_amount", 0)
+    deposit_paid = getattr(booking, "deposit_paid", 0)
+    balance_due = getattr(booking, "balance_due", 0)
+
+    # Customer-facing seller-credit rule:
+    # the guest already paid the seller, so the guest's PDF must show the
+    # full ticket amount as PAID and a zero customer balance. This does not
+    # change the internal seller-to-company settlement balance.
+    payment_status_value = _safe_text(
+        getattr(booking, "payment_status", "")
+    ).lower()
+    seller_credit_status = _safe_text(
+        getattr(booking, "seller_credit_status", "")
+    ).lower()
+
+    customer_facing_paid = (
+        payment_status_value == "paid"
+        or seller_credit_status
+        in {
+            "pending_collection",
+            "settled",
+            "blocked",
+        }
     )
+
+    if customer_facing_paid:
+        deposit_paid = total_amount
+        balance_due = Decimal("0.00")
 
     payment_col_w = content_w / 3
     for index, (label, value) in enumerate(
         [
             ("Total", _money(total_amount, currency_symbol)),
-            ("Paid", _money(paid_amount, currency_symbol)),
+            ("Paid", _money(deposit_paid, currency_symbol)),
             ("Balance", _money(balance_due, currency_symbol)),
         ]
     ):
@@ -1319,22 +1299,15 @@ def generate_ticket_pdf(booking: Any) -> bytes:
         pdf.setFont("Helvetica-Bold", 12)
         pdf.drawString(x, y - 6 * mm, value)
 
-    # Make the payment state unmistakable to the guest. Keep it on its own line
-    # rather than squeezing it beside the Balance column.
     payment_status_label = _get_payment_status(booking)
-    y -= 12 * mm
     pdf.setFillColor(_hex(muted))
     pdf.setFont("Helvetica-Bold", 7)
-    pdf.drawString(content_x, y, "PAYMENT STATUS")
+    pdf.drawRightString(content_right, y, "STATUS")
     pdf.setFillColor(_hex(text_color))
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(
-        content_x,
-        y - 5.5 * mm,
-        payment_status_label.upper()[:28],
-    )
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawRightString(content_right, y - 5 * mm, payment_status_label[:28])
 
-    y -= 11 * mm
+    y -= 14 * mm
 
     breakdown = _get_passenger_price_breakdown(
         booking,
