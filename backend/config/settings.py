@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     'training',
     "ticketing.apps.TicketingConfig",
     "partner_network.apps.PartnerNetworkConfig",
+    "colmado.apps.ColmadoConfig",
+
 ]
 
 MIDDLEWARE = [

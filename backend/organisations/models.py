@@ -17,6 +17,7 @@ class Organisation(models.Model):
         ("store", "Store"),
         ("excursions", "Excursions"),
         ("ticketing", "Tours, Tickets & Transfers"),
+        ("colmado", "Colmado"),
     )
 
     name = models.CharField(max_length=255)
