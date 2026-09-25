@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -327,6 +327,148 @@ class Customer(models.Model):
         return self.name
 
 
+class CashRegisterSession(models.Model):
+    """A simple opening and closing record for one store cash register."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+    STATUS_CHOICES = (
+        (OPEN, "Abierta"),
+        (CLOSED, "Cerrada"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="colmado_cash_register_sessions",
+    )
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.PROTECT,
+        related_name="cash_register_sessions",
+    )
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="colmado_cash_register_sessions_opened",
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="colmado_cash_register_sessions_closed",
+        null=True,
+        blank=True,
+    )
+    session_number = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=OPEN,
+        db_index=True,
+    )
+    opening_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        validators=(MinValueValidator(Decimal("0.00")),),
+    )
+    cash_sales = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=(MinValueValidator(Decimal("0.00")),),
+        help_text="Total de ventas en efectivo guardado al cerrar la caja.",
+    )
+    expected_cash = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=(MinValueValidator(Decimal("0.00")),),
+        help_text="Fondo inicial más ventas en efectivo al cerrar la caja.",
+    )
+    counted_cash = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(Decimal("0.00")),),
+    )
+    difference = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Efectivo contado menos efectivo esperado.",
+    )
+    note = models.CharField(max_length=255, blank=True)
+    opened_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    closed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-opened_at",)
+        indexes = [
+            models.Index(fields=("organisation", "store", "opened_at")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("store",),
+                condition=models.Q(status="open"),
+                name="unique_open_cash_register_per_store",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(opening_amount__gte=0),
+                name="colmado_cash_opening_amount_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(cash_sales__gte=0),
+                name="colmado_cash_sales_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expected_cash__gte=0),
+                name="colmado_cash_expected_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(counted_cash__isnull=True)
+                    | models.Q(counted_cash__gte=0)
+                ),
+                name="colmado_cash_counted_nonnegative",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if self.store_id and self.organisation_id:
+            if self.store.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"store": "La sucursal no pertenece a esta organización."}
+                )
+
+        if self.status == self.OPEN:
+            if self.closed_by_id or self.closed_at or self.counted_cash is not None:
+                raise ValidationError(
+                    {"status": "Una caja abierta no puede tener datos de cierre."}
+                )
+        elif self.status == self.CLOSED:
+            if self.closed_by_id is None or self.closed_at is None:
+                raise ValidationError(
+                    {"status": "La caja cerrada necesita usuario y fecha de cierre."}
+                )
+            if self.counted_cash is None or self.difference is None:
+                raise ValidationError(
+                    {"status": "Debe guardar el efectivo contado y la diferencia."}
+                )
+
+    def __str__(self):
+        return f"Caja {self.store.name} - {self.get_status_display()}"
+
+
 class Sale(models.Model):
     """A completed POS sale in one physical colmado."""
 
@@ -367,6 +509,13 @@ class Sale(models.Model):
     )
     customer = models.ForeignKey(
         Customer,
+        on_delete=models.PROTECT,
+        related_name="sales",
+        null=True,
+        blank=True,
+    )
+    cash_register_session = models.ForeignKey(
+        CashRegisterSession,
         on_delete=models.PROTECT,
         related_name="sales",
         null=True,
@@ -474,6 +623,16 @@ class Sale(models.Model):
             raise ValidationError(
                 {"customer": "El cliente no pertenece a esta organización."}
             )
+
+        if self.cash_register_session_id:
+            if self.cash_register_session.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"cash_register_session": "La caja pertenece a otro negocio."}
+                )
+            if self.cash_register_session.store_id != self.store_id:
+                raise ValidationError(
+                    {"cash_register_session": "La caja pertenece a otra sucursal."}
+                )
 
     @property
     def profit(self):
@@ -1188,10 +1347,26 @@ class InventoryMovement(models.Model):
 
     PURCHASE = "purchase"
     ADJUSTMENT = "adjustment"
+    CUSTOMER_ORDER = "customer_order"
+    CUSTOMER_ORDER_CANCELLED = "customer_order_cancelled"
+    INVENTORY_COUNT = "inventory_count"
+    DAMAGED = "damaged"
+    EXPIRED = "expired"
+    LOSS = "loss"
+    PERSONAL_USE = "personal_use"
+    CORRECTION = "correction"
 
     MOVEMENT_TYPE_CHOICES = (
         (PURCHASE, "Compra recibida"),
         (ADJUSTMENT, "Ajuste manual"),
+        (CUSTOMER_ORDER, "Pedido de cliente"),
+        (CUSTOMER_ORDER_CANCELLED, "Pedido de cliente cancelado"),
+        (INVENTORY_COUNT, "Conteo físico"),
+        (DAMAGED, "Producto dañado"),
+        (EXPIRED, "Producto vencido"),
+        (LOSS, "Pérdida o faltante"),
+        (PERSONAL_USE, "Consumo interno"),
+        (CORRECTION, "Corrección manual"),
     )
 
     organisation = models.ForeignKey(
@@ -1216,13 +1391,20 @@ class InventoryMovement(models.Model):
         null=True,
         blank=True,
     )
+    inventory_count = models.ForeignKey(
+        "InventoryCountSession",
+        on_delete=models.PROTECT,
+        related_name="inventory_movements",
+        null=True,
+        blank=True,
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="colmado_inventory_movements_created",
     )
     movement_type = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=MOVEMENT_TYPE_CHOICES,
         db_index=True,
     )
@@ -1272,6 +1454,536 @@ class InventoryMovement(models.Model):
                 raise ValidationError(
                     {"inventory_item": "El producto pertenece a otra sucursal."}
                 )
+        if self.inventory_count_id and self.organisation_id:
+            if self.inventory_count.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"inventory_count": "El conteo pertenece a otro negocio."}
+                )
+            if self.inventory_count.store_id != self.store_id:
+                raise ValidationError(
+                    {"inventory_count": "El conteo pertenece a otra sucursal."}
+                )
 
     def __str__(self):
         return f"{self.inventory_item} ({self.quantity_change})"
+
+
+class Storefront(models.Model):
+    """Public ordering configuration for one physical colmado."""
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="colmado_storefronts",
+    )
+    store = models.OneToOneField(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="storefront",
+    )
+    slug = models.SlugField(max_length=160, unique=True)
+    display_name = models.CharField(max_length=180)
+    description = models.CharField(max_length=255, blank=True)
+    public_phone = models.CharField(max_length=30, blank=True)
+    public_address = models.CharField(max_length=255, blank=True)
+    delivery_fee = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=(MinValueValidator(Decimal("0.00")),),
+    )
+    minimum_order = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=(MinValueValidator(Decimal("0.00")),),
+    )
+    is_accepting_orders = models.BooleanField(default=True, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("display_name",)
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(delivery_fee__gte=0),
+                name="colmado_storefront_delivery_fee_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(minimum_order__gte=0),
+                name="colmado_storefront_minimum_order_nonnegative",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.display_name = self.display_name.strip()
+        self.public_phone = self.public_phone.strip()
+        self.public_address = self.public_address.strip()
+        if not self.display_name:
+            raise ValidationError(
+                {"display_name": "El nombre público del colmado es obligatorio."}
+            )
+        if self.store_id and self.organisation_id:
+            if self.store.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"store": "La sucursal no pertenece a esta organización."}
+                )
+
+    def __str__(self):
+        return self.display_name
+
+
+class CustomerOrder(models.Model):
+    """A delivery order created from the public customer storefront."""
+
+    NEW = "new"
+    PREPARING = "preparing"
+    READY = "ready"
+    ON_THE_WAY = "on_the_way"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+    STATUS_CHOICES = (
+        (NEW, "Nuevo"),
+        (PREPARING, "Preparando"),
+        (READY, "Listo"),
+        (ON_THE_WAY, "En camino"),
+        (DELIVERED, "Entregado"),
+        (CANCELLED, "Cancelado"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="colmado_customer_orders",
+    )
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.PROTECT,
+        related_name="customer_orders",
+    )
+    storefront = models.ForeignKey(
+        Storefront,
+        on_delete=models.PROTECT,
+        related_name="orders",
+    )
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.PROTECT,
+        related_name="delivery_orders",
+        null=True,
+        blank=True,
+    )
+    order_number = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    idempotency_key = models.CharField(max_length=100)
+    customer_name = models.CharField(max_length=180)
+    customer_phone = models.CharField(max_length=30)
+    delivery_address = models.CharField(max_length=255)
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(
+            MinValueValidator(Decimal("-90")),
+            MaxValueValidator(Decimal("90")),
+        ),
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=(
+            MinValueValidator(Decimal("-180")),
+            MaxValueValidator(Decimal("180")),
+        ),
+    )
+    delivery_notes = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=NEW,
+        db_index=True,
+    )
+    subtotal = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        validators=(MinValueValidator(Decimal("0.01")),),
+    )
+    delivery_fee = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=(MinValueValidator(Decimal("0.00")),),
+    )
+    total = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        validators=(MinValueValidator(Decimal("0.01")),),
+    )
+    inventory_committed = models.BooleanField(default=False, db_index=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("organisation", "store", "status")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("storefront", "idempotency_key"),
+                name="unique_customer_order_idempotency_per_storefront",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(subtotal__gt=0),
+                name="colmado_customer_order_subtotal_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(delivery_fee__gte=0),
+                name="colmado_customer_order_delivery_fee_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total__gt=0),
+                name="colmado_customer_order_total_positive",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.customer_name = self.customer_name.strip()
+        self.customer_phone = self.customer_phone.strip()
+        self.delivery_address = self.delivery_address.strip()
+        self.delivery_notes = self.delivery_notes.strip()
+        if self.storefront_id:
+            if self.storefront.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"storefront": "La tienda pública pertenece a otro negocio."}
+                )
+            if self.storefront.store_id != self.store_id:
+                raise ValidationError(
+                    {"storefront": "La tienda pública pertenece a otra sucursal."}
+                )
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValidationError(
+                {"latitude": "Envíe la latitud y longitud juntas."}
+            )
+
+    def __str__(self):
+        return f"Pedido {self.order_number} - {self.customer_name}"
+
+
+class CustomerOrderItem(models.Model):
+    """Product and price snapshot belonging to a public customer order."""
+
+    order = models.ForeignKey(
+        CustomerOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="customer_order_items",
+    )
+    product_name = models.CharField(max_length=255)
+    barcode = models.CharField(max_length=64, blank=True)
+    unit = models.CharField(max_length=20)
+    quantity = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=(MinValueValidator(Decimal("0.001")),),
+    )
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=(MinValueValidator(Decimal("0.01")),),
+    )
+    line_total = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        validators=(MinValueValidator(Decimal("0.01")),),
+    )
+
+    class Meta:
+        ordering = ("id",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("order", "inventory_item"),
+                name="unique_inventory_item_per_customer_order",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="colmado_customer_order_item_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(unit_price__gt=0),
+                name="colmado_customer_order_item_price_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(line_total__gt=0),
+                name="colmado_customer_order_item_total_positive",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.order_id and self.inventory_item_id:
+            if self.inventory_item.organisation_id != self.order.organisation_id:
+                raise ValidationError(
+                    {"inventory_item": "El producto pertenece a otro negocio."}
+                )
+            if self.inventory_item.store_id != self.order.store_id:
+                raise ValidationError(
+                    {"inventory_item": "El producto pertenece a otra sucursal."}
+                )
+
+    def __str__(self):
+        return f"{self.product_name} x {self.quantity}"
+
+
+class InventoryCountSession(models.Model):
+    """A simple physical count for one store, completed only once."""
+
+    OPEN = "open"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+    STATUS_CHOICES = (
+        (OPEN, "Abierto"),
+        (COMPLETED, "Completado"),
+        (CANCELLED, "Cancelado"),
+    )
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="colmado_inventory_counts",
+    )
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.PROTECT,
+        related_name="inventory_counts",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="colmado_inventory_counts_created",
+    )
+    count_number = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=OPEN,
+        db_index=True,
+    )
+    note = models.CharField(max_length=255, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("organisation", "store", "status")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("store",),
+                condition=models.Q(status="open"),
+                name="unique_open_inventory_count_per_store",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.note = self.note.strip()
+        if self.store_id and self.organisation_id:
+            if self.store.organisation_id != self.organisation_id:
+                raise ValidationError(
+                    {"store": "La sucursal no pertenece a esta organización."}
+                )
+
+    def __str__(self):
+        return f"Conteo {self.count_number} - {self.store.name}"
+
+
+class InventoryCountItem(models.Model):
+    """Expected and physically counted quantity for one inventory product."""
+
+    REGULAR_COUNT = "regular_count"
+    DAMAGED = "damaged"
+    EXPIRED = "expired"
+    LOSS = "loss"
+    PERSONAL_USE = "personal_use"
+    OTHER = "other"
+
+    REASON_CHOICES = (
+        (REGULAR_COUNT, "Conteo regular"),
+        (DAMAGED, "Producto dañado"),
+        (EXPIRED, "Producto vencido"),
+        (LOSS, "Pérdida o faltante"),
+        (PERSONAL_USE, "Consumo interno"),
+        (OTHER, "Otro"),
+    )
+
+    inventory_count = models.ForeignKey(
+        InventoryCountSession,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="inventory_count_items",
+    )
+    counted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="colmado_inventory_items_counted",
+    )
+    expected_quantity = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=(MinValueValidator(Decimal("0.000")),),
+    )
+    counted_quantity = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=(MinValueValidator(Decimal("0.000")),),
+    )
+    reason = models.CharField(
+        max_length=30,
+        choices=REASON_CHOICES,
+        default=REGULAR_COUNT,
+    )
+    note = models.CharField(max_length=255, blank=True)
+    counted_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("inventory_item__master_product__name",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("inventory_count", "inventory_item"),
+                name="unique_item_per_inventory_count",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expected_quantity__gte=0),
+                name="colmado_inventory_count_expected_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(counted_quantity__gte=0),
+                name="colmado_inventory_count_counted_nonnegative",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.note = self.note.strip()
+        if self.inventory_count_id and self.inventory_item_id:
+            if (
+                self.inventory_item.organisation_id
+                != self.inventory_count.organisation_id
+            ):
+                raise ValidationError(
+                    {"inventory_item": "El producto pertenece a otro negocio."}
+                )
+            if self.inventory_item.store_id != self.inventory_count.store_id:
+                raise ValidationError(
+                    {"inventory_item": "El producto pertenece a otra sucursal."}
+                )
+
+    @property
+    def difference(self):
+        return self.counted_quantity - self.expected_quantity
+
+    def __str__(self):
+        return f"{self.inventory_item} contado: {self.counted_quantity}"
+
+
+class CatalogImport(models.Model):
+    """Audit record for one platform-admin master catalog import."""
+
+    CSV = "csv"
+    XLSX = "xlsx"
+
+    FILE_FORMAT_CHOICES = (
+        (CSV, "CSV"),
+        (XLSX, "Excel (.xlsx)"),
+    )
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+    STATUS_CHOICES = (
+        (PENDING, "Pendiente"),
+        (COMPLETED, "Completada"),
+        (FAILED, "Fallida"),
+    )
+
+    import_number = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="colmado_catalog_imports",
+    )
+    source_file = models.FileField(upload_to="colmado/catalog-imports/%Y/%m/")
+    original_filename = models.CharField(max_length=255)
+    file_format = models.CharField(max_length=10, choices=FILE_FORMAT_CHOICES)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=PENDING,
+        db_index=True,
+    )
+    total_rows = models.PositiveIntegerField(default=0)
+    created_products = models.PositiveIntegerField(default=0)
+    updated_products = models.PositiveIntegerField(default=0)
+    unchanged_products = models.PositiveIntegerField(default=0)
+    error_rows = models.PositiveIntegerField(default=0)
+    errors = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total_rows__gte=0),
+                name="colmado_catalog_import_total_rows_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(created_products__gte=0),
+                name="colmado_catalog_import_created_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(updated_products__gte=0),
+                name="colmado_catalog_import_updated_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(unchanged_products__gte=0),
+                name="colmado_catalog_import_unchanged_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(error_rows__gte=0),
+                name="colmado_catalog_import_errors_nonnegative",
+            ),
+        ]
+
+    @property
+    def was_successful(self):
+        return self.status == self.COMPLETED and self.error_rows == 0
+
+    def __str__(self):
+        return f"Importación {self.import_number} - {self.original_filename}"

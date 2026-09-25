@@ -1,5 +1,7 @@
+import csv
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
+from django.http import HttpResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -14,11 +16,15 @@ from rest_framework.response import Response
 from organisations.models import Membership
 
 from .models import (
+    CashRegisterSession,
+    CatalogImport,
     CreditTransaction,
     Customer,
+    CustomerOrder,
     Employee,
     Expense,
     InventoryItem,
+    InventoryCountSession,
     InventoryMovement,
     MasterProduct,
     PayrollPayment,
@@ -26,21 +32,38 @@ from .models import (
     Sale,
     SaleItem,
     Store,
+    Storefront,
     Supplier,
     SupplierProduct,
 )
 from .serializers import (
+    CashRegisterSessionSerializer,
+    CatalogImportSerializer,
+    CloseCashRegisterSerializer,
     CreditTransactionSerializer,
+    AdjustInventorySerializer,
+    CountInventoryItemSerializer,
+    CreateInventoryCountSerializer,
+    CreateCustomerOrderSerializer,
     CreateSaleSerializer,
     CustomerSerializer,
+    CustomerOrderSerializer,
+    CustomerOrderStatusSerializer,
+    DashboardQuerySerializer,
     EmployeeSerializer,
     ExpenseSerializer,
     CreatePurchaseOrderSerializer,
     InitialInventoryByBarcodeSerializer,
     InventoryItemSerializer,
+    InventoryCountItemSerializer,
+    InventoryCountSessionSerializer,
     InventoryMovementSerializer,
     MasterProductSerializer,
+    OpenCashRegisterSerializer,
     PayrollPaymentSerializer,
+    PublicCatalogProductSerializer,
+    PublicCustomerOrderSerializer,
+    PublicStorefrontSerializer,
     ProfitabilityQuerySerializer,
     PurchaseOrderSerializer,
     QuantityFromAmountSerializer,
@@ -48,17 +71,31 @@ from .serializers import (
     RecordCreditPaymentSerializer,
     SaleSerializer,
     StoreSerializer,
+    StorefrontSerializer,
     SupplierProductSerializer,
     SupplierSerializer,
+    UploadCatalogSerializer,
 )
 from .services import (
+    close_cash_register,
     cancel_purchase_order,
+    adjust_inventory,
+    build_dashboard,
+    cancel_inventory_count,
+    change_customer_order_status,
+    complete_inventory_count,
+    count_inventory_item,
+    create_customer_order,
+    create_inventory_count,
+    import_master_catalog,
+    open_cash_register,
     create_pos_sale,
     create_purchase_order,
     receive_purchase_order,
     record_credit_payment,
     void_pos_sale,
 )
+from rest_framework.views import APIView
 
 
 class ColmadoTenantMixin:
@@ -106,6 +143,111 @@ class OrganisationQuerysetMixin(ColmadoTenantMixin):
 class StoreViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = StoreSerializer
     queryset = Store.objects.all()
+
+
+class CashRegisterSessionViewSet(
+    OrganisationQuerysetMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    """Open, inspect and close one simple cash register per store."""
+
+    serializer_class = CashRegisterSessionSerializer
+    queryset = CashRegisterSession.objects.select_related(
+        "store",
+        "opened_by",
+        "closed_by",
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        store_id = self.request.query_params.get("store")
+        register_status = self.request.query_params.get("status", "").strip()
+        date_from = self.request.query_params.get("date_from", "").strip()
+        date_to = self.request.query_params.get("date_to", "").strip()
+
+        if store_id:
+            try:
+                store_id = int(store_id)
+            except (TypeError, ValueError):
+                raise ValidationError({"store": "Seleccione una sucursal válida."})
+            queryset = queryset.filter(store_id=store_id)
+
+        if register_status:
+            valid_statuses = {
+                choice[0] for choice in CashRegisterSession.STATUS_CHOICES
+            }
+            if register_status not in valid_statuses:
+                raise ValidationError({"status": "El estado de caja no es válido."})
+            queryset = queryset.filter(status=register_status)
+
+        if date_from:
+            parsed_date_from = parse_date(date_from)
+            if parsed_date_from is None:
+                raise ValidationError(
+                    {"date_from": "Use el formato de fecha YYYY-MM-DD."}
+                )
+            queryset = queryset.filter(opened_at__date__gte=parsed_date_from)
+
+        if date_to:
+            parsed_date_to = parse_date(date_to)
+            if parsed_date_to is None:
+                raise ValidationError(
+                    {"date_to": "Use el formato de fecha YYYY-MM-DD."}
+                )
+            queryset = queryset.filter(opened_at__date__lte=parsed_date_to)
+
+        return queryset.order_by("-opened_at")
+
+    @action(detail=False, methods=("post",), url_path="open")
+    def open(self, request):
+        input_serializer = OpenCashRegisterSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        cash_register = open_cash_register(
+            organisation=request.colmado_organisation,
+            opened_by=request.user,
+            data=input_serializer.validated_data,
+        )
+        return Response(
+            self.get_serializer(cash_register).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=("get",), url_path="current")
+    def current(self, request):
+        store_id = request.query_params.get("store")
+        if not store_id:
+            raise ValidationError(
+                {"store": "Seleccione la sucursal para consultar su caja."}
+            )
+        try:
+            store_id = int(store_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"store": "Seleccione una sucursal válida."})
+
+        cash_register = self.get_queryset().filter(
+            store_id=store_id,
+            status=CashRegisterSession.OPEN,
+        ).first()
+        if cash_register is None:
+            return Response(
+                {
+                    "code": "cash_register_not_open",
+                    "detail": "Esta sucursal no tiene una caja abierta.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(self.get_serializer(cash_register).data)
+
+    @action(detail=True, methods=("post",), url_path="close")
+    def close(self, request, pk=None):
+        input_serializer = CloseCashRegisterSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        cash_register = close_cash_register(
+            cash_register=self.get_object(),
+            closed_by=request.user,
+            data=input_serializer.validated_data,
+        )
+        return Response(self.get_serializer(cash_register).data)
 
 
 class MasterProductViewSet(ColmadoTenantMixin, viewsets.ReadOnlyModelViewSet):
@@ -288,6 +430,22 @@ class InventoryItemViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
             }
         )
 
+    @action(detail=True, methods=("post",), url_path="adjust")
+    def adjust(self, request, pk=None):
+        input_serializer = AdjustInventorySerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        inventory_item, movement = adjust_inventory(
+            organisation=request.colmado_organisation,
+            inventory_item=self.get_object(),
+            adjusted_by=request.user,
+            data=input_serializer.validated_data,
+        )
+        output = self.get_serializer(inventory_item).data
+        output["movement_id"] = movement.id
+        output["quantity_change"] = str(movement.quantity_change)
+        output["adjustment_reason"] = movement.movement_type
+        return Response(output)
+
 
 class SaleViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     """Simple POS: create, view and void sales without processing payments."""
@@ -297,6 +455,7 @@ class SaleViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
         "store",
         "cashier",
         "customer",
+        "cash_register_session",
     ).prefetch_related("items")
 
     def get_queryset(self):
@@ -946,3 +1105,388 @@ class ReorderSuggestionViewSet(ColmadoTenantMixin, viewsets.ViewSet):
                 "suggestions": suggestions,
             }
         )
+
+
+class InventoryCountViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
+    """Scan-first physical counts with one clear completion button."""
+
+    serializer_class = InventoryCountSessionSerializer
+    queryset = InventoryCountSession.objects.select_related(
+        "store",
+        "created_by",
+    ).prefetch_related(
+        "items__inventory_item__master_product",
+        "items__counted_by",
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        store_id = self.request.query_params.get("store")
+        count_status = self.request.query_params.get("status", "").strip()
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        if count_status:
+            valid_statuses = {
+                choice[0] for choice in InventoryCountSession.STATUS_CHOICES
+            }
+            if count_status not in valid_statuses:
+                raise ValidationError(
+                    {"status": "El estado del conteo no es válido."}
+                )
+            queryset = queryset.filter(status=count_status)
+        return queryset.order_by("-created_at")
+
+    def create(self, request, *args, **kwargs):
+        input_serializer = CreateInventoryCountSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        inventory_count = create_inventory_count(
+            organisation=request.colmado_organisation,
+            created_by=request.user,
+            data=input_serializer.validated_data,
+        )
+        return Response(
+            self.get_serializer(inventory_count).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=("post",), url_path="count-item")
+    def count_item(self, request, pk=None):
+        input_serializer = CountInventoryItemSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        count_item = count_inventory_item(
+            inventory_count=self.get_object(),
+            counted_by=request.user,
+            data=input_serializer.validated_data,
+        )
+        return Response(
+            InventoryCountItemSerializer(
+                count_item,
+                context=self.get_serializer_context(),
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=("post",), url_path="complete")
+    def complete(self, request, pk=None):
+        inventory_count = complete_inventory_count(
+            inventory_count=self.get_object(),
+            completed_by=request.user,
+        )
+        return Response(self.get_serializer(inventory_count).data)
+
+    @action(detail=True, methods=("post",), url_path="cancel")
+    def cancel(self, request, pk=None):
+        inventory_count = cancel_inventory_count(
+            inventory_count=self.get_object(),
+        )
+        return Response(self.get_serializer(inventory_count).data)
+
+
+class StorefrontViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
+    """Private configuration screen for each colmado's public shop."""
+
+    serializer_class = StorefrontSerializer
+    queryset = Storefront.objects.select_related("store")
+    http_method_names = ("get", "post", "patch", "head", "options")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        store_id = self.request.query_params.get("store")
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        return queryset.order_by("display_name")
+
+
+class CustomerOrderViewSet(OrganisationQuerysetMixin, viewsets.ReadOnlyModelViewSet):
+    """Simple private queue used by colmado employees to dispatch orders."""
+
+    serializer_class = CustomerOrderSerializer
+    queryset = CustomerOrder.objects.select_related(
+        "store",
+        "storefront",
+        "customer",
+    ).prefetch_related("items")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        store_id = self.request.query_params.get("store")
+        order_status = self.request.query_params.get("status", "").strip()
+        search = self.request.query_params.get("search", "").strip()
+
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        if order_status:
+            valid_statuses = {choice[0] for choice in CustomerOrder.STATUS_CHOICES}
+            if order_status not in valid_statuses:
+                raise ValidationError({"status": "El estado del pedido no es válido."})
+            queryset = queryset.filter(status=order_status)
+        if search:
+            queryset = queryset.filter(
+                Q(customer_name__icontains=search)
+                | Q(customer_phone__icontains=search)
+                | Q(delivery_address__icontains=search)
+            )
+        return queryset.order_by("-created_at")
+
+    @action(detail=True, methods=("post",), url_path="set-status")
+    def set_status(self, request, pk=None):
+        input_serializer = CustomerOrderStatusSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        order = change_customer_order_status(
+            order=self.get_object(),
+            changed_by=request.user,
+            new_status=input_serializer.validated_data["status"],
+        )
+        return Response(
+            self.get_serializer(order).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class PublicStorefrontDetailAPIView(APIView):
+    """Public information required to render one customer ordering page."""
+
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, slug):
+        storefront = get_object_or_404(
+            Storefront.objects.select_related("store"),
+            slug=slug,
+            is_active=True,
+            store__is_active=True,
+            organisation__is_active=True,
+        )
+        return Response(
+            PublicStorefrontSerializer(
+                storefront,
+                context={"request": request},
+            ).data
+        )
+
+
+class PublicStorefrontCatalogAPIView(APIView):
+    """Customer catalog: available products only, with a short search."""
+
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, slug):
+        storefront = get_object_or_404(
+            Storefront.objects.select_related("store"),
+            slug=slug,
+            is_active=True,
+            store__is_active=True,
+            organisation__is_active=True,
+        )
+        queryset = InventoryItem.objects.select_related("master_product").filter(
+            organisation=storefront.organisation,
+            store=storefront.store,
+            is_active=True,
+            quantity__gt=0,
+            master_product__is_active=True,
+        )
+        search = request.query_params.get("search", "").strip()
+        category = request.query_params.get("category", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(master_product__name__icontains=search)
+                | Q(master_product__brand__icontains=search)
+                | Q(master_product__presentation__icontains=search)
+                | Q(master_product__barcode__icontains=search)
+            )
+        if category:
+            queryset = queryset.filter(master_product__category__iexact=category)
+
+        products = queryset.order_by("master_product__name")[:200]
+        return Response(
+            PublicCatalogProductSerializer(
+                products,
+                many=True,
+                context={"request": request},
+            ).data
+        )
+
+
+class PublicCustomerOrderCreateAPIView(APIView):
+    """Public checkout for one storefront."""
+
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def post(self, request, slug):
+        storefront = get_object_or_404(
+            Storefront.objects.select_related("store", "organisation"),
+            slug=slug,
+            is_active=True,
+            store__is_active=True,
+            organisation__is_active=True,
+        )
+        input_serializer = CreateCustomerOrderSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        order, created = create_customer_order(
+            storefront=storefront,
+            data=input_serializer.validated_data,
+        )
+        return Response(
+            PublicCustomerOrderSerializer(
+                order,
+                context={"request": request},
+            ).data,
+            status=(status.HTTP_201_CREATED if created else status.HTTP_200_OK),
+        )
+
+
+class PublicCustomerOrderTrackingAPIView(APIView):
+    """Track an order using its unguessable number and the customer's phone."""
+
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, slug, order_number):
+        phone = request.query_params.get("phone", "").strip()
+        if not phone:
+            raise ValidationError(
+                {"phone": "Escriba el teléfono utilizado para hacer el pedido."}
+            )
+
+        order = get_object_or_404(
+            CustomerOrder.objects.select_related(
+                "store",
+                "storefront",
+                "customer",
+            ).prefetch_related("items"),
+            storefront__slug=slug,
+            storefront__is_active=True,
+            order_number=order_number,
+            customer_phone=phone,
+        )
+        return Response(
+            PublicCustomerOrderSerializer(
+                order,
+                context={"request": request},
+            ).data
+        )
+
+
+class DashboardViewSet(ColmadoTenantMixin, viewsets.ViewSet):
+    """One compact endpoint for the owner's daily home screen."""
+
+    def list(self, request):
+        query_serializer = DashboardQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        query = query_serializer.validated_data
+
+        store = None
+        if query.get("store"):
+            store = Store.objects.filter(
+                id=query["store"],
+                organisation=request.colmado_organisation,
+                is_active=True,
+            ).first()
+            if store is None:
+                raise ValidationError(
+                    {"store": "La sucursal no pertenece a este negocio o está inactiva."}
+                )
+
+        selected_date = query.get("date", timezone.localdate())
+        return Response(
+            build_dashboard(
+                organisation=request.colmado_organisation,
+                selected_date=selected_date,
+                store=store,
+            )
+        )
+
+
+class PlatformMasterProductViewSet(viewsets.ModelViewSet):
+    """Global catalog management restricted to platform administrators."""
+
+    permission_classes = (permissions.IsAdminUser,)
+    serializer_class = MasterProductSerializer
+    queryset = MasterProduct.objects.all()
+    http_method_names = ("get", "post", "patch", "head", "options")
+
+    def get_queryset(self):
+        queryset = self.queryset
+        search = self.request.query_params.get("search", "").strip()
+        barcode = self.request.query_params.get("barcode", "").strip()
+        category = self.request.query_params.get("category", "").strip()
+        active = self.request.query_params.get("active")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(brand__icontains=search)
+                | Q(presentation__icontains=search)
+                | Q(barcode__icontains=search)
+            )
+        if barcode:
+            queryset = queryset.filter(barcode=barcode)
+        if category:
+            queryset = queryset.filter(category__iexact=category)
+        if active in ("1", "true", "True"):
+            queryset = queryset.filter(is_active=True)
+        elif active in ("0", "false", "False"):
+            queryset = queryset.filter(is_active=False)
+        return queryset.order_by("name", "presentation")[:500]
+
+
+class CatalogImportViewSet(viewsets.ReadOnlyModelViewSet):
+    """Upload and audit global catalog imports without tenant headers."""
+
+    permission_classes = (permissions.IsAdminUser,)
+    serializer_class = CatalogImportSerializer
+    queryset = CatalogImport.objects.select_related("uploaded_by")
+
+    def create(self, request, *args, **kwargs):
+        input_serializer = UploadCatalogSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        catalog_import = import_master_catalog(
+            uploaded_by=request.user,
+            uploaded_file=input_serializer.validated_data["file"],
+        )
+        output = self.get_serializer(catalog_import).data
+        response_status = (
+            status.HTTP_201_CREATED
+            if catalog_import.status == CatalogImport.COMPLETED
+            else status.HTTP_400_BAD_REQUEST
+        )
+        return Response(output, status=response_status)
+
+    @action(detail=False, methods=("get",), url_path="template")
+    def template(self, request):
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = (
+            'attachment; filename="plantilla_catalogo_colmado.csv"'
+        )
+        response.write("\ufeff")
+        writer = csv.writer(response)
+        writer.writerow(
+            (
+                "referencia_interna",
+                "codigo_barra",
+                "nombre",
+                "marca",
+                "presentacion",
+                "categoria",
+                "unidad",
+                "modo_venta",
+                "unidades_por_caja",
+                "activo",
+            )
+        )
+        writer.writerow(
+            (
+                "",
+                "7460123456789",
+                "Coca-Cola",
+                "Coca-Cola",
+                "12 oz",
+                "Bebidas",
+                "unidad",
+                "por_unidad",
+                "24",
+                "Sí",
+            )
+        )
+        return response

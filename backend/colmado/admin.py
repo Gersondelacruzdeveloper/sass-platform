@@ -1,11 +1,17 @@
 from django.contrib import admin
 
 from .models import (
+    CashRegisterSession,
+    CatalogImport,
     CreditTransaction,
     Customer,
+    CustomerOrder,
+    CustomerOrderItem,
     Employee,
     Expense,
     InventoryItem,
+    InventoryCountItem,
+    InventoryCountSession,
     InventoryMovement,
     MasterProduct,
     PayrollPayment,
@@ -14,6 +20,7 @@ from .models import (
     Sale,
     SaleItem,
     Store,
+    Storefront,
     Supplier,
     SupplierProduct,
 )
@@ -105,6 +112,69 @@ class SaleItemInline(admin.TabularInline):
         return False
 
 
+@admin.register(CashRegisterSession)
+class CashRegisterSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        "session_number",
+        "store",
+        "status",
+        "opening_amount",
+        "cash_sales",
+        "expected_cash",
+        "counted_cash",
+        "difference",
+        "opened_by",
+        "opened_at",
+        "closed_at",
+    )
+    list_filter = (
+        "status",
+        "organisation",
+        "store",
+        "opened_at",
+        "closed_at",
+    )
+    search_fields = (
+        "session_number",
+        "store__name",
+        "opened_by__email",
+        "opened_by__username",
+        "closed_by__email",
+        "closed_by__username",
+        "note",
+    )
+    list_select_related = (
+        "organisation",
+        "store",
+        "opened_by",
+        "closed_by",
+    )
+    date_hierarchy = "opened_at"
+    readonly_fields = (
+        "organisation",
+        "store",
+        "opened_by",
+        "closed_by",
+        "session_number",
+        "status",
+        "opening_amount",
+        "cash_sales",
+        "expected_cash",
+        "counted_cash",
+        "difference",
+        "note",
+        "opened_at",
+        "closed_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Sale)
 class SaleAdmin(admin.ModelAdmin):
     list_display = (
@@ -112,6 +182,7 @@ class SaleAdmin(admin.ModelAdmin):
         "store",
         "cashier",
         "customer",
+        "cash_register_session",
         "payment_method",
         "total",
         "credit_due_date",
@@ -134,7 +205,13 @@ class SaleAdmin(admin.ModelAdmin):
         "cashier__email",
         "cashier__username",
     )
-    list_select_related = ("organisation", "store", "cashier", "customer")
+    list_select_related = (
+        "organisation",
+        "store",
+        "cashier",
+        "customer",
+        "cash_register_session",
+    )
     date_hierarchy = "created_at"
     inlines = (SaleItemInline,)
     readonly_fields = (
@@ -142,6 +219,7 @@ class SaleAdmin(admin.ModelAdmin):
         "store",
         "cashier",
         "customer",
+        "cash_register_session",
         "receipt_number",
         "payment_method",
         "subtotal",
@@ -398,6 +476,7 @@ class InventoryMovementAdmin(admin.ModelAdmin):
         "inventory_item__master_product__name",
         "inventory_item__master_product__barcode",
         "purchase_order__order_number",
+        "inventory_count__count_number",
         "note",
     )
     list_select_related = (
@@ -405,6 +484,7 @@ class InventoryMovementAdmin(admin.ModelAdmin):
         "store",
         "inventory_item__master_product",
         "purchase_order",
+        "inventory_count",
         "created_by",
     )
     date_hierarchy = "created_at"
@@ -413,6 +493,7 @@ class InventoryMovementAdmin(admin.ModelAdmin):
         "store",
         "inventory_item",
         "purchase_order",
+        "inventory_count",
         "created_by",
         "movement_type",
         "quantity_change",
@@ -420,6 +501,233 @@ class InventoryMovementAdmin(admin.ModelAdmin):
         "unit_cost",
         "note",
         "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class InventoryCountItemInline(admin.TabularInline):
+    model = InventoryCountItem
+    extra = 0
+    can_delete = False
+    fields = (
+        "inventory_item",
+        "expected_quantity",
+        "counted_quantity",
+        "difference_display",
+        "reason",
+        "note",
+        "counted_by",
+        "counted_at",
+    )
+    readonly_fields = fields
+
+    @admin.display(description="Diferencia")
+    def difference_display(self, obj):
+        return obj.difference
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(InventoryCountSession)
+class InventoryCountSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        "count_number",
+        "store",
+        "organisation",
+        "status",
+        "created_by",
+        "created_at",
+        "completed_at",
+    )
+    list_filter = ("status", "organisation", "store", "created_at")
+    search_fields = (
+        "count_number",
+        "store__name",
+        "note",
+        "created_by__email",
+        "created_by__username",
+    )
+    list_select_related = ("organisation", "store", "created_by")
+    date_hierarchy = "created_at"
+    inlines = (InventoryCountItemInline,)
+    readonly_fields = (
+        "organisation",
+        "store",
+        "created_by",
+        "count_number",
+        "status",
+        "note",
+        "completed_at",
+        "cancelled_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Storefront)
+class StorefrontAdmin(admin.ModelAdmin):
+    list_display = (
+        "display_name",
+        "store",
+        "slug",
+        "delivery_fee",
+        "minimum_order",
+        "is_accepting_orders",
+        "is_active",
+    )
+    list_filter = (
+        "is_accepting_orders",
+        "is_active",
+        "organisation",
+        "store",
+    )
+    search_fields = (
+        "display_name",
+        "slug",
+        "public_phone",
+        "public_address",
+        "store__name",
+    )
+    list_select_related = ("organisation", "store")
+    readonly_fields = ("created_at", "updated_at")
+
+
+class CustomerOrderItemInline(admin.TabularInline):
+    model = CustomerOrderItem
+    extra = 0
+    can_delete = False
+    fields = (
+        "product_name",
+        "barcode",
+        "quantity",
+        "unit",
+        "unit_price",
+        "line_total",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CustomerOrder)
+class CustomerOrderAdmin(admin.ModelAdmin):
+    list_display = (
+        "order_number",
+        "customer_name",
+        "customer_phone",
+        "store",
+        "total",
+        "status",
+        "inventory_committed",
+        "created_at",
+    )
+    list_filter = (
+        "status",
+        "inventory_committed",
+        "organisation",
+        "store",
+        "created_at",
+    )
+    search_fields = (
+        "order_number",
+        "customer_name",
+        "customer_phone",
+        "delivery_address",
+    )
+    list_select_related = (
+        "organisation",
+        "store",
+        "storefront",
+        "customer",
+    )
+    date_hierarchy = "created_at"
+    inlines = (CustomerOrderItemInline,)
+    readonly_fields = (
+        "organisation",
+        "store",
+        "storefront",
+        "customer",
+        "order_number",
+        "idempotency_key",
+        "customer_name",
+        "customer_phone",
+        "delivery_address",
+        "latitude",
+        "longitude",
+        "delivery_notes",
+        "status",
+        "subtotal",
+        "delivery_fee",
+        "total",
+        "inventory_committed",
+        "accepted_at",
+        "ready_at",
+        "dispatched_at",
+        "delivered_at",
+        "cancelled_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CatalogImport)
+class CatalogImportAdmin(admin.ModelAdmin):
+    list_display = (
+        "import_number",
+        "original_filename",
+        "file_format",
+        "status",
+        "total_rows",
+        "created_products",
+        "updated_products",
+        "error_rows",
+        "uploaded_by",
+        "created_at",
+    )
+    list_filter = ("status", "file_format", "created_at")
+    search_fields = (
+        "import_number",
+        "original_filename",
+        "uploaded_by__email",
+        "uploaded_by__username",
+    )
+    list_select_related = ("uploaded_by",)
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "import_number",
+        "uploaded_by",
+        "source_file",
+        "original_filename",
+        "file_format",
+        "status",
+        "total_rows",
+        "created_products",
+        "updated_products",
+        "unchanged_products",
+        "error_rows",
+        "errors",
+        "completed_at",
+        "created_at",
+        "updated_at",
     )
 
     def has_add_permission(self, request):

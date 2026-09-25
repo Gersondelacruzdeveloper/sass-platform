@@ -26,6 +26,7 @@ cryptography = "*"
 openai = "*"
 django-redis = "*"
 bleach = "*"
+openpyxl = "*"
 
 [dev-packages]
 

@@ -1,13 +1,21 @@
 from decimal import Decimal
+from pathlib import Path
+from urllib.parse import quote_plus
 
 from rest_framework import serializers
 
 from .models import (
+    CashRegisterSession,
+    CatalogImport,
     CreditTransaction,
     Customer,
+    CustomerOrder,
+    CustomerOrderItem,
     Employee,
     Expense,
     InventoryItem,
+    InventoryCountItem,
+    InventoryCountSession,
     InventoryMovement,
     MasterProduct,
     PayrollPayment,
@@ -16,6 +24,7 @@ from .models import (
     Sale,
     SaleItem,
     Store,
+    Storefront,
     Supplier,
     SupplierProduct,
 )
@@ -386,6 +395,81 @@ class SaleItemSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CashRegisterSessionSerializer(serializers.ModelSerializer):
+    store_name = serializers.CharField(source="store.name", read_only=True)
+    opened_by_name = serializers.SerializerMethodField()
+    closed_by_name = serializers.SerializerMethodField()
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+
+    class Meta:
+        model = CashRegisterSession
+        fields = (
+            "id",
+            "session_number",
+            "store",
+            "store_name",
+            "opened_by",
+            "opened_by_name",
+            "closed_by",
+            "closed_by_name",
+            "status",
+            "status_display",
+            "opening_amount",
+            "cash_sales",
+            "expected_cash",
+            "counted_cash",
+            "difference",
+            "note",
+            "opened_at",
+            "closed_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_opened_by_name(self, obj):
+        full_name = obj.opened_by.get_full_name().strip()
+        return full_name or obj.opened_by.get_username()
+
+    def get_closed_by_name(self, obj):
+        if obj.closed_by is None:
+            return None
+        full_name = obj.closed_by.get_full_name().strip()
+        return full_name or obj.closed_by.get_username()
+
+
+class OpenCashRegisterSerializer(serializers.Serializer):
+    store_id = serializers.IntegerField(min_value=1)
+    opening_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+    )
+    note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+
+class CloseCashRegisterSerializer(serializers.Serializer):
+    counted_cash = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+    )
+    note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+
+
 class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
     store_name = serializers.CharField(source="store.name", read_only=True)
@@ -398,6 +482,11 @@ class SaleSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(
         source="get_status_display",
         read_only=True,
+    )
+    cash_register_session_number = serializers.UUIDField(
+        source="cash_register_session.session_number",
+        read_only=True,
+        allow_null=True,
     )
     profit = serializers.DecimalField(
         max_digits=14,
@@ -416,6 +505,8 @@ class SaleSerializer(serializers.ModelSerializer):
             "cashier_name",
             "customer",
             "customer_name",
+            "cash_register_session",
+            "cash_register_session_number",
             "payment_method",
             "payment_method_display",
             "subtotal",
@@ -1145,3 +1236,568 @@ class InventoryMovementSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         full_name = obj.created_by.get_full_name().strip()
         return full_name or obj.created_by.get_username()
+
+
+class StorefrontSerializer(serializers.ModelSerializer):
+    """Configuration used by the colmadero to publish one branch online."""
+
+    store_name = serializers.CharField(source="store.name", read_only=True)
+
+    class Meta:
+        model = Storefront
+        validators = []
+        fields = (
+            "id",
+            "store",
+            "store_name",
+            "slug",
+            "display_name",
+            "description",
+            "public_phone",
+            "public_address",
+            "delivery_fee",
+            "minimum_order",
+            "is_accepting_orders",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "store_name", "created_at", "updated_at")
+
+    def validate_slug(self, value):
+        slug = value.strip().lower()
+        matches = Storefront.objects.filter(slug__iexact=slug)
+        if self.instance is not None:
+            matches = matches.exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError(
+                "Esta dirección pública ya está siendo utilizada."
+            )
+        return slug
+
+    def validate_display_name(self, value):
+        display_name = value.strip()
+        if not display_name:
+            raise serializers.ValidationError(
+                "El nombre público del colmado es obligatorio."
+            )
+        return display_name
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        organisation = getattr(request, "colmado_organisation", None)
+        store = attrs.get("store", getattr(self.instance, "store", None))
+
+        if organisation is None:
+            raise serializers.ValidationError(
+                {"organisation": "No se pudo identificar el negocio."}
+            )
+        if store is None or store.organisation_id != organisation.id:
+            raise serializers.ValidationError(
+                {"store": "La sucursal no pertenece a este negocio."}
+            )
+        if not store.is_active:
+            raise serializers.ValidationError(
+                {"store": "La sucursal seleccionada está inactiva."}
+            )
+
+        matches = Storefront.objects.filter(store=store)
+        if self.instance is not None:
+            matches = matches.exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError(
+                {"store": "Esta sucursal ya tiene una tienda pública."}
+            )
+        return attrs
+
+
+class PublicStorefrontSerializer(serializers.ModelSerializer):
+    """Small public payload shown before the customer starts an order."""
+
+    class Meta:
+        model = Storefront
+        fields = (
+            "slug",
+            "display_name",
+            "description",
+            "public_phone",
+            "public_address",
+            "delivery_fee",
+            "minimum_order",
+            "is_accepting_orders",
+        )
+        read_only_fields = fields
+
+
+class PublicCatalogProductSerializer(serializers.ModelSerializer):
+    """Only the product information a customer needs to place an order."""
+
+    product_name = serializers.CharField(
+        source="master_product.name",
+        read_only=True,
+    )
+    product_display_name = serializers.SerializerMethodField()
+    barcode = serializers.CharField(
+        source="master_product.barcode",
+        read_only=True,
+        allow_null=True,
+    )
+    category = serializers.CharField(
+        source="master_product.category",
+        read_only=True,
+    )
+    unit = serializers.CharField(
+        source="master_product.unit",
+        read_only=True,
+    )
+    sale_mode = serializers.CharField(
+        source="master_product.sale_mode",
+        read_only=True,
+    )
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InventoryItem
+        fields = (
+            "id",
+            "product_name",
+            "product_display_name",
+            "barcode",
+            "category",
+            "unit",
+            "sale_mode",
+            "sale_price",
+            "image_url",
+        )
+        read_only_fields = fields
+
+    def get_product_display_name(self, obj):
+        return str(obj.master_product)
+
+    def get_image_url(self, obj):
+        if not obj.master_product.image:
+            return None
+        request = self.context.get("request")
+        url = obj.master_product.image.url
+        return request.build_absolute_uri(url) if request is not None else url
+
+
+class CustomerOrderItemSerializer(serializers.ModelSerializer):
+    inventory_item_id = serializers.IntegerField(
+        source="inventory_item.id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = CustomerOrderItem
+        fields = (
+            "id",
+            "inventory_item_id",
+            "product_name",
+            "barcode",
+            "unit",
+            "quantity",
+            "unit_price",
+            "line_total",
+        )
+        read_only_fields = fields
+
+
+class CustomerOrderSerializer(serializers.ModelSerializer):
+    items = CustomerOrderItemSerializer(many=True, read_only=True)
+    store_name = serializers.CharField(source="store.name", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+    maps_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomerOrder
+        fields = (
+            "id",
+            "order_number",
+            "store",
+            "store_name",
+            "customer_name",
+            "customer_phone",
+            "delivery_address",
+            "latitude",
+            "longitude",
+            "delivery_notes",
+            "status",
+            "status_display",
+            "subtotal",
+            "delivery_fee",
+            "total",
+            "inventory_committed",
+            "maps_url",
+            "accepted_at",
+            "ready_at",
+            "dispatched_at",
+            "delivered_at",
+            "cancelled_at",
+            "created_at",
+            "updated_at",
+            "items",
+        )
+        read_only_fields = fields
+
+    def get_maps_url(self, obj):
+        if obj.latitude is not None and obj.longitude is not None:
+            destination = f"{obj.latitude},{obj.longitude}"
+        else:
+            destination = obj.delivery_address
+        return (
+            "https://www.google.com/maps/dir/?api=1&destination="
+            f"{quote_plus(destination)}"
+        )
+
+
+class PublicCustomerOrderSerializer(CustomerOrderSerializer):
+    """Public receipt without internal database or inventory fields."""
+
+    class Meta(CustomerOrderSerializer.Meta):
+        fields = tuple(
+            field
+            for field in CustomerOrderSerializer.Meta.fields
+            if field not in ("id", "store", "inventory_committed")
+        )
+        read_only_fields = fields
+
+
+class CreateCustomerOrderLineSerializer(serializers.Serializer):
+    inventory_item_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+    )
+
+
+class CreateCustomerOrderSerializer(serializers.Serializer):
+    """Simple customer checkout. Prices always come from the server."""
+
+    idempotency_key = serializers.CharField(max_length=100, trim_whitespace=True)
+    customer_name = serializers.CharField(max_length=180, trim_whitespace=True)
+    customer_phone = serializers.CharField(max_length=30, trim_whitespace=True)
+    delivery_address = serializers.CharField(max_length=255, trim_whitespace=True)
+    latitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=Decimal("-90"),
+        max_value=Decimal("90"),
+        required=False,
+        allow_null=True,
+    )
+    longitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=Decimal("-180"),
+        max_value=Decimal("180"),
+        required=False,
+        allow_null=True,
+    )
+    delivery_notes = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+    items = CreateCustomerOrderLineSerializer(many=True, allow_empty=False)
+
+    def validate_idempotency_key(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "No se pudo identificar este intento de pedido."
+            )
+        return value
+
+    def validate_customer_name(self, value):
+        if not value:
+            raise serializers.ValidationError("Escriba su nombre.")
+        return value
+
+    def validate_customer_phone(self, value):
+        if not value:
+            raise serializers.ValidationError("Escriba su número de teléfono.")
+        return value
+
+    def validate_delivery_address(self, value):
+        if not value:
+            raise serializers.ValidationError("Escriba la dirección de entrega.")
+        return value
+
+    def validate_items(self, value):
+        inventory_ids = [item["inventory_item_id"] for item in value]
+        if len(inventory_ids) != len(set(inventory_ids)):
+            raise serializers.ValidationError(
+                "No repita el mismo producto dentro del pedido."
+            )
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        latitude = attrs.get("latitude")
+        longitude = attrs.get("longitude")
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError(
+                {"location": "Envíe la latitud y longitud juntas."}
+            )
+        return attrs
+
+
+class CustomerOrderStatusSerializer(serializers.Serializer):
+    """One-tap order status used by the internal dispatch screen."""
+
+    status = serializers.ChoiceField(choices=CustomerOrder.STATUS_CHOICES)
+
+
+class InventoryCountItemSerializer(serializers.ModelSerializer):
+    inventory_item_id = serializers.IntegerField(
+        source="inventory_item.id",
+        read_only=True,
+    )
+    product_name = serializers.CharField(
+        source="inventory_item.master_product.name",
+        read_only=True,
+    )
+    product_display_name = serializers.SerializerMethodField()
+    barcode = serializers.CharField(
+        source="inventory_item.master_product.barcode",
+        read_only=True,
+        allow_null=True,
+    )
+    unit = serializers.CharField(
+        source="inventory_item.master_product.unit",
+        read_only=True,
+    )
+    difference = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        read_only=True,
+    )
+    reason_display = serializers.CharField(
+        source="get_reason_display",
+        read_only=True,
+    )
+    counted_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InventoryCountItem
+        fields = (
+            "id",
+            "inventory_item_id",
+            "product_name",
+            "product_display_name",
+            "barcode",
+            "unit",
+            "expected_quantity",
+            "counted_quantity",
+            "difference",
+            "reason",
+            "reason_display",
+            "note",
+            "counted_by_name",
+            "counted_at",
+        )
+        read_only_fields = fields
+
+    def get_product_display_name(self, obj):
+        return str(obj.inventory_item.master_product)
+
+    def get_counted_by_name(self, obj):
+        full_name = obj.counted_by.get_full_name().strip()
+        return full_name or obj.counted_by.get_username()
+
+
+class InventoryCountSessionSerializer(serializers.ModelSerializer):
+    items = InventoryCountItemSerializer(many=True, read_only=True)
+    store_name = serializers.CharField(source="store.name", read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+    counted_products = serializers.SerializerMethodField()
+    products_with_difference = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InventoryCountSession
+        fields = (
+            "id",
+            "count_number",
+            "store",
+            "store_name",
+            "created_by",
+            "created_by_name",
+            "status",
+            "status_display",
+            "note",
+            "counted_products",
+            "products_with_difference",
+            "completed_at",
+            "cancelled_at",
+            "created_at",
+            "updated_at",
+            "items",
+        )
+        read_only_fields = fields
+
+    def get_created_by_name(self, obj):
+        full_name = obj.created_by.get_full_name().strip()
+        return full_name or obj.created_by.get_username()
+
+    def get_counted_products(self, obj):
+        return len(obj.items.all())
+
+    def get_products_with_difference(self, obj):
+        return sum(1 for item in obj.items.all() if item.difference != 0)
+
+
+class CreateInventoryCountSerializer(serializers.Serializer):
+    store_id = serializers.IntegerField(min_value=1)
+    note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+
+class CountInventoryItemSerializer(serializers.Serializer):
+    """Accept either a camera barcode or a quick product button."""
+
+    barcode = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+    inventory_item_id = serializers.IntegerField(required=False, min_value=1)
+    counted_quantity = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        min_value=Decimal("0.000"),
+    )
+    reason = serializers.ChoiceField(
+        choices=InventoryCountItem.REASON_CHOICES,
+        default=InventoryCountItem.REGULAR_COUNT,
+    )
+    note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        barcode = attrs.get("barcode")
+        inventory_item_id = attrs.get("inventory_item_id")
+        if bool(barcode) == bool(inventory_item_id):
+            raise serializers.ValidationError(
+                "Envíe un código de barra o seleccione un producto, pero no ambos."
+            )
+        return attrs
+
+
+class AdjustInventorySerializer(serializers.Serializer):
+    """Set the real quantity after damage, expiry, loss or another correction."""
+
+    REASON_CHOICES = (
+        (InventoryMovement.DAMAGED, "Producto dañado"),
+        (InventoryMovement.EXPIRED, "Producto vencido"),
+        (InventoryMovement.LOSS, "Pérdida o faltante"),
+        (InventoryMovement.PERSONAL_USE, "Consumo interno"),
+        (InventoryMovement.CORRECTION, "Corrección manual"),
+    )
+
+    new_quantity = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        min_value=Decimal("0.000"),
+    )
+    reason = serializers.ChoiceField(choices=REASON_CHOICES)
+    note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+
+class CatalogImportSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+    was_successful = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = CatalogImport
+        fields = (
+            "id",
+            "import_number",
+            "uploaded_by",
+            "uploaded_by_name",
+            "original_filename",
+            "file_format",
+            "status",
+            "status_display",
+            "total_rows",
+            "created_products",
+            "updated_products",
+            "unchanged_products",
+            "error_rows",
+            "errors",
+            "was_successful",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_uploaded_by_name(self, obj):
+        full_name = obj.uploaded_by.get_full_name().strip()
+        return full_name or obj.uploaded_by.get_username()
+
+
+class UploadCatalogSerializer(serializers.Serializer):
+    """Small, safe upload form for CSV and modern Excel files."""
+
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+
+    file = serializers.FileField(write_only=True)
+
+    def validate_file(self, value):
+        filename = Path(value.name).name
+        extension = Path(filename).suffix.lower()
+        if extension not in (".csv", ".xlsx"):
+            raise serializers.ValidationError(
+                "Use un archivo CSV (.csv) o Excel (.xlsx)."
+            )
+        if value.size == 0:
+            raise serializers.ValidationError("El archivo está vacío.")
+        if value.size > self.MAX_FILE_SIZE:
+            raise serializers.ValidationError(
+                "El archivo no puede superar 10 MB."
+            )
+        if len(filename) > 255:
+            raise serializers.ValidationError(
+                "El nombre del archivo es demasiado largo."
+            )
+        return value
+
+
+class DashboardQuerySerializer(serializers.Serializer):
+    """Optional filters for the simple owner dashboard."""
+
+    store = serializers.IntegerField(required=False, min_value=1)
+    date = serializers.DateField(required=False)
