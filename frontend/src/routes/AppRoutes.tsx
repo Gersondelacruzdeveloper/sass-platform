@@ -1,16 +1,17 @@
-import { Routes, Route } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 
-import { discoRoutes } from "../modules/disco/routes/discoRoutes";
-
-import LoginPage from "../pages/LoginPage";
-import RegisterPage from "../pages/RegisterPage";
-import DashboardPage from "../pages/DashboardPage";
-import OrganisationsPage from "../pages/OrganisationsPage";
-// import SubscriptionsPage from "../pages/SubscriptionsPage";
 import AuditLogsPage from "../pages/AuditLogsPage";
-import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
-import { ticketingRoutes } from "../modules/ticketing/routes/ticketingRoutes";
+import DashboardPage from "../pages/DashboardPage";
+import LoginPage from "../pages/LoginPage";
+import OrganisationsPage from "../pages/OrganisationsPage";
+import RegisterPage from "../pages/RegisterPage";
+import { colmadoRoutes } from "../modules/colmado/routes/colmadoRoutes";
+import { discoRoutes } from "../modules/disco/routes/discoRoutes";
 import { partnerNetworkRoutes } from "../modules/partner-network/routes/partnerNetworkRoutes";
+import { ticketingRoutes } from "../modules/ticketing/routes/ticketingRoutes";
+import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
+
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -19,13 +20,13 @@ export default function AppRoutes() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/organisations" element={<OrganisationsPage />} />
-      {/* <Route path="/subscriptions" element={<SubscriptionsPage />} /> */}
       <Route path="/audit-logs" element={<AuditLogsPage />} />
-   
+
       {trainingRoutes}
       {discoRoutes}
       {ticketingRoutes}
       {partnerNetworkRoutes}
+      {colmadoRoutes}
     </Routes>
   );
 }
