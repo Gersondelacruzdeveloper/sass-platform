@@ -22,9 +22,19 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
 
 class CreateCheckoutSessionSerializer(serializers.Serializer):
     company_name = serializers.CharField(max_length=255)
-    owner_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    owner_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
+
     email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=8)
+
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
 
     app = serializers.CharField(
         required=False,
@@ -39,11 +49,44 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
             ("restaurant", "Restaurant"),
             ("store", "Store"),
             ("excursions", "Excursions"),
+            ("colmado", "Colmado"),
         ],
         default="disco",
     )
 
     plan = serializers.SlugField()
+
+    # Solamente se utilizan cuando business_type es "colmado".
+    # Son opcionales para no afectar los registros existentes.
+    store_name = serializers.CharField(
+        max_length=120,
+        required=False,
+        allow_blank=True,
+    )
+
+    store_address = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
+
+    store_phone = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_blank=True,
+    )
+
+    def validate(self, attrs):
+        if attrs["business_type"] == "colmado":
+            store_name = attrs.get("store_name", "").strip()
+
+            # Si no proporciona otro nombre, usamos el nombre del colmado.
+            attrs["store_name"] = (
+                store_name
+                or attrs["company_name"].strip()
+            )
+
+        return attrs
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     plan_name = serializers.CharField(source="plan.name", read_only=True)

@@ -9,18 +9,18 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from organisations.models import Organisation, Membership,OrganisationBranding
-from subscriptions.models import SubscriptionPlan, Subscription
+from colmado.models import Store
+from organisations.models import Membership, Organisation, OrganisationBranding
+from subscriptions.models import Subscription, SubscriptionPlan
 from subscriptions.serializers import (
-    SubscriptionPlanSerializer,
     CreateCheckoutSessionSerializer,
     MySubscriptionSerializer,
+    SubscriptionPlanSerializer,
 )
 
 User = get_user_model()
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
-
 
 
 @api_view(["GET"])
@@ -37,6 +37,7 @@ def plans(request):
 
     return Response(serializer.data)
 
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def create_checkout_session(request):
@@ -51,10 +52,23 @@ def create_checkout_session(request):
     owner_name = data.get("owner_name", "")
     email = data["email"]
     password = data["password"]
-    business_type = data.get("business_type") or request.data.get("business_type") or "disco"
+    business_type = (
+        data.get("business_type")
+        or request.data.get("business_type")
+        or "disco"
+    )
     plan_slug = data["plan"]
 
-    app_slug = data.get("app") or request.data.get("app") or business_type or "disco"
+    store_name = data.get("store_name", "").strip()
+    store_address = data.get("store_address", "").strip()
+    store_phone = data.get("store_phone", "").strip()
+
+    app_slug = (
+        data.get("app")
+        or request.data.get("app")
+        or business_type
+        or "disco"
+    )
 
     if business_type == "ticketing":
         app_slug = "ticketing"
@@ -64,10 +78,19 @@ def create_checkout_session(request):
             "payments, commissions, pickup schedules, and public website settings."
         )
         default_accent_color = "#f59e0b"
+    elif business_type == "colmado":
+        app_slug = "colmado"
+        default_platform_name = "Mi Colmado"
+        default_login_subtitle = (
+            "Entra para vender, revisar el inventario, controlar el fiado "
+            "y administrar tus sucursales."
+        )
+        default_accent_color = "#047857"
     else:
         default_platform_name = "Disco Management"
         default_login_subtitle = (
-            "Sign in to manage POS, inventory, tables, staff, reservations, and reports."
+            "Sign in to manage POS, inventory, tables, staff, reservations, "
+            "and reports."
         )
         default_accent_color = "#06b6d4"
 
@@ -75,16 +98,24 @@ def create_checkout_session(request):
         "company_name": request.data.get("branding_company_name") or company_name,
         "platform_name": request.data.get("platform_name") or default_platform_name,
         "login_title": request.data.get("login_title") or company_name,
-        "login_subtitle": request.data.get("login_subtitle") or default_login_subtitle,
+        "login_subtitle": (
+            request.data.get("login_subtitle") or default_login_subtitle
+        ),
         "primary_color": request.data.get("primary_color") or "#020617",
         "secondary_color": request.data.get("secondary_color") or "#0f172a",
         "accent_color": request.data.get("accent_color") or default_accent_color,
     }
 
-    plan = SubscriptionPlan.objects.filter(slug=plan_slug, is_active=True).first()
+    plan = SubscriptionPlan.objects.filter(
+        slug=plan_slug,
+        is_active=True,
+    ).first()
 
     if not plan:
-        return Response({"detail": "Invalid plan."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"detail": "Invalid plan."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     if not plan.stripe_price_id:
         return Response(
@@ -139,6 +170,15 @@ def create_checkout_session(request):
         role="owner",
         is_active=True,
     )
+
+    if business_type == "colmado":
+        Store.objects.create(
+            organisation=organisation,
+            name=store_name or company_name,
+            address=store_address,
+            phone=store_phone,
+            is_active=True,
+        )
 
     subscription = Subscription.objects.create(
         organisation=organisation,
@@ -232,11 +272,7 @@ def checkout_session_status(request):
         else None
     )
 
-    app_slug = (
-        metadata["app_slug"]
-        if "app_slug" in metadata
-        else "disco"
-    )
+    app_slug = metadata["app_slug"] if "app_slug" in metadata else "disco"
 
     if not organisation_id:
         return Response(
@@ -252,21 +288,23 @@ def checkout_session_status(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    return Response({
-        "payment_status": session.payment_status,
-        "organisation_name": organisation.name,
-        "organisation_slug": organisation.slug,
-        "app_slug": app_slug,
-        "login_url": f"/{app_slug}/{organisation.slug}/login",
-        "is_active": organisation.is_active,
-    })
+    return Response(
+        {
+            "payment_status": session.payment_status,
+            "organisation_name": organisation.name,
+            "organisation_slug": organisation.slug,
+            "app_slug": app_slug,
+            "login_url": f"/{app_slug}/{organisation.slug}/login",
+            "is_active": organisation.is_active,
+        }
+    )
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def my_subscription(request):
     membership = (
-        Membership.objects
-        .filter(
+        Membership.objects.filter(
             user=request.user,
             is_active=True,
         )
@@ -301,8 +339,7 @@ def my_subscription(request):
 @permission_classes([IsAuthenticated])
 def create_customer_portal_session(request):
     membership = (
-        Membership.objects
-        .filter(user=request.user, is_active=True)
+        Membership.objects.filter(user=request.user, is_active=True)
         .select_related(
             "organisation",
             "organisation__subscription",
