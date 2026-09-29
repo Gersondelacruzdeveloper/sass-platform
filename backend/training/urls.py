@@ -51,6 +51,7 @@ router.register(
     basename="assigned-training",
 )
 urlpatterns = [
+    path("import-center/", include("training.import_center.urls")),
     path("", include(router.urls)),
     path("dashboard/", training_dashboard),
     path("analytics/", analytics_dashboard),

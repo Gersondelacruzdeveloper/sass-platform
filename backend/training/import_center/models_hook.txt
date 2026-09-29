@@ -1,0 +1,2 @@
+# Add this at the very bottom of backend/training/models.py
+from .import_center.models import TrainingImportJob, TrainingImportBinding  # noqa: E402,F401

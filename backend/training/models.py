@@ -621,3 +621,5 @@ class EmployeeAssignedTraining(models.Model):
 
     def __str__(self):
         return f"{self.employee.name} - {self.standard.title} - {self.status}"
+
+from .import_center.models import TrainingImportJob, TrainingImportBinding  # noqa: E402,F401
