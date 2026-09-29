@@ -28,6 +28,7 @@ import TrainingResourcesPage from "../pages/TrainingResourcesPage";
 import RecoveryPlansPage from "../pages/RecoveryPlansPage";
 import AssignedTrainingsPage from "../pages/AssignedTrainingsPage";
 import FacilitatorTrainingQueuePage from "../pages/FacilitatorTrainingQueuePage";
+import ImportCenterPage from "../import-center/ImportCenterPage";
 
 export const trainingRoutes = (
   <>
@@ -52,6 +53,7 @@ export const trainingRoutes = (
         <Route path="training-sessions" element={<TrainingSessionsPage />} />
         <Route path="evaluations" element={<EvaluationsPage />} />
         <Route path="standards" element={<StandardsPage />} />
+        <Route path="import-center" element={<ImportCenterPage />} />
         <Route path="evaluation-templates" element={<EvaluationTemplatesPage />} />
         <Route
         path="evaluation-templates/:id/edit"

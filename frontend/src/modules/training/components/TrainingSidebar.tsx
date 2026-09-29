@@ -128,6 +128,12 @@ export default function BarraLateralCapacitacion({
         adminOnly: true,
       },
       {
+        label: "Importar configuración",
+        path: `${rutaBase}/import-center`,
+        icon: "📥",
+        adminOnly: true,
+      },
+      {
         label: "Sesiones Formales",
         path: `${rutaBase}/training-sessions`,
         icon: "📚",
