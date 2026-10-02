@@ -14,7 +14,8 @@ export type ColmadoSection =
   | "inventario"
   | "pedidos"
   | "fiado"
-  | "caja";
+  | "caja"
+  | "catalogo";
 
 export interface Store {
   id: number;

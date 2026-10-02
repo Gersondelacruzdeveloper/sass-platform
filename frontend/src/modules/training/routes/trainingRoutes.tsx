@@ -50,7 +50,6 @@ export const trainingRoutes = (
 
         <Route path="training-sessions" element={<TrainingSessionsPage />} />
 
-        <Route path="training-sessions" element={<TrainingSessionsPage />} />
         <Route path="evaluations" element={<EvaluationsPage />} />
         <Route path="standards" element={<StandardsPage />} />
         <Route path="import-center" element={<ImportCenterPage />} />

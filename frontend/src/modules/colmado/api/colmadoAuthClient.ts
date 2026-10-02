@@ -1,7 +1,7 @@
 import api from "../../../api/axios";
 
 
-interface LoginOrganisation {
+export interface ColmadoOrganisation {
   id: number;
   name: string;
   slug: string;
@@ -10,24 +10,29 @@ interface LoginOrganisation {
   is_active: boolean;
 }
 
-interface LoginUser {
+
+export interface ColmadoUser {
   id: number;
   email: string;
   username: string;
   first_name: string;
   last_name: string;
+  phone: string;
   role: string | null;
-  organisation: LoginOrganisation | null;
+  is_platform_owner: boolean;
+  organisation: ColmadoOrganisation | null;
 }
+
 
 interface LoginResponse {
   detail: string;
-  user: LoginUser;
+  user: ColmadoUser;
 }
 
+
 export interface ColmadoLoginResult {
-  user: LoginUser;
-  organisation: LoginOrganisation;
+  user: ColmadoUser;
+  organisation: ColmadoOrganisation;
 }
 
 
@@ -39,16 +44,9 @@ export class ColmadoAccessError extends Error {
 }
 
 
-export async function loginToColmado(
-  login: string,
-  password: string,
-): Promise<ColmadoLoginResult> {
-  const response = await api.post<LoginResponse>("/accounts/login/", {
-    login: login.trim(),
-    password,
-  });
-
-  const { user } = response.data;
+function requireActiveColmado(
+  user: ColmadoUser,
+): ColmadoLoginResult {
   const organisation = user.organisation;
 
   if (
@@ -56,12 +54,6 @@ export async function loginToColmado(
     || organisation.business_type !== "colmado"
     || !organisation.is_active
   ) {
-    try {
-      await api.post("/accounts/logout/");
-    } catch {
-      // The login must still fail closed even if session cleanup is unavailable.
-    }
-
     throw new ColmadoAccessError(
       "Esta cuenta no tiene un colmado activo.",
     );
@@ -71,4 +63,55 @@ export async function loginToColmado(
     user,
     organisation,
   };
+}
+
+
+async function clearInvalidSession(): Promise<void> {
+  try {
+    await api.post("/accounts/logout/");
+  } catch {
+    // El acceso permanece bloqueado aunque no se pueda limpiar la sesión.
+  }
+}
+
+
+export async function loginToColmado(
+  login: string,
+  password: string,
+): Promise<ColmadoLoginResult> {
+  const response = await api.post<LoginResponse>(
+    "/accounts/login/",
+    {
+      login: login.trim(),
+      password,
+    },
+  );
+
+  try {
+    return requireActiveColmado(response.data.user);
+  } catch (error) {
+    await clearInvalidSession();
+    throw error;
+  }
+}
+
+
+export async function getCurrentColmadoSession(): Promise<
+  ColmadoLoginResult
+> {
+  const response = await api.get<ColmadoUser>(
+    "/accounts/me/",
+  );
+
+  try {
+    return requireActiveColmado(response.data);
+  } catch (error) {
+    await clearInvalidSession();
+    throw error;
+  }
+}
+
+
+export async function logoutFromColmado(): Promise<void> {
+  await api.post("/accounts/logout/");
 }
