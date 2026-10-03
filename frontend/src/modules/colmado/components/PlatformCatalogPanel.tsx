@@ -397,32 +397,51 @@ export default function PlatformCatalogPanel() {
               className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="font-black text-slate-950">
-                    {product.display_name}
-                  </h2>
+                <div className="flex min-w-0 items-center gap-3">
+                  {product.image_url ? (
+                    <img
+                      src={product.image_url}
+                      alt={`Foto de ${product.display_name}`}
+                      className="h-20 w-20 shrink-0 rounded-xl border border-slate-200 bg-white object-contain p-1"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div
+                      role="img"
+                      aria-label={`Sin foto para ${product.display_name}`}
+                      className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-black text-slate-500"
+                    >
+                      Sin foto
+                    </div>
+                  )}
 
-                  <p className="text-sm text-slate-600">
-                    {product.barcode ||
-                      "Sin código de barra"}
-                    {" · "}
-                    {product.category ||
-                      "Sin categoría"}
-                  </p>
+                  <div className="min-w-0">
+                    <h2 className="break-words font-black text-slate-950">
+                      {product.display_name}
+                    </h2>
 
-                  <p
-                    className={
-                      `mt-1 text-xs font-black ${
-                        product.is_active
-                          ? "text-emerald-700"
-                          : "text-red-700"
-                      }`
-                    }
-                  >
-                    {product.is_active
-                      ? "Activo"
-                      : "Inactivo"}
-                  </p>
+                    <p className="text-sm text-slate-600">
+                      {product.barcode ||
+                        "Sin código de barra"}
+                      {" · "}
+                      {product.category ||
+                        "Sin categoría"}
+                    </p>
+
+                    <p
+                      className={
+                        `mt-1 text-xs font-black ${
+                          product.is_active
+                            ? "text-emerald-700"
+                            : "text-red-700"
+                        }`
+                      }
+                    >
+                      {product.is_active
+                        ? "Activo"
+                        : "Inactivo"}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">

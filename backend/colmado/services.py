@@ -1652,6 +1652,22 @@ def _finish_catalog_import(
     return catalog_import
 
 
+def _schedule_master_product_image_sync():
+    """
+    Start automatic image synchronization only after the database
+    transaction has completed successfully.
+    """
+
+    from colmado.tasks import sync_master_product_images
+
+    transaction.on_commit(
+        lambda: sync_master_product_images.delay(
+            after_id=0,
+            batch_size=10,
+        )
+    )
+
+
 def import_master_catalog(*, uploaded_by, uploaded_file):
     """Validate every row, then atomically create or update master products."""
 
@@ -1709,7 +1725,7 @@ def import_master_catalog(*, uploaded_by, uploaded_file):
                 ],
             )
 
-        return _finish_catalog_import(
+        catalog_import = _finish_catalog_import(
             catalog_import,
             status_value=CatalogImport.COMPLETED,
             total_rows=len(rows),
@@ -1717,6 +1733,10 @@ def import_master_catalog(*, uploaded_by, uploaded_file):
             updated=updated,
             unchanged=unchanged,
         )
+
+        _schedule_master_product_image_sync()
+
+        return catalog_import
     except CatalogImportAbort as exc:
         return _finish_catalog_import(
             catalog_import,
