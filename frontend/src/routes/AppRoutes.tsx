@@ -11,6 +11,7 @@ import { partnerNetworkRoutes } from "../modules/partner-network/routes/partnerN
 import { ticketingRoutes } from "../modules/ticketing/routes/ticketingRoutes";
 import { trainingRoutes } from "../modules/training/routes/trainingRoutes";
 
+import { careerRoutes } from "../modules/organisational-development/routes/careerRoutes";
 
 export default function AppRoutes() {
   return (
@@ -27,6 +28,9 @@ export default function AppRoutes() {
       {ticketingRoutes}
       {partnerNetworkRoutes}
       {colmadoRoutes}
+      
+      {/* Desarrollo Organizacional */}
+      {careerRoutes}
     </Routes>
   );
 }

@@ -24,6 +24,7 @@ export interface SavePlatformProductPayload {
   sale_mode: "unit" | "weight" | "amount";
   units_per_case: number;
   is_active?: boolean;
+  image?: File;
 }
 
 
@@ -51,6 +52,37 @@ export interface CatalogImportResult {
 
 const listResults = <T>(data: ApiList<T>): T[] =>
   Array.isArray(data) ? data : data.results;
+
+
+function productRequestBody(
+  payload: Partial<SavePlatformProductPayload>,
+): Partial<SavePlatformProductPayload> | FormData {
+  if (!(payload.image instanceof File)) {
+    return payload;
+  }
+
+  const formData = new FormData();
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined) {
+      return;
+    }
+
+    if (value === null) {
+      formData.append(key, "");
+      return;
+    }
+
+    if (value instanceof File) {
+      formData.append(key, value);
+      return;
+    }
+
+    formData.append(key, String(value));
+  });
+
+  return formData;
+}
 
 
 export async function getPlatformCatalog(
@@ -82,7 +114,7 @@ export async function createPlatformProduct(
 ): Promise<CatalogProduct> {
   const response = await api.post<CatalogProduct>(
     "/colmado/platform-catalog/",
-    payload,
+    productRequestBody(payload),
   );
 
   return response.data;
@@ -95,16 +127,14 @@ export async function updatePlatformProduct(
 ): Promise<CatalogProduct> {
   const response = await api.patch<CatalogProduct>(
     `/colmado/platform-catalog/${productId}/`,
-    payload,
+    productRequestBody(payload),
   );
 
   return response.data;
 }
 
 
-export async function getCatalogImports(): Promise<
-  CatalogImportResult[]
-> {
+export async function getCatalogImports(): Promise<CatalogImportResult[]> {
   const response = await api.get<ApiList<CatalogImportResult>>(
     "/colmado/catalog-imports/",
   );

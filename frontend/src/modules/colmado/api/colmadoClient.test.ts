@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  addCatalogProductToInventory,
   addInitialInventoryItem,
   changeCustomerOrderStatus,
   closeCashRegister,
@@ -13,6 +14,7 @@ import {
   getCustomers,
   getDashboard,
   getInventory,
+  getCatalogProducts,
   getStores,
   openCashRegister,
   receiveInventoryCases,
@@ -92,6 +94,64 @@ describe("Colmado API client", () => {
     expect(apiMocks.get).toHaveBeenCalledWith(
       "/colmado/catalog/by-barcode/",
       { headers, params: { barcode: "746000000009" } },
+    );
+  });
+
+  it("searches the master catalog by name for the selected colmado", async () => {
+    const products = [
+      {
+        id: 9,
+        barcode: null,
+        name: "Plátano maduro",
+        display_name: "Plátano maduro",
+      },
+    ];
+    apiMocks.get.mockResolvedValue({ data: { results: products } });
+
+    await expect(
+      getCatalogProducts(organisationSlug, {
+        search: "  plátano  ",
+      }),
+    ).resolves.toEqual(products);
+
+    expect(apiMocks.get).toHaveBeenCalledWith(
+      "/colmado/catalog/",
+      {
+        headers,
+        params: {
+          search: "plátano",
+          category: undefined,
+        },
+      },
+    );
+  });
+
+  it("adds a selected master product to one store inventory", async () => {
+    const payload = {
+      store: 2,
+      master_product: 9,
+      quantity: "30.000",
+      cost_price: "12.00",
+      sale_price: "20.00",
+      reorder_level: "5.000",
+      is_quick_sale: true,
+      is_active: true,
+    };
+    const inventoryItem = {
+      id: 21,
+      product_display_name: "Plátano maduro",
+      ...payload,
+    };
+    apiMocks.post.mockResolvedValue({ data: inventoryItem });
+
+    await expect(
+      addCatalogProductToInventory(organisationSlug, payload),
+    ).resolves.toEqual(inventoryItem);
+
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      "/colmado/inventory/",
+      payload,
+      { headers },
     );
   });
 

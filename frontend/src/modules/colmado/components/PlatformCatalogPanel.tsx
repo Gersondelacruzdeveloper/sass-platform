@@ -46,6 +46,8 @@ export default function PlatformCatalogPanel() {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [selectedImage, setSelectedImage] =
+    useState<File | null>(null);
 
   const [editingProduct, setEditingProduct] =
     useState<CatalogProduct | null>(null);
@@ -84,8 +86,28 @@ export default function PlatformCatalogPanel() {
   }, [loadProducts]);
 
 
+  const [imagePreview, setImagePreview] =
+    useState<string | null>(null);
+
+
+  useEffect(() => {
+    if (!selectedImage) {
+      setImagePreview(editingProduct?.image_url ?? null);
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(selectedImage);
+    setImagePreview(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [editingProduct, selectedImage]);
+
+
   function startNewProduct() {
     setEditingProduct(null);
+    setSelectedImage(null);
     setForm(emptyForm);
     setShowForm(true);
     setNotice(null);
@@ -94,6 +116,7 @@ export default function PlatformCatalogPanel() {
 
   function startEditing(product: CatalogProduct) {
     setEditingProduct(product);
+    setSelectedImage(null);
 
     setForm({
       barcode: product.barcode ?? "",
@@ -108,6 +131,33 @@ export default function PlatformCatalogPanel() {
     });
 
     setShowForm(true);
+    setNotice(null);
+  }
+
+
+  function selectProductImage(file: File | undefined) {
+    if (!file) {
+      setSelectedImage(null);
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setNotice({
+        kind: "error",
+        text: "Selecciona un archivo de imagen válido.",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setNotice({
+        kind: "error",
+        text: "La imagen no puede pesar más de 5 MB.",
+      });
+      return;
+    }
+
+    setSelectedImage(file);
     setNotice(null);
   }
 
@@ -131,6 +181,9 @@ export default function PlatformCatalogPanel() {
       brand: form.brand?.trim(),
       presentation: form.presentation?.trim(),
       category: form.category?.trim(),
+      ...(selectedImage
+        ? { image: selectedImage }
+        : {}),
     };
 
     try {
@@ -145,6 +198,7 @@ export default function PlatformCatalogPanel() {
 
       setShowForm(false);
       setEditingProduct(null);
+      setSelectedImage(null);
       setForm(emptyForm);
 
       setNotice({
@@ -340,8 +394,14 @@ export default function PlatformCatalogPanel() {
           form={form}
           editing={Boolean(editingProduct)}
           saving={saving}
+          imagePreview={imagePreview}
           onChange={setForm}
-          onCancel={() => setShowForm(false)}
+          onImageChange={selectProductImage}
+          onCancel={() => {
+            setShowForm(false);
+            setEditingProduct(null);
+            setSelectedImage(null);
+          }}
           onSubmit={saveProduct}
         />
       )}
@@ -481,9 +541,11 @@ interface ProductFormProps {
   form: SavePlatformProductPayload;
   editing: boolean;
   saving: boolean;
+  imagePreview: string | null;
   onChange: (
     value: SavePlatformProductPayload,
   ) => void;
+  onImageChange: (file: File | undefined) => void;
   onCancel: () => void;
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
@@ -495,7 +557,9 @@ function ProductForm({
   form,
   editing,
   saving,
+  imagePreview,
   onChange,
+  onImageChange,
   onCancel,
   onSubmit,
 }: ProductFormProps) {
@@ -519,6 +583,53 @@ function ProductForm({
           ? "Editar producto"
           : "Nuevo producto"}
       </h2>
+
+      <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-200 bg-white p-3 sm:flex-row sm:items-center">
+        {imagePreview ? (
+          <img
+            src={imagePreview}
+            alt="Vista previa del producto"
+            className="h-28 w-28 rounded-xl border border-slate-200 bg-white object-contain p-1"
+          />
+        ) : (
+          <div className="flex h-28 w-28 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-black text-slate-500">
+            Sin foto
+          </div>
+        )}
+
+        <div className="flex-1">
+          <p className="font-black text-slate-900">
+            Imagen del producto
+          </p>
+
+          <p className="mt-1 text-sm text-slate-600">
+            JPG, PNG, GIF o WebP. Máximo 5 MB.
+          </p>
+
+          {editing && imagePreview && (
+            <p className="mt-1 text-xs font-bold text-emerald-700">
+              Si no eliges otra imagen, conservaremos la actual.
+            </p>
+          )}
+
+          <label className="mt-3 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border-2 border-emerald-700 px-4 font-black text-emerald-800">
+            {imagePreview
+              ? "Cambiar imagen"
+              : "Seleccionar imagen"}
+
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="sr-only"
+              aria-label="Imagen del producto"
+              onChange={(event) => {
+                onImageChange(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+      </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Field

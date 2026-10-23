@@ -5,15 +5,18 @@ import {
   Boxes,
   Camera,
   LoaderCircle,
+  ListPlus,
   PackagePlus,
   Search,
   X,
 } from "lucide-react";
 
 import {
+  addCatalogProductToInventory,
   addInitialInventoryItem,
   findCatalogProductByBarcode,
   getApiErrorMessage,
+  getCatalogProducts,
   getInventory,
   receiveInventoryCases,
   type CatalogProduct,
@@ -48,6 +51,10 @@ export default function InventoryPanel({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [catalogProduct, setCatalogProduct] = useState<CatalogProduct | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
+  const [catalogSearching, setCatalogSearching] = useState(false);
   const [receivingItem, setReceivingItem] = useState<InventoryItem | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -66,6 +73,9 @@ export default function InventoryPanel({
     setSearch("");
     setBarcode("");
     setCatalogProduct(null);
+    setCatalogOpen(false);
+    setCatalogSearch("");
+    setCatalogResults([]);
     setReceivingItem(null);
     setNotice(null);
     void loadInventory();
@@ -130,6 +140,55 @@ export default function InventoryPanel({
     setNotice(null);
   }
 
+  async function searchMasterCatalog(event: FormEvent) {
+    event.preventDefault();
+    if (!catalogSearch.trim() || catalogSearching) return;
+
+    setCatalogSearching(true);
+    setNotice(null);
+    try {
+      const products = await getCatalogProducts(organisationSlug, {
+        search: catalogSearch,
+      });
+      setCatalogResults(products);
+      if (products.length === 0) {
+        setNotice({
+          kind: "error",
+          text: "No encontramos ese producto en el catálogo maestro.",
+        });
+      }
+    } catch (error) {
+      setNotice({ kind: "error", text: getApiErrorMessage(error) });
+    } finally {
+      setCatalogSearching(false);
+    }
+  }
+
+  function selectCatalogProduct(product: CatalogProduct) {
+    const existing = inventory.find(
+      (item) => item.master_product === product.id,
+    );
+
+    setCatalogOpen(false);
+    setCatalogResults([]);
+    setCatalogSearch("");
+    setNotice(null);
+
+    if (existing) {
+      setCatalogProduct(null);
+      setReceivingItem(existing);
+      setNotice({
+        kind: "success",
+        text: `${existing.product_display_name} ya está en tu inventario. Puedes recibir sus cajas ahora.`,
+      });
+      return;
+    }
+
+    setReceivingItem(null);
+    setCatalogProduct(product);
+    setBarcode(product.barcode ?? "");
+  }
+
   async function inventoryChanged() {
     await loadInventory();
     await onInventoryChanged?.();
@@ -185,7 +244,42 @@ export default function InventoryPanel({
             <Camera aria-hidden="true" size={20} /> Cámara
           </button>
         </form>
+
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 font-black text-white sm:w-auto"
+            onClick={() => {
+              setCatalogOpen((current) => !current);
+              setCatalogProduct(null);
+              setReceivingItem(null);
+              setNotice(null);
+            }}
+          >
+            <ListPlus aria-hidden="true" size={20} />
+            Buscar en catálogo maestro
+          </button>
+          <p className="mt-2 text-sm text-slate-500">
+            Úsalo para productos sin código, como plátano, yuca o guineo.
+          </p>
+        </div>
       </div>
+
+      {catalogOpen && (
+        <CatalogProductSearch
+          search={catalogSearch}
+          searching={catalogSearching}
+          products={catalogResults}
+          onSearchChange={setCatalogSearch}
+          onSearch={searchMasterCatalog}
+          onSelect={selectCatalogProduct}
+          onCancel={() => {
+            setCatalogOpen(false);
+            setCatalogSearch("");
+            setCatalogResults([]);
+          }}
+        />
+      )}
 
       {notice && (
         <div
@@ -366,19 +460,30 @@ function InitialInventoryForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!product.barcode || saving) return;
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      const item = await addInitialInventoryItem(organisationSlug, {
-        store_id: storeId,
-        barcode: product.barcode,
-        quantity,
-        cost_price: costPrice,
-        sale_price: salePrice,
-        reorder_level: reorderLevel,
-        is_quick_sale: quickSale,
-      });
+      const item = product.barcode
+        ? await addInitialInventoryItem(organisationSlug, {
+            store_id: storeId,
+            barcode: product.barcode,
+            quantity,
+            cost_price: costPrice,
+            sale_price: salePrice,
+            reorder_level: reorderLevel,
+            is_quick_sale: quickSale,
+          })
+        : await addCatalogProductToInventory(organisationSlug, {
+            store: storeId,
+            master_product: product.id,
+            quantity,
+            cost_price: costPrice,
+            sale_price: salePrice,
+            reorder_level: reorderLevel,
+            is_quick_sale: quickSale,
+            is_active: true,
+          });
       await onSaved(item);
     } catch (caught) {
       setError(getApiErrorMessage(caught));
@@ -397,7 +502,9 @@ function InitialInventoryForm({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-black uppercase text-emerald-700">Producto encontrado</p>
           <h2 className="text-lg font-black text-slate-950">{product.display_name}</h2>
-          <p className="text-sm text-slate-600">{product.barcode}</p>
+          <p className="text-sm text-slate-600">
+            {product.barcode || "Producto sin código de barra"}
+          </p>
         </div>
         <button type="button" aria-label="Cancelar" onClick={onCancel}>
           <X aria-hidden="true" />
@@ -430,6 +537,102 @@ function InitialInventoryForm({
         {saving ? "Guardando..." : "Agregar a mi inventario"}
       </button>
     </form>
+  );
+}
+
+interface CatalogProductSearchProps {
+  search: string;
+  searching: boolean;
+  products: CatalogProduct[];
+  onSearchChange: (value: string) => void;
+  onSearch: (event: FormEvent) => void;
+  onSelect: (product: CatalogProduct) => void;
+  onCancel: () => void;
+}
+
+function CatalogProductSearch({
+  search,
+  searching,
+  products,
+  onSearchChange,
+  onSearch,
+  onSelect,
+  onCancel,
+}: CatalogProductSearchProps) {
+  return (
+    <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase text-emerald-700">
+            Catálogo maestro
+          </p>
+          <h2 className="text-lg font-black text-slate-950">
+            Busca el producto que tienes
+          </h2>
+        </div>
+        <button type="button" aria-label="Cerrar catálogo" onClick={onCancel}>
+          <X aria-hidden="true" />
+        </button>
+      </div>
+
+      <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={onSearch}>
+        <label className="min-w-0 flex-1 font-bold text-slate-800">
+          Nombre, marca o presentación
+          <input
+            autoFocus
+            className="mt-1 min-h-12 w-full rounded-xl border border-slate-300 px-4 outline-none focus:border-emerald-600"
+            placeholder="Ejemplo: plátano, arroz o Coca-Cola"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={!search.trim() || searching}
+          className="min-h-12 self-end rounded-xl bg-emerald-700 px-5 font-black text-white disabled:opacity-50"
+        >
+          {searching ? "Buscando..." : "Buscar producto"}
+        </button>
+      </form>
+
+      {products.length > 0 && (
+        <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
+          {products.map((product) => (
+            <article
+              key={product.id}
+              className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center"
+            >
+              {product.image_url ? (
+                <img
+                  src={product.image_url}
+                  alt=""
+                  className="h-14 w-14 rounded-lg border border-slate-200 object-contain"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+                  <Boxes aria-hidden="true" size={25} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <h3 className="font-black text-slate-900">
+                  {product.display_name}
+                </h3>
+                <p className="text-sm text-slate-500">
+                  {product.barcode || "Sin código de barra"}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="min-h-11 rounded-xl bg-emerald-700 px-4 font-black text-white"
+                onClick={() => onSelect(product)}
+              >
+                Agregar a inventario
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

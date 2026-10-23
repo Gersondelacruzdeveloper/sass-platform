@@ -1,18 +1,6 @@
-import {
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
-
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PlatformCatalogPanel from "./PlatformCatalogPanel";
 
@@ -25,28 +13,17 @@ const catalogMocks = vi.hoisted(() => ({
   updatePlatformProduct: vi.fn(),
 }));
 
-
-vi.mock(
-  "../api/platformCatalogClient",
-  () => catalogMocks,
-);
-
+vi.mock("../api/platformCatalogClient", () => catalogMocks);
 
 vi.mock("../api/colmadoClient", () => ({
-  getApiErrorMessage: (
-    _error: unknown,
-    fallback?: string,
-  ) => (
-    fallback ||
-    "No pudimos completar la operación."
-  ),
+  getApiErrorMessage: (_error: unknown, fallback?: string) =>
+    fallback || "No pudimos completar la operación.",
 }));
 
 
 const product = {
   id: 12,
-  internal_reference:
-    "65fd724d-c072-4aa4-ab66-47a21af8368a",
+  internal_reference: "65fd724d-c072-4aa4-ab66-47a21af8368a",
   barcode: "7460123456789",
   name: "Coca-Cola",
   brand: "Coca-Cola",
@@ -87,137 +64,60 @@ describe("PlatformCatalogPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    catalogMocks.getPlatformCatalog
-      .mockResolvedValue([product]);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:product-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
 
-    catalogMocks.createPlatformProduct
-      .mockResolvedValue(product);
-
-    catalogMocks.updatePlatformProduct
-      .mockResolvedValue(product);
-
-    catalogMocks.importPlatformCatalog
-      .mockResolvedValue(importResult);
-
-    catalogMocks.downloadCatalogTemplate
-      .mockResolvedValue(
-        new Blob(
-          ["codigo_barra,nombre"],
-          {
-            type: "text/csv",
-          },
-        ),
-      );
+    catalogMocks.getPlatformCatalog.mockResolvedValue([product]);
+    catalogMocks.createPlatformProduct.mockResolvedValue(product);
+    catalogMocks.updatePlatformProduct.mockResolvedValue(product);
+    catalogMocks.importPlatformCatalog.mockResolvedValue(importResult);
+    catalogMocks.downloadCatalogTemplate.mockResolvedValue(
+      new Blob(["codigo_barra,nombre"], { type: "text/csv" }),
+    );
   });
-
 
   it("loads and shows the master catalog", async () => {
     render(<PlatformCatalogPanel />);
 
     expect(
-      screen.getByRole(
-        "heading",
-        {
-          name: "Catálogo maestro",
-        },
-      ),
+      screen.getByRole("heading", { name: "Catálogo maestro" }),
     ).toBeInTheDocument();
-
-    expect(
-      await screen.findByText(
-        "Coca-Cola 12 oz",
-      ),
-    ).toBeInTheDocument();
-
-    expect(
-      catalogMocks.getPlatformCatalog,
-    ).toHaveBeenCalledWith({
-      search: "",
-    });
+    expect(await screen.findByText("Coca-Cola 12 oz")).toBeInTheDocument();
+    expect(catalogMocks.getPlatformCatalog).toHaveBeenCalledWith({ search: "" });
   });
-
 
   it("searches by product name, brand or barcode", async () => {
     const user = userEvent.setup();
-
     render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
 
-    await screen.findByText(
-      "Coca-Cola 12 oz",
-    );
+    await user.type(screen.getByLabelText("Buscar productos"), "refresco");
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
 
-    await user.type(
-      screen.getByLabelText(
-        "Buscar productos",
-      ),
-      "refresco",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Buscar",
-        },
-      ),
-    );
-
-    expect(
-      catalogMocks.getPlatformCatalog,
-    ).toHaveBeenLastCalledWith({
+    expect(catalogMocks.getPlatformCatalog).toHaveBeenLastCalledWith({
       search: "refresco",
     });
   });
 
-
   it("creates a product with the simple form", async () => {
     const user = userEvent.setup();
-
     render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
 
-    await screen.findByText(
-      "Coca-Cola 12 oz",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Agregar producto",
-        },
-      ),
-    );
-
-    await user.type(
-      screen.getByLabelText("Nombre *"),
-      "Arroz selecto",
-    );
-
-    await user.type(
-      screen.getByLabelText(
-        "Código de barra",
-      ),
-      "7460999999999",
-    );
-
-    await user.type(
-      screen.getByLabelText("Marca"),
-      "Selecto",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Guardar producto",
-        },
-      ),
-    );
+    await user.click(screen.getByRole("button", { name: "Agregar producto" }));
+    await user.type(screen.getByLabelText("Nombre *"), "Arroz selecto");
+    await user.type(screen.getByLabelText("Código de barra"), "7460999999999");
+    await user.type(screen.getByLabelText("Marca"), "Selecto");
+    await user.click(screen.getByRole("button", { name: "Guardar producto" }));
 
     await waitFor(() => {
-      expect(
-        catalogMocks.createPlatformProduct,
-      ).toHaveBeenCalledWith(
+      expect(catalogMocks.createPlatformProduct).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "Arroz selecto",
           barcode: "7460999999999",
@@ -227,206 +127,177 @@ describe("PlatformCatalogPanel", () => {
         }),
       );
     });
-
-    expect(
-      await screen.findByText(
-        "Producto agregado al catálogo maestro.",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Producto agregado al catálogo maestro.")).toBeInTheDocument();
   });
 
-
-  it("edits an existing product", async () => {
+  it("previews and sends the selected product image", async () => {
     const user = userEvent.setup();
-
     render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
 
-    await screen.findByText(
-      "Coca-Cola 12 oz",
-    );
+    await user.click(screen.getByRole("button", { name: "Agregar producto" }));
+    const image = new File(["product-image"], "arroz-selecto.jpg", {
+      type: "image/jpeg",
+    });
 
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Editar",
-        },
-      ),
-    );
+    await user.upload(screen.getByLabelText("Imagen del producto"), image);
 
-    const presentation =
-      screen.getByLabelText(
-        "Presentación",
-      );
+    expect(
+      screen.getByRole("img", { name: "Vista previa del producto" }),
+    ).toHaveAttribute("src", "blob:product-preview");
 
-    await user.clear(presentation);
-
-    await user.type(
-      presentation,
-      "2 litros",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Guardar producto",
-        },
-      ),
-    );
+    await user.type(screen.getByLabelText("Nombre *"), "Arroz selecto");
+    await user.click(screen.getByRole("button", { name: "Guardar producto" }));
 
     await waitFor(() => {
-      expect(
-        catalogMocks.updatePlatformProduct,
-      ).toHaveBeenCalledWith(
-        12,
+      expect(catalogMocks.createPlatformProduct).toHaveBeenCalledWith(
         expect.objectContaining({
-          presentation: "2 litros",
+          name: "Arroz selecto",
+          image,
         }),
       );
     });
   });
 
-
-  it("deactivates an active product", async () => {
+  it("edits an existing product", async () => {
     const user = userEvent.setup();
-
     render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
 
-    await screen.findByText(
-      "Coca-Cola 12 oz",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Desactivar",
-        },
-      ),
-    );
+    await user.click(screen.getByRole("button", { name: "Editar" }));
+    const presentation = screen.getByLabelText("Presentación");
+    await user.clear(presentation);
+    await user.type(presentation, "2 litros");
+    await user.click(screen.getByRole("button", { name: "Guardar producto" }));
 
     await waitFor(() => {
-      expect(
-        catalogMocks.updatePlatformProduct,
-      ).toHaveBeenCalledWith(
+      expect(catalogMocks.updatePlatformProduct).toHaveBeenCalledWith(
         12,
-        {
-          is_active: false,
-        },
+        expect.objectContaining({ presentation: "2 litros" }),
       );
     });
-
-    expect(
-      await screen.findByText(
-        "Producto desactivado.",
-      ),
-    ).toBeInTheDocument();
   });
 
-
-  it("imports an Excel or CSV catalog", async () => {
+  it("shows and preserves the current image while editing", async () => {
     const user = userEvent.setup();
+    catalogMocks.getPlatformCatalog.mockResolvedValue([
+      {
+        ...product,
+        image_url: "https://example.com/coca-cola.jpg",
+      },
+    ]);
 
     render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
+    await user.click(screen.getByRole("button", { name: "Editar" }));
 
-    await screen.findByText(
-      "Coca-Cola 12 oz",
+    expect(
+      screen.getByRole("img", { name: "Vista previa del producto" }),
+    ).toHaveAttribute("src", "https://example.com/coca-cola.jpg");
+
+    await user.click(screen.getByRole("button", { name: "Guardar producto" }));
+
+    await waitFor(() => {
+      expect(catalogMocks.updatePlatformProduct).toHaveBeenCalledTimes(1);
+    });
+
+    const [, payload] = catalogMocks.updatePlatformProduct.mock.calls[0];
+    expect(payload).not.toHaveProperty("image");
+  });
+
+  it("rejects a file that is not an image", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
+    await user.click(screen.getByRole("button", { name: "Agregar producto" }));
+
+    await user.upload(
+      screen.getByLabelText("Imagen del producto"),
+      new File(["not-an-image"], "producto.txt", { type: "text/plain" }),
     );
 
-    const file = new File(
-      ["producto"],
-      "productos.xlsx",
-      {
-        type:
-          "application/vnd.openxmlformats-" +
-          "officedocument.spreadsheetml.sheet",
-      },
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Selecciona un archivo de imagen válido.",
+    );
+  });
+
+  it("rejects product images larger than 5 MB", async () => {
+    const user = userEvent.setup();
+    render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
+    await user.click(screen.getByRole("button", { name: "Agregar producto" }));
+
+    const oversizedImage = new File(
+      [new Uint8Array(5 * 1024 * 1024 + 1)],
+      "producto-grande.jpg",
+      { type: "image/jpeg" },
     );
 
     await user.upload(
-      screen.getByLabelText(
-        "Importar Excel o CSV",
-      ),
-      file,
+      screen.getByLabelText("Imagen del producto"),
+      oversizedImage,
     );
 
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "La imagen no puede pesar más de 5 MB.",
+    );
+  });
+
+  it("deactivates an active product", async () => {
+    const user = userEvent.setup();
+    render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
+
+    await user.click(screen.getByRole("button", { name: "Desactivar" }));
+
     await waitFor(() => {
-      expect(
-        catalogMocks.importPlatformCatalog,
-      ).toHaveBeenCalledWith(file);
+      expect(catalogMocks.updatePlatformProduct).toHaveBeenCalledWith(12, {
+        is_active: false,
+      });
+    });
+    expect(await screen.findByText("Producto desactivado.")).toBeInTheDocument();
+  });
+
+  it("imports an Excel or CSV catalog", async () => {
+    const user = userEvent.setup();
+    render(<PlatformCatalogPanel />);
+    await screen.findByText("Coca-Cola 12 oz");
+    const file = new File(["producto"], "productos.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
+    await user.upload(screen.getByLabelText("Importar Excel o CSV"), file);
+
+    await waitFor(() => {
+      expect(catalogMocks.importPlatformCatalog).toHaveBeenCalledWith(file);
+    });
     expect(
-      await screen.findByText(
-        "Importación lista: " +
-        "8 creados y 2 actualizados.",
-      ),
+      await screen.findByText("Importación lista: 8 creados y 2 actualizados."),
     ).toBeInTheDocument();
   });
 
-
   it("downloads the Spanish catalog template", async () => {
     const user = userEvent.setup();
-
-    const createObjectURL = vi.fn(
-      () => "blob:catalog-template",
-    );
-
+    const createObjectURL = vi.fn(() => "blob:catalog-template");
     const revokeObjectURL = vi.fn();
-
-    Object.defineProperty(
-      URL,
-      "createObjectURL",
-      {
-        configurable: true,
-        value: createObjectURL,
-      },
-    );
-
-    Object.defineProperty(
-      URL,
-      "revokeObjectURL",
-      {
-        configurable: true,
-        value: revokeObjectURL,
-      },
-    );
-
-    vi.spyOn(
-      HTMLAnchorElement.prototype,
-      "click",
-    ).mockImplementation(() => {});
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     render(<PlatformCatalogPanel />);
-
-    await screen.findByText(
-      "Coca-Cola 12 oz",
-    );
-
-    await user.click(
-      screen.getByRole(
-        "button",
-        {
-          name: "Descargar plantilla",
-        },
-      ),
-    );
+    await screen.findByText("Coca-Cola 12 oz");
+    await user.click(screen.getByRole("button", { name: "Descargar plantilla" }));
 
     await waitFor(() => {
-      expect(
-        catalogMocks.downloadCatalogTemplate,
-      ).toHaveBeenCalledTimes(1);
-
-      expect(
-        createObjectURL,
-      ).toHaveBeenCalledTimes(1);
-
-      expect(
-        revokeObjectURL,
-      ).toHaveBeenCalledWith(
-        "blob:catalog-template",
-      );
+      expect(catalogMocks.downloadCatalogTemplate).toHaveBeenCalledTimes(1);
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:catalog-template");
     });
   });
 });

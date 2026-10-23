@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "ticketing.apps.TicketingConfig",
     "partner_network.apps.PartnerNetworkConfig",
     "colmado.apps.ColmadoConfig",
+    "organisational_development",
 ]
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",

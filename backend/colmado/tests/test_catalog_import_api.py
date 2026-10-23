@@ -1,3 +1,4 @@
+import base64
 import io
 import tempfile
 import uuid
@@ -20,6 +21,13 @@ class CatalogImportApiTests(APITestCase):
         self.admin_user = user_model.objects.create_user(
             email="admin@example.com",
             username="platform-admin",
+            password="safe-test-password",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.staff_user = user_model.objects.create_user(
+            email="staff@example.com",
+            username="platform-staff",
             password="safe-test-password",
             is_staff=True,
         )
@@ -93,6 +101,15 @@ class CatalogImportApiTests(APITestCase):
             format="multipart",
         )
 
+    def image_file(self):
+        return SimpleUploadedFile(
+            "producto.gif",
+            base64.b64decode(
+                "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+            ),
+            content_type="image/gif",
+        )
+
     def coca_cola_row(self, **overrides):
         values = {
             "internal_reference": "",
@@ -138,7 +155,22 @@ class CatalogImportApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_staff_can_download_spanish_csv_template(self):
+    def test_staff_user_cannot_upload_global_catalog(self):
+        self.client.force_authenticate(self.staff_user)
+
+        response = self.post_import(self.csv_file([self.coca_cola_row()]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(MasterProduct.objects.count(), 0)
+
+    def test_staff_user_cannot_manage_platform_catalog(self):
+        self.client.force_authenticate(self.staff_user)
+
+        response = self.client.get(self.platform_catalog_url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superuser_can_download_spanish_csv_template(self):
         response = self.client.get(self.template_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -148,7 +180,7 @@ class CatalogImportApiTests(APITestCase):
         self.assertIn("nombre", content)
         self.assertIn("Coca-Cola", content)
 
-    def test_staff_can_create_individual_master_product(self):
+    def test_superuser_can_create_individual_master_product(self):
         response = self.client.post(
             self.platform_catalog_url,
             {
@@ -176,6 +208,48 @@ class CatalogImportApiTests(APITestCase):
         response = self.client.get(self.platform_catalog_url)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superuser_can_upload_image_when_editing_product(self):
+        product = MasterProduct.objects.create(
+            barcode="7460123456789",
+            name="Coca-Cola",
+        )
+        detail_url = reverse(
+            "colmado-platform-catalog-detail",
+            args=(product.id,),
+        )
+
+        response = self.client.patch(
+            detail_url,
+            {"image": self.image_file()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["image_url"])
+        product.refresh_from_db()
+        self.assertTrue(product.image.name)
+
+    def test_superuser_can_edit_product_outside_first_500_results(self):
+        MasterProduct.objects.bulk_create(
+            MasterProduct(name=f"Producto {number:03d}")
+            for number in range(501)
+        )
+        product = MasterProduct.objects.get(name="Producto 500")
+        detail_url = reverse(
+            "colmado-platform-catalog-detail",
+            args=(product.id,),
+        )
+
+        response = self.client.patch(
+            detail_url,
+            {"category": "Producto de prueba"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        product.refresh_from_db()
+        self.assertEqual(product.category, "Producto de prueba")
 
     def test_imports_valid_csv_and_records_summary(self):
         response = self.post_import(
@@ -423,7 +497,7 @@ class CatalogImportApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(MasterProduct.objects.count(), 0)
 
-    def test_import_history_is_available_to_staff(self):
+    def test_import_history_is_available_to_superuser(self):
         upload_response = self.post_import(self.csv_file([self.coca_cola_row()]))
 
         response = self.client.get(self.import_url)

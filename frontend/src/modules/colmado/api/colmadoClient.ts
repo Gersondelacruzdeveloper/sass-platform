@@ -148,6 +148,22 @@ export interface InitialInventoryPayload {
   is_quick_sale?: boolean;
 }
 
+export interface CatalogFilters {
+  search?: string;
+  category?: string;
+}
+
+export interface AddCatalogProductToInventoryPayload {
+  store: number;
+  master_product: number;
+  quantity: string;
+  cost_price: string;
+  sale_price: string;
+  reorder_level?: string;
+  is_quick_sale?: boolean;
+  is_active?: boolean;
+}
+
 export type InventoryAdjustmentReason =
   | "damaged"
   | "expired"
@@ -208,6 +224,39 @@ export async function findCatalogProductByBarcode(
       params: { barcode },
     },
   );
+  return response.data;
+}
+
+export async function getCatalogProducts(
+  organisationSlug: string,
+  filters: CatalogFilters = {},
+): Promise<CatalogProduct[]> {
+  const response = await api.get<ApiList<CatalogProduct>>(
+    "/colmado/catalog/",
+    {
+      headers: tenantHeaders(organisationSlug),
+      params: {
+        search: filters.search?.trim() || undefined,
+        category: filters.category?.trim() || undefined,
+      },
+    },
+  );
+
+  return listResults(response.data);
+}
+
+export async function addCatalogProductToInventory(
+  organisationSlug: string,
+  payload: AddCatalogProductToInventoryPayload,
+): Promise<InventoryItem> {
+  const response = await api.post<InventoryItem>(
+    "/colmado/inventory/",
+    payload,
+    {
+      headers: tenantHeaders(organisationSlug),
+    },
+  );
+
   return response.data;
 }
 

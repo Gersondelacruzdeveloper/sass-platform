@@ -6,7 +6,9 @@ import type { InventoryItem, Store } from "../types/colmado";
 import InventoryPanel from "./InventoryPanel";
 
 const apiMocks = vi.hoisted(() => ({
+  addCatalogProductToInventory: vi.fn(),
   getInventory: vi.fn(),
+  getCatalogProducts: vi.fn(),
   findCatalogProductByBarcode: vi.fn(),
   addInitialInventoryItem: vi.fn(),
   receiveInventoryCases: vi.fn(),
@@ -234,6 +236,142 @@ describe("InventoryPanel", () => {
       ),
     ).toBeInTheDocument();
     expect(onInventoryChanged).toHaveBeenCalledOnce();
+  });
+
+  it("searches and adds a product without a barcode from the master catalog", async () => {
+    const user = userEvent.setup();
+    const onInventoryChanged = vi.fn();
+    const plantain = {
+      id: 104,
+      internal_reference: "65fd724d-c072-4aa4-ab66-47a21af8368a",
+      barcode: null,
+      name: "Plátano maduro",
+      brand: "",
+      presentation: "Unidad",
+      category: "Víveres",
+      unit: "unit" as const,
+      sale_mode: "unit" as const,
+      units_per_case: 1,
+      image_url: null,
+      display_name: "Plátano maduro por unidad",
+      is_active: true,
+    };
+    apiMocks.getCatalogProducts.mockResolvedValue([plantain]);
+    apiMocks.addCatalogProductToInventory.mockResolvedValue(
+      inventoryItem({
+        id: 14,
+        master_product: 104,
+        product_name: "Plátano maduro",
+        product_display_name: "Plátano maduro por unidad",
+        barcode: null,
+        quantity: "25.000",
+        cost_price: "10.00",
+        sale_price: "15.00",
+        reorder_level: "5.000",
+      }),
+    );
+
+    render(
+      <InventoryPanel
+        organisationSlug="colmado-don-juan"
+        store={store}
+        onInventoryChanged={onInventoryChanged}
+      />,
+    );
+    await screen.findByText("Coca-Cola 12 oz");
+
+    await user.click(
+      screen.getByRole("button", { name: "Buscar en catálogo maestro" }),
+    );
+    await user.type(
+      screen.getByLabelText("Nombre, marca o presentación"),
+      "plátano",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Buscar producto" }),
+    );
+
+    expect(apiMocks.getCatalogProducts).toHaveBeenCalledWith(
+      "colmado-don-juan",
+      { search: "plátano" },
+    );
+    expect(
+      await screen.findByText("Plátano maduro por unidad"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sin código de barra")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Agregar a inventario" }),
+    );
+
+    const inventoryForm = screen
+      .getByText("Producto sin código de barra")
+      .closest("form");
+    expect(inventoryForm).not.toBeNull();
+    const fields = within(inventoryForm!);
+    await user.type(fields.getByLabelText("¿Cuántas unidades tienes?"), "25");
+    await user.type(fields.getByLabelText("Costo por unidad (RD$)"), "10");
+    await user.type(fields.getByLabelText("Precio de venta (RD$)"), "15");
+    await user.click(
+      fields.getByRole("button", { name: "Agregar a mi inventario" }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.addCatalogProductToInventory).toHaveBeenCalledWith(
+        "colmado-don-juan",
+        {
+          store: 2,
+          master_product: 104,
+          quantity: "25",
+          cost_price: "10",
+          sale_price: "15",
+          reorder_level: "5",
+          is_quick_sale: false,
+          is_active: true,
+        },
+      ),
+    );
+    expect(onInventoryChanged).toHaveBeenCalledOnce();
+  });
+
+  it("does not add the same master product twice from catalog search", async () => {
+    const user = userEvent.setup();
+    apiMocks.getCatalogProducts.mockResolvedValue([
+      {
+        id: 100,
+        barcode: "746000000001",
+        display_name: "Coca-Cola 12 oz",
+        image_url: null,
+      },
+    ]);
+
+    render(
+      <InventoryPanel
+        organisationSlug="colmado-don-juan"
+        store={store}
+      />,
+    );
+    await screen.findByText("Coca-Cola 12 oz");
+
+    await user.click(
+      screen.getByRole("button", { name: "Buscar en catálogo maestro" }),
+    );
+    await user.type(
+      screen.getByLabelText("Nombre, marca o presentación"),
+      "Coca-Cola",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Buscar producto" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Agregar a inventario" }),
+    );
+
+    expect(
+      await screen.findByText(/ya está en tu inventario/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recibir mercancía")).toBeInTheDocument();
+    expect(apiMocks.addCatalogProductToInventory).not.toHaveBeenCalled();
   });
 
   it("does not duplicate an existing barcode and opens receiving instead", async () => {
