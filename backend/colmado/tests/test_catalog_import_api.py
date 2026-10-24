@@ -8,7 +8,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.drawing.image import Image as ExcelImage
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -64,7 +65,13 @@ class CatalogImportApiTests(APITestCase):
         content = ("\ufeff" + "\n".join(lines)).encode("utf-8")
         return SimpleUploadedFile(filename, content, content_type="text/csv")
 
-    def xlsx_file(self, rows, *, filename="catalogo.xlsx"):
+    def xlsx_file(
+        self,
+        rows,
+        *,
+        filename="catalogo.xlsx",
+        embedded_images=None,
+    ):
         workbook = Workbook()
         sheet = workbook.active
         sheet.append(
@@ -79,10 +86,16 @@ class CatalogImportApiTests(APITestCase):
                 "modo_venta",
                 "unidades_por_caja",
                 "activo",
+                "imagen",
             )
         )
         for row in rows:
             sheet.append(row)
+        for row_number, image_content in (embedded_images or {}).items():
+            sheet.add_image(
+                ExcelImage(io.BytesIO(image_content)),
+                f"K{row_number}",
+            )
         output = io.BytesIO()
         workbook.save(output)
         workbook.close()
@@ -108,6 +121,11 @@ class CatalogImportApiTests(APITestCase):
                 "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
             ),
             content_type="image/gif",
+        )
+
+    def image_bytes(self):
+        return base64.b64decode(
+            "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
         )
 
     def coca_cola_row(self, **overrides):
@@ -170,15 +188,46 @@ class CatalogImportApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_superuser_can_download_spanish_csv_template(self):
+    def test_superuser_can_download_spanish_xlsx_template_with_image_column(self):
         response = self.client.get(self.template_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("text/csv", response["Content-Type"])
-        content = response.content.decode("utf-8-sig")
-        self.assertIn("codigo_barra", content)
-        self.assertIn("nombre", content)
-        self.assertIn("Coca-Cola", content)
+        self.assertIn(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            response["Content-Type"],
+        )
+        self.assertIn(
+            'filename="plantilla_catalogo_colmado.xlsx"',
+            response["Content-Disposition"],
+        )
+
+        workbook = load_workbook(io.BytesIO(response.content))
+        self.addCleanup(workbook.close)
+        products_sheet = workbook["Productos"]
+
+        headers = [cell.value for cell in products_sheet[1]]
+        self.assertEqual(headers[-1], "imagen")
+        self.assertIn("codigo_barra", headers)
+        self.assertIn("nombre", headers)
+        self.assertEqual(products_sheet["C2"].value, "Coca-Cola")
+        self.assertEqual(products_sheet["K2"].value, "Pegue la imagen aquí")
+
+    def test_catalog_template_contains_clear_spanish_image_instructions(self):
+        response = self.client.get(self.template_url)
+
+        workbook = load_workbook(io.BytesIO(response.content))
+        self.addCleanup(workbook.close)
+        instructions_sheet = workbook["Instrucciones"]
+        instructions = " ".join(
+            str(cell.value or "")
+            for row in instructions_sheet.iter_rows()
+            for cell in row
+        )
+
+        self.assertIn("Insertar > Imagen", instructions)
+        self.assertIn("una imagen por producto", instructions)
+        self.assertIn("conserva su imagen actual", instructions)
+        self.assertIn("evita productos duplicados", instructions)
 
     def test_superuser_can_create_individual_master_product(self):
         response = self.client.post(
@@ -461,6 +510,63 @@ class CatalogImportApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(MasterProduct.objects.count(), 0)
         self.assertIn("repetido", response.data["errors"][0]["errors"][0])
+
+    def test_xlsx_import_saves_image_embedded_in_product_row(self):
+        response = self.post_import(
+            self.xlsx_file(
+                [self.coca_cola_row()],
+                embedded_images={2: self.image_bytes()},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        product = MasterProduct.objects.get(barcode="7460123456789")
+        self.assertTrue(product.image.name)
+        self.assertIn("catalogo-7460123456789", product.image.name)
+
+    def test_xlsx_image_updates_existing_product_without_duplication(self):
+        product = MasterProduct.objects.create(
+            barcode="7460123456789",
+            name="Coca-Cola anterior",
+            brand="Coca-Cola",
+            presentation="12 oz",
+        )
+
+        response = self.post_import(
+            self.xlsx_file(
+                [self.coca_cola_row()],
+                embedded_images={2: self.image_bytes()},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(MasterProduct.objects.count(), 1)
+        product.refresh_from_db()
+        self.assertEqual(product.name, "Coca-Cola")
+        self.assertTrue(product.image.name)
+        self.assertEqual(response.data["updated_products"], 1)
+
+    def test_xlsx_without_image_preserves_existing_product_image(self):
+        product = MasterProduct.objects.create(
+            barcode="7460123456789",
+            name="Coca-Cola",
+            brand="Coca-Cola",
+            presentation="12 oz",
+        )
+        product.image.save(
+            "imagen-existente.gif",
+            self.image_file(),
+            save=True,
+        )
+        original_image_name = product.image.name
+
+        response = self.post_import(
+            self.xlsx_file([self.coca_cola_row()])
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        product.refresh_from_db()
+        self.assertEqual(product.image.name, original_image_name)
 
     def test_invalid_unit_prevents_entire_import(self):
         response = self.post_import(

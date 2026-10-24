@@ -78,7 +78,12 @@ describe("PlatformCatalogPanel", () => {
     catalogMocks.updatePlatformProduct.mockResolvedValue(product);
     catalogMocks.importPlatformCatalog.mockResolvedValue(importResult);
     catalogMocks.downloadCatalogTemplate.mockResolvedValue(
-      new Blob(["codigo_barra,nombre"], { type: "text/csv" }),
+      new Blob(["excel-template"], {
+        type: (
+          "application/vnd.openxmlformats-officedocument." +
+          "spreadsheetml.sheet"
+        ),
+      }),
     );
   });
 
@@ -276,7 +281,7 @@ describe("PlatformCatalogPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("downloads the Spanish catalog template", async () => {
+  it("downloads the Spanish Excel catalog template", async () => {
     const user = userEvent.setup();
     const createObjectURL = vi.fn(() => "blob:catalog-template");
     const revokeObjectURL = vi.fn();
@@ -288,7 +293,9 @@ describe("PlatformCatalogPanel", () => {
       configurable: true,
       value: revokeObjectURL,
     });
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
 
     render(<PlatformCatalogPanel />);
     await screen.findByText("Coca-Cola 12 oz");
@@ -297,6 +304,11 @@ describe("PlatformCatalogPanel", () => {
     await waitFor(() => {
       expect(catalogMocks.downloadCatalogTemplate).toHaveBeenCalledTimes(1);
       expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      expect(click.mock.instances[0]).toHaveAttribute(
+        "download",
+        "plantilla_catalogo_colmado.xlsx",
+      );
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:catalog-template");
     });
   });

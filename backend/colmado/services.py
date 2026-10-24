@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from datetime import timedelta
 
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -14,6 +15,11 @@ from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework.exceptions import ValidationError
 
+from .catalog_excel_images import (
+    CatalogImageValidationError,
+    extract_embedded_catalog_images,
+    image_reference_for_row,
+)
 from .models import (
     CashRegisterSession,
     CatalogImport,
@@ -1313,14 +1319,14 @@ def _read_csv_catalog(file_bytes):
         raise CatalogImportAbort(
             [{"row": 1, "errors": ["El archivo no contiene encabezados."]}]
         )
-    return list(reader), reader.fieldnames
+    return list(reader), reader.fieldnames, {}
 
 
 def _read_xlsx_catalog(file_bytes):
     try:
         workbook = load_workbook(
             filename=io.BytesIO(file_bytes),
-            read_only=True,
+            read_only=False,
             data_only=True,
         )
         worksheet = workbook.active
@@ -1333,8 +1339,18 @@ def _read_xlsx_catalog(file_bytes):
             )
         fieldnames = [_clean_cell(value) for value in headers]
         rows = [dict(zip(fieldnames, values)) for values in iterator]
+        embedded_images = extract_embedded_catalog_images(
+            worksheet,
+            fieldnames,
+        )
         workbook.close()
-        return rows, fieldnames
+        return rows, fieldnames, embedded_images
+    except CatalogImageValidationError as exc:
+        try:
+            workbook.close()
+        except (NameError, UnboundLocalError):
+            pass
+        raise CatalogImportAbort([exc.as_catalog_error()]) from exc
     except CatalogImportAbort:
         raise
     except Exception as exc:
@@ -1442,7 +1458,8 @@ def _parse_catalog_row(row, row_number):
     }, None
 
 
-def _validate_catalog_rows(raw_rows, fieldnames):
+def _validate_catalog_rows(raw_rows, fieldnames, embedded_images=None):
+    embedded_images = embedded_images or {}
     normalized_headers = {_normalize_header(value) for value in fieldnames}
     name_aliases = set(CATALOG_HEADERS["name"])
     if not normalized_headers.intersection(name_aliases):
@@ -1456,7 +1473,7 @@ def _validate_catalog_rows(raw_rows, fieldnames):
     nonempty_rows = []
     for index, raw_row in enumerate(raw_rows, start=2):
         canonical = _canonicalize_catalog_row(raw_row)
-        if any(canonical.values()):
+        if any(canonical.values()) or index in embedded_images:
             nonempty_rows.append((index, canonical))
     if len(nonempty_rows) > CATALOG_MAX_ROWS:
         return [], [
@@ -1478,6 +1495,8 @@ def _validate_catalog_rows(raw_rows, fieldnames):
         if error:
             errors.append(error)
             continue
+
+        parsed["embedded_image"] = embedded_images.get(row_number)
 
         if parsed["barcode"]:
             previous_row = seen_barcodes.get(parsed["barcode"])
@@ -1586,7 +1605,15 @@ def _apply_catalog_rows(rows):
             create_values = dict(values)
             if row["internal_reference"]:
                 create_values["internal_reference"] = row["internal_reference"]
-            MasterProduct.objects.create(**create_values)
+            product = MasterProduct.objects.create(**create_values)
+            embedded_image = row.get("embedded_image")
+            if embedded_image is not None:
+                image_reference = image_reference_for_row(row)
+                product.image.save(
+                    embedded_image.filename_for(image_reference),
+                    ContentFile(embedded_image.content),
+                    save=True,
+                )
             created += 1
             continue
 
@@ -1609,8 +1636,21 @@ def _apply_catalog_rows(rows):
             if getattr(product, field) != value:
                 setattr(product, field, value)
                 changed_fields.append(field)
+
+        embedded_image = row.get("embedded_image")
+        if embedded_image is not None:
+            image_reference = image_reference_for_row(row)
+            product.image.save(
+                embedded_image.filename_for(image_reference),
+                ContentFile(embedded_image.content),
+                save=False,
+            )
+            changed_fields.append("image")
+
         if changed_fields:
-            product.save(update_fields=tuple(changed_fields) + ("updated_at",))
+            product.save(
+                update_fields=tuple(dict.fromkeys(changed_fields)) + ("updated_at",)
+            )
             updated += 1
         else:
             unchanged += 1
@@ -1688,10 +1728,14 @@ def import_master_catalog(*, uploaded_by, uploaded_file):
         file_bytes = catalog_import.source_file.read()
         catalog_import.source_file.close()
         if file_format == CatalogImport.XLSX:
-            raw_rows, fieldnames = _read_xlsx_catalog(file_bytes)
+            raw_rows, fieldnames, embedded_images = _read_xlsx_catalog(file_bytes)
         else:
-            raw_rows, fieldnames = _read_csv_catalog(file_bytes)
-        rows, errors = _validate_catalog_rows(raw_rows, fieldnames)
+            raw_rows, fieldnames, embedded_images = _read_csv_catalog(file_bytes)
+        rows, errors = _validate_catalog_rows(
+            raw_rows,
+            fieldnames,
+            embedded_images,
+        )
         if errors:
             return _finish_catalog_import(
                 catalog_import,

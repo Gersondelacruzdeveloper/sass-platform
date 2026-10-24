@@ -1,8 +1,12 @@
 import csv
+import io
 
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
 from django.http import HttpResponse
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from django.db import transaction
 
@@ -2586,72 +2590,98 @@ class CatalogImportViewSet(viewsets.ReadOnlyModelViewSet):
 
     def template(self, request):
 
-        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        workbook = Workbook()
+        products_sheet = workbook.active
+        products_sheet.title = "Productos"
 
-        response["Content-Disposition"] = (
-
-            'attachment; filename="plantilla_catalogo_colmado.csv"'
-
+        headers = (
+            "referencia_interna",
+            "codigo_barra",
+            "nombre",
+            "marca",
+            "presentacion",
+            "categoria",
+            "unidad",
+            "modo_venta",
+            "unidades_por_caja",
+            "activo",
+            "imagen",
         )
-
-        response.write("\ufeff")
-
-        writer = csv.writer(response)
-
-        writer.writerow(
-
+        products_sheet.append(headers)
+        products_sheet.append(
             (
-
-                "referencia_interna",
-
-                "codigo_barra",
-
-                "nombre",
-
-                "marca",
-
-                "presentacion",
-
-                "categoria",
-
-                "unidad",
-
-                "modo_venta",
-
-                "unidades_por_caja",
-
-                "activo",
-
-            )
-
-        )
-
-        writer.writerow(
-
-            (
-
                 "",
-
                 "7460123456789",
-
                 "Coca-Cola",
-
                 "Coca-Cola",
-
                 "12 oz",
-
                 "Bebidas",
-
                 "unidad",
-
                 "por_unidad",
-
-                "24",
-
+                24,
                 "Sí",
-
+                "Pegue la imagen aquí",
             )
-
         )
+
+        header_fill = PatternFill("solid", fgColor="047857")
+        for cell in products_sheet[1]:
+            cell.fill = header_fill
+            cell.font = Font(color="FFFFFF", bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        widths = (22, 20, 32, 22, 20, 22, 16, 18, 22, 12, 24)
+        for column_number, width in enumerate(widths, start=1):
+            products_sheet.column_dimensions[
+                products_sheet.cell(row=1, column=column_number).column_letter
+            ].width = width
+        products_sheet.freeze_panes = "A2"
+        products_sheet.auto_filter.ref = "A1:K2"
+        products_sheet.row_dimensions[2].height = 75
+        products_sheet["K2"].alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+
+        instructions_sheet = workbook.create_sheet("Instrucciones")
+        instructions = (
+            "PLANTILLA DEL CATÁLOGO MAESTRO",
+            "1. Agregue un producto por cada fila de la hoja Productos.",
+            "2. El nombre es obligatorio. El código de barra debe conservarse como texto.",
+            "3. Para agregar una foto, use Insertar > Imagen y colóquela dentro de la celda de la columna imagen en la misma fila del producto.",
+            "4. Use solamente una imagen por producto. Formatos permitidos: JPG, PNG, GIF o WebP; máximo 5 MB.",
+            "5. No cambie los nombres de las columnas ni combine celdas.",
+            "6. Si deja la imagen vacía al actualizar un producto, el sistema conserva su imagen actual.",
+            "7. Al importar de nuevo, el código de barra o la referencia interna evita productos duplicados.",
+            "Valores de unidad: unidad, libra, kg, litro o porción.",
+            "Valores de modo_venta: por_unidad, por_peso o por_monto.",
+            "Valores de activo: Sí o No.",
+        )
+        for row_number, instruction in enumerate(instructions, start=1):
+            cell = instructions_sheet.cell(row=row_number, column=1, value=instruction)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            if row_number == 1:
+                cell.fill = header_fill
+                cell.font = Font(color="FFFFFF", bold=True, size=14)
+        instructions_sheet.column_dimensions["A"].width = 115
+        instructions_sheet.row_dimensions[4].height = 42
+        instructions_sheet.sheet_view.showGridLines = False
+
+        output = io.BytesIO()
+        workbook.save(output)
+        workbook.close()
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = (
+            'attachment; filename="plantilla_catalogo_colmado.xlsx"'
+        )
+        return response
 
         return response

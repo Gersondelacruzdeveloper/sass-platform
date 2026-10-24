@@ -290,7 +290,7 @@ export default function PlatformCatalogPanel() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = "plantilla_catalogo_colmado.csv";
+      link.download = "plantilla_catalogo_colmado.xlsx";
       link.click();
 
       URL.revokeObjectURL(url);
