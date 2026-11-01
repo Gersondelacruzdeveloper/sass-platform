@@ -269,6 +269,54 @@ describe("ColmadoShell", () => {
 
 
   it(
+    "opens the online store settings from desktop and mobile",
+    async () => {
+      const user = userEvent.setup();
+      const onSelectSection = vi.fn();
+
+      renderShell({
+        isPlatformOwner: false,
+        onSelectSection,
+      });
+
+      const onlineStoreButtons =
+        screen.getAllByRole(
+          "button",
+          {
+            name: "Tienda online",
+          },
+        );
+
+      expect(
+        onlineStoreButtons,
+      ).toHaveLength(2);
+
+      await user.click(
+        onlineStoreButtons[0],
+      );
+
+      await user.click(
+        onlineStoreButtons[1],
+      );
+
+      expect(
+        onSelectSection,
+      ).toHaveBeenNthCalledWith(
+        1,
+        "tienda",
+      );
+
+      expect(
+        onSelectSection,
+      ).toHaveBeenNthCalledWith(
+        2,
+        "tienda",
+      );
+    },
+  );
+
+
+  it(
     "sends the employee to cash opening when the register is closed",
     async () => {
       const user = userEvent.setup();

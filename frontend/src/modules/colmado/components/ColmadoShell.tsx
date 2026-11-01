@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   Boxes,
   ClipboardList,
+  Globe2,
   HandCoins,
   House,
   LogOut,
@@ -66,6 +67,11 @@ const navigation: Array<{
     key: "pedidos",
     label: "Pedidos",
     icon: ClipboardList,
+  },
+  {
+    key: "tienda",
+    label: "Tienda online",
+    icon: Globe2,
   },
   {
     key: "fiado",
@@ -397,7 +403,7 @@ export default function ColmadoShell({
 
       <nav
         aria-label="Navegación principal"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_18px_rgba(15,23,42,0.08)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_18px_rgba(15,23,42,0.08)] lg:hidden"
       >
         {mobileNavigation.map(
           ({

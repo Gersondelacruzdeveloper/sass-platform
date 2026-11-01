@@ -13,6 +13,7 @@ export type ColmadoSection =
   | "vender"
   | "inventario"
   | "pedidos"
+  | "tienda"
   | "fiado"
   | "caja"
   | "catalogo";

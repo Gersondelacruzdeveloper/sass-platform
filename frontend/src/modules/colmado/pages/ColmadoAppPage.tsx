@@ -28,6 +28,7 @@ import InventoryPanel from "../components/InventoryPanel";
 import OrdersPanel from "../components/OrdersPanel";
 import PlatformCatalogPanel from "../components/PlatformCatalogPanel";
 import SalePanel from "../components/SalePanel";
+import StorefrontSettingsPanel from "../components/StorefrontSettingsPanel";
 import { useColmadoWorkspace } from "../hooks/useColmadoWorkspace";
 
 import type {
@@ -47,6 +48,7 @@ const validSections: ColmadoSection[] = [
   "vender",
   "inventario",
   "pedidos",
+  "tienda",
   "fiado",
   "caja",
   "catalogo",
@@ -402,6 +404,15 @@ export default function ColmadoAppPage() {
           onOrdersChanged={
             workspace.refreshWorkspace
           }
+        />
+      )}
+
+      {section === "tienda" && (
+        <StorefrontSettingsPanel
+          organisationSlug={
+            organisationSlug
+          }
+          store={selectedStore}
         />
       )}
 

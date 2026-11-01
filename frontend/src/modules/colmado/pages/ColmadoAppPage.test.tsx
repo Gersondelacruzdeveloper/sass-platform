@@ -112,6 +112,7 @@ vi.mock(
               "vender",
               "inventario",
               "pedidos",
+              "tienda",
               "fiado",
               "caja",
             ] as ColmadoSection[]
@@ -239,6 +240,16 @@ vi.mock(
   () => ({
     default: () => (
       <p>Pantalla de pedidos</p>
+    ),
+  }),
+);
+
+
+vi.mock(
+  "../components/StorefrontSettingsPanel",
+  () => ({
+    default: () => (
+      <p>Pantalla de tienda online</p>
     ),
   }),
 );
@@ -620,6 +631,21 @@ describe("ColmadoAppPage", () => {
       expect(
         screen.getByText(
           "Pantalla de pedidos",
+        ),
+      ).toBeInTheDocument();
+
+      await user.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "Ir a tienda",
+          },
+        ),
+      );
+
+      expect(
+        screen.getByText(
+          "Pantalla de tienda online",
         ),
       ).toBeInTheDocument();
 
