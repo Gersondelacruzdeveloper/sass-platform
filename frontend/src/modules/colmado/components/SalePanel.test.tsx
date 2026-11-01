@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,7 +20,35 @@ const apiMocks = vi.hoisted(() => ({
   ),
 }));
 
+const scannerMocks = vi.hoisted(() => ({
+  decodeFromConstraints: vi.fn(),
+  stop: vi.fn(),
+  callback: null as null | ((
+    result: { getText: () => string } | null,
+    error: unknown,
+    controls: { stop: () => void },
+  ) => void),
+}));
+
 vi.mock("../api/colmadoClient", () => apiMocks);
+
+vi.mock("@zxing/browser", () => ({
+  BrowserMultiFormatReader: class BrowserMultiFormatReader {
+    decodeFromConstraints(
+      constraints: MediaStreamConstraints,
+      video: HTMLVideoElement,
+      callback: (
+        result: { getText: () => string } | null,
+        error: unknown,
+        controls: { stop: () => void },
+      ) => void,
+    ) {
+      scannerMocks.decodeFromConstraints(constraints, video, callback);
+      scannerMocks.callback = callback;
+      return Promise.resolve({ stop: scannerMocks.stop });
+    }
+  },
+}));
 
 const store: Store = {
   id: 2,
@@ -95,6 +129,7 @@ async function addSoda(user: ReturnType<typeof userEvent.setup>) {
 describe("SalePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    scannerMocks.callback = null;
     apiMocks.getApiErrorMessage.mockImplementation(
       (_error: unknown, fallback?: string) => fallback || "Error de prueba",
     );
@@ -129,6 +164,36 @@ describe("SalePanel", () => {
     expect(apiMocks.getCustomers).toHaveBeenCalledWith("colmado-don-juan");
   });
 
+  it("shows the platform product image in the sale card", async () => {
+    apiMocks.getInventory.mockResolvedValue([
+      {
+        ...soda,
+        image_url:
+          "https://media.puntacanadiscovery.com/colmado/products/coca.webp",
+      },
+    ]);
+
+    renderSale();
+
+    const image = await screen.findByRole("img", {
+      name: "Coca-Cola 12 oz",
+    });
+    expect(image).toHaveAttribute(
+      "src",
+      "https://media.puntacanadiscovery.com/colmado/products/coca.webp",
+    );
+  });
+
+  it("shows a simple fallback when the product has no image", async () => {
+    renderSale();
+
+    expect(
+      await screen.findByRole("img", {
+        name: "Sin foto de Coca-Cola 12 oz",
+      }),
+    ).toHaveTextContent("Sin foto");
+  });
+
   it("adds products and changes their quantity without exceeding stock", async () => {
     const user = userEvent.setup();
     renderSale();
@@ -147,6 +212,88 @@ describe("SalePanel", () => {
       screen.getByRole("button", { name: "Quitar Coca-Cola" }),
     );
     expect(quantity).toHaveValue(4);
+  });
+
+  it("accepts the EAN-13 equivalent of a UPC-A entered manually", async () => {
+    const user = userEvent.setup();
+    renderSale();
+
+    const search = await screen.findByPlaceholderText(
+      "Buscar por nombre o código",
+    );
+    await user.type(search, `0${soda.barcode}{Enter}`);
+
+    expect(
+      await screen.findByLabelText("Cantidad de Coca-Cola"),
+    ).toHaveValue(1);
+    expect(search).toHaveValue("");
+  });
+
+  it("uses the rear camera and adds the scanned inventory product once", async () => {
+    const user = userEvent.setup();
+    renderSale();
+
+    await screen.findByRole("button", { name: /Coca-Cola 12 oz/i });
+    await user.click(
+      screen.getByRole("button", { name: "Escanear código de barra" }),
+    );
+
+    await waitFor(() => {
+      expect(scannerMocks.decodeFromConstraints).toHaveBeenCalledWith(
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+          },
+        },
+        expect.any(HTMLVideoElement),
+        expect.any(Function),
+      );
+    });
+
+    const callback = scannerMocks.callback;
+    expect(callback).not.toBeNull();
+
+    act(() => {
+      callback?.(
+        { getText: () => `0${soda.barcode}` },
+        null,
+        { stop: scannerMocks.stop },
+      );
+      callback?.(
+        { getText: () => `0${soda.barcode}` },
+        null,
+        { stop: scannerMocks.stop },
+      );
+    });
+
+    expect(
+      await screen.findByLabelText("Cantidad de Coca-Cola"),
+    ).toHaveValue(1);
+    expect(scannerMocks.stop).toHaveBeenCalled();
+  });
+
+  it("explains when a scanned product is not active in store inventory", async () => {
+    const user = userEvent.setup();
+    renderSale();
+
+    await screen.findByRole("button", { name: /Coca-Cola 12 oz/i });
+    await user.click(
+      screen.getByRole("button", { name: "Escanear código de barra" }),
+    );
+    await waitFor(() => expect(scannerMocks.callback).not.toBeNull());
+
+    act(() => {
+      scannerMocks.callback?.(
+        { getText: () => "9999999999999" },
+        null,
+        { stop: scannerMocks.stop },
+      );
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "no está disponible en el inventario de esta sucursal",
+    );
   });
 
   it("rejects cash that is below the sale total", async () => {

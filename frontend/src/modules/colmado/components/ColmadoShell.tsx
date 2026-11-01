@@ -1,9 +1,13 @@
-import type { ReactNode } from "react";
+import {
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   BadgeDollarSign,
   Boxes,
   ClipboardList,
+  Ellipsis,
   Globe2,
   HandCoins,
   House,
@@ -14,6 +18,7 @@ import {
   Store as StoreIcon,
   UserRound,
   WalletCards,
+  X,
 } from "lucide-react";
 
 import type {
@@ -115,18 +120,40 @@ export default function ColmadoShell({
   onRefresh,
   onLogout,
 }: ColmadoShellProps) {
+  const [
+    mobileMoreOpen,
+    setMobileMoreOpen,
+  ] = useState(false);
+
   const visibleNavigation = navigation.filter(
     ({ platformOnly }) => (
       !platformOnly || isPlatformOwner
     ),
   );
 
-  const mobileNavigation =
+  const mobilePrimaryNavigation =
     visibleNavigation.filter(
       ({ key }) => (
-        key !== "caja" &&
-        key !== "catalogo"
+        key === "inicio" ||
+        key === "vender" ||
+        key === "inventario" ||
+        key === "pedidos"
       ),
+    );
+
+  const mobileMoreNavigation =
+    visibleNavigation.filter(
+      ({ key }) => (
+        key === "tienda" ||
+        key === "fiado" ||
+        key === "finanzas" ||
+        key === "caja"
+      ),
+    );
+
+  const mobileMoreActive =
+    mobileMoreNavigation.some(
+      ({ key }) => key === section,
     );
 
   return (
@@ -379,39 +406,159 @@ export default function ColmadoShell({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 px-3 pb-24 pt-4 sm:px-5 lg:pb-8 lg:pt-6">
+        <main className="min-w-0 flex-1 px-3 pb-28 pt-4 sm:px-5 lg:pb-8 lg:pt-6">
           {children}
         </main>
       </div>
 
-      <button
-        type="button"
-        className={
-          `fixed bottom-20 right-3 z-30 flex min-h-11 items-center gap-2 rounded-full px-4 text-sm font-black shadow-lg sm:hidden ${
-            cashRegisterOpen
-              ? "bg-emerald-700 text-white"
-              : "bg-amber-300 text-amber-950"
-          }`
-        }
-        onClick={() => {
-          onSelectSection("caja");
-        }}
-      >
-        <WalletCards
-          aria-hidden="true"
-          size={19}
-        />
+      {mobileMoreOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar más opciones"
+            className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[2px] lg:hidden"
+            onClick={() => {
+              setMobileMoreOpen(false);
+            }}
+          />
 
-        {cashRegisterOpen
-          ? "Caja abierta"
-          : "Abrir caja"}
-      </button>
+          <section
+            id="colmado-mobile-more-menu"
+            role="dialog"
+            aria-label="Más opciones"
+            className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl lg:hidden"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+              <div>
+                <p className="text-lg font-black text-slate-950">
+                  Más opciones
+                </p>
+
+                <p className="text-sm text-slate-500">
+                  Administración del colmado
+                </p>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Cerrar menú"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 focus:outline-none focus:ring-4 focus:ring-emerald-200"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                }}
+              >
+                <X
+                  aria-hidden="true"
+                  size={22}
+                />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {mobileMoreNavigation.map(
+                ({
+                  key,
+                  label,
+                  icon: Icon,
+                }) => {
+                  const active =
+                    section === key;
+
+                  const accessibleLabel =
+                    key === "caja"
+                      ? (
+                        cashRegisterOpen
+                          ? "Caja · Abierta"
+                          : "Caja · Abrir caja"
+                      )
+                      : label;
+
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-label={accessibleLabel}
+                      aria-current={
+                        active
+                          ? "page"
+                          : undefined
+                      }
+                      className={
+                        `flex min-h-24 items-center gap-3 rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-4 focus:ring-emerald-200 ${
+                          active
+                            ? (
+                              "border-emerald-700 " +
+                              "bg-emerald-700 " +
+                              "text-white shadow-md"
+                            )
+                            : (
+                              "border-slate-200 " +
+                              "bg-slate-50 " +
+                              "text-slate-800 " +
+                              "hover:border-emerald-200 " +
+                              "hover:bg-emerald-50"
+                            )
+                        }`
+                      }
+                      onClick={() => {
+                        onSelectSection(key);
+                        setMobileMoreOpen(false);
+                      }}
+                    >
+                      <span
+                        className={
+                          `grid h-11 w-11 shrink-0 place-items-center rounded-xl ${
+                            active
+                              ? "bg-white/15"
+                              : "bg-white shadow-sm"
+                          }`
+                        }
+                      >
+                        <Icon
+                          aria-hidden="true"
+                          size={23}
+                        />
+                      </span>
+
+                      <span className="min-w-0">
+                        <span className="block font-black leading-tight">
+                          {label}
+                        </span>
+
+                        {key === "caja" && (
+                          <span
+                            className={
+                              `mt-1 block text-xs font-bold ${
+                                active
+                                  ? "text-emerald-100"
+                                  : (
+                                    cashRegisterOpen
+                                      ? "text-emerald-700"
+                                      : "text-amber-700"
+                                  )
+                              }`
+                            }
+                          >
+                            {cashRegisterOpen
+                              ? "Abierta"
+                              : "Abrir ahora"}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                },
+              )}
+            </div>
+          </section>
+        </>
+      )}
 
       <nav
         aria-label="Navegación principal"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_18px_rgba(15,23,42,0.08)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_18px_rgba(15,23,42,0.08)] lg:hidden"
       >
-        {mobileNavigation.map(
+        {mobilePrimaryNavigation.map(
           ({
             key,
             label,
@@ -438,6 +585,7 @@ export default function ColmadoShell({
                 }
                 onClick={() => {
                   onSelectSection(key);
+                  setMobileMoreOpen(false);
                 }}
               >
                 <Icon
@@ -455,6 +603,37 @@ export default function ColmadoShell({
             );
           },
         )}
+
+        <button
+          type="button"
+          aria-controls="colmado-mobile-more-menu"
+          aria-expanded={mobileMoreOpen}
+          aria-label="Más"
+          className={
+            `flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-[11px] font-black transition ${
+              mobileMoreOpen || mobileMoreActive
+                ? "text-emerald-700"
+                : "text-slate-500"
+            }`
+          }
+          onClick={() => {
+            setMobileMoreOpen(
+              (current) => !current,
+            );
+          }}
+        >
+          <Ellipsis
+            aria-hidden="true"
+            size={24}
+            strokeWidth={
+              mobileMoreOpen || mobileMoreActive
+                ? 2.8
+                : 2
+            }
+          />
+
+          Más
+        </button>
       </nav>
     </div>
   );

@@ -366,19 +366,43 @@ function OrderDetail({
           Productos
         </h2>
         <div className="divide-y divide-slate-100">
-          {order.items.map((item) => (
-            <div key={item.id} className="flex items-center gap-3 p-4">
-              <span className="grid h-10 min-w-10 place-items-center rounded-lg bg-slate-100 font-black text-slate-900">
-                {item.quantity}
-              </span>
-              <span className="min-w-0 flex-1 font-bold text-slate-900">
-                {item.product_name}
-              </span>
-              <span className="font-black text-slate-900">
-                {money.format(Number(item.line_total))}
-              </span>
-            </div>
-          ))}
+          {order.items.map((item) => {
+            const imageUrl = (
+              item as typeof item & {
+                image_url?: string | null;
+              }
+            ).image_url;
+
+            return (
+              <div key={item.id} className="flex items-center gap-3 p-4">
+                <span className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-400">
+                  <ShoppingBag aria-hidden="true" size={25} />
+                  {imageUrl && (
+                    <img
+                      src={imageUrl}
+                      alt={`Foto de ${item.product_name}`}
+                      className="absolute inset-0 h-full w-full bg-white object-contain p-1"
+                      loading="lazy"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-bold leading-snug text-slate-900">
+                    {item.product_name}
+                  </span>
+                  <span className="mt-1 block text-sm font-semibold text-slate-500">
+                    Cantidad: {Number(item.quantity)} · {money.format(Number(item.unit_price))} c/u
+                  </span>
+                </span>
+                <span className="shrink-0 font-black text-slate-900">
+                  {money.format(Number(item.line_total))}
+                </span>
+              </div>
+            );
+          })}
         </div>
         <div className="space-y-2 border-t border-slate-200 bg-slate-50 p-4 text-sm">
           <div className="flex justify-between">

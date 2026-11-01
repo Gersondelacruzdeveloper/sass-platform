@@ -192,6 +192,7 @@ export interface DashboardLowStockItem {
   store_name: string;
   product_name: string;
   barcode: string | null;
+  image_url: string | null;
   quantity: string;
   reorder_level: string;
 }

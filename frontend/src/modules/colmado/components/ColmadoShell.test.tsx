@@ -1,6 +1,7 @@
 import {
   render,
   screen,
+  within,
 } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -48,54 +49,30 @@ interface RenderOptions {
   refreshing?: boolean;
   loggingOut?: boolean;
   isPlatformOwner?: boolean;
-  onSelectStore?: (
-    storeId: number,
-  ) => void;
-  onSelectSection?: (
-    section: ColmadoSection,
-  ) => void;
+  onSelectStore?: (storeId: number) => void;
+  onSelectSection?: (section: ColmadoSection) => void;
   onRefresh?: () => void;
   onLogout?: () => void;
 }
 
 
-function shell(
-  options: RenderOptions = {},
-) {
+function shell(options: RenderOptions = {}) {
   return (
     <ColmadoShell
       organisationName="Colmados Don Juan"
       userName="Juan Pérez"
       userEmail="juan@example.com"
-      isPlatformOwner={
-        options.isPlatformOwner ?? false
-      }
+      isPlatformOwner={options.isPlatformOwner ?? false}
       stores={stores}
       selectedStoreId={2}
-      section={
-        options.section ?? "inicio"
-      }
-      cashRegisterOpen={
-        options.cashRegisterOpen ?? false
-      }
-      refreshing={
-        options.refreshing ?? false
-      }
-      loggingOut={
-        options.loggingOut ?? false
-      }
-      onSelectStore={
-        options.onSelectStore ?? vi.fn()
-      }
-      onSelectSection={
-        options.onSelectSection ?? vi.fn()
-      }
-      onRefresh={
-        options.onRefresh ?? vi.fn()
-      }
-      onLogout={
-        options.onLogout ?? vi.fn()
-      }
+      section={options.section ?? "inicio"}
+      cashRegisterOpen={options.cashRegisterOpen ?? false}
+      refreshing={options.refreshing ?? false}
+      loggingOut={options.loggingOut ?? false}
+      onSelectStore={options.onSelectStore ?? vi.fn()}
+      onSelectSection={options.onSelectSection ?? vi.fn()}
+      onRefresh={options.onRefresh ?? vi.fn()}
+      onLogout={options.onLogout ?? vi.fn()}
     >
       <p>Contenido principal</p>
     </ColmadoShell>
@@ -103,445 +80,211 @@ function shell(
 }
 
 
-function renderShell(
-  options: RenderOptions = {},
-) {
+function renderShell(options: RenderOptions = {}) {
   return render(shell(options));
 }
 
 
 describe("ColmadoShell", () => {
-  it(
-    "shows the business, user, selected store and page content",
-    () => {
-      renderShell();
+  it("shows the business, user, selected store and page content", () => {
+    renderShell();
 
-      expect(
-        screen.getByText(
-          "Colmados Don Juan",
-        ),
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getAllByText(
-          "Juan Pérez",
-        ).length,
-      ).toBeGreaterThanOrEqual(1);
-
-      expect(
-        screen.getAllByText(
-          "juan@example.com",
-        ).length,
-      ).toBeGreaterThanOrEqual(1);
-
-      expect(
-        screen.getByRole(
-          "combobox",
-          {
-            name: "Sucursal actual",
-          },
-        ),
-      ).toHaveValue("2");
-
-      expect(
-        screen.getByText(
-          "Contenido principal",
-        ),
-      ).toBeInTheDocument();
-    },
-  );
+    expect(screen.getByText("Colmados Don Juan")).toBeInTheDocument();
+    expect(screen.getAllByText("Juan Pérez").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("juan@example.com").length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByRole("combobox", { name: "Sucursal actual" }),
+    ).toHaveValue("2");
+    expect(screen.getByText("Contenido principal")).toBeInTheDocument();
+  });
 
 
-  it(
-    "lets the employee switch stores from one simple selector",
-    async () => {
-      const user = userEvent.setup();
-      const onSelectStore = vi.fn();
+  it("lets the employee switch stores from one simple selector", async () => {
+    const user = userEvent.setup();
+    const onSelectStore = vi.fn();
 
-      renderShell({
-        onSelectStore,
-      });
+    renderShell({ onSelectStore });
 
-      await user.selectOptions(
-        screen.getByRole(
-          "combobox",
-          {
-            name: "Sucursal actual",
-          },
-        ),
-        "3",
-      );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Sucursal actual" }),
+      "3",
+    );
 
-      expect(
-        onSelectStore,
-      ).toHaveBeenCalledWith(3);
-    },
-  );
+    expect(onSelectStore).toHaveBeenCalledWith(3);
+  });
+
+
+  it("connects the refresh button and disables it while updating", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    const { rerender } = renderShell({ onRefresh });
+
+    await user.click(
+      screen.getByRole("button", { name: "Actualizar información" }),
+    );
+    expect(onRefresh).toHaveBeenCalledOnce();
+
+    rerender(shell({ onRefresh, refreshing: true }));
+    expect(
+      screen.getByRole("button", { name: "Actualizar información" }),
+    ).toBeDisabled();
+  });
+
+
+  it("navigates from both desktop and mobile controls", async () => {
+    const user = userEvent.setup();
+    const onSelectSection = vi.fn();
+    renderShell({ onSelectSection });
+
+    const inventoryButtons = screen.getAllByRole("button", {
+      name: "Inventario",
+    });
+    expect(inventoryButtons).toHaveLength(2);
+
+    await user.click(inventoryButtons[0]);
+    await user.click(inventoryButtons[1]);
+
+    expect(onSelectSection).toHaveBeenNthCalledWith(1, "inventario");
+    expect(onSelectSection).toHaveBeenNthCalledWith(2, "inventario");
+  });
 
 
   it(
-    "connects the refresh button and disables it while updating",
-    async () => {
-      const user = userEvent.setup();
-      const onRefresh = vi.fn();
-
-      const { rerender } = renderShell({
-        onRefresh,
-      });
-
-      await user.click(
-        screen.getByRole(
-          "button",
-          {
-            name: "Actualizar información",
-          },
-        ),
-      );
-
-      expect(
-        onRefresh,
-      ).toHaveBeenCalledOnce();
-
-      rerender(
-        shell({
-          onRefresh,
-          refreshing: true,
-        }),
-      );
-
-      expect(
-        screen.getByRole(
-          "button",
-          {
-            name: "Actualizar información",
-          },
-        ),
-      ).toBeDisabled();
-    },
-  );
-
-
-  it(
-    "navigates from both desktop and mobile controls",
+    "opens the online store settings from desktop and the mobile More menu",
     async () => {
       const user = userEvent.setup();
       const onSelectSection = vi.fn();
-
-      renderShell({
-        onSelectSection,
-      });
-
-      const inventoryButtons =
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Inventario",
-          },
-        );
-
-      expect(
-        inventoryButtons,
-      ).toHaveLength(2);
+      renderShell({ isPlatformOwner: false, onSelectSection });
 
       await user.click(
-        inventoryButtons[0],
+        screen.getByRole("button", { name: "Tienda online" }),
       );
 
+      const moreButton = screen.getByRole("button", { name: "Más" });
+      expect(moreButton).toHaveAttribute("aria-expanded", "false");
+      await user.click(moreButton);
+      expect(moreButton).toHaveAttribute("aria-expanded", "true");
+
+      const menu = screen.getByRole("dialog", { name: "Más opciones" });
       await user.click(
-        inventoryButtons[1],
+        within(menu).getByRole("button", { name: "Tienda online" }),
       );
 
+      expect(onSelectSection).toHaveBeenNthCalledWith(1, "tienda");
+      expect(onSelectSection).toHaveBeenNthCalledWith(2, "tienda");
       expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        1,
-        "inventario",
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        2,
-        "inventario",
-      );
-    },
-  );
-
-
-  it(
-    "opens the online store settings from desktop and mobile",
-    async () => {
-      const user = userEvent.setup();
-      const onSelectSection = vi.fn();
-
-      renderShell({
-        isPlatformOwner: false,
-        onSelectSection,
-      });
-
-      const onlineStoreButtons =
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Tienda online",
-          },
-        );
-
-      expect(
-        onlineStoreButtons,
-      ).toHaveLength(2);
-
-      await user.click(
-        onlineStoreButtons[0],
-      );
-
-      await user.click(
-        onlineStoreButtons[1],
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        1,
-        "tienda",
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        2,
-        "tienda",
-      );
-    },
-  );
-
-
-  it(
-    "opens expenses and payroll from desktop and mobile",
-    async () => {
-      const user = userEvent.setup();
-      const onSelectSection = vi.fn();
-
-      renderShell({
-        onSelectSection,
-      });
-
-      const financeButtons =
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Gastos y nómina",
-          },
-        );
-
-      expect(
-        financeButtons,
-      ).toHaveLength(2);
-
-      await user.click(
-        financeButtons[0],
-      );
-
-      await user.click(
-        financeButtons[1],
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        1,
-        "finanzas",
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenNthCalledWith(
-        2,
-        "finanzas",
-      );
-    },
-  );
-
-
-  it(
-    "sends the employee to cash opening when the register is closed",
-    async () => {
-      const user = userEvent.setup();
-      const onSelectSection = vi.fn();
-
-      renderShell({
-        cashRegisterOpen: false,
-        onSelectSection,
-      });
-
-      const openCashButtons =
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Abrir caja",
-          },
-        );
-
-      expect(
-        openCashButtons.length,
-      ).toBeGreaterThanOrEqual(1);
-
-      await user.click(
-        openCashButtons[0],
-      );
-
-      expect(
-        onSelectSection,
-      ).toHaveBeenCalledWith("caja");
-    },
-  );
-
-
-  it(
-    "clearly shows when the register is already open",
-    () => {
-      renderShell({
-        cashRegisterOpen: true,
-        section: "caja",
-      });
-
-      expect(
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Caja abierta",
-          },
-        ).length,
-      ).toBeGreaterThanOrEqual(1);
-
-      const active = screen
-        .getAllByRole(
-          "button",
-          {
-            name: /^Caja/i,
-          },
-        )
-        .some(
-          (button) => (
-            button.getAttribute(
-              "aria-current",
-            ) === "page"
-          ),
-        );
-
-      expect(active).toBe(true);
-    },
-  );
-
-
-  it(
-    "does not show the master catalog to a normal colmado user",
-    () => {
-      renderShell({
-        isPlatformOwner: false,
-      });
-
-      expect(
-        screen.queryByRole(
-          "button",
-          {
-            name: "Catálogo maestro",
-          },
-        ),
-      ).not.toBeInTheDocument();
-
-      expect(
-        screen.queryByText(
-          "Administrador de plataforma",
-        ),
+        screen.queryByRole("dialog", { name: "Más opciones" }),
       ).not.toBeInTheDocument();
     },
   );
 
 
   it(
-    "shows and opens the master catalog for the platform owner",
+    "keeps expenses and payroll accessible from the mobile More menu",
     async () => {
       const user = userEvent.setup();
       const onSelectSection = vi.fn();
+      renderShell({ onSelectSection });
 
-      renderShell({
-        isPlatformOwner: true,
-        onSelectSection,
-      });
+      await user.click(
+        screen.getByRole("button", { name: "Gastos y nómina" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Más" }));
 
+      const menu = screen.getByRole("dialog", { name: "Más opciones" });
       expect(
-        screen.getByText(
-          "Administrador de plataforma",
-        ),
+        within(menu).getByRole("button", { name: "Tienda online" }),
+      ).toBeInTheDocument();
+      expect(
+        within(menu).getByRole("button", { name: "Fiado" }),
+      ).toBeInTheDocument();
+      expect(
+        within(menu).getByRole("button", { name: "Gastos y nómina" }),
+      ).toBeInTheDocument();
+      expect(
+        within(menu).getByRole("button", { name: /^Caja/ }),
       ).toBeInTheDocument();
 
-      const catalogButtons =
-        screen.getAllByRole(
-          "button",
-          {
-            name: "Catálogo maestro",
-          },
-        );
-
-      expect(
-        catalogButtons.length,
-      ).toBeGreaterThanOrEqual(1);
-
       await user.click(
-        catalogButtons[0],
+        within(menu).getByRole("button", { name: "Gastos y nómina" }),
       );
 
+      expect(onSelectSection).toHaveBeenNthCalledWith(1, "finanzas");
+      expect(onSelectSection).toHaveBeenNthCalledWith(2, "finanzas");
       expect(
-        onSelectSection,
-      ).toHaveBeenCalledWith(
-        "catalogo",
-      );
+        screen.queryByRole("dialog", { name: "Más opciones" }),
+      ).not.toBeInTheDocument();
     },
   );
 
 
-  it(
-    "lets the current user close the session",
-    async () => {
-      const user = userEvent.setup();
-      const onLogout = vi.fn();
+  it("sends the employee to cash opening when the register is closed", async () => {
+    const user = userEvent.setup();
+    const onSelectSection = vi.fn();
+    renderShell({ cashRegisterOpen: false, onSelectSection });
 
-      renderShell({
-        onLogout,
-      });
-
-      await user.click(
-        screen.getByRole(
-          "button",
-          {
-            name: "Cerrar sesión",
-          },
-        ),
-      );
-
-      expect(
-        onLogout,
-      ).toHaveBeenCalledOnce();
-    },
-  );
+    const openCashButtons = screen.getAllByRole("button", {
+      name: "Abrir caja",
+    });
+    expect(openCashButtons.length).toBeGreaterThanOrEqual(1);
+    await user.click(openCashButtons[0]);
+    expect(onSelectSection).toHaveBeenCalledWith("caja");
+  });
 
 
-  it(
-    "prevents repeated logout clicks while the session is closing",
-    () => {
-      renderShell({
-        loggingOut: true,
-      });
+  it("clearly shows when the register is already open", () => {
+    renderShell({ cashRegisterOpen: true, section: "caja" });
 
-      expect(
-        screen.getByRole(
-          "button",
-          {
-            name: "Cerrar sesión",
-          },
-        ),
-      ).toBeDisabled();
-    },
-  );
+    expect(
+      screen.getAllByRole("button", { name: "Caja abierta" }).length,
+    ).toBeGreaterThanOrEqual(1);
+
+    const active = screen
+      .getAllByRole("button", { name: /^Caja/i })
+      .some((button) => button.getAttribute("aria-current") === "page");
+    expect(active).toBe(true);
+  });
+
+
+  it("does not show the master catalog to a normal colmado user", () => {
+    renderShell({ isPlatformOwner: false });
+    expect(
+      screen.queryByRole("button", { name: "Catálogo maestro" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Administrador de plataforma"),
+    ).not.toBeInTheDocument();
+  });
+
+
+  it("shows and opens the master catalog for the platform owner", async () => {
+    const user = userEvent.setup();
+    const onSelectSection = vi.fn();
+    renderShell({ isPlatformOwner: true, onSelectSection });
+
+    expect(screen.getByText("Administrador de plataforma")).toBeInTheDocument();
+    const catalogButtons = screen.getAllByRole("button", {
+      name: "Catálogo maestro",
+    });
+    expect(catalogButtons.length).toBeGreaterThanOrEqual(1);
+    await user.click(catalogButtons[0]);
+    expect(onSelectSection).toHaveBeenCalledWith("catalogo");
+  });
+
+
+  it("lets the current user close the session", async () => {
+    const user = userEvent.setup();
+    const onLogout = vi.fn();
+    renderShell({ onLogout });
+    await user.click(screen.getByRole("button", { name: "Cerrar sesión" }));
+    expect(onLogout).toHaveBeenCalledOnce();
+  });
+
+
+  it("prevents repeated logout clicks while the session is closing", () => {
+    renderShell({ loggingOut: true });
+    expect(
+      screen.getByRole("button", { name: "Cerrar sesión" }),
+    ).toBeDisabled();
+  });
 });

@@ -118,6 +118,47 @@ describe("InventoryPanel", () => {
     );
   });
 
+  it("shows the stored product image in the inventory list", async () => {
+    apiMocks.getInventory.mockResolvedValue([
+      inventoryItem({
+        image_url:
+          "https://media.example.com/colmado/products/coca-cola.jpg",
+      }),
+    ]);
+
+    render(
+      <InventoryPanel
+        organisationSlug="colmado-don-juan"
+        store={store}
+      />,
+    );
+
+    const image = await screen.findByRole("img", {
+      name: "Coca-Cola 12 oz",
+    });
+
+    expect(image).toHaveAttribute(
+      "src",
+      "https://media.example.com/colmado/products/coca-cola.jpg",
+    );
+    expect(image).toHaveAttribute("loading", "lazy");
+  });
+
+  it("shows a clear fallback when a product has no image", async () => {
+    render(
+      <InventoryPanel
+        organisationSlug="colmado-don-juan"
+        store={store}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("img", {
+        name: "Sin foto para Coca-Cola 12 oz",
+      }),
+    ).toHaveTextContent("Sin foto");
+  });
+
   it("searches locally by product name or barcode", async () => {
     const user = userEvent.setup();
     render(

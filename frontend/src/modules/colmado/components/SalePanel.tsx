@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   BrowserMultiFormatReader,
   type IScannerControls,
@@ -51,6 +58,28 @@ const currency = new Intl.NumberFormat("es-DO", {
 
 const money = (value: number | string) => currency.format(Number(value || 0));
 
+function barcodeVariants(value: string | null | undefined) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  const variants = new Set<string>();
+  if (!digits) return variants;
+
+  variants.add(digits);
+  if (digits.length === 12) variants.add(`0${digits}`);
+  if (digits.length === 13 && digits.startsWith("0")) {
+    variants.add(digits.slice(1));
+  }
+  return variants;
+}
+
+function barcodesMatch(
+  first: string | null | undefined,
+  second: string | null | undefined,
+) {
+  const firstVariants = barcodeVariants(first);
+  const secondVariants = barcodeVariants(second);
+  return [...firstVariants].some((value) => secondVariants.has(value));
+}
+
 const paymentOptions: Array<{ value: PaymentMethod; label: string }> = [
   { value: "cash", label: "Efectivo" },
   { value: "card", label: "Tarjeta" },
@@ -79,6 +108,7 @@ export default function SalePanel({
   const [success, setSuccess] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  const scanLockedRef = useRef(false);
 
   const loadSaleData = useCallback(async () => {
     setLoading(true);
@@ -162,29 +192,54 @@ export default function SalePanel({
     });
   }, []);
 
+  const findInventoryByBarcode = useCallback(
+    (barcode: string) =>
+      inventory.find((item) => barcodesMatch(item.barcode, barcode)),
+    [inventory],
+  );
+
+  const addBarcode = useCallback(
+    (barcode: string) => {
+      const cleanBarcode = barcode.replace(/\D/g, "");
+      const item = findInventoryByBarcode(cleanBarcode);
+      if (!item) {
+        setQuery(cleanBarcode);
+        setError(
+          "Ese producto no está disponible en el inventario de esta sucursal.",
+        );
+        return false;
+      }
+
+      addProduct(item);
+      setQuery("");
+      return true;
+    },
+    [addProduct, findInventoryByBarcode],
+  );
+
   useEffect(() => {
     if (!scanning || !videoRef.current) return;
 
     let active = true;
+    scanLockedRef.current = false;
     const reader = new BrowserMultiFormatReader();
     void reader
-      .decodeFromVideoDevice(
-        undefined,
+      .decodeFromConstraints(
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+          },
+        },
         videoRef.current,
         (result, _error, controls) => {
-          if (!active || !result) return;
+          if (!active || !result || scanLockedRef.current) return;
+          scanLockedRef.current = true;
           const barcode = result.getText();
-          const item = inventory.find((row) => row.barcode === barcode);
           controls.stop();
           scannerControlsRef.current = null;
           setScanning(false);
-          if (item) {
-            addProduct(item);
-            setQuery("");
-          } else {
-            setQuery(barcode);
-            setError("Ese producto no está en el inventario de esta sucursal.");
-          }
+          addBarcode(barcode);
         },
       )
       .then((controls) => {
@@ -197,7 +252,9 @@ export default function SalePanel({
       .catch(() => {
         if (!active) return;
         setScanning(false);
-        setError("No pudimos usar la cámara. Puedes buscar el producto por nombre.");
+        setError(
+          "No pudimos usar la cámara. Escribe el código de barra manualmente.",
+        );
       });
 
     return () => {
@@ -205,7 +262,17 @@ export default function SalePanel({
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
     };
-  }, [addProduct, inventory, scanning]);
+  }, [addBarcode, scanning]);
+
+  function submitProductSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+
+    if (/^\d+$/.test(cleanQuery)) {
+      addBarcode(cleanQuery);
+    }
+  }
 
   function setQuantity(itemId: number, quantity: number) {
     setCart((current) =>
@@ -314,7 +381,7 @@ export default function SalePanel({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <section className="min-w-0">
-          <div className="mb-3 flex gap-2">
+          <form className="mb-3 flex gap-2" onSubmit={submitProductSearch}>
             <label className="flex min-h-14 flex-1 items-center gap-2 rounded-xl bg-white px-4 shadow-sm focus-within:ring-4 focus-within:ring-emerald-100">
               <Search aria-hidden="true" className="text-slate-500" size={22} />
               <span className="sr-only">Buscar producto</span>
@@ -333,12 +400,13 @@ export default function SalePanel({
               className="grid min-h-14 min-w-14 place-items-center rounded-xl bg-emerald-700 text-white shadow-sm"
               onClick={() => {
                 setError(null);
+                scanLockedRef.current = false;
                 setScanning(true);
               }}
             >
               <Camera aria-hidden="true" size={25} />
             </button>
-          </div>
+          </form>
 
           {loading ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -355,17 +423,25 @@ export default function SalePanel({
                     key={item.id}
                     type="button"
                     disabled={outOfStock}
-                    className="min-h-28 rounded-xl bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:opacity-45"
+                    className="min-h-48 overflow-hidden rounded-xl bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:opacity-45"
                     onClick={() => addProduct(item)}
                   >
-                    <span className="line-clamp-2 block font-black">
-                      {item.product_display_name || item.product_name}
-                    </span>
-                    <span className="mt-2 block text-lg font-black text-emerald-700">
-                      {money(item.sale_price)}
-                    </span>
-                    <span className="mt-1 block text-xs text-slate-500">
-                      {outOfStock ? "Agotado" : `Quedan ${Number(item.quantity)}`}
+                    <ProductImage
+                      item={item}
+                      className="h-24 w-full border-b border-slate-100"
+                    />
+                    <span className="block p-3">
+                      <span className="line-clamp-2 block font-black">
+                        {item.product_display_name || item.product_name}
+                      </span>
+                      <span className="mt-2 block text-lg font-black text-emerald-700">
+                        {money(item.sale_price)}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {outOfStock
+                          ? "Agotado"
+                          : `Quedan ${Number(item.quantity)}`}
+                      </span>
                     </span>
                   </button>
                 );
@@ -398,11 +474,17 @@ export default function SalePanel({
             <div className="max-h-72 space-y-1 overflow-y-auto">
               {cart.map((line) => (
                 <div key={line.item.id} className="border-b border-slate-100 py-3">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-3">
+                    <ProductImage
+                      item={line.item}
+                      className="h-12 w-12 shrink-0 rounded-lg border border-slate-200"
+                    />
                     <span className="min-w-0 flex-1 truncate font-black">
                       {line.item.product_name}
                     </span>
-                    <strong>{money(Number(line.item.sale_price) * line.quantity)}</strong>
+                    <strong>
+                      {money(Number(line.item.sale_price) * line.quantity)}
+                    </strong>
                   </div>
                   <div className="mt-2 flex items-center gap-2">
                     <button
@@ -527,6 +609,7 @@ export default function SalePanel({
             onClick={() => {
               scannerControlsRef.current?.stop();
               scannerControlsRef.current = null;
+              scanLockedRef.current = false;
               setScanning(false);
             }}
           >
@@ -539,6 +622,39 @@ export default function SalePanel({
         </div>
       )}
     </div>
+  );
+}
+
+function ProductImage({
+  item,
+  className,
+}: {
+  item: InventoryItem;
+  className: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const productName = item.product_display_name || item.product_name;
+
+  if (!item.image_url || failed) {
+    return (
+      <span
+        role="img"
+        aria-label={`Sin foto de ${productName}`}
+        className={`grid place-items-center bg-slate-50 px-2 text-center text-xs font-black text-slate-400 ${className}`}
+      >
+        Sin foto
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={item.image_url}
+      alt={productName}
+      loading="lazy"
+      className={`bg-white object-contain p-1 ${className}`}
+      onError={() => setFailed(true)}
+    />
   );
 }
 

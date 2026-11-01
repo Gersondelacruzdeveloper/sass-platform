@@ -94,6 +94,7 @@ const dashboard: DashboardData = {
       store_name: "Colmado Macao",
       product_name: "Coca-Cola 12 oz",
       barcode: "746000000001",
+      image_url: "https://cdn.example.com/coca-cola-12-oz.jpg",
       quantity: "3.000",
       reorder_level: "5.000",
     },
@@ -103,6 +104,7 @@ const dashboard: DashboardData = {
       store_name: "Colmado Macao",
       product_name: "Arroz Selecto 1 lb",
       barcode: "746000000002",
+      image_url: null,
       quantity: "2.000",
       reorder_level: "6.000",
     },
@@ -198,9 +200,7 @@ describe("ColmadoHome", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Día con ganancia")).toBeInTheDocument();
     expect(screen.getByText("Día con pérdida")).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/2 sept.*-RD/i),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/2 sept.*-RD/i)).toBeInTheDocument();
   });
 
   it("connects every quick action to its correct section", async () => {
@@ -238,6 +238,14 @@ describe("ColmadoHome", () => {
     expect(screen.getByText("Ana Pérez")).toBeInTheDocument();
     expect(screen.getByText("Coca-Cola 12 oz")).toBeInTheDocument();
     expect(screen.getByText("Arroz Selecto 1 lb")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: "Foto de Coca-Cola 12 oz",
+      }),
+    ).toHaveAttribute(
+      "src",
+      "https://cdn.example.com/coca-cola-12-oz.jpg",
+    );
 
     await user.click(screen.getByRole("button", { name: /Ana Pérez/i }));
     await user.click(screen.getByRole("button", { name: /Coca-Cola 12 oz/i }));
@@ -262,7 +270,9 @@ describe("ColmadoHome", () => {
     });
 
     expect(screen.getByText("No hay pedidos pendientes.")).toBeInTheDocument();
-    expect(screen.getByText("El inventario está bien por ahora.")).toBeInTheDocument();
+    expect(
+      screen.getByText("El inventario está bien por ahora."),
+    ).toBeInTheDocument();
   });
 
   it("shows a neutral result and one date when the selected day has no movement", () => {

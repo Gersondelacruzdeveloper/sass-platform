@@ -2055,6 +2055,11 @@ def build_dashboard(*, organisation, selected_date, store=None, period="day"):
             "store_name": item.store.name,
             "product_name": str(item.master_product),
             "barcode": item.master_product.barcode,
+            "image_url": (
+                item.master_product.image.url
+                if item.master_product.image
+                else None
+            ),
             "quantity": str(item.quantity),
             "reorder_level": str(item.reorder_level),
         }

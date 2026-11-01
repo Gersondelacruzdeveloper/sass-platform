@@ -234,6 +234,43 @@ class CustomerOrdersApiTests(APITestCase):
             ).exists()
         )
 
+    def test_order_items_include_product_image_and_null_fallback(self):
+        self.product.image = "colmado/products/coca-cola.png"
+        self.product.save(update_fields=("image", "updated_at"))
+        self.out_of_stock_inventory.quantity = Decimal("5.000")
+        self.out_of_stock_inventory.save(
+            update_fields=("quantity", "updated_at")
+        )
+
+        response = self.create_public_order(
+            items=[
+                {
+                    "inventory_item_id": self.inventory.id,
+                    "quantity": "2.000",
+                },
+                {
+                    "inventory_item_id": self.out_of_stock_inventory.id,
+                    "quantity": "1.000",
+                },
+            ]
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        items_by_inventory = {
+            item["inventory_item_id"]: item for item in response.data["items"]
+        }
+        product_with_image = items_by_inventory[self.inventory.id]
+        product_without_image = items_by_inventory[
+            self.out_of_stock_inventory.id
+        ]
+        self.assertIn("image_url", product_with_image)
+        self.assertIsNotNone(product_with_image["image_url"])
+        self.assertTrue(
+            product_with_image["image_url"].endswith(self.product.image.url)
+        )
+        self.assertIn("image_url", product_without_image)
+        self.assertIsNone(product_without_image["image_url"])
+
     def test_replaying_same_idempotency_key_does_not_duplicate_order(self):
         first_response = self.create_public_order()
         second_response = self.create_public_order()

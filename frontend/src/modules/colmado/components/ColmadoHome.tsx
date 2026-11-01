@@ -451,10 +451,31 @@ export default function ColmadoHome({
                   className="flex w-full items-center gap-3 rounded-xl bg-red-50 p-3 text-left hover:bg-red-100"
                   onClick={() => onNavigate("inventario")}
                 >
-                  <span className="min-w-0 flex-1 truncate font-black">
-                    {item.product_name}
+                  <span className="relative grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl border border-red-100 bg-white text-slate-400">
+                    <Boxes aria-hidden="true" size={24} />
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={`Foto de ${item.product_name}`}
+                        className="absolute inset-0 h-full w-full bg-white object-contain p-1"
+                        loading="lazy"
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    )}
                   </span>
-                  <span className="text-sm font-bold text-red-700">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-black">
+                      {item.product_name}
+                    </span>
+                    {item.barcode && (
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        Código: {item.barcode}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-sm font-bold text-red-700">
                     Quedan {Number(item.quantity)}
                   </span>
                 </button>

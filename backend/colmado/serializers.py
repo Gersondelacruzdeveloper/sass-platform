@@ -1388,6 +1388,7 @@ class CustomerOrderItemSerializer(serializers.ModelSerializer):
         source="inventory_item.id",
         read_only=True,
     )
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomerOrderItem
@@ -1396,12 +1397,26 @@ class CustomerOrderItemSerializer(serializers.ModelSerializer):
             "inventory_item_id",
             "product_name",
             "barcode",
+            "image_url",
             "unit",
             "quantity",
             "unit_price",
             "line_total",
         )
         read_only_fields = fields
+
+    def get_image_url(self, obj):
+        inventory_item = getattr(obj, "inventory_item", None)
+        if inventory_item is None:
+            return None
+
+        master_product = getattr(inventory_item, "master_product", None)
+        if master_product is None or not master_product.image:
+            return None
+
+        request = self.context.get("request")
+        url = master_product.image.url
+        return request.build_absolute_uri(url) if request is not None else url
 
 
 class CustomerOrderSerializer(serializers.ModelSerializer):

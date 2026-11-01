@@ -386,6 +386,10 @@ export default function InventoryPanel({
                 key={item.id}
                 className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
               >
+                <ProductImage
+                  imageUrl={item.image_url}
+                  productName={item.product_display_name}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-black text-slate-900">
@@ -732,5 +736,33 @@ function NumberField({ label, value, step, onChange }: NumberFieldProps) {
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
+  );
+}
+
+interface ProductImageProps {
+  imageUrl: string | null;
+  productName: string;
+}
+
+function ProductImage({ imageUrl, productName }: ProductImageProps) {
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={productName}
+        className="h-20 w-20 shrink-0 rounded-xl border border-slate-200 bg-white object-contain p-1"
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <div
+      role="img"
+      aria-label={`Sin foto para ${productName}`}
+      className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-black text-slate-500"
+    >
+      Sin foto
+    </div>
   );
 }
