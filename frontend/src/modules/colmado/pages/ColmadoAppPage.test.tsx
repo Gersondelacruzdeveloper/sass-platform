@@ -30,6 +30,7 @@ import type {
 
 import type {
   ColmadoSection,
+  DashboardPeriod,
   Store,
 } from "../types/colmado";
 
@@ -177,13 +178,23 @@ vi.mock(
   () => ({
     default: ({
       onNavigate,
+      dashboardPeriod,
+      onSelectDashboardPeriod,
     }: {
       onNavigate: (
         section: ColmadoSection,
       ) => void;
+      dashboardPeriod: DashboardPeriod;
+      onSelectDashboardPeriod: (
+        period: DashboardPeriod,
+      ) => void;
     }) => (
       <div>
         <p>Pantalla de inicio</p>
+
+        <p>
+          Período: {dashboardPeriod}
+        </p>
 
         <button
           type="button"
@@ -192,6 +203,17 @@ vi.mock(
           }}
         >
           Venta rápida
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            onSelectDashboardPeriod(
+              "week",
+            );
+          }}
+        >
+          Ver esta semana
         </button>
       </div>
     ),
@@ -312,11 +334,13 @@ function baseWorkspace(
     selectedStoreId: 2,
     selectedStore: store,
     dashboard: null,
+    dashboardPeriod: "month",
     cashRegister: null,
     loadingStores: false,
     loadingWorkspace: false,
     error: null,
     selectStore: vi.fn(),
+    selectDashboardPeriod: vi.fn(),
     refreshWorkspace:
       vi.fn().mockResolvedValue(
         undefined,
@@ -457,6 +481,43 @@ describe("ColmadoAppPage", () => {
           "Correo: juan@example.com",
         ),
       ).toBeInTheDocument();
+    },
+  );
+
+
+  it(
+    "connects the selected dashboard period to the home screen",
+    async () => {
+      const user = userEvent.setup();
+      const selectDashboardPeriod =
+        vi.fn();
+
+      workspaceMock.current =
+        baseWorkspace({
+          dashboardPeriod: "month",
+          selectDashboardPeriod,
+        });
+
+      renderPage();
+
+      expect(
+        await screen.findByText(
+          "Período: month",
+        ),
+      ).toBeInTheDocument();
+
+      await user.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "Ver esta semana",
+          },
+        ),
+      );
+
+      expect(
+        selectDashboardPeriod,
+      ).toHaveBeenCalledWith("week");
     },
   );
 

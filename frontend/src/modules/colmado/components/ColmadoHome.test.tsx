@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ColmadoSection,
   DashboardData,
+  DashboardPeriod,
   Store,
 } from "../types/colmado";
 import ColmadoHome from "./ColmadoHome";
@@ -21,6 +22,9 @@ const store: Store = {
 
 const dashboard: DashboardData = {
   date: "2026-09-27",
+  period: "month",
+  period_start: "2026-09-01",
+  period_end: "2026-09-30",
   store: { id: 2, name: "Colmado Macao" },
   summary: {
     sale_count: 12,
@@ -38,7 +42,9 @@ const dashboard: DashboardData = {
     active_orders: 2,
   },
   comparison: {
-    previous_date: "2026-09-26",
+    previous_date: "2026-08-31",
+    previous_period_start: "2026-08-01",
+    previous_period_end: "2026-08-31",
     previous_revenue: "6800.00",
     change_amount: "1700.00",
     change_percent: "25.00",
@@ -49,6 +55,38 @@ const dashboard: DashboardData = {
     transfer: { amount: "1500.00", count: 2 },
     credit: { amount: "1000.00", count: 2 },
   },
+  trend: [
+    {
+      date: "2026-09-01",
+      sale_count: 4,
+      revenue: "2500.00",
+      cost_of_goods: "1400.00",
+      gross_profit: "1100.00",
+      operating_expenses: "100.00",
+      payroll: "0.00",
+      net_profit: "1000.00",
+    },
+    {
+      date: "2026-09-02",
+      sale_count: 3,
+      revenue: "1800.00",
+      cost_of_goods: "1200.00",
+      gross_profit: "600.00",
+      operating_expenses: "800.00",
+      payroll: "0.00",
+      net_profit: "-200.00",
+    },
+    {
+      date: "2026-09-03",
+      sale_count: 5,
+      revenue: "4200.00",
+      cost_of_goods: "2400.00",
+      gross_profit: "1800.00",
+      operating_expenses: "0.00",
+      payroll: "300.00",
+      net_profit: "1500.00",
+    },
+  ],
   low_stock: [
     {
       inventory_item_id: 10,
@@ -89,18 +127,22 @@ const dashboard: DashboardData = {
 function renderHome(
   options: {
     data?: DashboardData | null;
+    dashboardPeriod?: DashboardPeriod;
     cashRegisterOpen?: boolean;
     loading?: boolean;
     onNavigate?: (section: ColmadoSection) => void;
+    onSelectDashboardPeriod?: (period: DashboardPeriod) => void;
   } = {},
 ) {
   return render(
     <ColmadoHome
       store={store}
       dashboard={options.data === undefined ? dashboard : options.data}
+      dashboardPeriod={options.dashboardPeriod ?? "month"}
       cashRegisterOpen={options.cashRegisterOpen ?? true}
       loading={options.loading ?? false}
       onNavigate={options.onNavigate ?? vi.fn()}
+      onSelectDashboardPeriod={options.onSelectDashboardPeriod ?? vi.fn()}
     />,
   );
 }
@@ -110,19 +152,55 @@ describe("ColmadoHome", () => {
     renderHome({ data: null, loading: true });
 
     expect(screen.getByLabelText("Cargando resumen")).toBeInTheDocument();
-    expect(screen.queryByText("Vendido hoy")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vendido este mes")).not.toBeInTheDocument();
   });
 
-  it("shows the current store and the four essential business numbers", () => {
+  it("shows the current store and the complete monthly business result", () => {
     renderHome();
 
-    expect(screen.getByRole("heading", { name: "Colmado Macao" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Colmado Macao" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Calle Principal, Macao")).toBeInTheDocument();
-    expect(screen.getByText("Vendido hoy")).toBeInTheDocument();
-    expect(screen.getByText("Ganancia de hoy")).toBeInTheDocument();
-    expect(screen.getByText("Fiado pendiente")).toBeInTheDocument();
-    expect(screen.getByText("Por comprar")).toBeInTheDocument();
-    expect(screen.getByText("25% frente a ayer")).toBeInTheDocument();
+    expect(screen.getByText("Vendido este mes")).toBeInTheDocument();
+    expect(screen.getByText("Ganancia neta")).toBeInTheDocument();
+    expect(screen.getByText("Costo de mercancía")).toBeInTheDocument();
+    expect(screen.getByText("Ganancia bruta")).toBeInTheDocument();
+    expect(screen.getByText("Gastos operativos")).toBeInTheDocument();
+    expect(screen.getByText("Nómina pagada")).toBeInTheDocument();
+    expect(screen.getByText("25% frente a el mes anterior")).toBeInTheDocument();
+    expect(screen.getByText("El colmado produjo ganancia.")).toBeInTheDocument();
+  });
+
+  it("changes between daily, weekly and monthly summaries", async () => {
+    const user = userEvent.setup();
+    const onSelectDashboardPeriod = vi.fn();
+    renderHome({ onSelectDashboardPeriod });
+
+    expect(screen.getByRole("button", { name: "Este mes" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Hoy" }));
+    await user.click(screen.getByRole("button", { name: "Esta semana" }));
+
+    expect(onSelectDashboardPeriod).toHaveBeenNthCalledWith(1, "day");
+    expect(onSelectDashboardPeriod).toHaveBeenNthCalledWith(2, "week");
+  });
+
+  it("shows the daily sales trend and identifies profit and loss days", () => {
+    renderHome();
+
+    expect(screen.getByText("Ventas por día")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Gráfica de ventas de este mes" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Día con ganancia")).toBeInTheDocument();
+    expect(screen.getByText("Día con pérdida")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/2 sept.*-RD/i),
+    ).toBeInTheDocument();
   });
 
   it("connects every quick action to its correct section", async () => {

@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  BarChart3,
   Boxes,
   ClipboardList,
   HandCoins,
@@ -12,15 +13,18 @@ import {
 import type {
   ColmadoSection,
   DashboardData,
+  DashboardPeriod,
   Store,
 } from "../types/colmado";
 
 interface ColmadoHomeProps {
   store: Store;
   dashboard: DashboardData | null;
+  dashboardPeriod: DashboardPeriod;
   cashRegisterOpen: boolean;
   loading?: boolean;
   onNavigate: (section: ColmadoSection) => void;
+  onSelectDashboardPeriod: (period: DashboardPeriod) => void;
 }
 
 const money = new Intl.NumberFormat("es-DO", {
@@ -29,14 +33,45 @@ const money = new Intl.NumberFormat("es-DO", {
   maximumFractionDigits: 2,
 });
 
+const dayFormatter = new Intl.DateTimeFormat("es-DO", {
+  day: "numeric",
+  month: "short",
+});
+
 const formatMoney = (value: string | number) => money.format(Number(value || 0));
+
+const formatDay = (value: string) =>
+  dayFormatter.format(new Date(`${value}T00:00:00`));
+
+const periodOptions: Array<{
+  value: DashboardPeriod;
+  label: string;
+}> = [
+  { value: "day", label: "Hoy" },
+  { value: "week", label: "Esta semana" },
+  { value: "month", label: "Este mes" },
+];
+
+const periodNames: Record<DashboardPeriod, string> = {
+  day: "hoy",
+  week: "esta semana",
+  month: "este mes",
+};
+
+const previousPeriodNames: Record<DashboardPeriod, string> = {
+  day: "ayer",
+  week: "la semana anterior",
+  month: "el mes anterior",
+};
 
 export default function ColmadoHome({
   store,
   dashboard,
+  dashboardPeriod,
   cashRegisterOpen,
   loading = false,
   onNavigate,
+  onSelectDashboardPeriod,
 }: ColmadoHomeProps) {
   if (loading && !dashboard) {
     return (
@@ -58,31 +93,52 @@ export default function ColmadoHome({
   const comparison = dashboard?.comparison;
   const change = Number(comparison?.change_percent ?? 0);
   const changeIsPositive = change >= 0;
+  const periodName = periodNames[dashboardPeriod];
+  const previousPeriodName = previousPeriodNames[dashboardPeriod];
+  const trend = dashboard?.trend ?? [];
+  const highestRevenue = Math.max(
+    ...trend.map((item) => Number(item.revenue)),
+    1,
+  );
 
   const stats = [
     {
-      label: "Vendido hoy",
+      label: `Vendido ${periodName}`,
       value: formatMoney(summary?.revenue ?? "0"),
       help: `${summary?.sale_count ?? 0} venta${summary?.sale_count === 1 ? "" : "s"}`,
       color: "text-emerald-700",
     },
     {
-      label: "Ganancia de hoy",
+      label: "Ganancia neta",
       value: formatMoney(summary?.net_profit ?? "0"),
-      help: summary?.is_profitable ? "Vas ganando" : "Revisa los gastos",
+      help: summary?.is_profitable
+        ? "Después de costos y gastos"
+        : "Los costos superan los ingresos",
       color: summary?.is_profitable ? "text-emerald-700" : "text-red-600",
     },
     {
-      label: "Fiado pendiente",
-      value: formatMoney(summary?.outstanding_credit ?? "0"),
-      help: "Dinero por cobrar",
+      label: "Costo de mercancía",
+      value: formatMoney(summary?.cost_of_goods ?? "0"),
+      help: "Costo de los productos vendidos",
+      color: "text-slate-900",
+    },
+    {
+      label: "Ganancia bruta",
+      value: formatMoney(summary?.gross_profit ?? "0"),
+      help: "Ventas menos mercancía",
+      color: "text-sky-700",
+    },
+    {
+      label: "Gastos operativos",
+      value: formatMoney(summary?.operating_expenses ?? "0"),
+      help: "Gastos registrados en el período",
       color: "text-amber-700",
     },
     {
-      label: "Por comprar",
-      value: String(summary?.low_stock_count ?? 0),
-      help: "Productos con poca existencia",
-      color: summary?.low_stock_count ? "text-red-600" : "text-emerald-700",
+      label: "Nómina pagada",
+      value: formatMoney(summary?.payroll ?? "0"),
+      help: "Pagos de empleados",
+      color: "text-violet-700",
     },
   ];
 
@@ -104,7 +160,7 @@ export default function ColmadoHome({
     {
       section: "fiado",
       label: "Ver fiados",
-      help: "Cobrar o consultar",
+      help: formatMoney(summary?.outstanding_credit ?? "0"),
       icon: HandCoins,
       style: "bg-amber-400 text-amber-950",
     },
@@ -128,28 +184,80 @@ export default function ColmadoHome({
   return (
     <div className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-br from-emerald-800 to-emerald-700 p-5 text-white shadow-sm sm:p-6">
-        <p className="text-sm font-bold text-emerald-100">Sucursal actual</p>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-black sm:text-3xl">{store.name}</h1>
+            <p className="text-sm font-bold text-emerald-100">
+              Sucursal actual
+            </p>
+            <h1 className="mt-1 text-2xl font-black sm:text-3xl">
+              {store.name}
+            </h1>
             {store.address && (
               <p className="mt-1 text-sm text-emerald-100">{store.address}</p>
             )}
           </div>
-          {comparison?.change_percent !== null && comparison?.change_percent !== undefined && (
-            <div className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-sm font-bold">
-              {changeIsPositive ? (
-                <TrendingUp aria-hidden="true" size={19} />
-              ) : (
-                <TrendingDown aria-hidden="true" size={19} />
-              )}
-              {Math.abs(change)}% frente a ayer
-            </div>
-          )}
+
+          <div
+            aria-label="Período del resumen"
+            className="grid grid-cols-3 gap-1 rounded-xl bg-white/15 p-1"
+            role="group"
+          >
+            {periodOptions.map((option) => {
+              const selected = dashboardPeriod === option.value;
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={loading}
+                  className={`min-h-10 rounded-lg px-3 text-sm font-black transition disabled:cursor-wait disabled:opacity-70 ${
+                    selected
+                      ? "bg-white text-emerald-800 shadow-sm"
+                      : "text-white hover:bg-white/10"
+                  }`}
+                  onClick={() => onSelectDashboardPeriod(option.value)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/20 pt-4">
+          <div>
+            <p className="text-sm font-bold text-emerald-100">
+              Resultado {periodName}
+            </p>
+            <p className="mt-1 text-2xl font-black">
+              {formatMoney(summary?.net_profit ?? "0")}
+            </p>
+            <p className="mt-1 text-sm text-emerald-100">
+              {summary?.is_profitable
+                ? "El colmado produjo ganancia."
+                : "El período cerró con pérdida."}
+            </p>
+          </div>
+
+          {comparison?.change_percent !== null &&
+            comparison?.change_percent !== undefined && (
+              <div className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-sm font-bold">
+                {changeIsPositive ? (
+                  <TrendingUp aria-hidden="true" size={19} />
+                ) : (
+                  <TrendingDown aria-hidden="true" size={19} />
+                )}
+                {Math.abs(change)}% frente a {previousPeriodName}
+              </div>
+            )}
         </div>
       </section>
 
-      <section aria-label="Resumen de hoy" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section
+        aria-label={`Resumen de ${periodName}`}
+        className="grid grid-cols-2 gap-3 lg:grid-cols-3"
+      >
         {stats.map((stat) => (
           <article key={stat.label} className="rounded-2xl bg-white p-4 shadow-sm">
             <p className="text-sm font-bold text-slate-500">{stat.label}</p>
@@ -159,6 +267,78 @@ export default function ColmadoHome({
             <p className="mt-1 text-xs text-slate-500">{stat.help}</p>
           </article>
         ))}
+      </section>
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-black">
+              <BarChart3 aria-hidden="true" className="text-emerald-700" size={22} />
+              Ventas por día
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Así se movieron las ventas durante {periodName}.
+            </p>
+          </div>
+          {dashboard && (
+            <p className="text-sm font-bold text-slate-600">
+              {formatDay(dashboard.period_start)} – {formatDay(dashboard.period_end)}
+            </p>
+          )}
+        </div>
+
+        {trend.length ? (
+          <div
+            aria-label={`Gráfica de ventas de ${periodName}`}
+            className="mt-5 overflow-x-auto pb-2"
+            role="img"
+          >
+            <div className="flex min-w-max items-end gap-2 border-b border-slate-200 px-1 pt-8">
+              {trend.map((item) => {
+                const revenue = Number(item.revenue);
+                const height = Math.max((revenue / highestRevenue) * 160, 8);
+                const profitable = Number(item.net_profit) >= 0;
+
+                return (
+                  <div
+                    key={item.date}
+                    className="flex w-12 flex-col items-center justify-end sm:w-14"
+                    title={`${formatDay(item.date)}: ${formatMoney(item.revenue)}`}
+                  >
+                    <span className="mb-1 text-[10px] font-bold text-slate-500">
+                      {revenue > 0 ? formatMoney(revenue) : ""}
+                    </span>
+                    <div
+                      aria-label={`${formatDay(item.date)}: ${formatMoney(item.revenue)} en ventas, ${formatMoney(item.net_profit)} de ganancia neta`}
+                      className={`w-7 rounded-t-md sm:w-8 ${
+                        profitable ? "bg-emerald-600" : "bg-red-500"
+                      }`}
+                      style={{ height: `${height}px` }}
+                    />
+                    <span className="mt-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
+                      {formatDay(item.date)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
+            Todavía no hay ventas registradas en este período.
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-emerald-600" />
+            Día con ganancia
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-red-500" />
+            Día con pérdida
+          </span>
+        </div>
       </section>
 
       <section>
@@ -207,7 +387,9 @@ export default function ColmadoHome({
                   onClick={() => onNavigate("pedidos")}
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-black">{order.customer_name}</span>
+                    <span className="block truncate font-black">
+                      {order.customer_name}
+                    </span>
                     <span className="block text-sm text-slate-500">
                       {order.status_display}
                     </span>

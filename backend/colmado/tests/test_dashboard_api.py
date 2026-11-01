@@ -236,6 +236,9 @@ class DashboardApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["date"], str(self.today))
+        self.assertEqual(response.data["period"], "day")
+        self.assertEqual(response.data["period_start"], str(self.today))
+        self.assertEqual(response.data["period_end"], str(self.today))
         self.assertEqual(response.data["summary"]["sale_count"], 0)
         self.assertEqual(response.data["summary"]["revenue"], "0.00")
         self.assertEqual(response.data["summary"]["net_profit"], "0.00")
@@ -482,6 +485,160 @@ class DashboardApiTests(APITestCase):
 
         self.assertEqual(response.data["comparison"]["previous_revenue"], "0.00")
         self.assertIsNone(response.data["comparison"]["change_percent"])
+
+    def test_week_dashboard_summarizes_the_complete_selected_week(self):
+        week_start = self.today - timedelta(days=self.today.weekday())
+        previous_week_date = week_start - timedelta(days=1)
+
+        self.create_sale(
+            selected_date=week_start,
+            total="100.00",
+            quantity="2.000",
+            unit_cost="30.00",
+        )
+        self.create_sale(
+            selected_date=week_start + timedelta(days=2),
+            total="50.00",
+            quantity="1.000",
+            unit_cost="20.00",
+            payment_method=Sale.CARD,
+        )
+        self.create_sale(
+            selected_date=previous_week_date,
+            total="80.00",
+            quantity="2.000",
+            unit_cost="20.00",
+        )
+
+        response = self.client.get(
+            self.dashboard_url,
+            {
+                "date": str(self.today),
+                "period": "week",
+            },
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["period"], "week")
+        self.assertEqual(response.data["period_start"], str(week_start))
+        self.assertEqual(
+            response.data["period_end"],
+            str(week_start + timedelta(days=6)),
+        )
+        self.assertEqual(response.data["summary"]["sale_count"], 2)
+        self.assertEqual(response.data["summary"]["revenue"], "150.00")
+        self.assertEqual(response.data["summary"]["cost_of_goods"], "80.00")
+        self.assertEqual(response.data["summary"]["gross_profit"], "70.00")
+        self.assertEqual(
+            response.data["comparison"]["previous_revenue"],
+            "80.00",
+        )
+        self.assertEqual(len(response.data["trend"]), 7)
+
+    def test_month_dashboard_reports_real_net_profit(self):
+        month_start = self.today.replace(day=1)
+        second_day = month_start + timedelta(days=1)
+        previous_month_date = month_start - timedelta(days=1)
+
+        self.create_sale(
+            selected_date=month_start,
+            total="100.00",
+            quantity="2.000",
+            unit_cost="30.00",
+        )
+        self.create_sale(
+            selected_date=second_day,
+            total="50.00",
+            quantity="1.000",
+            unit_cost="30.00",
+            payment_method=Sale.TRANSFER,
+        )
+        self.create_sale(
+            selected_date=previous_month_date,
+            total="80.00",
+            quantity="2.000",
+            unit_cost="20.00",
+        )
+        Expense.objects.create(
+            organisation=self.organisation,
+            store=self.store,
+            created_by=self.owner,
+            category=Expense.OTHER,
+            description="Electricidad",
+            amount=Decimal("10.00"),
+            expense_date=month_start,
+        )
+        PayrollPayment.objects.create(
+            organisation=self.organisation,
+            store=self.store,
+            employee=self.employee,
+            created_by=self.owner,
+            amount=Decimal("20.00"),
+            period_start=month_start,
+            period_end=second_day,
+            paid_on=second_day,
+        )
+
+        response = self.client.get(
+            self.dashboard_url,
+            {
+                "date": str(self.today),
+                "period": "month",
+            },
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["period"], "month")
+        self.assertEqual(response.data["period_start"], str(month_start))
+        self.assertEqual(response.data["summary"]["sale_count"], 2)
+        self.assertEqual(response.data["summary"]["revenue"], "150.00")
+        self.assertEqual(response.data["summary"]["cost_of_goods"], "90.00")
+        self.assertEqual(response.data["summary"]["gross_profit"], "60.00")
+        self.assertEqual(
+            response.data["summary"]["operating_expenses"],
+            "10.00",
+        )
+        self.assertEqual(response.data["summary"]["payroll"], "20.00")
+        self.assertEqual(response.data["summary"]["net_profit"], "30.00")
+        self.assertTrue(response.data["summary"]["is_profitable"])
+        self.assertEqual(
+            response.data["payments"][Sale.TRANSFER]["amount"],
+            "50.00",
+        )
+        self.assertEqual(
+            response.data["comparison"]["previous_revenue"],
+            "80.00",
+        )
+        self.assertGreaterEqual(len(response.data["trend"]), 28)
+
+    def test_period_comparison_returns_previous_period_dates(self):
+        response = self.client.get(
+            self.dashboard_url,
+            {"period": "week"},
+            **self.headers,
+        )
+
+        week_start = self.today - timedelta(days=self.today.weekday())
+        self.assertEqual(
+            response.data["comparison"]["previous_period_start"],
+            str(week_start - timedelta(days=7)),
+        )
+        self.assertEqual(
+            response.data["comparison"]["previous_period_end"],
+            str(week_start - timedelta(days=1)),
+        )
+
+    def test_invalid_dashboard_period_is_rejected(self):
+        response = self.client.get(
+            self.dashboard_url,
+            {"period": "year"},
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("period", response.data)
 
     def test_other_organisation_sales_are_not_included(self):
         self.create_sale(total="100.00")

@@ -2441,7 +2441,7 @@ class PublicCustomerOrderTrackingAPIView(APIView):
 
 class DashboardViewSet(ColmadoTenantMixin, viewsets.ViewSet):
 
-    """One compact endpoint for the owner's daily home screen."""
+    """Daily, weekly or monthly profitability dashboard for the owner."""
 
     def list(self, request):
 
@@ -2475,6 +2475,16 @@ class DashboardViewSet(ColmadoTenantMixin, viewsets.ViewSet):
 
         selected_date = query.get("date", timezone.localdate())
 
+        period = request.query_params.get("period", "day").strip().lower()
+
+        if period not in {"day", "week", "month"}:
+
+            raise ValidationError(
+
+                {"period": "El período debe ser day, week o month."}
+
+            )
+
         return Response(
 
             build_dashboard(
@@ -2484,6 +2494,8 @@ class DashboardViewSet(ColmadoTenantMixin, viewsets.ViewSet):
                 selected_date=selected_date,
 
                 store=store,
+
+                period=period,
 
             )
 

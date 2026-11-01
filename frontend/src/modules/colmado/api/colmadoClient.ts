@@ -6,6 +6,7 @@ import type {
   CreateSalePayload,
   Customer,
   DashboardData,
+  DashboardPeriod,
   InventoryItem,
   Sale,
   Store,
@@ -188,10 +189,16 @@ export async function getStores(organisationSlug: string): Promise<Store[]> {
 export async function getDashboard(
   organisationSlug: string,
   store?: number,
+  period: DashboardPeriod = "day",
+  selectedDate?: string,
 ): Promise<DashboardData> {
   const response = await api.get<DashboardData>("/colmado/dashboard/", {
     headers: tenantHeaders(organisationSlug),
-    params: store ? { store } : undefined,
+    params: {
+      store: store || undefined,
+      period,
+      date: selectedDate || undefined,
+    },
   });
   return response.data;
 }

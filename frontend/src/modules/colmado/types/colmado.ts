@@ -8,6 +8,8 @@ export type SaleStatus = "completed" | "voided";
 
 export type CashRegisterStatus = "open" | "closed";
 
+export type DashboardPeriod = "day" | "week" | "month";
+
 export type ColmadoSection =
   | "inicio"
   | "vender"
@@ -165,9 +167,22 @@ export interface DashboardSummary {
 
 export interface DashboardComparison {
   previous_date: string;
+  previous_period_start: string;
+  previous_period_end: string;
   previous_revenue: string;
   change_amount: string;
   change_percent: string | null;
+}
+
+export interface DashboardTrendItem {
+  date: string;
+  sale_count: number;
+  revenue: string;
+  cost_of_goods: string;
+  gross_profit: string;
+  operating_expenses: string;
+  payroll: string;
+  net_profit: string;
 }
 
 export interface DashboardLowStockItem {
@@ -213,6 +228,9 @@ export interface DashboardStoreComparison {
 
 export interface DashboardData {
   date: string;
+  period: DashboardPeriod;
+  period_start: string;
+  period_end: string;
   store: { id: number; name: string } | null;
   summary: DashboardSummary;
   comparison: DashboardComparison;
@@ -221,6 +239,7 @@ export interface DashboardData {
   orders: DashboardOrder[];
   top_products: DashboardTopProduct[];
   stores: DashboardStoreComparison[];
+  trend: DashboardTrendItem[];
 }
 
 export interface ApiFieldErrors {

@@ -10,7 +10,7 @@ from datetime import timedelta
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.db.models import Count, DecimalField, F, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework.exceptions import ValidationError
@@ -1790,18 +1790,49 @@ def import_master_catalog(*, uploaded_by, uploaded_file):
         )
 
 
-def _dashboard_sales(*, organisation, selected_date, store=None):
+def _dashboard_period_bounds(selected_date, period):
+    if period == "day":
+        period_start = selected_date
+        period_end = selected_date
+        previous_start = selected_date - timedelta(days=1)
+        previous_end = previous_start
+    elif period == "week":
+        period_start = selected_date - timedelta(days=selected_date.weekday())
+        period_end = period_start + timedelta(days=6)
+        previous_start = period_start - timedelta(days=7)
+        previous_end = period_start - timedelta(days=1)
+    elif period == "month":
+        period_start = selected_date.replace(day=1)
+        if period_start.month == 12:
+            next_month = period_start.replace(
+                year=period_start.year + 1,
+                month=1,
+            )
+        else:
+            next_month = period_start.replace(month=period_start.month + 1)
+        period_end = next_month - timedelta(days=1)
+        previous_end = period_start - timedelta(days=1)
+        previous_start = previous_end.replace(day=1)
+    else:
+        raise ValidationError(
+            {"period": "El período debe ser day, week o month."}
+        )
+
+    return period_start, period_end, previous_start, previous_end
+
+
+def _dashboard_sales(*, organisation, start_date, end_date, store=None):
     money_field = DecimalField(max_digits=18, decimal_places=2)
     zero = Decimal("0.00")
     sales = Sale.objects.filter(
         organisation=organisation,
         status=Sale.COMPLETED,
-        created_at__date=selected_date,
+        created_at__date__range=(start_date, end_date),
     )
     sale_items = SaleItem.objects.filter(
         sale__organisation=organisation,
         sale__status=Sale.COMPLETED,
-        sale__created_at__date=selected_date,
+        sale__created_at__date__range=(start_date, end_date),
     )
     if store is not None:
         sales = sales.filter(store=store)
@@ -1843,17 +1874,134 @@ def _dashboard_sales(*, organisation, selected_date, store=None):
     }
 
 
-def build_dashboard(*, organisation, selected_date, store=None):
-    """Build one compact, Spanish-ready daily summary for an owner."""
+def _dashboard_trend(*, organisation, start_date, end_date, store=None):
+    money_field = DecimalField(max_digits=18, decimal_places=2)
+    zero = Decimal("0.00")
+
+    sales = Sale.objects.filter(
+        organisation=organisation,
+        status=Sale.COMPLETED,
+        created_at__date__range=(start_date, end_date),
+    )
+    sale_items = SaleItem.objects.filter(
+        sale__organisation=organisation,
+        sale__status=Sale.COMPLETED,
+        sale__created_at__date__range=(start_date, end_date),
+    )
+    expenses = Expense.objects.filter(
+        organisation=organisation,
+        expense_date__range=(start_date, end_date),
+    )
+    payroll = PayrollPayment.objects.filter(
+        organisation=organisation,
+        paid_on__range=(start_date, end_date),
+    )
+
+    if store is not None:
+        sales = sales.filter(store=store)
+        sale_items = sale_items.filter(sale__store=store)
+        expenses = expenses.filter(store=store)
+        payroll = payroll.filter(store=store)
+
+    sales_by_day = {
+        row["day"]: row
+        for row in (
+            sales.annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(
+                sale_count=Count("id"),
+                revenue=Coalesce(
+                    Sum("total"),
+                    zero,
+                    output_field=money_field,
+                ),
+            )
+        )
+    }
+    costs_by_day = {
+        row["day"]: row["value"]
+        for row in (
+            sale_items.annotate(day=TruncDate("sale__created_at"))
+            .values("day")
+            .annotate(
+                value=Coalesce(
+                    Sum(F("quantity") * F("unit_cost")),
+                    zero,
+                    output_field=money_field,
+                )
+            )
+        )
+    }
+    expenses_by_day = {
+        row["expense_date"]: row["value"]
+        for row in expenses.values("expense_date").annotate(
+            value=Coalesce(
+                Sum("amount"),
+                zero,
+                output_field=money_field,
+            )
+        )
+    }
+    payroll_by_day = {
+        row["paid_on"]: row["value"]
+        for row in payroll.values("paid_on").annotate(
+            value=Coalesce(
+                Sum("amount"),
+                zero,
+                output_field=money_field,
+            )
+        )
+    }
+
+    trend = []
+    current_date = start_date
+    while current_date <= end_date:
+        sale_values = sales_by_day.get(current_date, {})
+        revenue = _money(sale_values.get("revenue", zero))
+        cost_of_goods = _money(costs_by_day.get(current_date, zero))
+        gross_profit = _money(revenue - cost_of_goods)
+        operating_expenses = _money(expenses_by_day.get(current_date, zero))
+        payroll_total = _money(payroll_by_day.get(current_date, zero))
+        net_profit = _money(
+            gross_profit - operating_expenses - payroll_total
+        )
+        trend.append(
+            {
+                "date": str(current_date),
+                "sale_count": sale_values.get("sale_count", 0),
+                "revenue": str(revenue),
+                "cost_of_goods": str(cost_of_goods),
+                "gross_profit": str(gross_profit),
+                "operating_expenses": str(operating_expenses),
+                "payroll": str(payroll_total),
+                "net_profit": str(net_profit),
+            }
+        )
+        current_date += timedelta(days=1)
+
+    return trend
+
+
+def build_dashboard(*, organisation, selected_date, store=None, period="day"):
+    """Build a daily, weekly or monthly owner profitability summary."""
+
+    (
+        period_start,
+        period_end,
+        previous_period_start,
+        previous_period_end,
+    ) = _dashboard_period_bounds(selected_date, period)
 
     today_sales = _dashboard_sales(
         organisation=organisation,
-        selected_date=selected_date,
+        start_date=period_start,
+        end_date=period_end,
         store=store,
     )
     previous_sales = _dashboard_sales(
         organisation=organisation,
-        selected_date=selected_date - timedelta(days=1),
+        start_date=previous_period_start,
+        end_date=previous_period_end,
         store=store,
     )
     revenue = today_sales["revenue"]
@@ -1862,11 +2010,11 @@ def build_dashboard(*, organisation, selected_date, store=None):
 
     expenses = Expense.objects.filter(
         organisation=organisation,
-        expense_date=selected_date,
+        expense_date__range=(period_start, period_end),
     )
     payroll = PayrollPayment.objects.filter(
         organisation=organisation,
-        paid_on=selected_date,
+        paid_on__range=(period_start, period_end),
     )
     if store is not None:
         expenses = expenses.filter(store=store)
@@ -1974,7 +2122,8 @@ def build_dashboard(*, organisation, selected_date, store=None):
         ).order_by("name"):
             store_sales = _dashboard_sales(
                 organisation=organisation,
-                selected_date=selected_date,
+                start_date=period_start,
+                end_date=period_end,
                 store=current_store,
             )
             store_comparison.append(
@@ -1994,6 +2143,9 @@ def build_dashboard(*, organisation, selected_date, store=None):
 
     return {
         "date": str(selected_date),
+        "period": period,
+        "period_start": str(period_start),
+        "period_end": str(period_end),
         "store": (
             {"id": store.id, "name": store.name}
             if store is not None
@@ -2015,7 +2167,9 @@ def build_dashboard(*, organisation, selected_date, store=None):
             "active_orders": sum(order_counts.values()),
         },
         "comparison": {
-            "previous_date": str(selected_date - timedelta(days=1)),
+            "previous_date": str(previous_period_end),
+            "previous_period_start": str(previous_period_start),
+            "previous_period_end": str(previous_period_end),
             "previous_revenue": str(previous_revenue),
             "change_amount": str(change_amount),
             "change_percent": (
@@ -2027,4 +2181,10 @@ def build_dashboard(*, organisation, selected_date, store=None):
         "orders": recent_orders,
         "top_products": top_products,
         "stores": store_comparison,
+        "trend": _dashboard_trend(
+            organisation=organisation,
+            start_date=period_start,
+            end_date=period_end,
+            store=store,
+        ),
     }

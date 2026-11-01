@@ -9,22 +9,40 @@ import {
 import type {
   CashRegisterSession,
   DashboardData,
+  DashboardPeriod,
   Store,
 } from "../types/colmado";
 
 const selectedStoreKey = (organisationSlug: string) =>
   `colmado:selected-store:${organisationSlug}`;
 
+const dashboardPeriodKey = (organisationSlug: string) =>
+  `colmado:dashboard-period:${organisationSlug}`;
+
+const dashboardPeriods: DashboardPeriod[] = ["day", "week", "month"];
+
+function savedDashboardPeriod(
+  organisationSlug: string,
+): DashboardPeriod {
+  const saved = localStorage.getItem(dashboardPeriodKey(organisationSlug));
+
+  return dashboardPeriods.includes(saved as DashboardPeriod)
+    ? (saved as DashboardPeriod)
+    : "month";
+}
+
 export interface ColmadoWorkspace {
   stores: Store[];
   selectedStoreId: number;
   selectedStore: Store | null;
   dashboard: DashboardData | null;
+  dashboardPeriod: DashboardPeriod;
   cashRegister: CashRegisterSession | null;
   loadingStores: boolean;
   loadingWorkspace: boolean;
   error: string | null;
   selectStore: (storeId: number) => void;
+  selectDashboardPeriod: (period: DashboardPeriod) => void;
   refreshWorkspace: () => Promise<void>;
 }
 
@@ -34,6 +52,9 @@ export function useColmadoWorkspace(
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState(0);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>(() =>
+    savedDashboardPeriod(organisationSlug),
+  );
   const [cashRegister, setCashRegister] =
     useState<CashRegisterSession | null>(null);
   const [loadingStores, setLoadingStores] = useState(true);
@@ -46,6 +67,7 @@ export function useColmadoWorkspace(
     workspaceRequestId.current += 1;
     setSelectedStoreId(0);
     setDashboard(null);
+    setDashboardPeriod(savedDashboardPeriod(organisationSlug));
     setCashRegister(null);
 
     async function loadAvailableStores() {
@@ -108,7 +130,11 @@ export function useColmadoWorkspace(
     setError(null);
     try {
       const [nextDashboard, nextCashRegister] = await Promise.all([
-        getDashboard(organisationSlug, selectedStoreId),
+        getDashboard(
+          organisationSlug,
+          selectedStoreId,
+          dashboardPeriod,
+        ),
         getCurrentCashRegister(organisationSlug, selectedStoreId),
       ]);
       if (requestId !== workspaceRequestId.current) return;
@@ -127,7 +153,7 @@ export function useColmadoWorkspace(
         setLoadingWorkspace(false);
       }
     }
-  }, [organisationSlug, selectedStoreId]);
+  }, [dashboardPeriod, organisationSlug, selectedStoreId]);
 
   useEffect(() => {
     void refreshWorkspace();
@@ -142,6 +168,14 @@ export function useColmadoWorkspace(
     [organisationSlug, stores],
   );
 
+  const selectDashboardPeriod = useCallback(
+    (period: DashboardPeriod) => {
+      localStorage.setItem(dashboardPeriodKey(organisationSlug), period);
+      setDashboardPeriod(period);
+    },
+    [organisationSlug],
+  );
+
   const selectedStore = useMemo(
     () => stores.find((store) => store.id === selectedStoreId) ?? null,
     [selectedStoreId, stores],
@@ -152,11 +186,13 @@ export function useColmadoWorkspace(
     selectedStoreId,
     selectedStore,
     dashboard,
+    dashboardPeriod,
     cashRegister,
     loadingStores,
     loadingWorkspace,
     error,
     selectStore,
+    selectDashboardPeriod,
     refreshWorkspace,
   };
 }

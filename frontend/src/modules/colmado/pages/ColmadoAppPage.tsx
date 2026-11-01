@@ -353,6 +353,9 @@ export default function ColmadoAppPage() {
         <ColmadoHome
           store={selectedStore}
           dashboard={workspace.dashboard}
+          dashboardPeriod={
+            workspace.dashboardPeriod
+          }
           cashRegisterOpen={
             cashRegisterOpen
           }
@@ -361,6 +364,9 @@ export default function ColmadoAppPage() {
           }
           onNavigate={
             selectSection
+          }
+          onSelectDashboardPeriod={
+            workspace.selectDashboardPeriod
           }
         />
       )}

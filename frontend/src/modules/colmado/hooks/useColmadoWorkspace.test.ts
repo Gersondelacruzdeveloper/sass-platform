@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CashRegisterSession,
   DashboardData,
+  DashboardPeriod,
   Store,
 } from "../types/colmado";
 import { useColmadoWorkspace } from "./useColmadoWorkspace";
@@ -30,9 +31,16 @@ const activeStore = (id: number, name: string): Store =>
     updated_at: "2026-09-27T10:00:00Z",
   }) satisfies Store;
 
-const dashboardFor = (storeId: number, revenue: string): DashboardData =>
+const dashboardFor = (
+  storeId: number,
+  revenue: string,
+  period: DashboardPeriod = "month",
+): DashboardData =>
   ({
     date: "2026-09-27",
+    period,
+    period_start: "2026-09-01",
+    period_end: "2026-09-30",
     store: { id: storeId, name: `Sucursal ${storeId}` },
     summary: {
       sale_count: 1,
@@ -50,7 +58,9 @@ const dashboardFor = (storeId: number, revenue: string): DashboardData =>
       active_orders: 0,
     },
     comparison: {
-      previous_date: "2026-09-26",
+      previous_date: "2026-08-31",
+      previous_period_start: "2026-08-01",
+      previous_period_end: "2026-08-31",
       previous_revenue: "0.00",
       change_amount: revenue,
       change_percent: null,
@@ -61,6 +71,18 @@ const dashboardFor = (storeId: number, revenue: string): DashboardData =>
       transfer: { amount: "0.00", count: 0 },
       credit: { amount: "0.00", count: 0 },
     },
+    trend: [
+      {
+        date: "2026-09-27",
+        sale_count: 1,
+        revenue,
+        cost_of_goods: "50.00",
+        gross_profit: "50.00",
+        operating_expenses: "0.00",
+        payroll: "0.00",
+        net_profit: "50.00",
+      },
+    ],
     low_stock: [],
     orders: [],
     top_products: [],
@@ -98,8 +120,11 @@ describe("useColmadoWorkspace", () => {
       (_error: unknown, fallback?: string) => fallback || "Error de prueba",
     );
     apiMocks.getDashboard.mockImplementation(
-      (_slug: string, storeId: number) =>
-        Promise.resolve(dashboardFor(storeId, `${storeId}00.00`)),
+      (
+        _slug: string,
+        storeId: number,
+        period: DashboardPeriod = "month",
+      ) => Promise.resolve(dashboardFor(storeId, `${storeId}00.00`, period)),
     );
     apiMocks.getCurrentCashRegister.mockImplementation(
       (_slug: string, storeId: number) => Promise.resolve(openRegister(storeId)),
@@ -121,9 +146,11 @@ describe("useColmadoWorkspace", () => {
 
     expect(result.current.stores.map((store) => store.id)).toEqual([1]);
     expect(result.current.selectedStore?.name).toBe("Macao");
+    expect(result.current.dashboardPeriod).toBe("month");
     expect(apiMocks.getDashboard).toHaveBeenCalledWith(
       "colmado-don-juan",
       1,
+      "month",
     );
     expect(apiMocks.getCurrentCashRegister).toHaveBeenCalledWith(
       "colmado-don-juan",
@@ -150,6 +177,51 @@ describe("useColmadoWorkspace", () => {
     expect(result.current.selectedStore?.name).toBe("Verón");
   });
 
+  it("restores the dashboard period selected for that organisation", async () => {
+    window.localStorage.setItem(
+      "colmado:dashboard-period:colmado-don-juan",
+      "week",
+    );
+    apiMocks.getStores.mockResolvedValue([activeStore(1, "Macao")]);
+
+    const { result } = renderHook(() =>
+      useColmadoWorkspace("colmado-don-juan"),
+    );
+
+    await waitFor(() => expect(result.current.dashboardPeriod).toBe("week"));
+    await waitFor(() =>
+      expect(apiMocks.getDashboard).toHaveBeenCalledWith(
+        "colmado-don-juan",
+        1,
+        "week",
+      ),
+    );
+  });
+
+  it("changes the period, persists it and reloads the dashboard", async () => {
+    apiMocks.getStores.mockResolvedValue([activeStore(1, "Macao")]);
+    const { result } = renderHook(() =>
+      useColmadoWorkspace("colmado-don-juan"),
+    );
+    await waitFor(() => expect(result.current.dashboardPeriod).toBe("month"));
+    await waitFor(() => expect(result.current.dashboard).not.toBeNull());
+
+    act(() => result.current.selectDashboardPeriod("day"));
+
+    await waitFor(() => expect(result.current.dashboardPeriod).toBe("day"));
+    await waitFor(() => expect(result.current.dashboard?.period).toBe("day"));
+    expect(
+      window.localStorage.getItem(
+        "colmado:dashboard-period:colmado-don-juan",
+      ),
+    ).toBe("day");
+    expect(apiMocks.getDashboard).toHaveBeenCalledWith(
+      "colmado-don-juan",
+      1,
+      "day",
+    );
+  });
+
   it("changes store, persists it and reloads dashboard and cash register", async () => {
     apiMocks.getStores.mockResolvedValue([
       activeStore(1, "Macao"),
@@ -164,8 +236,14 @@ describe("useColmadoWorkspace", () => {
 
     await waitFor(() => expect(result.current.dashboard?.store?.id).toBe(3));
     expect(result.current.cashRegister?.store).toBe(3);
-    expect(window.localStorage.getItem("colmado:selected-store:colmado-don-juan")).toBe("3");
-    expect(apiMocks.getDashboard).toHaveBeenCalledWith("colmado-don-juan", 3);
+    expect(
+      window.localStorage.getItem("colmado:selected-store:colmado-don-juan"),
+    ).toBe("3");
+    expect(apiMocks.getDashboard).toHaveBeenCalledWith(
+      "colmado-don-juan",
+      3,
+      "month",
+    );
   });
 
   it("does not allow selecting a store that is outside the loaded organisation", async () => {
@@ -178,10 +256,13 @@ describe("useColmadoWorkspace", () => {
     act(() => result.current.selectStore(999));
 
     expect(result.current.selectedStoreId).toBe(1);
-    expect(window.localStorage.getItem("colmado:selected-store:colmado-don-juan")).toBeNull();
+    expect(
+      window.localStorage.getItem("colmado:selected-store:colmado-don-juan"),
+    ).toBeNull();
     expect(apiMocks.getDashboard).not.toHaveBeenCalledWith(
       "colmado-don-juan",
       999,
+      "month",
     );
   });
 
@@ -205,7 +286,11 @@ describe("useColmadoWorkspace", () => {
     await waitFor(() => expect(result.current.dashboard?.store?.id).toBe(9));
     expect(result.current.stores).toHaveLength(1);
     expect(result.current.stores[0].name).toBe("Sucursal B");
-    expect(apiMocks.getDashboard).toHaveBeenCalledWith("negocio-b", 9);
+    expect(apiMocks.getDashboard).toHaveBeenCalledWith(
+      "negocio-b",
+      9,
+      "month",
+    );
   });
 
   it("shows a clear error and exposes no stores when loading fails", async () => {

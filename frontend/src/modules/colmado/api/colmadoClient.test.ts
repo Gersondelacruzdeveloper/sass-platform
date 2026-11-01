@@ -50,14 +50,46 @@ describe("Colmado API client", () => {
     });
   });
 
-  it("loads the dashboard for one store", async () => {
-    const dashboard = { date: "2026-09-26", summary: { revenue: "500.00" } };
+  it("loads the daily dashboard for one store by default", async () => {
+    const dashboard = {
+      date: "2026-09-26",
+      period: "day",
+      summary: { revenue: "500.00" },
+    };
     apiMocks.get.mockResolvedValue({ data: dashboard });
 
     await expect(getDashboard(organisationSlug, 3)).resolves.toBe(dashboard);
     expect(apiMocks.get).toHaveBeenCalledWith("/colmado/dashboard/", {
       headers,
-      params: { store: 3 },
+      params: {
+        store: 3,
+        period: "day",
+        date: undefined,
+      },
+    });
+  });
+
+  it("loads the monthly dashboard using the selected date", async () => {
+    const dashboard = {
+      date: "2026-11-01",
+      period: "month",
+      period_start: "2026-11-01",
+      period_end: "2026-11-30",
+      summary: { revenue: "125000.00" },
+    };
+    apiMocks.get.mockResolvedValue({ data: dashboard });
+
+    await expect(
+      getDashboard(organisationSlug, 3, "month", "2026-11-01"),
+    ).resolves.toBe(dashboard);
+
+    expect(apiMocks.get).toHaveBeenCalledWith("/colmado/dashboard/", {
+      headers,
+      params: {
+        store: 3,
+        period: "month",
+        date: "2026-11-01",
+      },
     });
   });
 
@@ -114,16 +146,13 @@ describe("Colmado API client", () => {
       }),
     ).resolves.toEqual(products);
 
-    expect(apiMocks.get).toHaveBeenCalledWith(
-      "/colmado/catalog/",
-      {
-        headers,
-        params: {
-          search: "plátano",
-          category: undefined,
-        },
+    expect(apiMocks.get).toHaveBeenCalledWith("/colmado/catalog/", {
+      headers,
+      params: {
+        search: "plátano",
+        category: undefined,
       },
-    );
+    });
   });
 
   it("adds a selected master product to one store inventory", async () => {
@@ -211,7 +240,9 @@ describe("Colmado API client", () => {
       response: { status: 404, data: { detail: "No hay caja abierta." } },
     });
 
-    await expect(getCurrentCashRegister(organisationSlug, 2)).resolves.toBeNull();
+    await expect(
+      getCurrentCashRegister(organisationSlug, 2),
+    ).resolves.toBeNull();
     expect(apiMocks.get).toHaveBeenCalledWith(
       "/colmado/cash-registers/current/",
       { headers, params: { store: 2 } },
