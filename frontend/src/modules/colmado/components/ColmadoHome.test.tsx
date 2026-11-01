@@ -168,7 +168,7 @@ describe("ColmadoHome", () => {
     expect(screen.getByText("Ganancia bruta")).toBeInTheDocument();
     expect(screen.getByText("Gastos operativos")).toBeInTheDocument();
     expect(screen.getByText("Nómina pagada")).toBeInTheDocument();
-    expect(screen.getByText("25% frente a el mes anterior")).toBeInTheDocument();
+    expect(screen.getByText("25% frente al mes anterior")).toBeInTheDocument();
     expect(screen.getByText("El colmado produjo ganancia.")).toBeInTheDocument();
   });
 
@@ -263,5 +263,37 @@ describe("ColmadoHome", () => {
 
     expect(screen.getByText("No hay pedidos pendientes.")).toBeInTheDocument();
     expect(screen.getByText("El inventario está bien por ahora.")).toBeInTheDocument();
+  });
+
+  it("shows a neutral result and one date when the selected day has no movement", () => {
+    renderHome({
+      data: {
+        ...dashboard,
+        period: "day",
+        period_start: "2026-11-01",
+        period_end: "2026-11-01",
+        summary: {
+          ...dashboard.summary,
+          revenue: "0.00",
+          cost_of_goods: "0.00",
+          gross_profit: "0.00",
+          operating_expenses: "0.00",
+          payroll: "0.00",
+          net_profit: "0.00",
+          is_profitable: true,
+        },
+        trend: [
+          {
+            date: "2026-11-01",
+            revenue: "0.00",
+            net_profit: "0.00",
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Sin ganancia ni pérdida.")).toBeInTheDocument();
+    expect(screen.getByText("Sin movimiento")).toBeInTheDocument();
+    expect(screen.queryByText("1 nov – 1 nov")).not.toBeInTheDocument();
   });
 });

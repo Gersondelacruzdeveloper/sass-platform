@@ -317,6 +317,53 @@ describe("ColmadoShell", () => {
 
 
   it(
+    "opens expenses and payroll from desktop and mobile",
+    async () => {
+      const user = userEvent.setup();
+      const onSelectSection = vi.fn();
+
+      renderShell({
+        onSelectSection,
+      });
+
+      const financeButtons =
+        screen.getAllByRole(
+          "button",
+          {
+            name: "Gastos y nómina",
+          },
+        );
+
+      expect(
+        financeButtons,
+      ).toHaveLength(2);
+
+      await user.click(
+        financeButtons[0],
+      );
+
+      await user.click(
+        financeButtons[1],
+      );
+
+      expect(
+        onSelectSection,
+      ).toHaveBeenNthCalledWith(
+        1,
+        "finanzas",
+      );
+
+      expect(
+        onSelectSection,
+      ).toHaveBeenNthCalledWith(
+        2,
+        "finanzas",
+      );
+    },
+  );
+
+
+  it(
     "sends the employee to cash opening when the register is closed",
     async () => {
       const user = userEvent.setup();

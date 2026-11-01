@@ -172,6 +172,101 @@ export type InventoryAdjustmentReason =
   | "personal_use"
   | "correction";
 
+export type EmployeePayFrequency =
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly";
+
+export interface Employee {
+  id: number;
+  store: number;
+  store_name: string;
+  name: string;
+  phone: string;
+  position: string;
+  pay_frequency: EmployeePayFrequency;
+  pay_frequency_display: string;
+  pay_amount: string;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEmployeePayload {
+  store: number;
+  name: string;
+  phone?: string;
+  position?: string;
+  pay_frequency: EmployeePayFrequency;
+  pay_amount: string;
+  start_date: string;
+  end_date?: string | null;
+  is_active?: boolean;
+}
+
+export type ExpenseCategory =
+  | "rent"
+  | "electricity"
+  | "water"
+  | "internet"
+  | "transport"
+  | "maintenance"
+  | "tax"
+  | "other";
+
+export interface Expense {
+  id: number;
+  store: number;
+  store_name: string;
+  created_by: number;
+  created_by_name: string;
+  category: ExpenseCategory;
+  category_display: string;
+  description: string;
+  amount: string;
+  expense_date: string;
+  receipt_image_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateExpensePayload {
+  store: number;
+  category: ExpenseCategory;
+  description: string;
+  amount: string;
+  expense_date: string;
+}
+
+export interface PayrollPayment {
+  id: number;
+  store: number;
+  store_name: string;
+  employee: number;
+  employee_name: string;
+  created_by: number;
+  created_by_name: string;
+  amount: string;
+  period_start: string;
+  period_end: string;
+  paid_on: string;
+  note: string;
+  created_at: string;
+}
+
+export interface CreatePayrollPaymentPayload {
+  store: number;
+  employee: number;
+  amount: string;
+  period_start: string;
+  period_end: string;
+  paid_on: string;
+  note?: string;
+}
+
 const tenantHeaders = (organisationSlug: string) => ({
   "X-Organisation-Slug": organisationSlug,
 });
@@ -318,6 +413,97 @@ export async function adjustInventoryQuantity(
   >(`/colmado/inventory/${inventoryItemId}/adjust/`, payload, {
     headers: tenantHeaders(organisationSlug),
   });
+  return response.data;
+}
+
+export async function getEmployees(
+  organisationSlug: string,
+  filters: { store: number; active?: boolean },
+): Promise<Employee[]> {
+  const response = await api.get<ApiList<Employee>>("/colmado/employees/", {
+    headers: tenantHeaders(organisationSlug),
+    params: {
+      store: filters.store,
+      active: filters.active === undefined ? undefined : String(filters.active),
+    },
+  });
+  return listResults(response.data);
+}
+
+export async function createEmployee(
+  organisationSlug: string,
+  payload: CreateEmployeePayload,
+): Promise<Employee> {
+  const response = await api.post<Employee>("/colmado/employees/", payload, {
+    headers: tenantHeaders(organisationSlug),
+  });
+  return response.data;
+}
+
+export async function getExpenses(
+  organisationSlug: string,
+  filters: {
+    store: number;
+    category?: ExpenseCategory;
+    dateFrom?: string;
+    dateTo?: string;
+  },
+): Promise<Expense[]> {
+  const response = await api.get<ApiList<Expense>>("/colmado/expenses/", {
+    headers: tenantHeaders(organisationSlug),
+    params: {
+      store: filters.store,
+      category: filters.category,
+      date_from: filters.dateFrom,
+      date_to: filters.dateTo,
+    },
+  });
+  return listResults(response.data);
+}
+
+export async function createExpense(
+  organisationSlug: string,
+  payload: CreateExpensePayload,
+): Promise<Expense> {
+  const response = await api.post<Expense>("/colmado/expenses/", payload, {
+    headers: tenantHeaders(organisationSlug),
+  });
+  return response.data;
+}
+
+export async function getPayrollPayments(
+  organisationSlug: string,
+  filters: {
+    store: number;
+    employee?: number;
+    dateFrom?: string;
+    dateTo?: string;
+  },
+): Promise<PayrollPayment[]> {
+  const response = await api.get<ApiList<PayrollPayment>>(
+    "/colmado/payroll-payments/",
+    {
+      headers: tenantHeaders(organisationSlug),
+      params: {
+        store: filters.store,
+        employee: filters.employee,
+        date_from: filters.dateFrom,
+        date_to: filters.dateTo,
+      },
+    },
+  );
+  return listResults(response.data);
+}
+
+export async function createPayrollPayment(
+  organisationSlug: string,
+  payload: CreatePayrollPaymentPayload,
+): Promise<PayrollPayment> {
+  const response = await api.post<PayrollPayment>(
+    "/colmado/payroll-payments/",
+    payload,
+    { headers: tenantHeaders(organisationSlug) },
+  );
   return response.data;
 }
 

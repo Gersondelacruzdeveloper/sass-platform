@@ -58,10 +58,10 @@ const periodNames: Record<DashboardPeriod, string> = {
   month: "este mes",
 };
 
-const previousPeriodNames: Record<DashboardPeriod, string> = {
-  day: "ayer",
-  week: "la semana anterior",
-  month: "el mes anterior",
+const previousPeriodPhrases: Record<DashboardPeriod, string> = {
+  day: "frente a ayer",
+  week: "frente a la semana anterior",
+  month: "frente al mes anterior",
 };
 
 export default function ColmadoHome({
@@ -94,8 +94,15 @@ export default function ColmadoHome({
   const change = Number(comparison?.change_percent ?? 0);
   const changeIsPositive = change >= 0;
   const periodName = periodNames[dashboardPeriod];
-  const previousPeriodName = previousPeriodNames[dashboardPeriod];
+  const previousPeriodPhrase = previousPeriodPhrases[dashboardPeriod];
   const trend = dashboard?.trend ?? [];
+  const netProfit = Number(summary?.net_profit ?? 0);
+  const resultMessage =
+    netProfit > 0
+      ? "El colmado produjo ganancia."
+      : netProfit < 0
+        ? "El período cerró con pérdida."
+        : "Sin ganancia ni pérdida.";
   const highestRevenue = Math.max(
     ...trend.map((item) => Number(item.revenue)),
     1,
@@ -111,10 +118,16 @@ export default function ColmadoHome({
     {
       label: "Ganancia neta",
       value: formatMoney(summary?.net_profit ?? "0"),
-      help: summary?.is_profitable
-        ? "Después de costos y gastos"
-        : "Los costos superan los ingresos",
-      color: summary?.is_profitable ? "text-emerald-700" : "text-red-600",
+      help:
+        netProfit === 0
+          ? "Sin resultado todavía"
+          : "Después de costos y gastos",
+      color:
+        netProfit > 0
+          ? "text-emerald-700"
+          : netProfit < 0
+            ? "text-red-600"
+            : "text-slate-700",
     },
     {
       label: "Costo de mercancía",
@@ -234,9 +247,7 @@ export default function ColmadoHome({
               {formatMoney(summary?.net_profit ?? "0")}
             </p>
             <p className="mt-1 text-sm text-emerald-100">
-              {summary?.is_profitable
-                ? "El colmado produjo ganancia."
-                : "El período cerró con pérdida."}
+              {resultMessage}
             </p>
           </div>
 
@@ -248,7 +259,7 @@ export default function ColmadoHome({
                 ) : (
                   <TrendingDown aria-hidden="true" size={19} />
                 )}
-                {Math.abs(change)}% frente a {previousPeriodName}
+                {Math.abs(change)}% {previousPeriodPhrase}
               </div>
             )}
         </div>
@@ -282,7 +293,11 @@ export default function ColmadoHome({
           </div>
           {dashboard && (
             <p className="text-sm font-bold text-slate-600">
-              {formatDay(dashboard.period_start)} – {formatDay(dashboard.period_end)}
+              {dashboard.period_start === dashboard.period_end
+                ? formatDay(dashboard.period_start)
+                : `${formatDay(dashboard.period_start)} – ${formatDay(
+                    dashboard.period_end,
+                  )}`}
             </p>
           )}
         </div>
@@ -297,7 +312,13 @@ export default function ColmadoHome({
               {trend.map((item) => {
                 const revenue = Number(item.revenue);
                 const height = Math.max((revenue / highestRevenue) * 160, 8);
-                const profitable = Number(item.net_profit) >= 0;
+                const dailyProfit = Number(item.net_profit);
+                const barColor =
+                  dailyProfit > 0
+                    ? "bg-emerald-600"
+                    : dailyProfit < 0
+                      ? "bg-red-500"
+                      : "bg-slate-300";
 
                 return (
                   <div
@@ -310,9 +331,7 @@ export default function ColmadoHome({
                     </span>
                     <div
                       aria-label={`${formatDay(item.date)}: ${formatMoney(item.revenue)} en ventas, ${formatMoney(item.net_profit)} de ganancia neta`}
-                      className={`w-7 rounded-t-md sm:w-8 ${
-                        profitable ? "bg-emerald-600" : "bg-red-500"
-                      }`}
+                      className={`w-7 rounded-t-md sm:w-8 ${barColor}`}
                       style={{ height: `${height}px` }}
                     />
                     <span className="mt-2 whitespace-nowrap text-[11px] font-bold text-slate-600">
@@ -337,6 +356,10 @@ export default function ColmadoHome({
           <span className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-sm bg-red-500" />
             Día con pérdida
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-slate-300" />
+            Sin movimiento
           </span>
         </div>
       </section>

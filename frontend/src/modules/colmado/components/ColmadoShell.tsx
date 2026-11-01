@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import {
+  BadgeDollarSign,
   Boxes,
   ClipboardList,
   Globe2,
@@ -77,6 +78,11 @@ const navigation: Array<{
     key: "fiado",
     label: "Fiado",
     icon: HandCoins,
+  },
+  {
+    key: "finanzas",
+    label: "Gastos y nómina",
+    icon: BadgeDollarSign,
   },
   {
     key: "caja",

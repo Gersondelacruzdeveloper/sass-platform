@@ -24,6 +24,7 @@ import CashRegisterPanel from "../components/CashRegisterPanel";
 import ColmadoHome from "../components/ColmadoHome";
 import ColmadoShell from "../components/ColmadoShell";
 import CreditPanel from "../components/CreditPanel";
+import FinancePanel from "../components/FinancePanel";
 import InventoryPanel from "../components/InventoryPanel";
 import OrdersPanel from "../components/OrdersPanel";
 import PlatformCatalogPanel from "../components/PlatformCatalogPanel";
@@ -50,6 +51,7 @@ const validSections: ColmadoSection[] = [
   "pedidos",
   "tienda",
   "fiado",
+  "finanzas",
   "caja",
   "catalogo",
 ];
@@ -424,6 +426,18 @@ export default function ColmadoAppPage() {
 
       {section === "fiado" && (
         <CreditPanel
+          organisationSlug={
+            organisationSlug
+          }
+          store={selectedStore}
+          onDataChanged={
+            workspace.refreshWorkspace
+          }
+        />
+      )}
+
+      {section === "finanzas" && (
+        <FinancePanel
           organisationSlug={
             organisationSlug
           }

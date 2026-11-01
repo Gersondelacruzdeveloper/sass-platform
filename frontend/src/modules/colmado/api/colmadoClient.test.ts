@@ -6,6 +6,9 @@ import {
   changeCustomerOrderStatus,
   closeCashRegister,
   createCustomer,
+  createEmployee,
+  createExpense,
+  createPayrollPayment,
   createSale,
   findCatalogProductByBarcode,
   getCurrentCashRegister,
@@ -13,9 +16,12 @@ import {
   getCustomerOrders,
   getCustomers,
   getDashboard,
+  getEmployees,
+  getExpenses,
   getInventory,
   getCatalogProducts,
   getStores,
+  getPayrollPayments,
   openCashRegister,
   receiveInventoryCases,
   recordCreditPayment,
@@ -366,6 +372,163 @@ describe("Colmado API client", () => {
     expect(apiMocks.post).toHaveBeenCalledWith(
       "/colmado/customer-orders/70/set-status/",
       { status: "ready" },
+      { headers },
+    );
+  });
+
+  it("loads active employees from the selected store", async () => {
+    const employees = [
+      {
+        id: 12,
+        store: 2,
+        name: "Ana Pérez",
+        position: "Cajera",
+        is_active: true,
+      },
+    ];
+    apiMocks.get.mockResolvedValue({ data: { results: employees } });
+
+    await expect(
+      getEmployees(organisationSlug, { store: 2, active: true }),
+    ).resolves.toEqual(employees);
+
+    expect(apiMocks.get).toHaveBeenCalledWith("/colmado/employees/", {
+      headers,
+      params: { store: 2, active: "true" },
+    });
+  });
+
+  it("creates an employee for the selected colmado", async () => {
+    const payload = {
+      store: 2,
+      name: "Ana Pérez",
+      phone: "8095551234",
+      position: "Cajera",
+      pay_frequency: "biweekly" as const,
+      pay_amount: "12000.00",
+      start_date: "2026-11-01",
+      is_active: true,
+    };
+    apiMocks.post.mockResolvedValue({ data: { id: 12, ...payload } });
+
+    await createEmployee(organisationSlug, payload);
+
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      "/colmado/employees/",
+      payload,
+      { headers },
+    );
+  });
+
+  it("loads and creates operating expenses for one store", async () => {
+    const expenses = [
+      {
+        id: 30,
+        store: 2,
+        category: "electricity",
+        description: "Factura de luz",
+        amount: "3500.00",
+        expense_date: "2026-11-01",
+      },
+    ];
+    apiMocks.get.mockResolvedValueOnce({ data: { results: expenses } });
+    apiMocks.post.mockResolvedValueOnce({ data: expenses[0] });
+
+    await expect(
+      getExpenses(organisationSlug, {
+        store: 2,
+        dateFrom: "2026-11-01",
+        dateTo: "2026-11-30",
+      }),
+    ).resolves.toEqual(expenses);
+
+    await createExpense(organisationSlug, {
+      store: 2,
+      category: "electricity",
+      description: "Factura de luz",
+      amount: "3500.00",
+      expense_date: "2026-11-01",
+    });
+
+    expect(apiMocks.get).toHaveBeenCalledWith("/colmado/expenses/", {
+      headers,
+      params: {
+        store: 2,
+        category: undefined,
+        date_from: "2026-11-01",
+        date_to: "2026-11-30",
+      },
+    });
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      "/colmado/expenses/",
+      {
+        store: 2,
+        category: "electricity",
+        description: "Factura de luz",
+        amount: "3500.00",
+        expense_date: "2026-11-01",
+      },
+      { headers },
+    );
+  });
+
+  it("loads and records payroll payments for one employee", async () => {
+    const payments = [
+      {
+        id: 41,
+        store: 2,
+        employee: 12,
+        employee_name: "Ana Pérez",
+        amount: "12000.00",
+        period_start: "2026-10-16",
+        period_end: "2026-10-31",
+        paid_on: "2026-11-01",
+        note: "Pago quincenal",
+      },
+    ];
+    apiMocks.get.mockResolvedValueOnce({ data: { results: payments } });
+    apiMocks.post.mockResolvedValueOnce({ data: payments[0] });
+
+    await expect(
+      getPayrollPayments(organisationSlug, {
+        store: 2,
+        employee: 12,
+      }),
+    ).resolves.toEqual(payments);
+
+    await createPayrollPayment(organisationSlug, {
+      store: 2,
+      employee: 12,
+      amount: "12000.00",
+      period_start: "2026-10-16",
+      period_end: "2026-10-31",
+      paid_on: "2026-11-01",
+      note: "Pago quincenal",
+    });
+
+    expect(apiMocks.get).toHaveBeenCalledWith(
+      "/colmado/payroll-payments/",
+      {
+        headers,
+        params: {
+          store: 2,
+          employee: 12,
+          date_from: undefined,
+          date_to: undefined,
+        },
+      },
+    );
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      "/colmado/payroll-payments/",
+      {
+        store: 2,
+        employee: 12,
+        amount: "12000.00",
+        period_start: "2026-10-16",
+        period_end: "2026-10-31",
+        paid_on: "2026-11-01",
+        note: "Pago quincenal",
+      },
       { headers },
     );
   });

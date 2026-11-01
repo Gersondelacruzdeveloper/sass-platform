@@ -115,6 +115,7 @@ vi.mock(
               "pedidos",
               "tienda",
               "fiado",
+              "finanzas",
               "caja",
             ] as ColmadoSection[]
           ).map((section) => (
@@ -282,6 +283,36 @@ vi.mock(
   () => ({
     default: () => (
       <p>Pantalla de fiado</p>
+    ),
+  }),
+);
+
+
+vi.mock(
+  "../components/FinancePanel",
+  () => ({
+    default: ({
+      store,
+      onDataChanged,
+    }: {
+      store: Store;
+      onDataChanged:
+        () => void | Promise<void>;
+    }) => (
+      <div>
+        <p>
+          Pantalla de gastos y nómina: {store.name}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => {
+            void onDataChanged();
+          }}
+        >
+          Registrar movimiento simulado
+        </button>
+      </div>
     ),
   }),
 );
@@ -729,6 +760,21 @@ describe("ColmadoAppPage", () => {
         screen.getByRole(
           "button",
           {
+            name: "Ir a finanzas",
+          },
+        ),
+      );
+
+      expect(
+        screen.getByText(
+          "Pantalla de gastos y nómina: Colmado Macao",
+        ),
+      ).toBeInTheDocument();
+
+      await user.click(
+        screen.getByRole(
+          "button",
+          {
             name: "Ir a caja",
           },
         ),
@@ -832,6 +878,53 @@ describe("ColmadoAppPage", () => {
           {
             name:
               "Completar venta simulada",
+          },
+        ),
+      );
+
+      expect(
+        refreshWorkspace,
+      ).toHaveBeenCalledOnce();
+    },
+  );
+
+
+  it(
+    "refreshes the dashboard after a financial movement",
+    async () => {
+      const user = userEvent.setup();
+
+      const refreshWorkspace =
+        vi.fn().mockResolvedValue(
+          undefined,
+        );
+
+      workspaceMock.current =
+        baseWorkspace({
+          refreshWorkspace,
+        });
+
+      renderPage();
+
+      await screen.findByText(
+        "Pantalla de inicio",
+      );
+
+      await user.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "Ir a finanzas",
+          },
+        ),
+      );
+
+      await user.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "Registrar movimiento simulado",
           },
         ),
       );
