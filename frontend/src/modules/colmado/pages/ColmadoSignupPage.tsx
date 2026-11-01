@@ -49,10 +49,23 @@ function getErrorMessage(error: unknown): string {
 }
 
 
+function displayPrice(plan: ColmadoSubscriptionPlan): string {
+  const amount = Number(plan.price);
+  const formattedAmount = Number.isInteger(amount)
+    ? String(amount)
+    : amount.toFixed(2);
+
+  if (plan.currency.toUpperCase() === "USD") {
+    return `US$${formattedAmount}`;
+  }
+
+  return `${plan.currency} ${formattedAmount}`;
+}
+
+
 export default function ColmadoSignupPage() {
-  const [plans, setPlans] = useState<ColmadoSubscriptionPlan[]>([]);
-  const [selectedPlan, setSelectedPlan] = useState("");
-  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [plan, setPlan] = useState<ColmadoSubscriptionPlan | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -66,22 +79,26 @@ export default function ColmadoSignupPage() {
   useEffect(() => {
     let active = true;
 
-    async function loadPlans() {
+    async function loadPlan() {
       try {
         const availablePlans = await getColmadoPlans();
         if (!active) return;
 
-        setPlans(availablePlans);
-        setSelectedPlan(availablePlans[0]?.slug ?? "");
+        const approvedPlan = availablePlans[0] ?? null;
+        setPlan(approvedPlan);
+
+        if (!approvedPlan) {
+          setError("El plan no está disponible en este momento.");
+        }
       } catch (loadError) {
         if (!active) return;
         setError(getErrorMessage(loadError));
       } finally {
-        if (active) setLoadingPlans(false);
+        if (active) setLoadingPlan(false);
       }
     }
 
-    void loadPlans();
+    void loadPlan();
 
     return () => {
       active = false;
@@ -92,8 +109,8 @@ export default function ColmadoSignupPage() {
     event.preventDefault();
     setError("");
 
-    if (!selectedPlan) {
-      setError("Selecciona un plan para continuar.");
+    if (!plan) {
+      setError("El plan no está disponible en este momento.");
       return;
     }
 
@@ -105,7 +122,7 @@ export default function ColmadoSignupPage() {
         owner_name: ownerName.trim(),
         email: email.trim(),
         password,
-        plan: selectedPlan,
+        plan: plan.slug,
         store_name: companyName.trim(),
         store_address: storeAddress.trim(),
         store_phone: storePhone.trim(),
@@ -262,49 +279,49 @@ export default function ColmadoSignupPage() {
               </SignupField>
             </div>
 
-            <fieldset>
-              <legend className="text-base font-black">Elige tu plan</legend>
+            <section aria-label="Plan de suscripción">
+              <p className="text-base font-black">Tu plan</p>
 
-              {loadingPlans ? (
+              {loadingPlan ? (
                 <div className="mt-3 flex min-h-24 items-center justify-center rounded-2xl bg-slate-50 text-slate-600">
                   <Loader2 aria-hidden="true" className="mr-2 animate-spin" />
-                  Cargando planes…
+                  Cargando plan…
                 </div>
-              ) : (
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  {plans.map((plan) => {
-                    const selected = selectedPlan === plan.slug;
+              ) : plan ? (
+                <div className="mt-3 rounded-2xl border-2 border-emerald-700 bg-emerald-50 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-black text-slate-950">
+                        {plan.name}
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">
+                        Todas las herramientas incluidas. Sin contratos.
+                      </p>
+                    </div>
 
-                    return (
-                      <label
-                        className={`cursor-pointer rounded-2xl border-2 p-4 transition ${
-                          selected
-                            ? "border-emerald-700 bg-emerald-50"
-                            : "border-slate-200 hover:border-emerald-300"
-                        }`}
-                        key={plan.id}
-                      >
-                        <input
-                          checked={selected}
-                          className="sr-only"
-                          name="plan"
-                          onChange={() => setSelectedPlan(plan.slug)}
-                          type="radio"
-                          value={plan.slug}
-                        />
-                        <span className="block font-black">{plan.name}</span>
-                        <span className="mt-1 block text-xl font-black text-emerald-800">
-                          {plan.currency} {plan.price}
+                    <div className="text-left sm:text-right">
+                      <p className="text-2xl font-black text-emerald-800">
+                        {displayPrice(plan)} al mes
+                      </p>
+                      <p className="text-sm font-bold text-slate-600">
+                        por sucursal
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-emerald-200 pt-4 text-sm font-bold text-emerald-900">
+                    {["Ventas", "Inventario", "Pedidos", "Fiado", "Reportes"].map(
+                      (feature) => (
+                        <span key={feature} className="flex items-center gap-1.5">
+                          <Check aria-hidden="true" size={16} strokeWidth={3} />
+                          {feature}
                         </span>
-                        <span className="text-xs font-semibold text-slate-500">
-                          {plan.interval === "yearly" ? "por año" : "por mes"}
-                        </span>
-                      </label>
-                    );
-                  })}
+                      ),
+                    )}
+                  </div>
                 </div>
-              )}
-            </fieldset>
+              ) : null}
+            </section>
 
             {error && (
               <div role="alert" className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
@@ -314,7 +331,11 @@ export default function ColmadoSignupPage() {
 
             <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
               <p className="flex items-start gap-2 font-bold text-slate-800">
-                <ShieldCheck aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-700" size={19} />
+                <ShieldCheck
+                  aria-hidden="true"
+                  className="mt-0.5 shrink-0 text-emerald-700"
+                  size={19}
+                />
                 Tu colmado se activa después de confirmar el pago seguro.
               </p>
               <p className="mt-2 pl-7">
@@ -324,7 +345,7 @@ export default function ColmadoSignupPage() {
 
             <button
               className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-700 px-6 font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={submitting || loadingPlans || plans.length === 0}
+              disabled={submitting || loadingPlan || !plan}
               type="submit"
             >
               {submitting ? (
@@ -342,7 +363,10 @@ export default function ColmadoSignupPage() {
 
             <p className="text-center text-sm text-slate-600">
               ¿Ya tienes una cuenta?{" "}
-              <Link className="font-black text-emerald-700 hover:underline" to="/colmado/login">
+              <Link
+                className="font-black text-emerald-700 hover:underline"
+                to="/colmado/login"
+              >
                 Entrar a mi colmado
               </Link>
             </p>

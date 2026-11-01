@@ -24,11 +24,13 @@ from rest_framework import permissions, status, viewsets
 
 from rest_framework.decorators import action
 
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from rest_framework.response import Response
 
 from organisations.models import Membership
+
+from .billing import ColmadoBillingError, sync_colmado_subscription_quantity
 
 from .models import (
 
@@ -268,11 +270,82 @@ class OrganisationQuerysetMixin(ColmadoTenantMixin):
 
         serializer.save(organisation=self.request.colmado_organisation)
 
+class StoreBillingUnavailable(APIException):
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+
+    default_detail = (
+
+        "No pudimos actualizar la facturación de las sucursales. "
+
+        "No se guardaron los cambios; inténtalo nuevamente."
+
+    )
+
+    default_code = "store_billing_unavailable"
+
+
 class StoreViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
     serializer_class = StoreSerializer
 
     queryset = Store.objects.all()
+
+    def _sync_subscription_quantity(self):
+
+        try:
+
+            sync_colmado_subscription_quantity(
+
+                self.request.colmado_organisation,
+
+            )
+
+        except ColmadoBillingError as exc:
+
+            raise StoreBillingUnavailable() from exc
+
+    def create(self, request, *args, **kwargs):
+
+        with transaction.atomic():
+
+            response = super().create(request, *args, **kwargs)
+
+            self._sync_subscription_quantity()
+
+        return response
+
+    def update(self, request, *args, **kwargs):
+
+        previous_is_active = self.get_object().is_active
+
+        with transaction.atomic():
+
+            response = super().update(request, *args, **kwargs)
+
+            current_is_active = bool(response.data["is_active"])
+
+            if current_is_active != previous_is_active:
+
+                self._sync_subscription_quantity()
+
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+
+        store = self.get_object()
+
+        was_active = store.is_active
+
+        with transaction.atomic():
+
+            response = super().destroy(request, *args, **kwargs)
+
+            if was_active:
+
+                self._sync_subscription_quantity()
+
+        return response
 
 class CashRegisterSessionViewSet(
 

@@ -22,13 +22,22 @@ User = get_user_model()
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
+COLMADO_PLAN_SLUG = "colmado-completo"
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def plans(request):
     subscription_plans = SubscriptionPlan.objects.filter(
         is_active=True,
-    ).order_by("price")
+    )
+
+    if request.query_params.get("app") == "colmado":
+        subscription_plans = subscription_plans.filter(
+            slug=COLMADO_PLAN_SLUG,
+        )
+
+    subscription_plans = subscription_plans.order_by("price")
 
     serializer = SubscriptionPlanSerializer(
         subscription_plans,
@@ -58,6 +67,9 @@ def create_checkout_session(request):
         or "disco"
     )
     plan_slug = data["plan"]
+
+    if business_type == "colmado":
+        plan_slug = COLMADO_PLAN_SLUG
 
     store_name = data.get("store_name", "").strip()
     store_address = data.get("store_address", "").strip()
@@ -387,3 +399,4 @@ def create_customer_portal_session(request):
         )
 
     return Response({"portal_url": portal_session.url})
+

@@ -36,6 +36,11 @@ export async function getColmadoPlans(): Promise<
 > {
   const response = await api.get<ColmadoSubscriptionPlan[]>(
     "/subscriptions/plans/",
+    {
+      params: {
+        app: "colmado",
+      },
+    },
   );
 
   return response.data.filter((plan) => plan.is_active);

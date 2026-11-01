@@ -13,32 +13,18 @@ const signupApiMocks = vi.hoisted(() => ({
 
 vi.mock("../api/colmadoSignupClient", () => signupApiMocks);
 
-const plans = [
-  {
-    id: 1,
-    name: "Básico",
-    slug: "basic",
-    price: "29.00",
-    currency: "USD",
-    interval: "monthly",
-    max_users: 3,
-    max_employees: 10,
-    max_modules: 1,
-    is_active: true,
-  },
-  {
-    id: 2,
-    name: "Pro",
-    slug: "pro",
-    price: "49.00",
-    currency: "USD",
-    interval: "monthly",
-    max_users: 10,
-    max_employees: 30,
-    max_modules: 3,
-    is_active: true,
-  },
-];
+const completePlan = {
+  id: 1,
+  name: "Plan Completo",
+  slug: "colmado-completo",
+  price: "19.00",
+  currency: "USD",
+  interval: "monthly",
+  max_users: 10,
+  max_employees: 30,
+  max_modules: 3,
+  is_active: true,
+};
 
 
 function renderPage() {
@@ -78,42 +64,47 @@ async function completeForm(user: ReturnType<typeof userEvent.setup>) {
 describe("ColmadoSignupPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    signupApiMocks.getColmadoPlans.mockResolvedValue(plans);
+    signupApiMocks.getColmadoPlans.mockResolvedValue([completePlan]);
   });
 
-  it("shows a simple loading state while plans arrive", () => {
+  it("shows a simple loading state while the plan arrives", () => {
     signupApiMocks.getColmadoPlans.mockReturnValue(new Promise(() => {}));
 
     renderPage();
 
-    expect(screen.getByText("Cargando planes…")).toBeInTheDocument();
+    expect(screen.getByText("Cargando plan…")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Continuar al pago" }),
     ).toBeDisabled();
   });
 
-  it("shows active plans and selects the first one", async () => {
+  it("shows one complete plan for USD 19 per month and per branch", async () => {
     renderPage();
 
-    const basicPlan = await screen.findByRole("radio", {
-      name: /Básico/,
-    });
+    expect(
+      await screen.findByRole("heading", { name: "Plan Completo" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("US$19 al mes")).toBeInTheDocument();
+    expect(screen.getByText("por sucursal")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Todas las herramientas incluidas/i),
+    ).toBeInTheDocument();
 
-    expect(basicPlan).toBeChecked();
-    expect(screen.getByText("USD 29.00")).toBeInTheDocument();
-    expect(screen.getByText("USD 49.00")).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByText("Básico")).not.toBeInTheDocument();
+    expect(screen.queryByText("Premium")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pro")).not.toBeInTheDocument();
   });
 
-  it("sends only the essential colmado and store information", async () => {
+  it("uses the only server-approved plan for checkout", async () => {
     const user = userEvent.setup();
     signupApiMocks.createColmadoCheckout.mockReturnValue(
       new Promise(() => {}),
     );
     renderPage();
 
-    await screen.findByRole("radio", { name: /Básico/ });
+    await screen.findByRole("heading", { name: "Plan Completo" });
     await completeForm(user);
-    await user.click(screen.getByRole("radio", { name: /Pro/ }));
     await user.click(
       screen.getByRole("button", { name: "Continuar al pago" }),
     );
@@ -123,11 +114,24 @@ describe("ColmadoSignupPage", () => {
       owner_name: "Juan Pérez",
       email: "juan@example.com",
       password: "ClaveSegura123",
-      plan: "pro",
+      plan: "colmado-completo",
       store_name: "Colmado La Esquina",
       store_address: "Calle Duarte número 10",
       store_phone: "8095550101",
     });
+  });
+
+  it("disables checkout if the approved plan is unavailable", async () => {
+    signupApiMocks.getColmadoPlans.mockResolvedValue([]);
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("alert"),
+    ).toHaveTextContent("El plan no está disponible en este momento.");
+    expect(
+      screen.getByRole("button", { name: "Continuar al pago" }),
+    ).toBeDisabled();
   });
 
   it("prevents a second click while checkout is being prepared", async () => {
@@ -137,7 +141,7 @@ describe("ColmadoSignupPage", () => {
     );
     renderPage();
 
-    await screen.findByRole("radio", { name: /Básico/ });
+    await screen.findByRole("heading", { name: "Plan Completo" });
     await completeForm(user);
     await user.click(
       screen.getByRole("button", { name: "Continuar al pago" }),
@@ -161,7 +165,7 @@ describe("ColmadoSignupPage", () => {
     });
     renderPage();
 
-    await screen.findByRole("radio", { name: /Básico/ });
+    await screen.findByRole("heading", { name: "Plan Completo" });
     await completeForm(user);
     await user.click(
       screen.getByRole("button", { name: "Continuar al pago" }),
