@@ -1,14 +1,17 @@
 import csv
 import io
+import uuid
 
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
+
+from django.contrib.auth import get_user_model
 
 from django.http import HttpResponse
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from django.shortcuts import get_object_or_404
 
@@ -29,6 +32,20 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.response import Response
 
 from organisations.models import Membership
+
+from .access import (
+
+    effective_request_store,
+
+    enforce_assigned_store_input,
+
+    enforce_colmado_role,
+
+    resolve_colmado_employee,
+
+    scope_queryset_to_assigned_store,
+
+)
 
 from .billing import ColmadoBillingError, sync_colmado_subscription_quantity
 
@@ -101,6 +118,8 @@ from .serializers import (
     CustomerOrderStatusSerializer,
 
     DashboardQuerySerializer,
+
+    EmployeeAccessSerializer,
 
     EmployeeSerializer,
 
@@ -256,13 +275,27 @@ class ColmadoTenantMixin:
 
         request.colmado_membership = membership
 
+        resolve_colmado_employee(request, membership)
+
+        enforce_colmado_role(request, self)
+
+        enforce_assigned_store_input(request)
+
 class OrganisationQuerysetMixin(ColmadoTenantMixin):
 
     def get_queryset(self):
 
-        return self.queryset.filter(
+        queryset = self.queryset.filter(
 
             organisation=self.request.colmado_organisation
+
+        )
+
+        return scope_queryset_to_assigned_store(
+
+            queryset,
+
+            self.request,
 
         )
 
@@ -1200,9 +1233,19 @@ class EmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
     serializer_class = EmployeeSerializer
 
-    queryset = Employee.objects.select_related("store")
+    queryset = Employee.objects.select_related(
 
-    http_method_names = ("get", "post", "patch", "head", "options")
+        "store", "user"
+
+    ).prefetch_related("user__memberships")
+
+    http_method_names = (
+
+        "get", "post", "patch", "delete", "head", "options"
+
+    )
+
+    access_manager_roles = {"owner", "admin"}
 
     def get_queryset(self):
 
@@ -1239,6 +1282,324 @@ class EmployeeViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(is_active=False)
 
         return queryset.order_by("name")
+
+    def destroy(self, request, *args, **kwargs):
+
+        return Response(
+
+            {
+
+                "detail": (
+
+                    "Los empleados no se eliminan; desactívelos para conservar "
+
+                    "su historial."
+
+                )
+
+            },
+
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+
+        )
+
+    def _ensure_can_manage_access(self):
+
+        membership = self.request.colmado_membership
+
+        if membership.role not in self.access_manager_roles:
+
+            raise PermissionDenied(
+
+                "Solo el propietario o un administrador puede gestionar accesos."
+
+            )
+
+    @staticmethod
+
+    def _create_employee_user(*, employee, email, temporary_password):
+
+        name_parts = employee.name.strip().split(maxsplit=1)
+
+        first_name = name_parts[0] if name_parts else ""
+
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        return get_user_model().objects.create_user(
+
+            email=email,
+
+            username=f"colmado-{uuid.uuid4().hex}",
+
+            password=temporary_password,
+
+            first_name=first_name,
+
+            last_name=last_name,
+
+        )
+
+    def _disable_access(self, employee):
+
+        if not employee.user_id:
+
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        membership = Membership.objects.filter(
+
+            user_id=employee.user_id,
+
+            organisation=self.request.colmado_organisation,
+
+        ).first()
+
+        if membership and membership.role in self.access_manager_roles:
+
+            raise ValidationError(
+
+                {
+
+                    "access": (
+
+                        "Una cuenta administrativa no puede desactivarse desde "
+
+                        "el registro de empleados."
+
+                    )
+
+                }
+
+            )
+
+        if membership:
+
+            membership.is_active = False
+
+            membership.save(update_fields=("is_active",))
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+
+        detail=True,
+
+        methods=("post", "delete"),
+
+        url_path="access",
+
+    )
+
+    def access(self, request, pk=None):
+
+        self._ensure_can_manage_access()
+
+        employee = self.get_object()
+
+        if request.method == "DELETE":
+
+            return self._disable_access(employee)
+
+        if not employee.is_active:
+
+            raise ValidationError(
+
+                {"employee": "No se puede dar acceso a un empleado inactivo."}
+
+            )
+
+        input_serializer = EmployeeAccessSerializer(data=request.data)
+
+        input_serializer.is_valid(raise_exception=True)
+
+        email = input_serializer.validated_data["email"]
+
+        role = input_serializer.validated_data["role"]
+
+        temporary_password = input_serializer.validated_data.get(
+
+            "temporary_password"
+
+        )
+
+        existing_user = input_serializer.validated_data["existing_user"]
+
+        if employee.user_id and employee.user.email.lower() != email:
+
+            raise ValidationError(
+
+                {
+
+                    "email": (
+
+                        "Este empleado ya tiene otra cuenta vinculada. "
+
+                        "Use el correo actual."
+
+                    )
+
+                }
+
+            )
+
+        user = existing_user or employee.user
+
+        if user is not None and user.is_superuser:
+
+            raise ValidationError(
+
+                {
+
+                    "email": (
+
+                        "La cuenta principal de la plataforma no puede vincularse "
+
+                        "como empleado."
+
+                    )
+
+                }
+
+            )
+
+        try:
+
+            with transaction.atomic():
+
+                locked_employee = Employee.objects.select_for_update().get(
+
+                    pk=employee.pk,
+
+                    organisation=self.request.colmado_organisation,
+
+                )
+
+                if user is None:
+
+                    user = self._create_employee_user(
+
+                        employee=locked_employee,
+
+                        email=email,
+
+                        temporary_password=temporary_password,
+
+                    )
+
+                already_linked = Employee.objects.filter(
+
+                    organisation=self.request.colmado_organisation,
+
+                    user=user,
+
+                ).exclude(pk=locked_employee.pk)
+
+                if already_linked.exists():
+
+                    raise ValidationError(
+
+                        {
+
+                            "email": (
+
+                                "Esta cuenta ya está vinculada a otro empleado "
+
+                                "de este negocio."
+
+                            )
+
+                        }
+
+                    )
+
+                current_membership = Membership.objects.filter(
+
+                    user=user,
+
+                    organisation=self.request.colmado_organisation,
+
+                ).first()
+
+                if (
+
+                    current_membership
+
+                    and current_membership.role in self.access_manager_roles
+
+                ):
+
+                    raise ValidationError(
+
+                        {
+
+                            "email": (
+
+                                "Una cuenta administrativa no puede convertirse "
+
+                                "en cuenta de empleado."
+
+                            )
+
+                        }
+
+                    )
+
+                Membership.objects.update_or_create(
+
+                    user=user,
+
+                    organisation=self.request.colmado_organisation,
+
+                    defaults={
+
+                        "role": role,
+
+                        "is_active": True,
+
+                    },
+
+                )
+
+                locked_employee.user = user
+
+                locked_employee.save(update_fields=("user", "updated_at"))
+
+        except IntegrityError as exc:
+
+            raise ValidationError(
+
+                {
+
+                    "email": (
+
+                        "No se pudo vincular este correo. Verifique que no esté "
+
+                        "siendo utilizado por otra cuenta."
+
+                    )
+
+                }
+
+            ) from exc
+
+        employee = (
+
+            Employee.objects.select_related("store", "user")
+
+            .prefetch_related("user__memberships")
+
+            .get(pk=employee.pk)
+
+        )
+
+        output_serializer = self.get_serializer(employee)
+
+        return Response(
+
+            output_serializer.data,
+
+            status=status.HTTP_201_CREATED,
+
+        )
 
 class PayrollPaymentViewSet(OrganisationQuerysetMixin, viewsets.ModelViewSet):
 
@@ -1431,6 +1792,8 @@ class ProfitabilityViewSet(ColmadoTenantMixin, viewsets.ViewSet):
                     {"store": "La sucursal no pertenece a este negocio o está inactiva."}
 
                 )
+
+        store = effective_request_store(request, store)
 
         money_field = DecimalField(max_digits=18, decimal_places=2)
 
@@ -1926,25 +2289,37 @@ class ReorderSuggestionViewSet(ColmadoTenantMixin, viewsets.ViewSet):
 
         store_id = request.query_params.get("store")
 
-        if not store_id:
+        store = None
 
-            raise ValidationError({"store": "Seleccione una sucursal."})
+        if store_id:
 
-        store = Store.objects.filter(
+            store = Store.objects.filter(
 
-            id=store_id,
+                id=store_id,
 
-            organisation=request.colmado_organisation,
+                organisation=request.colmado_organisation,
 
-            is_active=True,
+                is_active=True,
 
-        ).first()
+            ).first()
+
+        store = effective_request_store(request, store)
 
         if store is None:
 
             raise ValidationError(
 
-                {"store": "La sucursal no pertenece a este negocio o está inactiva."}
+                {
+
+                    "store": (
+
+                        "Seleccione una sucursal activa que pertenezca "
+
+                        "a este negocio."
+
+                    )
+
+                }
 
             )
 
@@ -2545,6 +2920,8 @@ class DashboardViewSet(ColmadoTenantMixin, viewsets.ViewSet):
                     {"store": "La sucursal no pertenece a este negocio o está inactiva."}
 
                 )
+
+        store = effective_request_store(request, store)
 
         selected_date = query.get("date", timezone.localdate())
 

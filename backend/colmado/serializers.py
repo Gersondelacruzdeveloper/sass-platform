@@ -2,6 +2,10 @@ from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from rest_framework import serializers
 
 from .models import (
@@ -721,12 +725,64 @@ class RecordCreditPaymentSerializer(serializers.Serializer):
     )
 
 
+COLMADO_EMPLOYEE_ACCESS_ROLES = (
+    ("manager", "Encargado"),
+    ("cashier", "Cajero"),
+    ("inventory_manager", "Inventario"),
+    ("accountant", "Contabilidad"),
+)
+
+
+class EmployeeAccessSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+    role = serializers.ChoiceField(choices=COLMADO_EMPLOYEE_ACCESS_ROLES)
+    temporary_password = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=False,
+        write_only=True,
+        style={"input_type": "password"},
+    )
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        user_model = get_user_model()
+        existing_user = user_model.objects.filter(
+            email__iexact=attrs["email"],
+        ).first()
+        temporary_password = attrs.get("temporary_password")
+
+        if existing_user is None and not temporary_password:
+            raise serializers.ValidationError(
+                {
+                    "temporary_password": (
+                        "Debe crear una contraseña temporal para la cuenta nueva."
+                    )
+                }
+            )
+
+        if existing_user is None:
+            try:
+                validate_password(temporary_password)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(
+                    {"temporary_password": list(exc.messages)}
+                ) from exc
+
+        attrs["existing_user"] = existing_user
+        return attrs
+
+
 class EmployeeSerializer(serializers.ModelSerializer):
     store_name = serializers.CharField(source="store.name", read_only=True)
     pay_frequency_display = serializers.CharField(
         source="get_pay_frequency_display",
         read_only=True,
     )
+    access = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -743,6 +799,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "is_active",
+            "access",
             "created_at",
             "updated_at",
         )
@@ -750,9 +807,28 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "id",
             "store_name",
             "pay_frequency_display",
+            "access",
             "created_at",
             "updated_at",
         )
+
+    def get_access(self, obj):
+        if not obj.user_id:
+            return None
+
+        membership = next(
+            (
+                item
+                for item in obj.user.memberships.all()
+                if item.organisation_id == obj.organisation_id
+            ),
+            None,
+        )
+        return {
+            "email": obj.user.email,
+            "role": membership.role if membership is not None else None,
+            "is_active": bool(membership and membership.is_active),
+        }
 
     def validate_name(self, value):
         name = value.strip()

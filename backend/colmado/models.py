@@ -850,6 +850,16 @@ class Employee(models.Model):
         on_delete=models.CASCADE,
         related_name="colmado_employees",
     )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="colmado_employee_records",
+        null=True,
+        blank=True,
+        help_text=(
+            "Cuenta utilizada por el empleado para entrar a Mi Colmado."
+        ),
+    )
     store = models.ForeignKey(
         Store,
         on_delete=models.PROTECT,
@@ -880,6 +890,11 @@ class Employee(models.Model):
             models.CheckConstraint(
                 condition=models.Q(pay_amount__gt=0),
                 name="colmado_employee_pay_amount_positive",
+            ),
+            models.UniqueConstraint(
+                fields=("organisation", "user"),
+                condition=models.Q(user__isnull=False),
+                name="colmado_employee_unique_user_per_organisation",
             ),
         ]
 
