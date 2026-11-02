@@ -21,7 +21,7 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 const scannerMocks = vi.hoisted(() => ({
-  decodeFromConstraints: vi.fn(),
+  decodeFromVideoDevice: vi.fn(),
   stop: vi.fn(),
   callback: null as null | ((
     result: { getText: () => string } | null,
@@ -34,8 +34,8 @@ vi.mock("../api/colmadoClient", () => apiMocks);
 
 vi.mock("@zxing/browser", () => ({
   BrowserMultiFormatReader: class BrowserMultiFormatReader {
-    decodeFromConstraints(
-      constraints: MediaStreamConstraints,
+    decodeFromVideoDevice(
+      deviceId: string | undefined,
       video: HTMLVideoElement,
       callback: (
         result: { getText: () => string } | null,
@@ -43,7 +43,7 @@ vi.mock("@zxing/browser", () => ({
         controls: { stop: () => void },
       ) => void,
     ) {
-      scannerMocks.decodeFromConstraints(constraints, video, callback);
+      scannerMocks.decodeFromVideoDevice(deviceId, video, callback);
       scannerMocks.callback = callback;
       return Promise.resolve({ stop: scannerMocks.stop });
     }
@@ -229,7 +229,7 @@ describe("SalePanel", () => {
     expect(search).toHaveValue("");
   });
 
-  it("uses the rear camera and adds the scanned inventory product once", async () => {
+  it("opens the shared scanner and adds the scanned inventory product once", async () => {
     const user = userEvent.setup();
     renderSale();
 
@@ -238,14 +238,15 @@ describe("SalePanel", () => {
       screen.getByRole("button", { name: "Escanear código de barra" }),
     );
 
+    expect(
+      screen.getByRole("dialog", {
+        name: "Escanear producto para vender",
+      }),
+    ).toBeInTheDocument();
+
     await waitFor(() => {
-      expect(scannerMocks.decodeFromConstraints).toHaveBeenCalledWith(
-        {
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-          },
-        },
+      expect(scannerMocks.decodeFromVideoDevice).toHaveBeenCalledWith(
+        undefined,
         expect.any(HTMLVideoElement),
         expect.any(Function),
       );
@@ -271,6 +272,7 @@ describe("SalePanel", () => {
       await screen.findByLabelText("Cantidad de Coca-Cola"),
     ).toHaveValue(1);
     expect(scannerMocks.stop).toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("explains when a scanned product is not active in store inventory", async () => {

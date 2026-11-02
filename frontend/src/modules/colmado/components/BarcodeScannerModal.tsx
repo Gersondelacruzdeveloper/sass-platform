@@ -12,6 +12,31 @@ interface BarcodeScannerModalProps {
   onClose: () => void;
 }
 
+function getCameraErrorMessage(error: unknown): string {
+  const errorName =
+    typeof error === "object" && error !== null && "name" in error
+      ? String((error as { name?: unknown }).name ?? "")
+      : "";
+
+  if (errorName === "NotAllowedError" || errorName === "SecurityError") {
+    return "El permiso de la cámara está bloqueado. Actívalo en la configuración de Safari y vuelve a intentarlo.";
+  }
+
+  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+    return "No encontramos una cámara disponible en este dispositivo.";
+  }
+
+  if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+    return "Otra aplicación está usando la cámara. Ciérrala y vuelve a intentarlo.";
+  }
+
+  if (errorName === "OverconstrainedError" || errorName === "ConstraintNotSatisfiedError") {
+    return "La cámara disponible no pudo usar la configuración solicitada.";
+  }
+
+  return "No pudimos abrir la cámara. Revisa el permiso o escribe el código manualmente.";
+}
+
 export default function BarcodeScannerModal({
   open,
   title = "Escanear código de barra",
@@ -37,6 +62,7 @@ export default function BarcodeScannerModal({
     let detected = false;
     setCameraReady(false);
     setError(null);
+
     const reader = new BrowserMultiFormatReader();
 
     void reader
@@ -45,10 +71,14 @@ export default function BarcodeScannerModal({
         videoRef.current,
         (result, _scanError, controls) => {
           if (!active || detected || !result) return;
+
+          const barcode = result.getText().trim();
+          if (!barcode) return;
+
           detected = true;
           controls.stop();
           controlsRef.current = null;
-          detectedRef.current(result.getText());
+          detectedRef.current(barcode);
           closeRef.current();
         },
       )
@@ -57,14 +87,16 @@ export default function BarcodeScannerModal({
           controls.stop();
           return;
         }
+
         controlsRef.current = controls;
         setCameraReady(true);
       })
-      .catch(() => {
+      .catch((cameraError: unknown) => {
         if (!active) return;
-        setError(
-          "No pudimos abrir la cámara. Revisa el permiso o escribe el código manualmente.",
-        );
+
+        controlsRef.current = null;
+        setCameraReady(false);
+        setError(getCameraErrorMessage(cameraError));
       });
 
     return () => {
@@ -107,13 +139,17 @@ export default function BarcodeScannerModal({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <video
           ref={videoRef}
+          autoPlay
           muted
           playsInline
           className="h-full w-full object-cover"
         />
 
         {!cameraReady && !error && (
-          <div className="absolute inset-0 grid place-items-center bg-black/70">
+          <div
+            className="absolute inset-0 grid place-items-center bg-black/70"
+            aria-live="polite"
+          >
             <div className="text-center">
               <LoaderCircle
                 aria-hidden="true"
@@ -133,7 +169,10 @@ export default function BarcodeScannerModal({
 
         {error && (
           <div className="absolute inset-0 grid place-items-center bg-black/80 p-6">
-            <div className="max-w-sm rounded-2xl bg-white p-5 text-center text-slate-900">
+            <div
+              className="max-w-sm rounded-2xl bg-white p-5 text-center text-slate-900"
+              role="alert"
+            >
               <p className="font-black">No hay acceso a la cámara</p>
               <p className="mt-2 text-sm text-slate-600">{error}</p>
               <button

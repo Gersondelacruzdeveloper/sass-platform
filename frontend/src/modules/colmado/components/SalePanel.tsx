@@ -2,14 +2,9 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from "react";
-import {
-  BrowserMultiFormatReader,
-  type IScannerControls,
-} from "@zxing/browser";
 import {
   AlertCircle,
   Camera,
@@ -21,7 +16,6 @@ import {
   ShoppingCart,
   Trash2,
   WalletCards,
-  X,
 } from "lucide-react";
 
 import {
@@ -36,6 +30,7 @@ import type {
   PaymentMethod,
   Store,
 } from "../types/colmado";
+import BarcodeScannerModal from "./BarcodeScannerModal";
 
 interface SalePanelProps {
   organisationSlug: string;
@@ -106,9 +101,6 @@ export default function SalePanel({
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const scannerControlsRef = useRef<IScannerControls | null>(null);
-  const scanLockedRef = useRef(false);
 
   const loadSaleData = useCallback(async () => {
     setLoading(true);
@@ -216,53 +208,6 @@ export default function SalePanel({
     },
     [addProduct, findInventoryByBarcode],
   );
-
-  useEffect(() => {
-    if (!scanning || !videoRef.current) return;
-
-    let active = true;
-    scanLockedRef.current = false;
-    const reader = new BrowserMultiFormatReader();
-    void reader
-      .decodeFromConstraints(
-        {
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-          },
-        },
-        videoRef.current,
-        (result, _error, controls) => {
-          if (!active || !result || scanLockedRef.current) return;
-          scanLockedRef.current = true;
-          const barcode = result.getText();
-          controls.stop();
-          scannerControlsRef.current = null;
-          setScanning(false);
-          addBarcode(barcode);
-        },
-      )
-      .then((controls) => {
-        if (!active) {
-          controls.stop();
-          return;
-        }
-        scannerControlsRef.current = controls;
-      })
-      .catch(() => {
-        if (!active) return;
-        setScanning(false);
-        setError(
-          "No pudimos usar la cámara. Escribe el código de barra manualmente.",
-        );
-      });
-
-    return () => {
-      active = false;
-      scannerControlsRef.current?.stop();
-      scannerControlsRef.current = null;
-    };
-  }, [addBarcode, scanning]);
 
   function submitProductSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -400,7 +345,6 @@ export default function SalePanel({
               className="grid min-h-14 min-w-14 place-items-center rounded-xl bg-emerald-700 text-white shadow-sm"
               onClick={() => {
                 setError(null);
-                scanLockedRef.current = false;
                 setScanning(true);
               }}
             >
@@ -600,27 +544,14 @@ export default function SalePanel({
         </aside>
       </div>
 
-      {scanning && (
-        <div className="fixed inset-0 z-50 bg-black p-4">
-          <button
-            type="button"
-            aria-label="Cerrar cámara"
-            className="absolute right-5 top-5 z-10 grid h-12 w-12 place-items-center rounded-full bg-white text-black"
-            onClick={() => {
-              scannerControlsRef.current?.stop();
-              scannerControlsRef.current = null;
-              scanLockedRef.current = false;
-              setScanning(false);
-            }}
-          >
-            <X aria-hidden="true" />
-          </button>
-          <p className="absolute inset-x-0 top-6 text-center font-black text-white">
-            Apunta al código de barra
-          </p>
-          <video ref={videoRef} className="h-full w-full object-contain" />
-        </div>
-      )}
+      <BarcodeScannerModal
+        open={scanning}
+        title="Escanear producto para vender"
+        onClose={() => setScanning(false)}
+        onDetected={(detectedBarcode) => {
+          addBarcode(detectedBarcode);
+        }}
+      />
     </div>
   );
 }

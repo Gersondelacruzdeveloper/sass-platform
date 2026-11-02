@@ -4,150 +4,168 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import BarcodeScannerModal from "./BarcodeScannerModal";
 
-const scannerMocks = vi.hoisted(() => ({
-  reader: vi.fn(),
-  decodeFromVideoDevice: vi.fn(),
-  stop: vi.fn(),
-}));
-
-vi.mock("@zxing/browser", () => ({
-  BrowserMultiFormatReader: scannerMocks.reader,
-}));
-
-type ScanCallback = (
-  result: { getText: () => string } | undefined,
+type ScannerCallback = (
+  result: { getText: () => string } | null,
   error: unknown,
   controls: { stop: () => void },
 ) => void;
 
-let scanCallback: ScanCallback | null = null;
+const scannerMocks = vi.hoisted(() => ({
+  decodeFromVideoDevice: vi.fn(),
+  stop: vi.fn(),
+  callback: null as ScannerCallback | null,
+  shouldReject: false,
+  rejection: null as unknown,
+}));
+
+vi.mock("@zxing/browser", () => ({
+  BrowserMultiFormatReader: class BrowserMultiFormatReader {
+    decodeFromVideoDevice(
+      deviceId: string | undefined,
+      video: HTMLVideoElement,
+      callback: ScannerCallback,
+    ) {
+      scannerMocks.decodeFromVideoDevice(deviceId, video, callback);
+      scannerMocks.callback = callback;
+
+      if (scannerMocks.shouldReject) {
+        return Promise.reject(scannerMocks.rejection);
+      }
+
+      return Promise.resolve({ stop: scannerMocks.stop });
+    }
+  },
+}));
+
+function renderScanner(
+  options: {
+    open?: boolean;
+    onDetected?: (barcode: string) => void;
+    onClose?: () => void;
+  } = {},
+) {
+  return render(
+    <BarcodeScannerModal
+      open={options.open ?? true}
+      title="Escanear producto de prueba"
+      onDetected={options.onDetected ?? vi.fn()}
+      onClose={options.onClose ?? vi.fn()}
+    />,
+  );
+}
 
 describe("BarcodeScannerModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    scanCallback = null;
-    scannerMocks.reader.mockImplementation(() => ({
-      decodeFromVideoDevice: scannerMocks.decodeFromVideoDevice,
-    }));
-    scannerMocks.decodeFromVideoDevice.mockImplementation(
-      (
-        _deviceId: unknown,
-        _video: HTMLVideoElement,
-        callback: ScanCallback,
-      ) => {
-        scanCallback = callback;
-        return Promise.resolve({ stop: scannerMocks.stop });
-      },
-    );
+    scannerMocks.callback = null;
+    scannerMocks.shouldReject = false;
+    scannerMocks.rejection = null;
   });
 
-  it("does not request camera access while the modal is closed", () => {
-    render(
-      <BarcodeScannerModal
-        open={false}
-        onDetected={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
+  it("does not start the camera while the modal is closed", () => {
+    renderScanner({ open: false });
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(scannerMocks.decodeFromVideoDevice).not.toHaveBeenCalled();
   });
 
-  it("opens the camera with simple Spanish instructions", async () => {
-    render(
-      <BarcodeScannerModal
-        open
-        title="Escanear para inventario"
-        onDetected={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
+  it("opens the scanner and starts the preferred device camera", async () => {
+    renderScanner();
 
     expect(
-      screen.getByRole("heading", { name: "Escanear para inventario" }),
+      screen.getByRole("dialog", {
+        name: "Escanear producto de prueba",
+      }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Coloca el código dentro del recuadro")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(scannerMocks.decodeFromVideoDevice).toHaveBeenCalledOnce(),
-    );
+    expect(screen.getByText("Abriendo cámara...")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(scannerMocks.decodeFromVideoDevice).toHaveBeenCalledWith(
+        undefined,
+        expect.any(HTMLVideoElement),
+        expect.any(Function),
+      );
+    });
   });
 
-  it("reports one barcode, stops the camera and closes the modal", async () => {
+  it("returns only the first detected barcode and closes the scanner", async () => {
     const onDetected = vi.fn();
     const onClose = vi.fn();
-    render(
-      <BarcodeScannerModal
-        open
-        onDetected={onDetected}
-        onClose={onClose}
-      />,
-    );
-    await waitFor(() => expect(scanCallback).not.toBeNull());
+    renderScanner({ onDetected, onClose });
+
+    await waitFor(() => expect(scannerMocks.callback).not.toBeNull());
 
     act(() => {
-      scanCallback?.(
-        { getText: () => "746000000001" },
-        undefined,
+      scannerMocks.callback?.(
+        { getText: () => " 746000000001 " },
+        null,
         { stop: scannerMocks.stop },
       );
-      scanCallback?.(
+      scannerMocks.callback?.(
         { getText: () => "746000000001" },
-        undefined,
+        null,
         { stop: scannerMocks.stop },
       );
     });
 
     expect(onDetected).toHaveBeenCalledOnce();
     expect(onDetected).toHaveBeenCalledWith("746000000001");
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(scannerMocks.stop).toHaveBeenCalledOnce();
+  });
+
+  it("stops the camera when the employee closes the scanner", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderScanner({ onClose });
+
+    await waitFor(() => {
+      expect(scannerMocks.decodeFromVideoDevice).toHaveBeenCalledOnce();
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Cerrar cámara",
+      }),
+    );
+
     expect(scannerMocks.stop).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("stops the active camera when the employee closes it manually", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    render(
-      <BarcodeScannerModal
-        open
-        onDetected={vi.fn()}
-        onClose={onClose}
-      />,
-    );
-    await waitFor(() =>
-      expect(scannerMocks.decodeFromVideoDevice).toHaveBeenCalledOnce(),
-    );
-    await waitFor(() =>
-      expect(screen.queryByText("Abriendo cámara...")).not.toBeInTheDocument(),
-    );
+  it("keeps a camera permission error visible inside the modal", async () => {
+    scannerMocks.shouldReject = true;
+    scannerMocks.rejection = Object.assign(new Error("Permission denied"), {
+      name: "NotAllowedError",
+    });
 
-    await user.click(screen.getByRole("button", { name: "Cerrar cámara" }));
+    renderScanner();
 
-    expect(scannerMocks.stop).toHaveBeenCalledOnce();
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "El permiso de la cámara está bloqueado",
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("offers manual entry when camera permission fails", async () => {
+  it("lets the employee return to manual barcode entry after an error", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    scannerMocks.decodeFromVideoDevice.mockRejectedValue(
-      new Error("Permission denied"),
-    );
-    render(
-      <BarcodeScannerModal
-        open
-        onDetected={vi.fn()}
-        onClose={onClose}
-      />,
+    scannerMocks.shouldReject = true;
+    scannerMocks.rejection = Object.assign(new Error("Camera busy"), {
+      name: "NotReadableError",
+    });
+
+    renderScanner({ onClose });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Otra aplicación está usando la cámara",
     );
 
-    expect(
-      await screen.findByText("No hay acceso a la cámara"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Revisa el permiso o escribe el código manualmente/i),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Escribir código" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Escribir código",
+      }),
+    );
 
     expect(onClose).toHaveBeenCalledOnce();
   });
