@@ -1,7 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   createColmadoCheckout,
+  getColmadoCheckoutStatus,
   getColmadoPlans,
 } from "./colmadoSignupClient";
 
@@ -10,6 +17,7 @@ const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
 }));
+
 
 vi.mock("../../../api/axios", () => ({
   default: apiMocks,
@@ -20,6 +28,7 @@ describe("colmadoSignupClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
 
   it("requests only the approved colmado plan", async () => {
     apiMocks.get.mockResolvedValueOnce({
@@ -60,6 +69,7 @@ describe("colmadoSignupClient", () => {
     );
   });
 
+
   it("still excludes inactive plans returned by the server", async () => {
     apiMocks.get.mockResolvedValueOnce({
       data: [
@@ -95,6 +105,7 @@ describe("colmadoSignupClient", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0].slug).toBe("colmado-completo");
   });
+
 
   it("creates a checkout with the owner and first store", async () => {
     apiMocks.post.mockResolvedValueOnce({
@@ -134,6 +145,7 @@ describe("colmadoSignupClient", () => {
     expect(result.organisation_slug).toBe("colmado-la-esquina");
   });
 
+
   it("forces the application and business type to colmado", async () => {
     apiMocks.post.mockResolvedValueOnce({
       data: {
@@ -165,6 +177,7 @@ describe("colmadoSignupClient", () => {
     );
   });
 
+
   it("returns the checkout information from the server", async () => {
     const responseData = {
       checkout_url: "https://checkout.stripe.test/session-3",
@@ -181,6 +194,31 @@ describe("colmadoSignupClient", () => {
       plan: "colmado-completo",
     });
 
+    expect(result).toEqual(responseData);
+  });
+
+
+  it("checks a completed Stripe checkout session", async () => {
+    const responseData = {
+      payment_status: "paid",
+      organisation_name: "Colmado La Esquina",
+      organisation_slug: "colmado-la-esquina",
+      app_slug: "colmado",
+      login_url: "/colmado/colmado-la-esquina/login",
+      is_active: true,
+    };
+    apiMocks.get.mockResolvedValueOnce({ data: responseData });
+
+    const result = await getColmadoCheckoutStatus("cs_test_123");
+
+    expect(apiMocks.get).toHaveBeenCalledWith(
+      "/subscriptions/checkout-session-status/",
+      {
+        params: {
+          session_id: "cs_test_123",
+        },
+      },
+    );
     expect(result).toEqual(responseData);
   });
 });

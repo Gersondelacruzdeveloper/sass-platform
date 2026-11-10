@@ -14,6 +14,7 @@ export interface ColmadoSubscriptionPlan {
   is_active: boolean;
 }
 
+
 export interface CreateColmadoCheckoutPayload {
   company_name: string;
   owner_name: string;
@@ -25,11 +26,23 @@ export interface CreateColmadoCheckoutPayload {
   store_phone?: string;
 }
 
+
 export interface CreateColmadoCheckoutResponse {
   checkout_url: string;
   organisation_slug: string;
   login_url: string;
 }
+
+
+export interface ColmadoCheckoutStatus {
+  payment_status: string;
+  organisation_name: string;
+  organisation_slug: string;
+  app_slug: string;
+  login_url: string;
+  is_active: boolean;
+}
+
 
 export async function getColmadoPlans(): Promise<
   ColmadoSubscriptionPlan[]
@@ -46,6 +59,7 @@ export async function getColmadoPlans(): Promise<
   return response.data.filter((plan) => plan.is_active);
 }
 
+
 export async function createColmadoCheckout(
   payload: CreateColmadoCheckoutPayload,
 ): Promise<CreateColmadoCheckoutResponse> {
@@ -55,6 +69,22 @@ export async function createColmadoCheckout(
       ...payload,
       app: "colmado",
       business_type: "colmado",
+    },
+  );
+
+  return response.data;
+}
+
+
+export async function getColmadoCheckoutStatus(
+  sessionId: string,
+): Promise<ColmadoCheckoutStatus> {
+  const response = await api.get<ColmadoCheckoutStatus>(
+    "/subscriptions/checkout-session-status/",
+    {
+      params: {
+        session_id: sessionId,
+      },
     },
   );
 
